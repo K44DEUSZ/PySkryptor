@@ -70,6 +70,9 @@ class MainWindow(QWidget):
 
         self._toggle_mode()
 
+        self.file_list.files_changed.connect(self._update_start_button_state)
+        self._update_start_button_state()
+
     def _toggle_mode(self):
         url_mode = self.radio_url.isChecked()
         self.url_input.setVisible(url_mode)
@@ -83,6 +86,8 @@ class MainWindow(QWidget):
             path = Path(f)
             if path.suffix.lower() in Config.AUDIO_EXT + Config.VIDEO_EXT:
                 self.file_list.add_file(str(path))
+
+        self._update_start_button_state()
 
     def _start_transcription(self):
         self.output.clear()
@@ -121,3 +126,8 @@ class MainWindow(QWidget):
         self.output.append("✅ Transkrypcja zakończona.")
         self.btn_start.setEnabled(True)
         self.btn_cancel.setEnabled(False)
+
+    def _update_start_button_state(self):
+        if self.radio_file.isChecked():
+            has_files = len(self.file_list.get_file_paths()) > 0
+            self.btn_start.setEnabled(has_files)

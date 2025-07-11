@@ -20,6 +20,8 @@ class FileManager:
         temp_name = src.stem + ".wav"
         dst = Config.INPUT_DIR / temp_name
 
+        Config.INPUT_DIR.mkdir(parents=True, exist_ok=True)
+
         if src.suffix.lower() in Config.VIDEO_EXT:
             AudioExtractor.extract_audio(src, dst, log=log)
         elif src.suffix.lower() in Config.AUDIO_EXT:
