@@ -1,15 +1,30 @@
 # gui/file_drop_list.py
-# Stabilny widżet listy plików z obsługą drag&drop i podstawowymi operacjami.
+# Jedna lista dla plików lokalnych i URL-i. Wspiera drag&drop plików, folderów (rekurencyjnie) oraz drop tekstu/URL.
+# API:
+#  - add_entry(str_path_or_url) -> (bool, message)
+#  - add_files(iterable[Path | str])  # może zawierać pliki i foldery
+#  - remove_selected(), clear()
+#  - get_entries() -> list[{'type':'file'|'url', 'value': str}]
+#  - files_changed (signal)
+
+from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Tuple, List
 
 from PyQt5.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt5.QtWidgets import QListWidget, QListWidgetItem
 
-# Jeśli chcesz korzystać z Config do rozszerzeń, możesz to rozszerzyć w przyszłości.
-# Na razie utrzymujemy prostą listę obsługiwanych rozszerzeń:
 SUPPORTED_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".mp4", ".mkv", ".mov", ".webm", ".aac", ".ogg"}
+
+
+def _is_url(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return t.startswith("http://") or t.startswith("https://")
+
+
+def _is_supported_file(p: Path) -> bool:
+    return p.is_file() and p.suffix.lower() in SUPPORTED_EXTS
 
 
 class FileDropList(QListWidget):
@@ -24,80 +39,156 @@ class FileDropList(QListWidget):
 
     # ---- Public API ----
 
-    def add_files(self, files: Iterable[Path]) -> None:
-        added = False
-        for p in files:
-            try:
-                path = Path(p)
-                if not path.exists() or not path.is_file():
-                    continue
-                if path.suffix.lower() not in SUPPORTED_EXTS:
-                    continue
-                key = str(path.resolve())
-                if key in self._items:
-                    continue
-                item = QListWidgetItem(key)
-                item.setData(Qt.UserRole, key)
-                self._items[key] = item
-                self.addItem(item)
-                added = True
-            except Exception:
-                # cichutko pomijamy pojedyncze błędne wpisy
-                continue
-        if added:
+    def add_entry(self, text: str) -> Tuple[bool, str]:
+        """
+        Dodaje pojedynczy wpis:
+        - URL -> element [URL] ...
+        - plik -> element [LOCAL] ...
+        - folder -> rekurencyjnie dodaje wspierane pliki z folderu (z informacją zwrotną)
+        """
+        text = (text or "").strip()
+        if not text:
+            return False, "Pusty wpis."
+
+        if _is_url(text):
+            key = f"url::{text}"
+            if key in self._items:
+                return False, "URL już na liście."
+            item = QListWidgetItem(f"[URL] {text}")
+            item.setData(Qt.UserRole, {"type": "url", "value": text})
+            self._items[key] = item
+            self.addItem(item)
+            self.files_changed.emit()
+            return True, text
+
+        # Lokalna ścieżka
+        p = Path(text)
+        if p.is_dir():
+            added = self._add_dir_recursive(p)
+            if added > 0:
+                self.files_changed.emit()
+                return True, f"Dodano {added} plików z folderu."
+            else:
+                return False, "Brak wspieranych plików w folderze."
+        elif p.is_file():
+            if not _is_supported_file(p):
+                return False, f"Nieobsługiwane rozszerzenie: {p.suffix}"
+            key = f"file::{str(p.resolve())}"
+            if key in self._items:
+                return False, "Plik już na liście."
+            item = QListWidgetItem(f"[LOCAL] {p}")
+            item.setData(Qt.UserRole, {"type": "file", "value": str(p)})
+            self._items[key] = item
+            self.addItem(item)
+            self.files_changed.emit()
+            return True, str(p)
+        else:
+            return False, "Plik/folder nie istnieje."
+
+    def add_files(self, files: Iterable[Path | str]) -> None:
+        """
+        Przyjmuje listę plików i/lub folderów (Path lub str).
+        """
+        changed = False
+        for f in files:
+            ok, _ = self.add_entry(str(f))
+            changed = changed or ok
+        if changed:
             self.files_changed.emit()
 
     def remove_selected(self) -> None:
-        removed = False
+        changed = False
         for item in self.selectedItems():
-            key = item.data(Qt.UserRole) or item.text().strip()
-            self._items.pop(str(key), None)
+            data = item.data(Qt.UserRole) or {}
+            typ = data.get("type")
+            val = data.get("value")
+            if typ and val:
+                key = f"{typ}::{val}"
+                self._items.pop(key, None)
             self.takeItem(self.row(item))
-            removed = True
-        if removed:
+            changed = True
+        if changed:
             self.files_changed.emit()
 
-    def clear(self) -> None:  # noqa: A003 — zgodnie z API Qt
+    def clear(self) -> None:  # noqa: A003
         super().clear()
         self._items.clear()
         self.files_changed.emit()
 
-    def get_file_paths(self) -> list[str]:
-        return list(self._items.keys())
+    def get_entries(self) -> list:
+        out = []
+        for _, item in self._items.items():
+            data = item.data(Qt.UserRole) or {}
+            typ = data.get("type")
+            val = data.get("value")
+            if typ and val:
+                out.append({"type": typ, "value": val})
+        return out
 
     # ---- Drag & Drop ----
 
     def dragEnterEvent(self, event) -> None:
-        if self._has_urls(event.mimeData()):
+        if self._has_payload(event.mimeData()):
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dragMoveEvent(self, event) -> None:
-        if self._has_urls(event.mimeData()):
+        if self._has_payload(event.mimeData()):
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dropEvent(self, event) -> None:
-        urls = []
-        if self._has_urls(event.mimeData()):
-            for url in event.mimeData().urls():
-                try:
-                    p = Path(url.toLocalFile())
-                    urls.append(p)
-                except Exception:
-                    continue
-        if urls:
-            self.add_files(urls)
+        mime = event.mimeData()
+        changed = False
+
+        # Pliki/foldery
+        if mime.hasUrls():
+            for url in mime.urls():
+                local = url.toLocalFile()
+                if local:
+                    ok, _ = self.add_entry(local)
+                    changed = changed or ok
+
+        # Tekst/URL (wielolinijkowy)
+        if mime.hasText():
+            text = (mime.text() or "").strip()
+            if text:
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    ok, _ = self.add_entry(line)
+                    changed = changed or ok
+
+        if changed:
+            self.files_changed.emit()
+
         event.acceptProposedAction()
 
     @staticmethod
-    def _has_urls(mime: QMimeData) -> bool:
+    def _has_payload(mime: QMimeData) -> bool:
         try:
-            return mime.hasUrls()
+            return mime.hasUrls() or (mime.hasText() and bool((mime.text() or "").strip()))
         except Exception:
             return False
+
+    # ---- Helpers ----
+
+    def _add_dir_recursive(self, folder: Path) -> int:
+        count = 0
+        for f in folder.rglob("*"):
+            if _is_supported_file(f):
+                key = f"file::{str(f.resolve())}"
+                if key in self._items:
+                    continue
+                item = QListWidgetItem(f"[LOCAL] {f}")
+                item.setData(Qt.UserRole, {"type": "file", "value": str(f)})
+                self._items[key] = item
+                self.addItem(item)
+                count += 1
+        return count
 
     # ---- Klawiatura ----
 

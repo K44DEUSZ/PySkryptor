@@ -1,7 +1,5 @@
 # core/downloader.py
-# Stabilny interfejs pobierania przez yt_dlp.
-# API:
-#   Downloader.download(urls=[...], on_file_ready: Optional[Callable[[Path], None]] = None, log=print) -> list[Path]
+# Stabilny interfejs pobierania przez yt_dlp + podgląd tytułu (bez pobierania), aby oszczędzić łącze.
 
 from __future__ import annotations
 
@@ -24,6 +22,18 @@ def _slugify(value: str) -> str:
 
 
 class Downloader:
+    @staticmethod
+    def peek_output_stem(url: str, log: Callable[[str], None] = print) -> Optional[str]:
+        """
+        Zwraca przewidywany 'stem' (slug z tytułu) bez pobierania.
+        Użyte do pre-checku kolizji wyników.
+        """
+        info = Downloader._get_info(url, log)
+        if not info:
+            return None
+        title = info.get("title") or "plik"
+        return _slugify(title) or "plik"
+
     @staticmethod
     def download(
         urls: List[str],
@@ -82,7 +92,6 @@ class Downloader:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_tmpl = str(out_dir / f"{out_base}.%(ext)s")
 
-        # Minimalny i stabilny zestaw postprocessorów:
         postprocessors = [
             {
                 "key": "FFmpegExtractAudio",
@@ -98,7 +107,6 @@ class Downloader:
             "noplaylist": True,
             "postprocessors": postprocessors,
             "format": "bestaudio/best",
-            # Dodatkowe argumenty do konwersji: 16 kHz / mono
             "postprocessor_args": [
                 "-ar", "16000",
                 "-ac", "1",
@@ -109,7 +117,6 @@ class Downloader:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 log("⬇️ Pobieranie i konwersja…")
                 ydl.download([info.get("webpage_url") or info.get("url")])
-                # yt_dlp nie zwraca ścieżki; wyszukujemy powstały plik
                 produced = sorted(out_dir.glob(f"{out_base}.*"))
                 for p in produced:
                     if p.suffix.lower() == f".{ext}":
