@@ -1,0 +1,9 @@
+# pyskryptor/core/contracts/streamer.py
+from __future__ import annotations
+from typing import Protocol
+
+
+class StreamingController(Protocol):
+    def push(self, frame: bytes) -> None: ...
+    def partial_text(self) -> str: ...
+    def finalize(self) -> str: ...

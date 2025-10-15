@@ -1,0 +1,9 @@
+# pyskryptor/core/contracts/audio_source.py
+from __future__ import annotations
+from typing import Iterable, Protocol
+
+
+class AudioSource(Protocol):
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def frames(self) -> Iterable[bytes]: ...

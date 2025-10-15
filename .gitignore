@@ -2,9 +2,9 @@
 venv/
 env/
 .idea/
-.models/
-.ffmpeg/
-files/
+resources/models/
+resources/ffmpeg/
+data/
 __pycache__/
 *.py[cod]
 *.pyo
