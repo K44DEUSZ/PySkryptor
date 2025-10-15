@@ -1,17 +1,36 @@
+# core/downloader.py
+# Stabilny interfejs pobierania przez yt_dlp.
+# API:
+#   Downloader.download(urls=[...], on_file_ready: Optional[Callable[[Path], None]] = None, log=print) -> list[Path]
+
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional, List, Dict, Any
 import unicodedata
 import uuid
-import yt_dlp
 import re
+
+import yt_dlp
 
 from core.config import Config
 from core.ytdlp_logger import YtdlpLogger
 
+
+def _slugify(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^\w\s-]", "", value).strip().lower()
+    return re.sub(r"[-\s]+", "-", value)
+
+
 class Downloader:
     @staticmethod
-    def download(urls: list[str], on_file_ready: Callable[[Path], None] = None, log: Callable[[str], None] = print) -> list[Path]:
-        results = []
+    def download(
+        urls: List[str],
+        on_file_ready: Optional[Callable[[Path], None]] = None,
+        log: Callable[[str], None] = print,
+    ) -> List[Path]:
+        results: List[Path] = []
         for url in urls:
             info = Downloader._get_info(url, log)
             if not info:
@@ -22,66 +41,85 @@ class Downloader:
             file = Downloader._download(info, log)
             if file:
                 if on_file_ready:
-                    on_file_ready(file)
+                    try:
+                        on_file_ready(file)
+                    except Exception:
+                        pass
                 results.append(file)
         return results
 
+    # ---- prywatne ----
+
     @staticmethod
-    def _get_info(url: str, log: Callable[[str], None]) -> dict | None:
+    def _get_info(url: str, log: Callable[[str], None]) -> Optional[Dict[str, Any]]:
+        ydl_opts = {
+            "logger": YtdlpLogger(log),
+            "quiet": True,
+            "skip_download": True,
+            "noplaylist": True,
+        }
         try:
-            with yt_dlp.YoutubeDL({
-                'quiet': True,
-                'logger': YtdlpLogger(log),
-                'allow_generic_extractor': False
-            }) as ydl:
-                return ydl.extract_info(url, download=False)
-        except Exception:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                return info
+        except Exception as e:
+            log(f"❌ Nie udało się pobrać metadanych: {e}")
             return None
 
     @staticmethod
-    def _sanitize_filename(name: str) -> str:
-        name = unicodedata.normalize("NFKD", name)
-        cleaned = "".join(c for c in name if c.isalnum() or c in " -_")
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        return cleaned[:80] or f"file_{uuid.uuid4().hex[:8]}"
-
-    @staticmethod
-    def _should_skip_url(info: dict, log=print) -> bool:
-        title = info.get("title", "")
-        safe_title = Downloader._sanitize_filename(title)
-        output_dir = Config.OUTPUT_DIR / safe_title
-        if output_dir.exists():
-            log(f"⏭️ Transkrypcja dla '{title}' już istnieje — pomijam.")
-            return True
+    def _should_skip_url(info: Dict[str, Any], log: Callable[[str], None]) -> bool:
         return False
 
     @staticmethod
-    def _download(info: dict, log: Callable[[str], None]) -> Path | None:
-        title = info.get("title", f"yt_{uuid.uuid4().hex[:8]}")
-        safe_title = Downloader._sanitize_filename(title)
-        output_path = Config.INPUT_DIR / f"{safe_title}.mp3"
-        options = {
-            "format": "bestaudio/best",
-            "outtmpl": str(Config.INPUT_DIR / f"{safe_title}.%(ext)s"),
-            "quiet": True,
+    def _download(info: Dict[str, Any], log: Callable[[str], None]) -> Optional[Path]:
+        title = info.get("title") or "plik"
+        ext = "mp3"
+        guid = uuid.uuid4().hex[:8]
+        slug = _slugify(title) or "plik"
+        out_base = f"{slug}-{guid}"
+
+        out_dir = (Config.INPUT_DIR if hasattr(Config, "INPUT_DIR") else Path.cwd())
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_tmpl = str(out_dir / f"{out_base}.%(ext)s")
+
+        # Minimalny i stabilny zestaw postprocessorów:
+        postprocessors = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": ext,
+                "preferredquality": "0",
+            }
+        ]
+
+        ydl_opts = {
             "logger": YtdlpLogger(log),
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192"
-                }
+            "quiet": True,
+            "outtmpl": out_tmpl,
+            "noplaylist": True,
+            "postprocessors": postprocessors,
+            "format": "bestaudio/best",
+            # Dodatkowe argumenty do konwersji: 16 kHz / mono
+            "postprocessor_args": [
+                "-ar", "16000",
+                "-ac", "1",
             ],
-            "postprocessor_args": ["-ar", "16000", "-ac", "1"]
         }
 
         try:
-            with yt_dlp.YoutubeDL(options) as ydl:
-                ydl.download([info["webpage_url"]])
-            if not output_path.exists():
-                log(f"❌ Nie udało się utworzyć pliku MP3 dla: {info.get('webpage_url')}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                log("⬇️ Pobieranie i konwersja…")
+                ydl.download([info.get("webpage_url") or info.get("url")])
+                # yt_dlp nie zwraca ścieżki; wyszukujemy powstały plik
+                produced = sorted(out_dir.glob(f"{out_base}.*"))
+                for p in produced:
+                    if p.suffix.lower() == f".{ext}":
+                        log(f"✅ Zapisano: {p}")
+                        return p
+                if produced:
+                    log(f"✅ Zapisano: {produced[0]}")
+                    return produced[0]
+                log("⚠️ Nie odnaleziono wyjściowego pliku.")
                 return None
-            return output_path
         except Exception as e:
-            log(f"❌ Błąd podczas pobierania: {e}")
+            log(f"❌ Błąd pobierania: {e}")
             return None

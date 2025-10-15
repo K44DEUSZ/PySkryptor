@@ -1,104 +1,108 @@
-from PyQt5.QtCore import QObject, pyqtSignal
+# gui/worker.py
+# Worker do wykonywania transkrypcji w wątku roboczym.
+# Dostosowany do pełnej transkrypcji z Whisper: bez ręcznego chunkowania;
+# długie nagrania wymagają return_timestamps=True (long-form generation).
+
 from pathlib import Path
-from shutil import copy2
+from typing import Optional, Iterable
+
+from PyQt5 import QtCore
 
 from core.config import Config
-from core.downloader import Downloader
-from core.transcription_processor import TranscriptionProcessor
-from core.file_manager import FileManager
 
-class Worker(QObject):
-    log = pyqtSignal(str)
-    progress = pyqtSignal(int)
-    finished = pyqtSignal()
 
-    def __init__(self, pipe, mode: str, urls=None, files=None):
-        super().__init__()
+class Worker(QtCore.QObject):
+    log = QtCore.pyqtSignal(str)
+    progress = QtCore.pyqtSignal(int)
+    finished = QtCore.pyqtSignal()
+
+    def __init__(
+        self,
+        model_manager=None,
+        files: Optional[Iterable[Path]] = None,
+        pipe=None,
+        parent: Optional[QtCore.QObject] = None,
+    ):
+        super().__init__(parent)
+        self.model_manager = model_manager
+        self.files = list(files or [])
+        self._cancelled = False
+
+        # Pipeline może być wstrzyknięty bezpośrednio (rekomendowane po model_ready)
         self.pipe = pipe
-        self.mode = mode
-        self.urls = urls or []
-        self.files = files or []
-        self.cancelled = False
 
-    def cancel(self):
-        self.cancelled = True
+    def cancel(self) -> None:
+        self._cancelled = True
+        self.log.emit("⏹️ Przerwano na żądanie.")
 
-    def run(self):
-        self._log = self.log.emit
+    def _log_runtime_mode(self) -> None:
+        mode = "GPU" if Config.DEVICE.type == "cuda" else "CPU"
+        dtype_name = str(Config.DTYPE).split(".")[-1]
+        tf32 = "ON" if Config.TF32_ENABLED else "OFF"
+        dev_name = Config.DEVICE_FRIENDLY_NAME
+        msg = (
+            f"🧠 Tryb: {mode}{f' ({dev_name})' if mode == 'GPU' else ''}, "
+            f"dtype={dtype_name}, TF32={tf32}, chunking=auto (Whisper)"
+        )
+        self.log.emit(msg)
 
-        def process_file(file_path: Path):
-            if self.cancelled:
+    @QtCore.pyqtSlot()
+    def run(self) -> None:
+        try:
+            self._log_runtime_mode()
+
+            # Preferuj self.pipe (po asynchronicznym ładowaniu); fallback do model_manager.pipe
+            asr_pipe = self.pipe
+            if asr_pipe is None and self.model_manager is not None:
+                asr_pipe = getattr(self.model_manager, "pipe", None)
+
+            if asr_pipe is None:
+                self.log.emit("⚠️ Brak gotowego pipeline — przerwanie zadania.")
+                self.finished.emit()
                 return
 
-            output_dir = Config.OUTPUT_DIR / file_path.stem
-            if output_dir.exists():
-                self._log(f"⏭️ Transkrypcja dla pliku '{file_path.name}' już istnieje — pomijam.")
-                return
-
-            try:
-                self._log(f"🔍 Przetwarzanie pliku: {file_path}")
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                source = file_path
-                if not source.exists():
-                    self._log(f"❌ Źródłowy plik nie istnieje: {source}")
-                    return
-
-                self._log(f"🧠 Rozpoczynam transkrypcję: {source}")
-                result = self.pipe(
-                    str(source),
-                    chunk_length_s=30,
-                    stride_length_s=5,
-                    generate_kwargs={"language": Config.LANGUAGE}
-                )
-
-                text = TranscriptionProcessor.clean(result["text"].strip())
-                (output_dir / f"{file_path.stem}.txt").write_text(text, encoding="utf-8")
-
-                copy2(source, output_dir / source.name)
-                self._log(f"✅ Zakończono transkrypcję pliku: {file_path.name}")
-
-            except Exception as e:
-                self._log(f"❌ Błąd podczas przetwarzania pliku {file_path.name}: {e}")
-
-            try:
-                if source.exists():
-                    source.unlink()
-                    self._log(f"🗑️ Usunięto plik tymczasowy: {source.name}")
-            except Exception as e:
-                self._log(f"⚠️ Nie udało się usunąć pliku tymczasowego {source.name}: {e}")
-
-        if self.mode == "url":
-            def on_file_ready(path: Path):
-                process_file(path)
-
-            Downloader.download(self.urls, on_file_ready=on_file_ready, log=self._log)
-
-        else:
-            copied_files = []
-            for f in self.files:
-                path = Path(f)
-                if FileManager.should_skip_local(path, log=self._log):
-                    continue
-                if not path.exists():
-                    self._log(f"❌ Plik nie istnieje: {path}")
-                    continue
-                if path.suffix.lower() not in Config.AUDIO_EXT + Config.VIDEO_EXT:
-                    self._log(f"❌ Nieobsługiwane rozszerzenie pliku: {path.name}")
-                    continue
-                try:
-                    copied = FileManager.copy_audio_only(f, log=self._log)
-                    copied_files.append(copied)
-                    self._log(f"📥 Skopiowano: {copied.name}")
-                except Exception as e:
-                    self._log(f"❌ Błąd kopiowania pliku {path.name}: {e}")
-
-            tasks = FileManager.filter_media(copied_files)
-            total = len(tasks)
-            for index, file_path in enumerate(tasks, start=1):
-                if self.cancelled:
+            total = len(self.files)
+            for idx, path in enumerate(self.files, start=1):
+                if self._cancelled:
                     break
-                process_file(file_path)
-                self.progress.emit(int(index / total * 100))
 
-        self.finished.emit()
+                p = Path(path)
+                if not p.exists():
+                    self.log.emit(f"⚠️ Pomijam: nie znaleziono pliku: {p}")
+                    continue
+
+                self.log.emit(f"🎧 Transkrypcja: {p.name}")
+
+                try:
+                    # Długie pliki: wymagany return_timestamps=True (long-form)
+                    result = asr_pipe(
+                        str(p),
+                        return_timestamps=True,
+                    )
+                except Exception as e:
+                    self.log.emit(f"❗ Błąd transkrypcji {p.name}: {e}")
+                    continue
+
+                text = ""
+                if isinstance(result, dict) and "text" in result:
+                    text = result["text"]
+                else:
+                    text = str(result)
+
+                try:
+                    from core.config import Config as _C
+                    out_dir = (_C.OUTPUT_DIR / p.stem)
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = out_dir / "transcript.txt"
+                    with out_path.open("w", encoding="utf-8") as f:
+                        f.write(text)
+                    self.log.emit(f"✅ Zapisano: {out_path}")
+                except Exception as e:
+                    self.log.emit(f"❗ Błąd zapisu transkryptu dla {p.name}: {e}")
+
+                self.progress.emit(int(idx * 100 / max(1, total)))
+
+        finally:
+            if self._cancelled:
+                self.log.emit("🛑 Praca przerwana.")
+            self.finished.emit()
