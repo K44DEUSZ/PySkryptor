@@ -2,6 +2,7 @@
 # Worker transkrypcji obsługujący w JEDNEJ liście zarówno pliki lokalne, jak i URL-e.
 # Obsługa kolizji wyników: Skip / Nowa wersja / Nadpisz (synchronizacja z GUI).
 # Pre-check dla URL-i (bez pobierania) – oszczędza łącze.
+# Natychmiastowe przerwanie: cancel() + możliwość twardego zakończenia przez terminate() po stronie MainWindow.
 
 from __future__ import annotations
 
@@ -51,8 +52,12 @@ class Worker(QtCore.QObject):
     # ------------- API sterujące -------------
 
     def cancel(self) -> None:
+        """
+        Łagodne anulowanie — pętla główna sprawdza ten znacznik.
+        MainWindow w razie potrzeby wykona terminate() na wątku dla natychmiastowego zabicia.
+        """
         self._cancelled = True
-        self.log.emit("⏹️ Przerwano na żądanie.")
+        self.log.emit("⏹️ Żądanie anulowania – zatrzymywanie…")
 
     # Slot wywoływany z GUI po pokazaniu dialogu
     @QtCore.pyqtSlot(str, str)
@@ -74,6 +79,9 @@ class Worker(QtCore.QObject):
             f"dtype={dtype_name}, TF32={tf32}, źródła={len(self.entries)}"
         )
         self.log.emit(msg)
+
+    def _should_abort(self) -> bool:
+        return self._cancelled or (QtCore.QThread.currentThread().isInterruptionRequested())
 
     def _ask_conflict_resolution(self, stem: str) -> Tuple[str, str]:
         """
@@ -120,7 +128,7 @@ class Worker(QtCore.QObject):
 
             total = len(self.entries)
             for idx, entry in enumerate(self.entries, start=1):
-                if self._cancelled:
+                if self._should_abort():
                     break
 
                 etype = (entry.get("type") or "").lower()
@@ -143,6 +151,9 @@ class Worker(QtCore.QObject):
                     self.log.emit(f"⚠️ Nieznany typ wpisu: {etype}")
                     continue
 
+                if self._should_abort():
+                    break
+
                 # 2) Sprawdź kolizję w OUTPUT_DIR
                 chosen_stem = base_stem
                 out_dir = Config.OUTPUT_DIR / chosen_stem
@@ -163,6 +174,9 @@ class Worker(QtCore.QObject):
                     elif action == "new":
                         chosen_stem = new_stem or self._next_free_stem(base_stem)
                         self.log.emit(f"🆕 Tworzenie nowej wersji: {chosen_stem}")
+
+                if self._should_abort():
+                    break
 
                 # 3) Pozyskaj lokalne ścieżki do transkrypcji
                 local_paths: List[Path] = []
@@ -186,7 +200,7 @@ class Worker(QtCore.QObject):
 
                 # 4) Transkrypcja i zapis
                 for p in local_paths:
-                    if self._cancelled:
+                    if self._should_abort():
                         break
                     self.log.emit(f"🎧 Transkrypcja: {p.name}")
                     try:
@@ -195,6 +209,9 @@ class Worker(QtCore.QObject):
                     except Exception as e:
                         self.log.emit(f"❗ Błąd transkrypcji {p.name}: {e}")
                         continue
+
+                    if self._should_abort():
+                        break
 
                     text = ""
                     if isinstance(result, dict) and "text" in result:
@@ -215,6 +232,4 @@ class Worker(QtCore.QObject):
                 self.progress.emit(int(idx * 100 / max(1, total)))
 
         finally:
-            if self._cancelled:
-                self.log.emit("🛑 Praca przerwana.")
             self.finished.emit()
