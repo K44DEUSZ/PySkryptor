@@ -1,4 +1,4 @@
-# pyskryptor/core/config/app_config.py
+# core/config/app_config.py
 from __future__ import annotations
 
 import os
@@ -7,19 +7,22 @@ import torch
 
 
 class AppConfig:
-    """Global runtime config: device, dtype, TF32, paths."""
+    """Global runtime config: device, dtype, TF32 + all project paths."""
 
     # Roots
     ROOT_DIR = Path.cwd()
 
+    # resources/ (binaries + models)
     RESOURCES_DIR = ROOT_DIR / "resources"
     FFMPEG_DIR = RESOURCES_DIR / "ffmpeg"
     MODELS_DIR = RESOURCES_DIR / "models"
-    AI_ENGINE_DIR = MODELS_DIR / "whisper-turbo"
+    AI_ENGINE_DIR = MODELS_DIR / "whisper-turbo"  # <- zgodnie z wytycznymi
 
+    # data/ (user I/O only)
     DATA_DIR = ROOT_DIR / "data"
-    INPUT_DIR = DATA_DIR / "input"
-    OUTPUT_DIR = DATA_DIR / "output"
+    DOWNLOADS_DIR = DATA_DIR / "downloads"
+    INPUT_TMP_DIR = DATA_DIR / ".input_tmp"           # ukryty bufor plików
+    TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"  # docelowe wyniki
 
     # Resolved at runtime
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
@@ -27,6 +30,10 @@ class AppConfig:
     DTYPE = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
     TF32_ENABLED: bool = False
+
+    # Media extensions (wspólne miejsce)
+    AUDIO_EXT = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".alac", ".aiff", ".opus", ".amr", ".mp2"}
+    VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".wmv", ".mpeg", ".mpg", ".m4v", ".3gp"}
 
     @classmethod
     def _ensure_paths(cls) -> None:
@@ -36,32 +43,27 @@ class AppConfig:
         cls.AI_ENGINE_DIR.mkdir(parents=True, exist_ok=True)
 
         cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        cls.INPUT_DIR.mkdir(parents=True, exist_ok=True)
-        cls.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        cls.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        cls.INPUT_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        cls.TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def _setup_ffmpeg_on_path(cls) -> None:
-        """
-        Expose bundled ffmpeg to yt_dlp/ffmpeg users.
-        Supports both layouts:
-        - resources/ffmpeg/{ffmpeg,ffprobe}
-        - resources/ffmpeg/bin/{ffmpeg,ffprobe}
-        """
+        """Expose bundled ffmpeg/ffprobe to yt_dlp and subprocesses."""
         bin_dir = cls.FFMPEG_DIR / "bin"
         cls.FFMPEG_BIN_DIR = bin_dir if bin_dir.exists() else cls.FFMPEG_DIR
 
         bin_dir_str = str(cls.FFMPEG_BIN_DIR)
-        path = os.environ.get("PATH", "")
-        if bin_dir_str not in path.split(os.pathsep):
-            os.environ["PATH"] = bin_dir_str + os.pathsep + path
+        env_path = os.environ.get("PATH", "")
+        if bin_dir_str not in env_path.split(os.pathsep):
+            os.environ["PATH"] = bin_dir_str + os.pathsep + env_path
 
         os.environ.setdefault("FFMPEG_LOCATION", bin_dir_str)
 
-        exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-        probe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
-        ffmpeg_exe = cls.FFMPEG_BIN_DIR / exe_name
-        ffprobe_exe = cls.FFMPEG_BIN_DIR / probe_name
-
+        exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        probe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+        ffmpeg_exe = cls.FFMPEG_BIN_DIR / exe
+        ffprobe_exe = cls.FFMPEG_BIN_DIR / probe
         if ffmpeg_exe.exists():
             os.environ.setdefault("FFMPEG_BINARY", str(ffmpeg_exe))
             os.environ.setdefault("IMAGEIO_FFMPEG_EXE", str(ffmpeg_exe))

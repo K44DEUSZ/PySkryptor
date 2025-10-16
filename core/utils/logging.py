@@ -1,26 +1,42 @@
-# pyskryptor/core/utils/logging.py
+# core/utils/logging.py
 from __future__ import annotations
 
 from typing import Callable
 
 
-def gui_logger(append_fn: Callable[[str], None]) -> Callable[[str], None]:
+_NOISE = (
+    "UNPLAYABLE formats",
+    "developer option intended for debugging",
+    "impersonation",
+    "SABR streaming",
+    "SABR-only",
+)
+
+
+def _noisy(msg: str) -> bool:
+    m = str(msg)
+    return any(k in m for k in _NOISE)
+
+
+def gui_logger(append: Callable[[str], None]) -> Callable[[str], None]:
     def _log(msg: str) -> None:
-        append_fn(msg)
+        append(str(msg))
     return _log
 
 
 class YtdlpProxyLogger:
-    """Adapter that forwards yt_dlp logs to GUI logger function."""
+    """Adapter to route yt_dlp logs into GUI with basic filtering."""
 
     def __init__(self, log_fn: Callable[[str], None]) -> None:
         self._log = log_fn
 
-    def debug(self, msg):  # noqa: D401
+    def debug(self, msg):  # too chatty
         pass
 
     def warning(self, msg):
-        self._log(str(msg))
+        if not _noisy(str(msg)):
+            self._log(str(msg))
 
     def error(self, msg):
-        self._log(str(msg))
+        if not _noisy(str(msg)):
+            self._log(str(msg))
