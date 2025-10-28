@@ -16,20 +16,23 @@ from core.utils.text import is_url, sanitize_filename
 
 
 GUIEntry = Union[str, Dict[str, Any]]
-WorkItem = Tuple[Path, Optional[str]]  # (local_path, forced_stem or None)
+WorkItem = Tuple[str, Path, Optional[str]]  # (key, local_path, forced_stem)
 
 
 class TranscriptionWorker(QtCore.QObject):
     """
-    Processes entries (local paths or URLs), downloads when needed,
-    prepares mono 16kHz WAV and runs ASR pipeline. Emits conflict dialog
-    when an item with the same stem exists (checked also BEFORE downloading URLs).
-    Lazily creates session and per-item folders; rolls back empty dirs on failure/skip.
+    Transcribes a queue of entries. Emits fine-grained status updates so the
+    'Details table' in the UI can show per-item states and a transcript opener.
     """
     log = QtCore.pyqtSignal(str)
     progress = QtCore.pyqtSignal(int)
     finished = QtCore.pyqtSignal()
+
     conflict_check = QtCore.pyqtSignal(str, str)  # stem, existing_dir
+
+    item_status = QtCore.pyqtSignal(str, str)  # key, status label to show in table
+    item_path_update = QtCore.pyqtSignal(str, str)  # old_key, new_local_path (when URL becomes a file)
+    transcript_ready = QtCore.pyqtSignal(str, str)  # key, transcript_path
 
     def __init__(self, files: Optional[List[Path]] = None, pipe=None, entries: Optional[List[GUIEntry]] = None) -> None:
         super().__init__()
@@ -82,20 +85,19 @@ class TranscriptionWorker(QtCore.QObject):
                 return
 
             # 2) Process items
-            for idx, (path, forced_stem) in enumerate(work_items, start=1):
+            for idx, (key, path, forced_stem) in enumerate(work_items, start=1):
                 if self._cancel.is_set():
                     break
 
                 stem = sanitize_filename(forced_stem) if forced_stem else sanitize_filename(path.stem)
 
-                # Cross-session conflict check for local inputs too
+                # Cross-session conflict check
                 existing = FileManager.find_existing_output(stem)
 
                 # Decide target dir without creating yet
                 out_dir = FileManager.output_dir_for(stem)
                 write_into_existing = False
                 if existing is not None:
-                    # If target points to a different (older) session dir → ask
                     if not out_dir.exists() or existing.resolve() != out_dir.resolve():
                         try:
                             self._conflict_event.clear()
@@ -106,6 +108,7 @@ class TranscriptionWorker(QtCore.QObject):
                             self._set_conflict_decision("skip", "")
 
                         if self._conflict_action == "skip":
+                            self.item_status.emit(key, "Pominięto")
                             self.log.emit(f"⏭️ Pomijam „{path.name}” (konflikt).")
                             self.progress.emit(int(idx * 100 / total))
                             continue
@@ -117,10 +120,13 @@ class TranscriptionWorker(QtCore.QObject):
                             out_dir = Path(existing)
                             write_into_existing = True
 
-                # Prepare WAV 16k mono (temp only)
+                # Prepare WAV 16k mono
                 try:
-                    wav = FileManager.ensure_tmp_wav(path, log=self._log_audio_ready)
+                    self.item_status.emit(key, "Przygotowanie audio…")
+                    wav = FileManager.ensure_tmp_wav(path, log=lambda m: None)
+                    self.log.emit(f"🎛️ Przygotowano audio: {Path(wav).name}")
                 except Exception as e:
+                    self.item_status.emit(key, "Błąd przygotowania")
                     self.log.emit(f"❗ Błąd przygotowania audio dla {path.name}: {e}")
                     self.progress.emit(int(idx * 100 / total))
                     continue
@@ -129,6 +135,7 @@ class TranscriptionWorker(QtCore.QObject):
                     break
 
                 # Run ASR
+                self.item_status.emit(key, "Przetwarzanie…")
                 self.log.emit(f"🎧 Transkrypcja: {Path(wav).name}")
                 try:
                     result = self._pipe(
@@ -142,9 +149,9 @@ class TranscriptionWorker(QtCore.QObject):
                     text = result["text"] if isinstance(result, dict) and "text" in result else str(result)
                     text = TextPostprocessor.clean(text)
                 except Exception as e:
+                    self.item_status.emit(key, "Błąd transkrypcji")
                     self.log.emit(f"❗ Błąd transkrypcji {path.name}: {e}")
                     self.progress.emit(int(idx * 100 / total))
-                    # ensure no empty per-item dir remains (we haven't created it yet)
                     continue
 
                 # Create session dir lazily only if we are going to write into a new session
@@ -152,11 +159,12 @@ class TranscriptionWorker(QtCore.QObject):
                     if not write_into_existing:
                         FileManager.ensure_session()
                 except Exception as e:
+                    self.item_status.emit(key, "Błąd zapisu")
                     self.log.emit(f"❗ Nie udało się utworzyć katalogu sesji: {e}")
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # Save transcript (create item dir now)
+                # Save transcript
                 created_dir = False
                 try:
                     if not out_dir.exists():
@@ -165,10 +173,12 @@ class TranscriptionWorker(QtCore.QObject):
                     out_txt = out_dir / "transcript.txt"
                     out_txt.write_text(text, encoding="utf-8")
                     self.log.emit(f"💾 Zapisano transkrypt: {out_txt}")
+                    self.item_status.emit(key, "Gotowe")
+                    self.transcript_ready.emit(key, str(out_txt))
                     processed_any = True
                 except Exception as e:
+                    self.item_status.emit(key, "Błąd zapisu")
                     self.log.emit(f"❗ Błąd zapisu transkryptu dla {path.name}: {e}")
-                    # Roll back empty item dir if it was just created and is empty
                     if created_dir:
                         FileManager.remove_dir_if_empty(out_dir)
 
@@ -177,7 +187,6 @@ class TranscriptionWorker(QtCore.QObject):
         except Exception as e:
             self.log.emit(f"❗ Nieoczekiwany błąd w workerze transkrypcji: {e}")
         finally:
-            # Cleanup temp directory
             try:
                 if Config.INPUT_TMP_DIR.exists():
                     shutil.rmtree(Config.INPUT_TMP_DIR, ignore_errors=True)
@@ -185,7 +194,6 @@ class TranscriptionWorker(QtCore.QObject):
             except Exception as e:
                 self.log.emit(f"⚠️ Problem z czyszczeniem katalogu tymczasowego: {e}")
 
-            # Rollback empty session if nothing persisted
             if not processed_any:
                 FileManager.rollback_session_if_empty()
 
@@ -205,16 +213,6 @@ class TranscriptionWorker(QtCore.QObject):
 
     # ----- Helpers -----
 
-    def _log_audio_ready(self, msg: str) -> None:
-        txt = str(msg)
-        if txt.endswith(".wav"):
-            self.log.emit(f"🎛️ Przygotowano audio: {Path(txt).name}")
-            return
-        if "Przygotowano audio" in txt:
-            self.log.emit(f"🎛️ {txt}")
-            return
-        self.log.emit(txt)
-
     def _normalize_entry(self, raw: GUIEntry) -> Tuple[str, str]:
         if isinstance(raw, dict):
             t = str(raw.get("type", "") or "").strip().lower()
@@ -228,23 +226,26 @@ class TranscriptionWorker(QtCore.QObject):
 
     def _materialize_entry(self, raw: GUIEntry) -> List[WorkItem]:
         """
-        Returns list of (local_path, forced_stem) for a GUI entry.
-        For URLs, performs a pre-download conflict check using video title.
+        Returns list of (key, local_path, forced_stem).
+        For URLs: performs pre-download conflict check using title, then downloads.
         """
         s, t = self._normalize_entry(raw)
 
         # URL path
         if t == "url" or is_url(s):
+            key = s  # for status mapping in UI
             self.log.emit(f"🌐 Analiza URL (bez pobierania): {s}")
+            self.item_status.emit(key, "Analiza…")
             try:
                 meta = self._download.probe(s, log=lambda m: None)
             except Exception as e:
+                self.item_status.emit(key, "Błąd analizy")
                 self.log.emit(f"❗ Błąd analizy URL: {e}")
                 return []
             if self._cancel.is_set():
                 return []
 
-            # Predict stem from title and check conflicts BEFORE downloading
+            # Predict stem and check conflicts BEFORE downloading
             title = meta.get("title") or "plik"
             predicted_stem = sanitize_filename(Path(title).stem)
             existing = FileManager.find_existing_output(predicted_stem)
@@ -260,42 +261,52 @@ class TranscriptionWorker(QtCore.QObject):
                     self._set_conflict_decision("skip", "")
 
                 if self._conflict_action == "skip":
+                    self.item_status.emit(key, "Pominięto")
                     self.log.emit("⏭️ Pomijam (konflikt wykryty przed pobraniem).")
                     return []
                 elif self._conflict_action == "new":
                     if self._conflict_new_stem:
                         forced_stem = sanitize_filename(self._conflict_new_stem)
                 elif self._conflict_action == "overwrite":
-                    forced_stem = predicted_stem  # zapis pójdzie do istniejącego katalogu
+                    forced_stem = predicted_stem
 
             if self._cancel.is_set():
                 return []
+
             self.log.emit(f"🌐 Pobieranie: {s}")
+            self.item_status.emit(key, "Pobieranie…")
             try:
-                results = self._download.download(
-                    url=None,
-                    urls=[s],
+                # POPRAWKA: przekazujemy pojedynczy 'url', bez parametru 'urls'
+                result_path = self._download.download(
+                    url=s,
                     on_file_ready=None,
                 )
-                if isinstance(results, list) and results:
-                    return [(results[-1], forced_stem)]
+                # obsługa przypadku gdy download zwraca listę ścieżek lub jedną ścieżkę
+                local = result_path[-1] if isinstance(result_path, list) else result_path
+                if local:
+                    self.item_path_update.emit(key, str(local))
+                    new_key = str(local)
+                    return [(new_key, local, forced_stem)]
+                self.item_status.emit(key, "Błąd pobierania")
                 self.log.emit("❗ Błąd pobierania: brak pliku.")
                 return []
             except Exception as e:
+                self.item_status.emit(key, "Błąd pobierania")
                 self.log.emit(f"❌ Błąd pobierania: {e}")
                 return []
 
         # Local directory
         p = Path(s)
         if p.is_dir():
-            files = [x for x in p.rglob("*") if x.is_file() and x.suffix.lower() in (Config.AUDIO_EXT | Config.VIDEO_EXT)]
+            files = [x for x in p.rglob("*") if
+                     x.is_file() and x.suffix.lower() in (Config.AUDIO_EXT | Config.VIDEO_EXT)]
             if not files:
                 self.log.emit(f"⚠️ Brak obsługiwanych plików w folderze: {p}")
-            return [(f, None) for f in sorted(files)]
+            return [(str(f), f, None) for f in sorted(files)]
 
         # Local file
         if p.is_file():
-            return [(p, None)]
+            return [(str(p), p, None)]
 
         self.log.emit(f"⚠️ Nie znaleziono ścieżki: {p}")
         return []

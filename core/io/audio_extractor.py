@@ -3,53 +3,82 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Optional
 
 from core.config.app_config import AppConfig as Config
 
 
-def _ffbin(name: str) -> Path:
-    exe = f"{name}.exe" if name in ("ffmpeg", "ffprobe") and (Path().anchor and Config.FFMPEG_BIN_DIR) and (str(Config.FFMPEG_BIN_DIR).lower().endswith("\\bin") or True) and (Path().anchor) else name
-    p = Config.FFMPEG_BIN_DIR / exe
-    return p if p.exists() else Path(name)
-
-
 class AudioExtractor:
-    """FFmpeg audio utilities."""
+    """FFmpeg-based helpers for audio preparation and probing."""
 
     @staticmethod
-    def has_audio(path: Path) -> bool:
-        ffprobe = _ffbin("ffprobe")
-        try:
-            result = subprocess.run(
-                [str(ffprobe), "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "default=nw=1:nk=1", str(path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                check=True,
-            )
-            return "audio" in result.stdout
-        except Exception:
-            return False
+    def _ffmpeg_bin() -> str:
+        # Try configured binary, fallback to PATH
+        for attr in ("FFMPEG_PATH", "FFMPEG_BIN", "FFMPEG"):
+            p = getattr(Config, attr, None)
+            if p:
+                return str(p)
+        return "ffmpeg"
 
     @staticmethod
-    def ensure_mono_16k(src: Path, dst: Path, log: Callable[[str], None] = print) -> None:
-        """Transcode to 16kHz mono WAV if needed."""
-        ffmpeg = _ffbin("ffmpeg")
-        dst.parent.mkdir(parents=True, exist_ok=True)
+    def _ffprobe_bin() -> str:
+        for attr in ("FFPROBE_PATH", "FFPROBE_BIN", "FFPROBE"):
+            p = getattr(Config, attr, None)
+            if p:
+                return str(p)
+        # Some bundles ship ffprobe next to ffmpeg
+        ffmpeg = AudioExtractor._ffmpeg_bin()
+        if "ffmpeg" in ffmpeg:
+            candidate = ffmpeg.replace("ffmpeg", "ffprobe")
+            return candidate
+        return "ffprobe"
+
+    @staticmethod
+    def ensure_mono_16k(src: Path, dst: Path, log=print) -> None:
+        """
+        Convert any media to wav PCM 16kHz mono suitable for Whisper.
+        Overwrite if exists.
+        """
         cmd = [
-            str(ffmpeg),
+            AudioExtractor._ffmpeg_bin(),
             "-y",
             "-i",
             str(src),
-            "-ac", "1",
-            "-ar", "16000",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
             "-vn",
-            "-c:a", "pcm_s16le",
+            "-f",
+            "wav",
             str(dst),
         ]
         try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            log(f"🎛️ Przygotowano audio: {dst.name}")
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log(str(dst))
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"FFmpeg error: {e}")
+            raise RuntimeError(f"ffmpeg failed: {e}") from e
+
+    @staticmethod
+    def probe_duration(path: Path) -> Optional[float]:
+        """
+        Return media duration in seconds (float) using ffprobe, or None if unavailable.
+        """
+        cmd = [
+            AudioExtractor._ffprobe_bin(),
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            txt = (proc.stdout or "").strip()
+            if not txt:
+                return None
+            return float(txt)
+        except Exception:
+            return None
