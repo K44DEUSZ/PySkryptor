@@ -1,0 +1,9 @@
+{
+  "language": "pl",
+  "preferred_device": "auto",
+  "precision": "auto",
+  "allow_tf32": true,
+  "timestamps_output": true,
+  "keep_downloaded_files": true,
+  "keep_wav_temp": false
+}
