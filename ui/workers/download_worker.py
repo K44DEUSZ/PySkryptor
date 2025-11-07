@@ -6,75 +6,73 @@ from typing import Optional
 
 from PyQt5 import QtCore
 
+from core.config.app_config import AppConfig as Config
 from core.services.download_service import DownloadService
+from ui.i18n.translator import tr
 
 
 class DownloadWorker(QtCore.QObject):
     progress_log = QtCore.pyqtSignal(str)
     progress_pct = QtCore.pyqtSignal(int)
-    meta_ready = QtCore.pyqtSignal(dict)
-    download_finished = QtCore.pyqtSignal(object)  # Path
+    meta_ready = QtCore.pyqtSignal(object)
+    download_finished = QtCore.pyqtSignal(Path)
     download_error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
     def __init__(
         self,
-        url: str,
+        *,
         action: str,
-        format_expr: Optional[str] = None,
-        desired_ext: Optional[str] = None,
+        url: str,
         kind: Optional[str] = None,
-        output_dir: Optional[Path] = None,
-    ):
+        quality: Optional[str] = None,
+        ext: Optional[str] = None,
+    ) -> None:
         super().__init__()
-        self.url = url
-        self.action = action  # "probe" | "download"
-        self.format_expr = format_expr
-        self.desired_ext = desired_ext or ""
-        self.kind = kind or "video"
-        self.output_dir = output_dir
-        self._service = DownloadService()
-        self._cancelled = False
-        self._started_logged = False
-
-    def cancel(self) -> None:
-        self._cancelled = True
+        self._action = action
+        self._url = url
+        self._kind = kind
+        self._quality = quality
+        self._ext = ext
+        self._svc = DownloadService()
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         try:
-            def _log(msg: str) -> None:
-                self.progress_log.emit(str(msg))
-
-            def _progress(pct: int, stage: str) -> None:
-                if not self._started_logged and pct > 0:
-                    self.progress_log.emit("⬇️ Pobieranie rozpoczęte…")
-                    self._started_logged = True
-                self.progress_pct.emit(pct)
-                if pct >= 100:
-                    self.progress_log.emit("✅ Pobieranie zakończone.")
-
-            if self.action == "probe":
-                meta = self._service.probe(self.url, log=_log)
-                if not self._cancelled:
-                    self.meta_ready.emit(meta)
-            elif self.action == "download":
-                if not self.format_expr:
-                    raise ValueError("Brak definicji formatu do pobrania.")
-                target = self._service.download(
-                    self.url,
-                    self.format_expr,
-                    self.desired_ext,
-                    self.kind,
-                    self.output_dir,
-                    _progress,
-                    _log,
-                )
-                if not self._cancelled:
-                    self.download_finished.emit(target)
+            if self._action == "probe":
+                self._do_probe()
+            elif self._action == "download":
+                self._do_download()
             else:
-                raise ValueError("Nieznana akcja.")
+                self.download_error.emit(tr("down.log.error", msg=f"Nieznana akcja: {self._action}"))
         except Exception as e:
             self.download_error.emit(str(e))
         finally:
             self.finished.emit()
+
+    def _do_probe(self) -> None:
+        self.progress_log.emit(tr("down.log.analyze"))
+        meta = self._svc.probe(self._url, log=lambda m: None)
+        self.meta_ready.emit(meta)
+        self.progress_log.emit(tr("down.log.meta_ready"))
+
+    def _do_download(self) -> None:
+        def _on_progress(pct: int, stage: str) -> None:
+            self.progress_pct.emit(max(0, min(100, int(pct))))
+
+        self.progress_log.emit(tr("down.log.downloading"))
+        path = self._svc.download(
+            url=self._url,
+            kind=self._kind or "video",
+            quality=self._quality or "auto",
+            ext=self._ext or "mp4",
+            out_dir=Config.DOWNLOADS_DIR,
+            progress_cb=_on_progress,
+            log=lambda m: None,
+        )
+        if not path:
+            self.download_error.emit(tr("down.log.error", msg="Brak pliku wyjściowego."))
+            return
+        self.progress_pct.emit(100)
+        self.progress_log.emit(tr("down.log.downloaded", path=str(path)))
+        self.download_finished.emit(path)

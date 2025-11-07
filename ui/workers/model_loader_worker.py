@@ -1,9 +1,9 @@
-# pyskryptor/ui/workers/model_loader_worker.py
+# ui/workers/model_loader_worker.py
 from __future__ import annotations
 
 from PyQt5 import QtCore
 
-from core.services.transcription_service import TranscriptionService
+from core.transcription.model_loader import ModelLoader
 
 
 class ModelLoadWorker(QtCore.QObject):
@@ -15,19 +15,9 @@ class ModelLoadWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self) -> None:
         try:
-            service = TranscriptionService()
-
-            def _log(line: str) -> None:
-                if "Model i pipeline gotowe" in (line or ""):
-                    return
-                self.progress_log.emit(line)
-
-            service.build(log=_log)
-            pipe = service.pipeline
-            if pipe is None:
-                self.model_error.emit("Pipeline nie został zainicjalizowany.")
-            else:
-                self.model_ready.emit(pipe)
+            loader = ModelLoader()
+            pipe = loader.load(log=self.progress_log.emit)
+            self.model_ready.emit(pipe)
         except Exception as e:
             self.model_error.emit(str(e))
         finally:

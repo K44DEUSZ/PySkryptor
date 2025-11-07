@@ -8,31 +8,14 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
 from core.files.file_manager import FileManager
+from core.utils.text import format_bytes, format_hms, sanitize_filename, is_url
+from ui.i18n.translator import tr
 from ui.widgets.file_drop_list import FileDropList
 from ui.workers.model_loader_worker import ModelLoadWorker
 from ui.workers.transcription_worker import TranscriptionWorker
 from ui.workers.download_worker import DownloadWorker
 from ui.workers.metadata_worker import MetadataWorker
 from ui.views.dialogs import ask_cancel, ask_conflict
-
-
-def _format_bytes(num: Optional[int]) -> str:
-    if not num or num <= 0:
-        return "-"
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if num < 1024 or unit == "TB":
-            return f"{num:.0f} {unit}"
-        num /= 1024
-    return f"{num:.0f} B"
-
-
-def _format_hms(seconds: Optional[float]) -> str:
-    if seconds is None:
-        return "-"
-    s = int(seconds)
-    h, rem = divmod(s, 3600)
-    m, s = divmod(rem, 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -48,19 +31,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("PySkryptor")
+        self.setWindowTitle(tr("app.title"))
         self.resize(1280, 820)
 
         central = QtWidgets.QWidget(self)
         self.setCentralWidget(central)
         main_layout = QtWidgets.QVBoxLayout(central)
 
-        tabs_box = QtWidgets.QGroupBox("Zakładki")
+        # Tabs
+        tabs_box = QtWidgets.QGroupBox(tr("tabs.group"))
         tabs_layout = QtWidgets.QHBoxLayout(tabs_box)
-        self.rb_files = QtWidgets.QRadioButton("Transkrypcja plików")
-        self.rb_down = QtWidgets.QRadioButton("Downloader")
-        self.rb_live = QtWidgets.QRadioButton("Transkrypcja live")
-        self.rb_settings = QtWidgets.QRadioButton("Ustawienia")
+        self.rb_files = QtWidgets.QRadioButton(tr("tabs.files"))
+        self.rb_down = QtWidgets.QRadioButton(tr("tabs.downloader"))
+        self.rb_live = QtWidgets.QRadioButton(tr("tabs.live"))
+        self.rb_settings = QtWidgets.QRadioButton(tr("tabs.settings"))
         self.rb_files.setChecked(True)
         for rb in (self.rb_files, self.rb_down, self.rb_live, self.rb_settings):
             tabs_layout.addWidget(rb)
@@ -76,18 +60,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         src_bar = QtWidgets.QHBoxLayout()
         self.src_edit = QtWidgets.QLineEdit()
-        self.src_edit.setPlaceholderText("Wklej ścieżkę pliku lub adres URL…")
-        self.btn_src_add = QtWidgets.QPushButton("Dodaj")
+        self.src_edit.setPlaceholderText(tr("files.placeholder"))
+        self.btn_src_add = QtWidgets.QPushButton(tr("files.add"))
         src_bar.addWidget(self.src_edit, 1)
         src_bar.addWidget(self.btn_src_add)
         files_layout.addLayout(src_bar)
 
         ops_bar = QtWidgets.QHBoxLayout()
-        self.btn_add_files = QtWidgets.QPushButton("Dodaj pliki…")
-        self.btn_add_folder = QtWidgets.QPushButton("Dodaj folder…")
-        self.btn_open_output = QtWidgets.QPushButton("Otwórz folder transkrykcji")
-        self.btn_remove_selected = QtWidgets.QPushButton("Usuń zaznaczone")
-        self.btn_clear_list = QtWidgets.QPushButton("Wyczyść listę")
+        self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
+        self.btn_add_folder = QtWidgets.QPushButton(tr("files.add_folder"))
+        self.btn_open_output = QtWidgets.QPushButton(tr("files.open_output"))
+        self.btn_remove_selected = QtWidgets.QPushButton(tr("files.remove_selected"))
+        self.btn_clear_list = QtWidgets.QPushButton(tr("files.clear"))
         ops_bar.addWidget(self.btn_add_files)
         ops_bar.addWidget(self.btn_add_folder)
         ops_bar.addWidget(self.btn_open_output)
@@ -96,19 +80,25 @@ class MainWindow(QtWidgets.QMainWindow):
         ops_bar.addWidget(self.btn_clear_list)
         files_layout.addLayout(ops_bar)
 
-        # Backing DnD widget (ukryty – zachowujemy API)
+        # Hidden backing store for DnD. We keep it for drag&drop API but do not show it.
         self.file_list = FileDropList()
         self.file_list.setVisible(False)
         files_layout.addWidget(self.file_list)
 
-        # Details table = główna lista
-        details_group = QtWidgets.QGroupBox("Szczegóły pozycji")
+        # Details group becomes the primary list
+        details_group = QtWidgets.QGroupBox(tr("files.details.title"))
         details_layout = QtWidgets.QVBoxLayout(details_group)
 
         self.tbl_details = QtWidgets.QTableWidget(0, 7)
-        self.tbl_details.setHorizontalHeaderLabels(
-            ["Nazwa", "Źródło", "Ścieżka", "Waga", "Długość", "Stan", "Podgląd"]
-        )
+        self.tbl_details.setHorizontalHeaderLabels([
+            tr("files.details.col.name"),
+            tr("files.details.col.source"),
+            tr("files.details.col.path"),
+            tr("files.details.col.size"),
+            tr("files.details.col.duration"),
+            tr("files.details.col.status"),
+            tr("files.details.col.preview"),
+        ])
         header = self.tbl_details.horizontalHeader()
         header.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
         header.setStretchLastSection(False)
@@ -121,8 +111,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.btn_start = QtWidgets.QPushButton("Rozpocznij transkrypcję")
-        self.btn_cancel = QtWidgets.QPushButton("Anuluj")
+        self.btn_start = QtWidgets.QPushButton(tr("ctrl.start"))
+        self.btn_cancel = QtWidgets.QPushButton(tr("ctrl.cancel"))
         ctrl_bar.addWidget(self.progress, 1)
         ctrl_bar.addWidget(self.btn_start)
         ctrl_bar.addWidget(self.btn_cancel)
@@ -140,44 +130,44 @@ class MainWindow(QtWidgets.QMainWindow):
 
         url_row = QtWidgets.QHBoxLayout()
         self.ed_url = QtWidgets.QLineEdit()
-        self.ed_url.setPlaceholderText("Wklej URL (np. YouTube/TikTok)…")
-        self.btn_probe = QtWidgets.QPushButton("Analizuj")
-        self.btn_open_downloads = QtWidgets.QPushButton("Otwórz folder pobrań")
+        self.ed_url.setPlaceholderText(tr("down.url.placeholder"))
+        self.btn_probe = QtWidgets.QPushButton(tr("down.probe"))
+        self.btn_open_downloads = QtWidgets.QPushButton(tr("down.open_folder"))
         url_row.addWidget(self.ed_url, 1)
         url_row.addWidget(self.btn_probe)
         url_row.addWidget(self.btn_open_downloads)
         down_layout.addLayout(url_row)
 
-        meta_group = QtWidgets.QGroupBox("Metadane")
+        meta_group = QtWidgets.QGroupBox(tr("down.meta.title"))
         meta_form = QtWidgets.QFormLayout(meta_group)
         self.lbl_service = QtWidgets.QLabel("-")
         self.lbl_title = QtWidgets.QLabel("-")
         self.lbl_duration = QtWidgets.QLabel("-")
         self.lbl_est_size = QtWidgets.QLabel("-")
-        meta_form.addRow("Serwis:", self.lbl_service)
-        meta_form.addRow("Tytuł:", self.lbl_title)
-        meta_form.addRow("Długość:", self.lbl_duration)
-        meta_form.addRow("Szacowany rozmiar:", self.lbl_est_size)
+        meta_form.addRow(tr("down.meta.service"), self.lbl_service)
+        meta_form.addRow(tr("down.meta.name"), self.lbl_title)
+        meta_form.addRow(tr("down.meta.duration"), self.lbl_duration)
+        meta_form.addRow(tr("down.meta.size"), self.lbl_est_size)
         down_layout.addWidget(meta_group)
 
-        sel_group = QtWidgets.QGroupBox("Wybór formatu")
+        sel_group = QtWidgets.QGroupBox(tr("down.select.title"))
         sel_layout = QtWidgets.QHBoxLayout(sel_group)
         self.cb_kind = QtWidgets.QComboBox()
-        self.cb_kind.addItems(["Wideo", "Audio"])
+        self.cb_kind.addItems([tr("down.select.type.video"), tr("down.select.type.audio")])
         self.cb_quality = QtWidgets.QComboBox()
         self.cb_ext = QtWidgets.QComboBox()
         self.cb_quality.addItems(["Auto", "1080p", "720p", "480p"])
         self.cb_ext.addItems(["mp4", "webm", "m4a", "mp3"])
-        sel_layout.addWidget(QtWidgets.QLabel("Typ:"))
+        sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.type")))
         sel_layout.addWidget(self.cb_kind)
         sel_layout.addSpacing(8)
-        sel_layout.addWidget(QtWidgets.QLabel("Jakość:"))
+        sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.quality")))
         sel_layout.addWidget(self.cb_quality)
         sel_layout.addSpacing(8)
-        sel_layout.addWidget(QtWidgets.QLabel("Rozszerzenie:"))
+        sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.ext")))
         sel_layout.addWidget(self.cb_ext)
         sel_layout.addStretch(1)
-        self.btn_download = QtWidgets.QPushButton("Pobierz")
+        self.btn_download = QtWidgets.QPushButton(tr("down.download"))
         self.btn_download.setEnabled(False)
         sel_layout.addWidget(self.btn_download)
         down_layout.addWidget(sel_group)
@@ -196,7 +186,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.addWidget(down_page)
 
         # Placeholders (indexes 2,3)
-        for title in ("🛠️ Transkrypcja live — w przygotowaniu.", "🛠️ Ustawienia — w przygotowaniu."):
+        for title in (tr("tabs.live") + " — w przygotowaniu.", tr("tabs.settings") + " — w przygotowaniu."):
             page = QtWidgets.QWidget()
             lay = QtWidgets.QVBoxLayout(page)
             lay.addWidget(QtWidgets.QLabel(title))
@@ -213,8 +203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_src_add.clicked.connect(self._on_src_add_clicked)
         self.btn_add_files.clicked.connect(self._on_add_files)
         self.btn_add_folder.clicked.connect(self._on_add_folder)
-        self.btn_open_output.clicked.connect(self._on_open_output_folder)
-        self.btn_remove_selected.clicked.connect(self._remove_selected)  # <- FIX: correct slot
+        self.btn_open_output.clicked.connect(self._open_output_folder)
+        self.btn_remove_selected.clicked.connect(self._on_remove_selected)
         self.btn_clear_list.clicked.connect(self._on_clear_list)
 
         self.btn_start.clicked.connect(self._on_start_clicked)
@@ -233,9 +223,9 @@ class MainWindow(QtWidgets.QMainWindow):
         for b in (self.btn_start, self.btn_cancel, self.btn_clear_list, self.btn_remove_selected, self.btn_download):
             b.setAttribute(QtCore.Qt.WA_AlwaysShowToolTips, True)
 
-        # model for details table
-        self._row_by_key: Dict[str, int] = {}        # key(url or local path) -> row
-        self._transcript_by_key: Dict[str, str] = {} # key -> transcript path
+        # data model for details table
+        self._row_by_key: Dict[str, int] = {}            # key(url or path) -> row
+        self._transcript_by_key: Dict[str, str] = {}     # key -> transcript path
 
         Config.initialize()
         self.pipe = None
@@ -261,10 +251,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._conflict_apply_all_new_base: Optional[str] = None
 
         self.output.clear()
-        self._append_log("🟢 Inicjalizacja — ładowanie modelu w tle…")
+        self._append_log(tr("log.init.bg"))
         self._start_model_loading_thread()
         self._update_buttons()
         self._update_downloader_buttons()
+
+    # ----- Utilities -----
+
+    def _append_log(self, text: str) -> None:
+        try:
+            self.output.append(text)
+        except Exception:
+            pass
 
     # ----- Tabs -----
 
@@ -278,11 +276,9 @@ class MainWindow(QtWidgets.QMainWindow):
         elif self.rb_settings.isChecked():
             self.stack.setCurrentIndex(3)
 
-    # ----- Details table helpers -----
+    # ----- Details table as the main list -----
 
     def _append_row(self, name: str, src: str, path: str) -> None:
-        if path in self._row_by_key:
-            return
         row = self.tbl_details.rowCount()
         self.tbl_details.insertRow(row)
 
@@ -300,9 +296,9 @@ class MainWindow(QtWidgets.QMainWindow):
         set_cell(self.COL_STATUS, "-")
 
         btn = QtWidgets.QToolButton()
-        btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+        btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
         btn.setEnabled(False)
-        btn.clicked.connect(lambda _=False, r=row: self._open_transcript_for_row(r))
+        btn.clicked.connect(lambda: self._open_transcript_for_row(row))
         self.tbl_details.setCellWidget(row, self.COL_PREVIEW, btn)
 
         self._row_by_key[path] = row
@@ -310,19 +306,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _rows_selected(self) -> List[int]:
         return sorted({idx.row() for idx in self.tbl_details.selectionModel().selectedRows()})
 
-    def _remove_selected(self) -> None:
+    def _on_remove_selected(self) -> None:
         rows = self._rows_selected()
         rows.reverse()
         for r in rows:
             key = self.tbl_details.item(r, self.COL_PATH).text()
             self.tbl_details.removeRow(r)
-            # re-map indices after deletion
-            new_map: Dict[str, int] = {}
-            for k, i in self._row_by_key.items():
-                if i == r:
-                    continue
-                new_map[k] = i if i < r else i - 1
-            self._row_by_key = new_map
+            self._row_by_key.pop(key, None)
             self._transcript_by_key.pop(key, None)
         self._update_buttons()
 
@@ -332,30 +322,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self._transcript_by_key.clear()
         self._update_buttons()
 
-    # ----- Adding entries -----
-
     def _on_src_add_clicked(self) -> None:
         text = self.src_edit.text().strip()
         if not text:
-            self._append_log("ℹ️ Wpisz ścieżkę pliku lub adres URL.")
+            self._append_log(tr("log.add.empty"))
             return
-        src = "URL" if text.lower().startswith("http") else "LOCAL"
+        src = "URL" if is_url(text) else "LOCAL"
         key = text
         name = text if src == "LOCAL" else text
         if src == "LOCAL":
             p = Path(text)
             if not p.exists():
-                self._append_log("⚠️ Ścieżka nie istnieje.")
+                self._append_log(tr("log.add.missing"))
                 return
             name = p.stem
         self._append_row(name, src, key)
         self.src_edit.clear()
         self._refresh_details_for_keys([key])
         self._update_buttons()
-        self._append_log(f"✅ Dodano: {text}")
+        self._append_log(tr("log.add.ok", text=text))
 
     def _on_add_files(self) -> None:
-        dlg = QtWidgets.QFileDialog(self, "Wybierz pliki")
+        dlg = QtWidgets.QFileDialog(self, tr("files.add_files"))
         dlg.setFileMode(QtWidgets.QFileDialog.ExistingFiles)
         if dlg.exec_():
             for p in dlg.selectedFiles():
@@ -365,18 +353,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_buttons()
 
     def _on_add_folder(self) -> None:
-        dir_path = QtWidgets.QFileDialog.getExistingDirectory(self, "Wybierz folder")
+        dir_path = QtWidgets.QFileDialog.getExistingDirectory(self, tr("files.add_folder"))
         if dir_path:
             self._append_row(Path(dir_path).name, "LOCAL", dir_path)
             self._refresh_details_for_keys([dir_path])
         self._update_buttons()
 
-    # ----- Metadata (size/duration) -----
+    def _open_output_folder(self) -> None:
+        try:
+            Config.TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.TRANSCRIPTIONS_DIR)))
+        except Exception as e:
+            self._append_log(tr("log.unexpected", msg=str(e)))
+
+    def _open_transcript_for_row(self, row: int) -> None:
+        try:
+            key = self.tbl_details.item(row, self.COL_PATH).text()
+            path = self._transcript_by_key.get(key)
+            if not path:
+                return
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(path))
+        except Exception:
+            pass
 
     def _refresh_details_for_keys(self, keys: List[str]) -> None:
         if not keys:
             return
-        entries = [{"type": ("url" if k.lower().startswith("http") else "file"), "value": k} for k in keys]
+        entries = [{"type": ("url" if is_url(k) else "file"), "value": k} for k in keys]
         if self._meta_thread is not None:
             self._meta_thread.requestInterruption()
         self._meta_thread = QtCore.QThread(self)
@@ -399,12 +402,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 continue
             self.tbl_details.item(row, self.COL_NAME).setText(str(r.get("name", "")))
             self.tbl_details.item(row, self.COL_SRC).setText(str(r.get("source", "")))
-            self.tbl_details.item(row, self.COL_SIZE).setText(_format_bytes(r.get("size")))
-            self.tbl_details.item(row, self.COL_DUR).setText(_format_hms(r.get("duration")))
+            self.tbl_details.item(row, self.COL_SIZE).setText(format_bytes(r.get("size")))
+            self.tbl_details.item(row, self.COL_DUR).setText(format_hms(r.get("duration")))
 
     def _on_details_finished(self) -> None:
         self._meta_thread = None
         self._meta_worker = None
+        self._update_buttons()
 
     def get_entries(self) -> List[Dict[str, Any]]:
         entries: List[Dict[str, Any]] = []
@@ -416,32 +420,6 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 entries.append({"type": "file", "value": path})
         return entries
-
-    # ----- Row status / preview -----
-
-    def _set_row_status(self, row: int, text: str) -> None:
-        it = self.tbl_details.item(row, self.COL_STATUS)
-        if it:
-            it.setText(text)
-
-    def _enable_row_preview(self, key: str, transcript_path: str) -> None:
-        row = self._row_by_key.get(key)
-        if row is None:
-            return
-        self._transcript_by_key[key] = transcript_path
-        btn = self.tbl_details.cellWidget(row, self.COL_PREVIEW)
-        if isinstance(btn, QtWidgets.QToolButton):
-            btn.setEnabled(True)
-
-    def _open_transcript_for_row(self, row: int) -> None:
-        try:
-            key = self.tbl_details.item(row, self.COL_PATH).text()
-            txt = self._transcript_by_key.get(key)
-            if not txt:
-                return
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(txt))
-        except Exception:
-            pass
 
     # ----- Conflict handling (GUI thread) -----
 
@@ -463,7 +441,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if self._transcribe_worker is not None:
                 self._transcribe_worker.on_conflict_decided(action, new_stem)
         except Exception as e:
-            self._append_log(f"❗ Błąd okna konfliktu: {e} — pomijam ten element.")
+            self._append_log(tr("log.unexpected", msg=f"Błąd okna konfliktu: {e}"))
             if self._transcribe_worker is not None:
                 self._transcribe_worker.on_conflict_decided("skip", "")
 
@@ -480,15 +458,15 @@ class MainWindow(QtWidgets.QMainWindow):
             Config.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.DOWNLOADS_DIR)))
         except Exception as e:
-            self._append_down_log(f"❗ Nie udało się otworzyć folderu: {e}")
+            self._append_down_log(tr("down.log.error", msg=str(e)))
 
     def _on_probe_clicked(self) -> None:
         url = self.ed_url.text().strip()
         if not url:
-            self._append_down_log("ℹ️ Wklej URL do analizy.")
+            self._append_down_log(tr("down.url.placeholder"))
             return
         if self._down_running:
-            self._append_down_log("ℹ️ Operacja w toku.")
+            self._append_down_log("ℹ️ " + tr("down.log.analyze"))
             return
 
         self._down_meta = None
@@ -525,8 +503,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.lbl_service.setText(str(service))
         self.lbl_title.setText(str(title))
-        self.lbl_duration.setText(_format_hms(duration))
-        self.lbl_est_size.setText(_format_bytes(filesize) if filesize else "-")
+        self.lbl_duration.setText(format_hms(duration))
+        self.lbl_est_size.setText(format_bytes(filesize) if filesize else "-")
 
         self._update_downloader_buttons()
         self._update_estimated_size()
@@ -534,16 +512,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_download_clicked(self) -> None:
         url = self.ed_url.text().strip()
         if not url or not self._down_meta:
-            self._append_down_log("ℹ️ Najpierw użyj „Analizuj”.")
+            self._append_down_log(tr("down.url.placeholder"))
             return
         if self._down_running:
-            self._append_down_log("ℹ️ Operacja w toku.")
+            self._append_down_log("ℹ️ " + tr("down.log.downloading"))
             return
 
         kind = self.cb_kind.currentText().lower()
         quality = self.cb_quality.currentText().lower()
         ext = self.cb_ext.currentText().lower()
-        kind = "video" if "wideo" in kind else "audio"
+        kind = "video" if tr("down.select.type.video").lower() in self.cb_kind.currentText().lower() else "audio"
 
         self.pb_download.setValue(0)
 
@@ -572,11 +550,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_download_finished(self, path: Path) -> None:
         self.pb_download.setValue(100)
-        self._append_down_log(f"✅ Pobrano: {path}")
+        self._append_down_log(tr("down.log.downloaded", path=str(path)))
         self._update_downloader_buttons()
 
     def _on_download_error(self, msg: str) -> None:
-        self._append_down_log(f"❌ Błąd: {msg}")
+        self._append_down_log(tr("down.log.error", msg=msg))
         self._update_downloader_buttons()
 
     def _on_down_thread_finished(self) -> None:
@@ -588,7 +566,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_kind_changed(self) -> None:
         kind = self.cb_kind.currentText().lower()
-        if "audio" in kind:
+        if tr("down.select.type.audio").lower() in kind:
             self.cb_quality.clear()
             self.cb_quality.addItems(["Auto", "320k", "256k", "192k", "128k"])
             self.cb_ext.clear()
@@ -622,20 +600,20 @@ class MainWindow(QtWidgets.QMainWindow):
         def is_audio(fmt: Dict[str, Any]) -> bool:
             return not is_video(fmt)
 
-        candidates: List[Dict[str, Any]] = []
+        candidates = []
         for f in fmts:
             fext = str(f.get("ext") or "").lower()
-            height = int(f.get("height") or 0)
-            abr = int(f.get("abr") or f.get("tbr") or 0)
-            if "audio" in kind and not is_audio(f):
+            height = f.get("height") or 0
+            abr = f.get("abr") or f.get("tbr") or 0
+            if tr("down.select.type.audio").lower() in kind and not is_audio(f):
                 continue
-            if ("wideo" in kind) or ("video" in kind):
+            if tr("down.select.type.video").lower() in kind:
                 if not is_video(f):
                     continue
             if ext and fext and ext != "auto" and fext != ext:
                 continue
             if q != "auto":
-                if "audio" in kind:
+                if tr("down.select.type.audio").lower() in kind:
                     try:
                         want = int(q.replace("k", ""))
                         if not abr or abs(int(abr) - want) > 64:
@@ -645,29 +623,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     try:
                         want = int(q.replace("p", ""))
-                        if not height or height > want:
+                        if not height or abs(int(height) - want) > 200:
                             continue
                     except Exception:
                         pass
-            candidates.append(f)
+            size = f.get("filesize") or f.get("filesize_approx")
+            if size:
+                candidates.append(int(size))
 
-        best = None
         if candidates:
-            best = max(candidates, key=lambda f: f.get("filesize") or f.get("filesize_approx") or f.get("tbr") or 0)
+            self.lbl_est_size.setText(format_bytes(max(candidates)))
         else:
-            for f in fmts:
-                if ext and str(f.get("ext") or "").lower() == ext:
-                    best = f
-                    break
+            self.lbl_est_size.setText("-")
 
-        size = None
-        if best:
-            size = best.get("filesize") or best.get("filesize_approx")
-        self.lbl_est_size.setText(_format_bytes(size) if size else "-")
-
-    # ----- Model loading / logs -----
+    # ----- Start/cancel transcription -----
 
     def _start_model_loading_thread(self) -> None:
+        if self._loader_thread is not None:
+            return
         self._loader_thread = QtCore.QThread(self)
         self._loader_worker = ModelLoadWorker()
         self._loader_worker.moveToThread(self._loader_thread)
@@ -677,184 +650,114 @@ class MainWindow(QtWidgets.QMainWindow):
         self._loader_worker.model_error.connect(self._on_model_error)
         self._loader_worker.finished.connect(self._loader_thread.quit)
         self._loader_worker.finished.connect(self._loader_worker.deleteLater)
+        self._loader_thread.finished.connect(self._on_loader_finished)
         self._loader_thread.finished.connect(self._loader_thread.deleteLater)
         self._loader_thread.start()
 
-    @QtCore.pyqtSlot(str)
-    def _append_log(self, text: str) -> None:
-        try:
-            self.output.append(text)
-        except Exception:
-            print(text)
-
-    @QtCore.pyqtSlot(object)
-    def _on_model_ready(self, pipeline_obj) -> None:
-        self.pipe = pipeline_obj
-        self._append_log("✅ Model załadowany — możesz rozpocząć transkrypcję")
+    def _on_model_ready(self, pipe_obj: object) -> None:
+        self.pipe = pipe_obj
+        self._append_log(tr("log.model.ready"))
         self._update_buttons()
 
-    @QtCore.pyqtSlot(str)
     def _on_model_error(self, msg: str) -> None:
-        self._append_log(f"❌ Błąd ładowania modelu: {msg}")
+        self._append_log(tr("log.model.error", msg=msg))
         self._update_buttons()
 
-    # ----- Transcription -----
-
-    def _on_open_output_folder(self) -> None:
-        try:
-            Config.TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.TRANSCRIPTIONS_DIR)))
-        except Exception as e:
-            self._append_log(f"❗ Nie udało się otworzyć folderu: {e}")
+    def _on_loader_finished(self) -> None:
+        self._loader_thread = None
+        self._loader_worker = None
+        self._update_buttons()
 
     def _on_start_clicked(self) -> None:
-        try:
-            if self.pipe is None:
-                self._append_log("⚠️ Pipeline nie jest gotowy.")
-                return
-            entries = self.get_entries()
-            if not entries:
-                self._append_log("ℹ️ Dodaj przynajmniej jedno źródło (plik lub URL).")
-                return
+        if not self.pipe:
+            self._append_log(tr("log.pipe_not_ready"))
+            return
+        entries = self.get_entries()
+        if not entries:
+            self._append_log(tr("log.no_items"))
+            return
 
-            # reset statusów i podglądów
-            for r in range(self.tbl_details.rowCount()):
-                self._set_row_status(r, "-")
-                btn = self.tbl_details.cellWidget(r, self.COL_PREVIEW)
-                if isinstance(btn, QtWidgets.QToolButton):
-                    btn.setEnabled(False)
+        self.progress.setValue(0)
+        self._was_cancelled = False
+        self._conflict_apply_all_action = None
+        self._conflict_apply_all_new_base = None
 
-            self._is_running = True
-            self._was_cancelled = False
-            self.progress.setValue(0)
-            self._update_buttons()
-            self._append_log("▶️ Start transkrypcji…")
+        self._append_log(tr("log.start"))
 
-            self._transcribe_thread = QtCore.QThread(self)
-            self._transcribe_worker = TranscriptionWorker(files=None, pipe=self.pipe, entries=entries)
-            self._transcribe_worker.moveToThread(self._transcribe_thread)
+        self._transcribe_thread = QtCore.QThread(self)
+        self._transcribe_worker = TranscriptionWorker(pipe=self.pipe, entries=entries)
+        self._transcribe_worker.moveToThread(self._transcribe_thread)
+        self._transcribe_thread.started.connect(self._transcribe_worker.run)
 
-            self._transcribe_worker.log.connect(self._append_log)
-            self._transcribe_worker.progress.connect(self.progress.setValue)
-            self._transcribe_worker.finished.connect(self._on_transcribe_finished)
-            self._transcribe_worker.conflict_check.connect(self._on_conflict)
+        self._transcribe_worker.log.connect(self._append_log)
+        self._transcribe_worker.progress.connect(self.progress.setValue)
+        self._transcribe_worker.item_status.connect(self._on_item_status)
+        self._transcribe_worker.item_path_update.connect(self._on_item_path_update)
+        self._transcribe_worker.transcript_ready.connect(self._on_transcript_ready)
+        self._transcribe_worker.conflict_check.connect(self._on_conflict)
 
-            # NEW: per-item updates -> tabela
-            self._transcribe_worker.item_status.connect(self._on_item_status)
-            self._transcribe_worker.item_path_update.connect(self._on_item_path_update)
-            self._transcribe_worker.transcript_ready.connect(self._on_transcript_ready)
+        self._transcribe_worker.finished.connect(self._transcribe_thread.quit)
+        self._transcribe_worker.finished.connect(self._transcribe_worker.deleteLater)
+        self._transcribe_thread.finished.connect(self._on_transcribe_finished)
+        self._transcribe_thread.finished.connect(self._transcribe_thread.deleteLater)
 
-            self._transcribe_worker.finished.connect(self._transcribe_thread.quit)
-            self._transcribe_worker.finished.connect(self._transcribe_worker.deleteLater)
-            self._transcribe_thread.finished.connect(self._on_transcribe_thread_finished)
-            self._transcribe_thread.finished.connect(self._transcribe_thread.deleteLater)
+        self._transcribe_thread.start()
+        self._update_buttons()
 
-            self._transcribe_thread.started.connect(self._transcribe_worker.run)
-            self._transcribe_thread.start()
-        except Exception as e:
-            self._append_log(f"❗ Błąd uruchamiania transkrypcji: {e}")
-            self._is_running = False
-            self._update_buttons()
+    def _on_cancel_clicked(self) -> None:
+        if not self._transcribe_worker:
+            return
+        if not ask_cancel(self):
+            return
+        self._was_cancelled = True
+        self._transcribe_worker.cancel()
+        self._append_log(tr("log.unexpected", msg="⏹️ przerwano na żądanie"))
 
-    # slots for per-item UI updates from worker
+    def _on_transcribe_finished(self) -> None:
+        self._transcribe_thread = None
+        self._transcribe_worker = None
+        if not self._was_cancelled:
+            self._append_log(tr("log.done"))
+        self._update_buttons()
+
+    # ----- Row updates from worker -----
+
     @QtCore.pyqtSlot(str, str)
     def _on_item_status(self, key: str, status: str) -> None:
         row = self._row_by_key.get(key)
-        if row is not None:
-            self._set_row_status(row, status)
+        if row is None:
+            return
+        self.tbl_details.item(row, self.COL_STATUS).setText(status)
 
     @QtCore.pyqtSlot(str, str)
     def _on_item_path_update(self, old_key: str, new_local_path: str) -> None:
-        row = self._row_by_key.pop(old_key, None)
+        row = self._row_by_key.get(old_key)
         if row is None:
             return
-        self._row_by_key[new_local_path] = row
-        # update cells: now LOCAL file
-        p = Path(new_local_path)
-        self.tbl_details.item(row, self.COL_NAME).setText(p.stem)
         self.tbl_details.item(row, self.COL_SRC).setText("LOCAL")
         self.tbl_details.item(row, self.COL_PATH).setText(new_local_path)
-        # reset size/duration to be re-fetched in background
-        self.tbl_details.item(row, self.COL_SIZE).setText("-")
-        self.tbl_details.item(row, self.COL_DUR).setText("-")
-        # fetch metadata for this new file
-        self._refresh_details_for_keys([new_local_path])
+        self._row_by_key.pop(old_key, None)
+        self._row_by_key[new_local_path] = row
 
     @QtCore.pyqtSlot(str, str)
     def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
-        self._enable_row_preview(key, transcript_path)
-        # mark row as "Gotowe" in case it wasn't already
+        self._transcript_by_key[key] = transcript_path
         row = self._row_by_key.get(key)
-        if row is not None:
-            self._set_row_status(row, "Gotowe")
-
-    def _hard_cancel(self) -> None:
-        if self._transcribe_thread is None:
+        if row is None:
             return
-        self._append_log("🛑 Twarde przerwanie — zatrzymywanie wątku…")
-        self._was_cancelled = True
-        try:
-            if self._transcribe_worker is not None:
-                self._transcribe_worker.cancel()
-            self._transcribe_thread.terminate()
-            self._transcribe_thread.wait(2000)
-        except Exception as e:
-            self._append_log(f"❗ Błąd przy twardym przerwaniu: {e}")
-        finally:
-            self._transcribe_thread = None
-            self._transcribe_worker = None
-            self._is_running = False
-            self.progress.setValue(0)
-            self._append_log("⏹️ Zatrzymano.")
-            self._update_buttons()
-
-    def _on_cancel_clicked(self) -> None:
-        if not self._is_running:
-            return
-        if ask_cancel(self):
-            self._hard_cancel()
-
-    def _on_transcribe_finished(self) -> None:
-        self._append_log("✅ Zakończono transkrypcję.")
-
-    def _on_transcribe_thread_finished(self) -> None:
-        if self._was_cancelled:
-            self.progress.setValue(0)
-            self._was_cancelled = False
-        self._transcribe_thread = None
-        self._transcribe_worker = None
-        self._is_running = False
-        self._update_buttons()
+        w = self.tbl_details.cellWidget(row, self.COL_PREVIEW)
+        if isinstance(w, QtWidgets.QToolButton):
+            w.setEnabled(True)
 
     # ----- Buttons state -----
 
     def _update_buttons(self) -> None:
         has_items = self.tbl_details.rowCount() > 0
-        has_selection = len(self._rows_selected()) > 0
+        has_sel = bool(self._rows_selected())
+        model_ready = self.pipe is not None
+        running = self._transcribe_thread is not None
 
-        start_enabled = (self.pipe is not None) and has_items and not self._is_running
-        self.btn_start.setEnabled(start_enabled)
-
-        start_tip: List[str] = []
-        if self.pipe is None:
-            start_tip.append("Model nie jest jeszcze gotowy.")
-        if not has_items:
-            start_tip.append("Nie masz dodanych jeszcze żadnych plików/URL-i.")
-        if self._is_running:
-            start_tip.append("Transkrypcja już trwa.")
-        self.btn_start.setToolTip(" ".join(start_tip) if not start_enabled else "Rozpocznij transkrypcję wybranych pozycji.")
-        self.btn_cancel.setEnabled(self._is_running)
-        self.btn_cancel.setToolTip("Zatrzymaj natychmiast trwającą transkrypcję." if self._is_running else "Brak aktywnej transkrypcji do anulowania.")
-
-        clear_enabled = has_items and not self._is_running
-        self.btn_clear_list.setEnabled(clear_enabled)
-        self.btn_clear_list.setToolTip("Usuń wszystkie pozycje z listy." if clear_enabled else ("Nie można czyścić listy podczas transkrykcji." if self._is_running else "Lista jest już pusta."))
-
-        rem_enabled = has_selection and not self._is_running
-        self.btn_remove_selected.setEnabled(rem_enabled)
-        self.btn_remove_selected.setToolTip("Usuń zaznaczone pozycje." if rem_enabled else ("Zaznacz elementy na liście, aby je usunąć." if not has_selection else "Nie można usuwać podczas transkrykcji."))
-
-        self.btn_src_add.setEnabled(not self._is_running)
-        self.btn_add_files.setEnabled(not self._is_running)
-        self.btn_add_folder.setEnabled(not self._is_running)
-        self.src_edit.setEnabled(not self._is_running)
+        self.btn_start.setEnabled(has_items and model_ready and not running)
+        self.btn_cancel.setEnabled(running)
+        self.btn_clear_list.setEnabled(has_items and not running)
+        self.btn_remove_selected.setEnabled(has_sel and not running)
