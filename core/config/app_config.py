@@ -4,184 +4,180 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, Iterable, List, Tuple
 
 import torch
 
 
+class ConfigError(RuntimeError):
+    def __init__(self, key: str, **params: Any) -> None:
+        self.key = key
+        self.params = params
+        super().__init__(key)
+
+
 class AppConfig:
     """
-    Global runtime configuration and paths.
-
-    - Fixed paths/resources live in code.
-    - Defaults live in JSON (defaults.json) as a backup/factory profile.
-    - User settings live in JSON (settings.json) and override only the *user* section.
-    - Effective configuration = defaults[user] patched by settings[user]  +  defaults[system] (read-only).
+    Central configuration. From now on:
+    - settings.json is the single source of truth.
+    - defaults.json is only a template for manual restore, not an automatic fallback.
     """
 
-    # ---------- Fixed paths (not user-editable) ----------
     ROOT_DIR: Path = Path.cwd()
+    _CFG_DIR: Path = ROOT_DIR / "core" / "config"
+    _DEFAULTS_PATH: Path = _CFG_DIR / "defaults.json"
+    _SETTINGS_PATH: Path = _CFG_DIR / "settings.json"
 
+    DEFAULTS_RAW: Dict[str, Any] = {}
+    SETTINGS_RAW: Dict[str, Any] = {}
+
+    PATHS: Dict[str, Any] = {}
+    MEDIA: Dict[str, Any] = {}
+    MODEL: Dict[str, Any] = {}
+    USER: Dict[str, Any] = {}
+
+    SETTINGS_ISSUES: List[str] = []
+
+    # Derived paths
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
     MODELS_DIR: Path = RESOURCES_DIR / "models"
-    AI_ENGINE_DIR: Path = MODELS_DIR / "whisper-turbo"  # local AI engine dir
-
+    AI_ENGINE_DIR: Path = MODELS_DIR / "whisper-turbo"
     DATA_DIR: Path = ROOT_DIR / "data"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
-    INPUT_TMP_DIR: Path = DATA_DIR / ".input_tmp"           # created/cleaned per run by workers
+    INPUT_TMP_DIR: Path = DATA_DIR / ".input_tmp"
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
+    FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    FFMPEG_BIN_DIR: Path = FFMPEG_DIR  # resolved at runtime to ffmpeg/bin if present
-
-    # Supported extensions (single source of truth; not user-editable)
-    AUDIO_EXT = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".alac", ".aiff", ".opus", ".amr", ".mp2"}
-    VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".wmv", ".mpeg", ".mpg", ".m4v", ".3gp"}
-
-    # ---------- Config files ----------
-    _CFG_DIR: Path = ROOT_DIR / "core" / "config"
-    _SETTINGS_PATH: Path = _CFG_DIR / "settings.json"   # user profile
-    _DEFAULTS_PATH: Path = _CFG_DIR / "defaults.json"   # factory backup
-
-    # Built-in last-resort defaults (used only if defaults.json is missing/corrupted)
-    _BUILTIN_DEFAULTS: Dict[str, Dict[str, Any]] = {
-        "user": {
-            "language": "pl",                # "pl" | "en"
-            "preferred_device": "auto",      # "auto" | "cpu" | "gpu"
-            "precision": "auto",             # "auto" | "float32" | "float16" | "bfloat16"
-            "allow_tf32": True,
-            "timestamps_output": True,       # output with timestamps or single block
-            "keep_downloaded_files": True,   # keep media after URL transcription
-            "keep_wav_temp": False           # keep extracted wav files in temp
-        },
-        "system": {
-            "ai_engine_name": "whisper-turbo",
-            "local_models_only": True,
-            "chunk_length_s": 60,
-            "stride_length_s": 5
-        }
-    }
-
-    # Simple schema for validation
-    _USER_SCHEMA = {
-        "language": ("pl", "en"),
-        "preferred_device": ("auto", "cpu", "gpu"),
-        "precision": ("auto", "float32", "float16", "bfloat16"),
-        "allow_tf32": (bool,),
-        "timestamps_output": (bool,),
-        "keep_downloaded_files": (bool,),
-        "keep_wav_temp": (bool,),
-    }
-    _SYSTEM_SCHEMA = {
-        "ai_engine_name": (str,),
-        "local_models_only": (bool,),
-        "chunk_length_s": (int,),
-        "stride_length_s": (int,),
-    }
-
-    # Loaded raw and effective maps
-    DEFAULTS_RAW: Dict[str, Any] = {}
-    SETTINGS_USER_RAW: Dict[str, Any] = {}
-    USER_EFFECTIVE: Dict[str, Any] = {}
-    SYSTEM_EFFECTIVE: Dict[str, Any] = {}
-    SETTINGS_ISSUES: List[str] = []
-
-    # Derived runtime
+    # Runtime (device/dtype)
     DEVICE: torch.device = torch.device("cpu")
     DTYPE = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
     TF32_ENABLED: bool = False
 
-    # ---------- Low-level I/O ----------
+    # ---------- JSON helpers ----------
     @classmethod
     def _read_json(cls, path: Path) -> Dict[str, Any]:
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("root must be an object")
+        return data
 
     @classmethod
     def _write_json(cls, path: Path, data: Dict[str, Any]) -> None:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-    # ---------- Validation / merge ----------
-    @classmethod
-    def _validate_user(cls, raw: Dict[str, Any], base: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
-        issues: List[str] = []
-        out: Dict[str, Any] = dict(base)
-        for k, base_val in base.items():
-            if k not in raw:
-                issues.append(f"user.{k}: missing -> default '{base_val}'")
-                continue
-            v = raw[k]
-            allowed = cls._USER_SCHEMA.get(k)
-            if allowed is None:
-                out[k] = base_val
-                issues.append(f"user.{k}: unknown -> default '{base_val}'")
-                continue
-            if allowed == (bool,):
-                if isinstance(v, bool):
-                    out[k] = v
-                elif isinstance(v, str):
-                    out[k] = v.strip().lower() in ("1", "true", "yes", "y", "on")
-                else:
-                    out[k] = base_val
-                    issues.append(f"user.{k}: invalid type -> default '{base_val}'")
-            else:
-                v_str = str(v).lower()
-                if v_str in allowed:
-                    out[k] = v_str
-                else:
-                    out[k] = base_val
-                    issues.append(f"user.{k}: invalid value '{v}' -> default '{base_val}'")
-        return out, issues
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     @classmethod
-    def _validate_system(cls, raw: Dict[str, Any], base: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
-        issues: List[str] = []
-        out: Dict[str, Any] = dict(base)
-        for k, base_val in base.items():
-            v = raw.get(k, base_val)
-            schema = cls._SYSTEM_SCHEMA.get(k, (type(base_val),))
-            typ = schema[0]
-            if typ is bool:
-                if isinstance(v, bool):
-                    out[k] = v
-                elif isinstance(v, str):
-                    out[k] = v.strip().lower() in ("1", "true", "yes", "y", "on")
-                else:
-                    out[k] = base_val
-                    issues.append(f"system.{k}: invalid type -> default '{base_val}'")
-            elif typ is int:
-                try:
-                    out[k] = int(v)
-                except Exception:
-                    out[k] = base_val
-                    issues.append(f"system.{k}: invalid int -> default '{base_val}'")
-            elif typ is str:
-                out[k] = str(v)
-            else:
-                out[k] = base_val
-        return out, issues
+    def restore_settings_from_defaults(cls, sections: Iterable[str] | None = None) -> None:
+        defaults = cls._read_json(cls._DEFAULTS_PATH)
+        if sections is None:
+            data = defaults
+        else:
+            data = dict(cls.SETTINGS_RAW) if isinstance(cls.SETTINGS_RAW, dict) else {}
+            for sec in sections:
+                if sec in defaults:
+                    data[sec] = defaults[sec]
+        cls._write_json(cls._SETTINGS_PATH, data)
 
-    # ---------- Paths / binaries ----------
+    # ---------- Validation ----------
+    @staticmethod
+    def _ensure_dict(obj: Any, name: str) -> Dict[str, Any]:
+        if not isinstance(obj, dict):
+            raise ValueError(f"section '{name}' must be an object")
+        return obj
+
     @classmethod
-    def _ensure_paths(cls) -> None:
-        cls.RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
-        cls.FFMPEG_DIR.mkdir(parents=True, exist_ok=True)
-        cls.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        cls.AI_ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    def _validate_required_keys(cls, sec_name: str, src: Dict[str, Any], schema: Dict[str, Any]) -> None:
+        # Check presence of required keys (use keys from defaults.json as schema)
+        required = set(schema.keys())
+        present = set(src.keys())
+        missing = sorted(list(required - present))
+        if missing:
+            raise ValueError(f"{sec_name}: missing keys: {', '.join(missing)}")
 
-        cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        cls.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        cls.TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    @classmethod
+    def _validate_paths(cls, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        cls._validate_required_keys("paths", src, schema)
+        for k, v in src.items():
+            if not isinstance(v, str) or not v:
+                raise ValueError(f"paths.{k} must be a non-empty string")
+        return src
+
+    @classmethod
+    def _validate_media(cls, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        cls._validate_required_keys("media", src, schema)
+        def _norm_list(val: Any, key: str) -> List[str]:
+            if not isinstance(val, list) or not all(isinstance(x, (str, int, float)) for x in val):
+                raise ValueError(f"media.{key} must be a list of strings")
+            return [str(x).lower() for x in val]
+        out = {
+            "audio_ext": _norm_list(src["audio_ext"], "audio_ext"),
+            "video_ext": _norm_list(src["video_ext"], "video_ext"),
+        }
+        return out
+
+    @classmethod
+    def _validate_model(cls, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        cls._validate_required_keys("model", src, schema)
+        out: Dict[str, Any] = {}
+        out["ai_engine_name"] = str(src["ai_engine_name"])
+        out["local_models_only"] = bool(src["local_models_only"])
+        for k in ("chunk_length_s", "stride_length_s"):
+            if not isinstance(src[k], int):
+                raise ValueError(f"model.{k} must be int")
+            out[k] = int(src[k])
+        out["pipeline_task"] = str(src["pipeline_task"])
+        out["ignore_warning"] = bool(src["ignore_warning"])
+        out["default_language"] = src.get("default_language", None)
+        out["return_timestamps"] = bool(src["return_timestamps"])
+        out["use_safetensors"] = bool(src["use_safetensors"])
+        out["low_cpu_mem_usage"] = bool(src["low_cpu_mem_usage"])
+        return out
+
+    @classmethod
+    def _validate_user(cls, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        cls._validate_required_keys("user", src, schema)
+        def _enum(val: Any, allowed: Tuple[str, ...], key: str) -> str:
+            v = str(val).lower()
+            if v not in allowed:
+                raise ValueError(f"user.{key} invalid '{v}', allowed: {', '.join(allowed)}")
+            return v
+        out: Dict[str, Any] = {}
+        out["language"] = _enum(src["language"], ("pl", "en"), "language")
+        out["preferred_device"] = _enum(src["preferred_device"], ("auto", "cpu", "gpu"), "preferred_device")
+        out["precision"] = _enum(src["precision"], ("auto", "float32", "float16", "bfloat16"), "precision")
+        out["allow_tf32"] = bool(src["allow_tf32"])
+        out["timestamps_output"] = bool(src["timestamps_output"])
+        out["keep_downloaded_files"] = bool(src["keep_downloaded_files"])
+        out["keep_wav_temp"] = bool(src["keep_wav_temp"])
+        return out
+
+    # ---------- Apply paths/binaries ----------
+    @classmethod
+    def _apply_paths(cls) -> None:
+        def _resolve(p: str) -> Path:
+            path = Path(p)
+            return path if path.is_absolute() else (cls.ROOT_DIR / path)
+
+        resources = _resolve(cls.PATHS["resources_dir"])
+        data = _resolve(cls.PATHS["data_dir"])
+        cls.RESOURCES_DIR = resources
+        cls.FFMPEG_DIR = resources / cls.PATHS["ffmpeg_subdir"]
+        cls.MODELS_DIR = resources / cls.PATHS["models_subdir"]
+        cls.AI_ENGINE_DIR = cls.MODELS_DIR / cls.PATHS["ai_engine_subdir"]
+        cls.DATA_DIR = data
+        cls.DOWNLOADS_DIR = data / cls.PATHS["downloads_subdir"]
+        cls.INPUT_TMP_DIR = data / cls.PATHS["input_tmp_subdir"]
+        cls.TRANSCRIPTIONS_DIR = data / cls.PATHS["transcriptions_subdir"]
+
+    @classmethod
+    def _ensure_dirs(cls) -> None:
+        for p in (cls.RESOURCES_DIR, cls.FFMPEG_DIR, cls.MODELS_DIR, cls.AI_ENGINE_DIR,
+                  cls.DATA_DIR, cls.DOWNLOADS_DIR, cls.TRANSCRIPTIONS_DIR):
+            p.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def _setup_ffmpeg_on_path(cls) -> None:
@@ -205,10 +201,10 @@ class AppConfig:
         if ffprobe_exe.exists():
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
-    # ---------- Device / dtype ----------
+    # ---------- Device / DType ----------
     @classmethod
     def _resolve_device(cls) -> torch.device:
-        pref = str(cls.USER_EFFECTIVE.get("preferred_device", "auto")).lower()
+        pref = str(cls.USER.get("preferred_device", "auto")).lower()
         if os.environ.get("FORCE_CPU", "0") == "1":
             return torch.device("cpu")
         if pref == "cpu":
@@ -219,13 +215,13 @@ class AppConfig:
 
     @classmethod
     def _resolve_dtype(cls, device: torch.device):
-        pref = str(cls.USER_EFFECTIVE.get("precision", "auto")).lower()
+        prec = str(cls.USER.get("precision", "auto")).lower()
         if device.type == "cuda":
-            if pref == "float32":
+            if prec == "float32":
                 return torch.float32
-            if pref == "float16":
+            if prec == "float16":
                 return torch.float16
-            if pref == "bfloat16":
+            if prec == "bfloat16":
                 return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
             return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         return torch.float32
@@ -249,7 +245,7 @@ class AppConfig:
         except Exception:
             pass
 
-        allow_tf32 = bool(cls.USER_EFFECTIVE.get("allow_tf32", True))
+        allow_tf32 = bool(cls.USER.get("allow_tf32", True))
         if cls.DEVICE.type == "cuda" and allow_tf32:
             try:
                 torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore[attr-defined]
@@ -263,95 +259,110 @@ class AppConfig:
                 pass
             cls.TF32_ENABLED = False
 
-    # ---------- Public entry point ----------
+    # ---------- Public entry ----------
     @classmethod
     def initialize(cls) -> None:
-        """
-        Idempotent.
-        1) Ensure required folders exist.
-        2) Load defaults.json (or use built-in backup), then load settings.json.
-        3) Build effective maps: USER = defaults[user] patched by settings[user]; SYSTEM = defaults[system].
-        4) Expose ffmpeg and setup device/dtype/TF32 based on effective user prefs.
-        """
-        cls._ensure_paths()
+        if not cls._DEFAULTS_PATH.exists():
+            raise ConfigError("error.defaults_missing", path=str(cls._DEFAULTS_PATH))
 
-        # Load defaults (factory)
-        defaults = cls._read_json(cls._DEFAULTS_PATH)
-        if not defaults:
-            # write built-in defaults to defaults.json on first run
-            cls._write_json(cls._DEFAULTS_PATH, cls._BUILTIN_DEFAULTS)
-            defaults = dict(cls._BUILTIN_DEFAULTS)
-        cls.DEFAULTS_RAW = defaults
+        try:
+            defaults = cls._read_json(cls._DEFAULTS_PATH)
+            cls.DEFAULTS_RAW = defaults
+        except Exception as ex:
+            raise ConfigError("error.config.generic", detail=f"defaults.json: {ex}")
 
-        # Load user settings (do not create/overwrite silently)
-        user_raw = cls._read_json(cls._SETTINGS_PATH)
-        if not user_raw:
-            # create initial settings from built-in defaults' user section
-            self_seed = {"user": dict(cls._BUILTIN_DEFAULTS["user"])}
-            cls._write_json(cls._SETTINGS_PATH, self_seed)
-            user_raw = self_seed
-        cls.SETTINGS_USER_RAW = user_raw
+        if not cls._SETTINGS_PATH.exists():
+            raise ConfigError("error.settings_invalid", path=str(cls._DEFAULTS_PATH), detail="settings.json missing")
 
-        # Validate/merge (user overrides only the "user" part)
-        base_user = dict(defaults.get("user", cls._BUILTIN_DEFAULTS["user"]))
-        base_system = dict(defaults.get("system", cls._BUILTIN_DEFAULTS["system"]))
+        try:
+            settings = cls._read_json(cls._SETTINGS_PATH)
+            cls.SETTINGS_RAW = settings
+        except Exception as ex:
+            raise ConfigError("error.settings_invalid", path=str(cls._DEFAULTS_PATH), detail=f"invalid JSON: {ex}")
 
-        usr_effective, usr_issues = cls._validate_user(user_raw.get("user", {}), base_user)
-        sys_effective, sys_issues = cls._validate_system(defaults.get("system", {}), base_system)
+        # Shape/schema from defaults
+        schema_paths = cls._ensure_dict(defaults.get("paths", {}), "paths")
+        schema_media = cls._ensure_dict(defaults.get("media", {}), "media")
+        schema_model = cls._ensure_dict(defaults.get("model", {}), "model")
+        schema_user = cls._ensure_dict(defaults.get("user", {}), "user")
 
-        cls.USER_EFFECTIVE = usr_effective
-        cls.SYSTEM_EFFECTIVE = sys_effective
-        cls.SETTINGS_ISSUES = [*usr_issues, *sys_issues]
+        # Validate settings strictly (no fallback of values)
+        try:
+            src_paths = cls._ensure_dict(settings.get("paths", {}), "paths")
+            src_media = cls._ensure_dict(settings.get("media", {}), "media")
+            src_model = cls._ensure_dict(settings.get("model", {}), "model")
+            src_user = cls._ensure_dict(settings.get("user", {}), "user")
 
+            cls.PATHS = cls._validate_paths(src_paths, schema_paths)
+            cls.MEDIA = cls._validate_media(src_media, schema_media)
+            cls.MODEL = cls._validate_model(src_model, schema_model)
+            cls.USER = cls._validate_user(src_user, schema_user)
+        except Exception as ex:
+            raise ConfigError("error.settings_invalid", path=str(cls._DEFAULTS_PATH), detail=str(ex))
+
+        # Apply
+        cls._apply_paths()
+        cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
         cls._setup_device_dtype()
 
-    # ---------- Public helpers / accessors ----------
-    @classmethod
-    def save_settings(cls) -> None:
-        """
-        Persist only the 'user' section (system is factory-controlled via defaults.json).
-        """
-        data = {"user": dict(cls.USER_EFFECTIVE)}
-        cls._write_json(cls._SETTINGS_PATH, data)
-
-    @classmethod
-    def reset_to_defaults(cls, write: bool = True) -> None:
-        """
-        Reset settings.json to factory defaults (user section only).
-        """
-        defaults = cls._read_json(cls._DEFAULTS_PATH) or dict(cls._BUILTIN_DEFAULTS)
-        data = {"user": dict(defaults.get("user", cls._BUILTIN_DEFAULTS["user"]))}
-        if write:
-            cls._write_json(cls._SETTINGS_PATH, data)
-        cls.USER_EFFECTIVE = data["user"]
-
-    # User-facing prefs
+    # ---------- Accessors ----------
     @classmethod
     def language(cls) -> str:
-        return str(cls.USER_EFFECTIVE.get("language", "pl"))
+        return str(cls.USER.get("language", "pl"))
 
     @classmethod
-    def timestamps_output(cls) -> bool:
-        return bool(cls.USER_EFFECTIVE.get("timestamps_output", True))
+    def audio_extensions(cls) -> Tuple[str, ...]:
+        return tuple(cls.MEDIA.get("audio_ext", []))
 
     @classmethod
-    def keep_downloaded_files(cls) -> bool:
-        return bool(cls.USER_EFFECTIVE.get("keep_downloaded_files", True))
+    def video_extensions(cls) -> Tuple[str, ...]:
+        return tuple(cls.MEDIA.get("video_ext", []))
 
+    # Model knobs from JSON
     @classmethod
-    def keep_wav_temp(cls) -> bool:
-        return bool(cls.USER_EFFECTIVE.get("keep_wav_temp", False))
-
-    # System knobs (read-only from defaults)
-    @classmethod
-    def chunk_length_s(cls) -> int:
-        return int(cls.SYSTEM_EFFECTIVE.get("chunk_length_s", 60))
-
-    @classmethod
-    def stride_length_s(cls) -> int:
-        return int(cls.SYSTEM_EFFECTIVE.get("stride_length_s", 5))
+    def ai_engine_name(cls) -> str:
+        return str(cls.MODEL.get("ai_engine_name"))
 
     @classmethod
     def local_models_only(cls) -> bool:
-        return bool(cls.SYSTEM_EFFECTIVE.get("local_models_only", True))
+        return bool(cls.MODEL.get("local_models_only"))
+
+    @classmethod
+    def chunk_length_s(cls) -> int:
+        return int(cls.MODEL.get("chunk_length_s"))
+
+    @classmethod
+    def stride_length_s(cls) -> int:
+        return int(cls.MODEL.get("stride_length_s"))
+
+    @classmethod
+    def pipeline_task(cls) -> str:
+        return str(cls.MODEL.get("pipeline_task"))
+
+    @classmethod
+    def ignore_warning(cls) -> bool:
+        return bool(cls.MODEL.get("ignore_warning"))
+
+    @classmethod
+    def default_language(cls):
+        return cls.MODEL.get("default_language")
+
+    @classmethod
+    def return_timestamps(cls) -> bool:
+        return bool(cls.MODEL.get("return_timestamps"))
+
+    @classmethod
+    def use_safetensors(cls) -> bool:
+        return bool(cls.MODEL.get("use_safetensors"))
+
+    @classmethod
+    def low_cpu_mem_usage(cls) -> bool:
+        return bool(cls.MODEL.get("low_cpu_mem_usage"))
+
+    # Persist only user section
+    @classmethod
+    def save_user_settings(cls) -> None:
+        data = dict(cls.SETTINGS_RAW) if isinstance(cls.SETTINGS_RAW, dict) else {}
+        data["user"] = dict(cls.USER)
+        cls._write_json(cls._SETTINGS_PATH, data)

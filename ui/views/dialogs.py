@@ -2,88 +2,79 @@
 from __future__ import annotations
 
 from typing import Tuple
-
 from PyQt5 import QtWidgets
+
+from ui.i18n.translator import Translator
 
 
 def ask_cancel(parent: QtWidgets.QWidget) -> bool:
-    msg = QtWidgets.QMessageBox(parent)
-    msg.setIcon(QtWidgets.QMessageBox.Warning)
-    msg.setWindowTitle("Potwierdzenie anulowania")
-    msg.setText("Czy na pewno chcesz natychmiast przerwać bieżącą transkrypcję?")
-    msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-    msg.setDefaultButton(QtWidgets.QMessageBox.No)
-    ret = msg.exec_()
-    return ret == QtWidgets.QMessageBox.Yes
-
-
-class _ConflictDialog(QtWidgets.QDialog):
-    def __init__(self, stem: str, parent: QtWidgets.QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Konflikt: element już istnieje")
-        self.setModal(True)
-
-        layout = QtWidgets.QVBoxLayout(self)
-
-        info = QtWidgets.QLabel(
-            f"Folder docelowy dla „{stem}” już istnieje.\nWybierz działanie:"
-        )
-        layout.addWidget(info)
-
-        self.rb_skip = QtWidgets.QRadioButton("Pomiń ten element")
-        self.rb_overwrite = QtWidgets.QRadioButton("Nadpisz istniejącą zawartość")
-        self.rb_new = QtWidgets.QRadioButton("Utwórz nową wersję z inną nazwą")
-        self.rb_new.setChecked(False)
-        self.rb_skip.setChecked(True)
-
-        layout.addWidget(self.rb_skip)
-        layout.addWidget(self.rb_overwrite)
-        layout.addWidget(self.rb_new)
-
-        name_row = QtWidgets.QHBoxLayout()
-        name_row.addWidget(QtWidgets.QLabel("Nowa nazwa:"))
-        self.le_new = QtWidgets.QLineEdit(stem)
-        name_row.addWidget(self.le_new, 1)
-        layout.addLayout(name_row)
-
-        self.cb_apply_all = QtWidgets.QCheckBox("Zastosuj dla pozostałych")
-        layout.addWidget(self.cb_apply_all)
-
-        btns = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        )
-        btns.accepted.connect(self.accept)
-        btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
-
-        def _toggle_controls() -> None:
-            is_new = self.rb_new.isChecked()
-            self.le_new.setEnabled(is_new)
-            # Gdy wybrano „nową nazwę”, uniemożliwiamy „zastosuj dla pozostałych”
-            self.cb_apply_all.setEnabled(not is_new)
-            if is_new:
-                self.cb_apply_all.setChecked(False)
-
-        self.rb_skip.toggled.connect(_toggle_controls)
-        self.rb_overwrite.toggled.connect(_toggle_controls)
-        self.rb_new.toggled.connect(_toggle_controls)
-        _toggle_controls()
-
-    def result_values(self) -> Tuple[str, str, bool]:
-        if self.rb_skip.isChecked():
-            return "skip", "", self.cb_apply_all.isChecked()
-        if self.rb_overwrite.isChecked():
-            return "overwrite", "", self.cb_apply_all.isChecked()
-        return "new", self.le_new.text().strip(), False  # apply_all zawsze False dla „nowej nazwy”
+    title = Translator.tr("app.title")
+    text = Translator.tr("dialog.cancel_confirm", detail="")
+    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, title, text, parent=parent)
+    yes_btn = box.addButton(Translator.tr("action.cancel_now"), QtWidgets.QMessageBox.AcceptRole)
+    no_btn = box.addButton(Translator.tr("action.keep_working"), QtWidgets.QMessageBox.RejectRole)
+    box.setDefaultButton(no_btn)
+    box.exec_()
+    return box.clickedButton() is yes_btn
 
 
 def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
     """
-    Show conflict dialog.
-    Returns: (action, new_stem, apply_all)
-    action in {"skip","overwrite","new"}
+    Return (action, new_stem, apply_all)
+    action: "skip" | "overwrite" | "new"
     """
-    dlg = _ConflictDialog(stem, parent)
-    if dlg.exec_() == QtWidgets.QDialog.Accepted:
-        return dlg.result_values()
-    return "skip", "", False
+    dlg = QtWidgets.QDialog(parent)
+    dlg.setWindowTitle(Translator.tr("dialog.conflict.title"))
+    layout = QtWidgets.QVBoxLayout(dlg)
+
+    layout.addWidget(QtWidgets.QLabel(Translator.tr("dialog.conflict.text", name=stem)))
+
+    rb_skip = QtWidgets.QRadioButton(Translator.tr("dialog.conflict.skip"))
+    rb_over = QtWidgets.QRadioButton(Translator.tr("dialog.conflict.overwrite"))
+    rb_new = QtWidgets.QRadioButton(Translator.tr("dialog.conflict.new_name"))
+    rb_skip.setChecked(True)
+
+    layout.addWidget(rb_skip)
+    layout.addWidget(rb_over)
+    layout.addWidget(rb_new)
+
+    name_edit = QtWidgets.QLineEdit()
+    name_edit.setEnabled(False)
+    layout.addWidget(name_edit)
+
+    def on_toggle():
+        name_edit.setEnabled(rb_new.isChecked())
+
+    rb_new.toggled.connect(on_toggle)
+
+    cb_all = QtWidgets.QCheckBox(Translator.tr("dialog.conflict.apply_all"))
+    layout.addWidget(cb_all)
+
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    layout.addWidget(btns)
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return "skip", "", False
+
+    if rb_over.isChecked():
+        return "overwrite", "", cb_all.isChecked()
+    if rb_new.isChecked():
+        return "new", name_edit.text().strip(), False  # 'apply_all' disabled for new names
+    return "skip", "", cb_all.isChecked()
+
+
+def ask_restore_defaults(path_defaults: str, detail: str) -> bool:
+    """
+    Ask user to restore settings from defaults.json.
+    Returns True if user agrees.
+    """
+    title = Translator.tr("app.title")
+    text = Translator.tr("error.settings_invalid", path=path_defaults, detail=detail)
+    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, title, text)
+    restore_btn = box.addButton(Translator.tr("action.restore_defaults"), QtWidgets.QMessageBox.AcceptRole)
+    exit_btn = box.addButton(Translator.tr("action.exit"), QtWidgets.QMessageBox.RejectRole)
+    box.setDefaultButton(restore_btn)
+    box.exec_()
+    return box.clickedButton() is restore_btn

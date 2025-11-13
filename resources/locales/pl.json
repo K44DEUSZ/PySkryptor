@@ -1,6 +1,13 @@
 {
   "app.title": "PySkryptor",
 
+  "error.defaults_missing": "Brak pliku domyślnych ustawień: {path}. Dodaj defaults.json lub uruchom naprawę konfiguracji.",
+  "error.settings_invalid": "Plik ustawień jest uszkodzony lub niekompletny ({detail}). Przywrócić ustawienia domyślne z: {path}?",
+  "error.config.generic": "Błąd konfiguracji: {detail}",
+
+  "action.restore_defaults": "Przywróć ustawienia domyślne",
+  "action.exit": "Zamknij program",
+
   "tabs.group": "Zakładki",
   "tabs.files": "Transkrypcja plików",
   "tabs.downloader": "Downloader",
