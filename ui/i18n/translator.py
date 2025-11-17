@@ -12,16 +12,24 @@ _MESSAGES: Dict[str, str] = {}
 _CURRENT_LANG: str = "en"
 
 
+class I18nError(Exception):
+    """Error carrying a translation key; caller renders via Translator.tr(key, **params)."""
+    def __init__(self, key: str, **params: Any) -> None:
+        self.key = key
+        self.params = params
+        super().__init__(key)
+
+
 def _read_json(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, dict):
-        raise ValueError("locale file must contain a JSON object")
+        raise I18nError("error.i18n.locale_invalid", path=str(path))
     return data
 
 
 def system_lang_hint() -> str:
-    """Return system language as a short code like 'pl' or 'en-us'."""
+    """Return system language like 'pl' or 'en-us'."""
     loc = QtCore.QLocale.system()
     name = loc.name()  # e.g. 'pl_PL'
     parts = name.split("_")
@@ -31,16 +39,17 @@ def system_lang_hint() -> str:
 
 
 def discover_locales(locales_dir: Path) -> Set[str]:
-    """Discover available locale codes from *.json files in locales_dir."""
+    """Return available locale codes from *.json files."""
     available: Set[str] = set()
     if not locales_dir.exists():
         return available
     for p in locales_dir.glob("*.json"):
         code = p.stem.strip().lower().replace("_", "-")
-        if code:
-            available.add(code)
-            if "-" in code:
-                available.add(code.split("-", 1)[0])
+        if not code:
+            continue
+        available.add(code)
+        if "-" in code:
+            available.add(code.split("-", 1)[0])
     return available
 
 
@@ -58,11 +67,10 @@ def _pick_best(sys_hint: str, available: Set[str], fallback: str = "en") -> str:
 
 
 def load(locales_dir: Path, lang: str) -> None:
-    """Load exact language file (without discovery logic)."""
+    """Load exact language file (fallback to base language)."""
     global _MESSAGES, _CURRENT_LANG
     path: Optional[Path] = None
 
-    # Prefer exact match, then base language (e.g. pt-br -> pt)
     exact = locales_dir / f"{lang.lower()}.json"
     base = locales_dir / f"{lang.split('-', 1)[0].lower()}.json"
     if exact.exists():
@@ -71,23 +79,17 @@ def load(locales_dir: Path, lang: str) -> None:
         path = base
 
     if path is None:
-        raise FileNotFoundError(f"locale '{lang}' not found in {locales_dir}")
+        raise I18nError("error.i18n.locale_not_found", lang=lang, dir=str(locales_dir))
 
     messages = _read_json(path)
-    # Flatten only simple key -> string entries
     _MESSAGES = {k: str(v) for k, v in messages.items() if isinstance(k, str)}
     _CURRENT_LANG = lang
 
 
 def load_best(locales_dir: Path, system_first: bool = True, fallback: str = "en") -> None:
-    """
-    Discover available locales and load the best match.
-    - If system_first: use system language as primary hint.
-    - Otherwise: use 'fallback' as primary hint.
-    """
+    """Discover locales and load best match using system hint or fallback."""
     available = discover_locales(locales_dir)
     if not available:
-        # No locales available; keep empty dictionary
         return
     hint = system_lang_hint() if system_first else fallback
     picked = _pick_best(hint, available, fallback=fallback)
@@ -104,9 +106,7 @@ def tr(key: str, **params: Any) -> str:
 
 
 class Translator:
-    """
-    Backward-compatible static facade used across the app.
-    """
+    """Static facade used across the app."""
     @staticmethod
     def load(locales_dir: Path, lang: str) -> None:
         load(locales_dir, lang)
