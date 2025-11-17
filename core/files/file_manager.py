@@ -1,9 +1,9 @@
 # core/files/file_manager.py
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 import shutil
-from datetime import datetime
 
 from core.config.app_config import AppConfig as Config
 from core.io.audio_extractor import AudioExtractor
@@ -20,7 +20,7 @@ class FileManager:
     @staticmethod
     def plan_session() -> Path:
         """
-        Prepare a timestamped session path inside TRANSCRIPTIONS_DIR but do NOT create it yet.
+        Compute a timestamped session path inside TRANSCRIPTIONS_DIR but do NOT create it yet.
         The directory will be created lazily on first write.
         """
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -31,9 +31,7 @@ class FileManager:
 
     @staticmethod
     def ensure_session() -> Path:
-        """
-        Ensure the planned session directory exists (create once, lazily).
-        """
+        """Ensure the planned session directory exists (create once, lazily)."""
         if FileManager._session_dir is None:
             FileManager.plan_session()
         assert FileManager._session_dir is not None
@@ -44,15 +42,12 @@ class FileManager:
 
     @staticmethod
     def rollback_session_if_empty() -> None:
-        """
-        Remove the session directory if it exists and is empty.
-        """
+        """Remove the session directory if it exists and is empty."""
         sess = FileManager._session_dir
         if not sess:
             return
         if sess.exists() and sess.is_dir():
             try:
-                # Remove only if empty
                 next(sess.iterdir())
             except StopIteration:
                 shutil.rmtree(sess, ignore_errors=True)
@@ -74,15 +69,17 @@ class FileManager:
     def find_existing_output(stem: str) -> Path | None:
         """
         Return an existing output directory for given stem if it exists
-        in *any* previous session under TRANSCRIPTIONS_DIR.
+        in any previous session under TRANSCRIPTIONS_DIR.
         """
         safe = sanitize_filename(stem)
         root = Config.TRANSCRIPTIONS_DIR
-        # Check direct child (legacy layout)
+
+        # Legacy: direct child
         direct = root / safe
         if direct.exists():
             return direct
-        # Check any session subfolder
+
+        # Any dated session subfolder
         for sess in root.iterdir():
             if not sess.is_dir():
                 continue
@@ -95,14 +92,13 @@ class FileManager:
 
     @staticmethod
     def output_dir_for(stem: str) -> Path:
-        """Return target directory for a given logical item name (sanitized) inside session dir."""
+        """Return target directory for a given logical item name inside current session."""
         safe = sanitize_filename(stem)
         return FileManager.session_dir() / safe
 
     @staticmethod
     def ensure_output(stem: str) -> Path:
         """Ensure the output directory exists for given stem and return it."""
-        # Ensure session exists before creating item directory
         FileManager.ensure_session()
         out_dir = FileManager.output_dir_for(stem)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +114,8 @@ class FileManager:
         except StopIteration:
             shutil.rmtree(path, ignore_errors=True)
 
+    # ----- Temporary audio -----
+
     @staticmethod
     def ensure_tmp_wav(source: Path, log=print) -> Path:
         """
@@ -129,18 +127,41 @@ class FileManager:
         AudioExtractor.ensure_mono_16k(source, target, log=log)
         return target
 
+    # ----- Transcript paths -----
+
     @staticmethod
     def transcript_path(stem: str, filename: str = "transcript.txt") -> Path:
         """Return full path for transcript text file within item's output folder."""
         out_dir = FileManager.output_dir_for(stem)
         return out_dir / filename
 
+    # ----- Downloads helpers -----
+
+    @staticmethod
+    def _unique_path(dst: Path) -> Path:
+        """Return a unique path by appending (n) if needed."""
+        if not dst.exists():
+            return dst
+        stem = dst.stem
+        suffix = dst.suffix
+        parent = dst.parent
+        i = 1
+        while True:
+            cand = parent / f"{stem} ({i}){suffix}"
+            if not cand.exists():
+                return cand
+            i += 1
+
     @staticmethod
     def copy_to_downloads(src: Path) -> Path:
-        """Copy a file into downloads dir (no-op if already there)."""
+        """
+        Copy a file into downloads dir.
+        If a file with the same name exists, create a '(n)' suffixed copy.
+        """
         dst = Config.DOWNLOADS_DIR / src.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst = FileManager._unique_path(dst)
         if src.resolve() == dst.resolve():
             return dst
-        dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         return dst
