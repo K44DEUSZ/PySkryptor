@@ -39,7 +39,7 @@
   "log.add.missing": "⚠️ Ścieżka nie istnieje.",
   "log.add.ok": "✅ Dodano: {text}",
 
-  "log.start": "▶️ Start transkrykcji…",
+  "log.start": "▶️ Start transkrypcji…",
   "log.no_items": "ℹ️ Dodaj przynajmniej jedno źródło (plik lub URL).",
   "log.pipe_not_ready": "⚠️ Pipeline nie jest gotowy.",
   "log.session.plan": "🗂️ Sesja wynikowa (plan): {path}",
@@ -88,6 +88,9 @@
   "error.type_int": "Pole {field} musi być liczbą całkowitą.",
   "error.enum_invalid": "Pole {field} ma niepoprawną wartość „{value}”. Dozwolone: {allowed}.",
   "error.config.generic": "Błąd konfiguracji: {detail}",
+
+  "error.i18n.locale_not_found": "Nie znaleziono tłumaczenia dla „{lang}” w {dir}.",
+  "error.i18n.locale_invalid": "Plik tłumaczeń ma nieprawidłowy format: {path}.",
 
   "error.audio.ffmpeg_failed": "Konwersja audio (ffmpeg) nie powiodła się: {detail}",
   "error.audio.ffprobe_failed": "Odczyt długości (ffprobe) nie powiódł się dla pliku: {path}. Szczegóły: {detail}",

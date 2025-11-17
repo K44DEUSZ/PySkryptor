@@ -14,7 +14,7 @@
   "files.add": "Add",
   "files.add_files": "Add files…",
   "files.add_folder": "Add folder…",
-  "files.open_output": "Open transcriptions folder",
+  "files.open_output": "Open transcription folder",
   "files.remove_selected": "Remove selected",
   "files.clear": "Clear list",
 
@@ -30,7 +30,7 @@
   "ctrl.start": "Start transcription",
   "ctrl.cancel": "Cancel",
 
-  "log.init.bg": "🟢 Initialization — loading model in the background…",
+  "log.init.bg": "🟢 Initialization — loading model in background…",
   "log.model.init": "🟣 Initializing model…",
   "log.model.ready": "✅ Model loaded — you can start transcription",
   "log.model.error": "❌ Model load error: {msg}",
@@ -39,11 +39,11 @@
   "log.add.missing": "⚠️ Path does not exist.",
   "log.add.ok": "✅ Added: {text}",
 
-  "log.start": "▶️ Starting transcription…",
+  "log.start": "▶️ Transcription started…",
   "log.no_items": "ℹ️ Add at least one source (file or URL).",
-  "log.pipe_not_ready": "⚠️ Pipeline is not ready.",
-  "log.session.plan": "🗂️ Output session (plan): {path}",
-  "log.tmp.cleaned": "🧹 Cleaned temporary directory.",
+  "log.pipe_not_ready": "⚠️ Pipeline not ready.",
+  "log.session.plan": "🗂️ Planned output session: {path}",
+  "log.tmp.cleaned": "🧹 Temporary folder cleaned.",
   "log.done": "✅ Transcription finished.",
   "log.unexpected": "❗ Unexpected error: {msg}",
 
@@ -54,7 +54,7 @@
   "status.analyze": "Analyzing…",
   "status.error": "Error",
 
-  "down.url.placeholder": "Paste URL (e.g., YouTube/TikTok)…",
+  "down.url.placeholder": "Paste URL (e.g. YouTube/TikTok)…",
   "down.probe": "Analyze",
   "down.open_folder": "Open downloads folder",
   "down.meta.title": "Metadata",
@@ -76,21 +76,24 @@
   "down.log.downloaded": "✅ Downloaded: {path}",
   "down.log.error": "❌ Error: {msg}",
 
-  "error.defaults_missing": "Default settings file missing: {path}. Add defaults.json or run configuration repair.",
-  "error.settings_missing": "Settings file missing: {path}.",
+  "error.defaults_missing": "Missing defaults.json: {path}. Add defaults.json or run configuration repair.",
+  "error.settings_missing": "Missing settings file: {path}.",
   "error.settings_invalid": "Settings file is corrupted or incomplete ({detail}). Restore defaults from: {path}?",
   "error.json_invalid": "Invalid JSON file: {path}. Details: {detail}",
   "error.defaults_section_missing": "Missing section in defaults.json: {section}.",
   "error.settings_section_invalid": "Invalid section in settings.json: {section}.",
   "error.settings_missing_keys": "Missing keys in section {section}: {keys}.",
-  "error.type_string_nonempty": "Field {field} must be a non-empty string.",
-  "error.type_list_strings": "Field {field} must be a list of strings.",
-  "error.type_int": "Field {field} must be an integer.",
-  "error.enum_invalid": "Field {field} has invalid value “{value}”. Allowed: {allowed}.",
+  "error.type_string_nonempty": "{field} must be a non-empty string.",
+  "error.type_list_strings": "{field} must be a list of strings.",
+  "error.type_int": "{field} must be an integer.",
+  "error.enum_invalid": "{field} has invalid value “{value}”. Allowed: {allowed}.",
   "error.config.generic": "Configuration error: {detail}",
 
+  "error.i18n.locale_not_found": "Locale “{lang}” not found in {dir}.",
+  "error.i18n.locale_invalid": "Locale file has invalid format: {path}.",
+
   "error.audio.ffmpeg_failed": "Audio conversion (ffmpeg) failed: {detail}",
-  "error.audio.ffprobe_failed": "Duration read (ffprobe) failed for file: {path}. Details: {detail}",
+  "error.audio.ffprobe_failed": "Reading duration (ffprobe) failed for file: {path}. Details: {detail}",
 
   "error.model.load_failed": "Failed to load model: {detail}",
 
