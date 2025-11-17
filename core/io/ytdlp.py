@@ -7,40 +7,18 @@ from typing import Callable, Dict, Any, Optional, List
 from yt_dlp import YoutubeDL
 
 from core.config.app_config import AppConfig as Config
+from core.utils.logging import YtdlpQtLogger
 
 
-class YtdlpProxyLogger:
-    """Thin adapter to route yt_dlp logs into our GUI logger."""
-    def __init__(self, log: Optional[Callable[[str], None]] = None) -> None:
-        self._log = log or (lambda *_: None)
-
-    def debug(self, msg: str) -> None:
-        if msg.startswith("ERROR:"):
-            self._log(f"❌ {msg}")
-
-    def info(self, msg: str) -> None:
-        if msg and not msg.startswith("[debug]"):
-            self._log(msg)
-
-    def warning(self, msg: str) -> None:
-        if "UNPLAYABLE" in msg:
-            return
-        self._log(f"⚠️ {msg}")
-
-    def error(self, msg: str) -> None:
-        self._log(f"❌ {msg}")
-
-
-class YtDlpHandler:
-    """yt_dlp-based probe/download helper compatible with the refactored contracts."""
-
-    # ----- Options -----
+class YtDlpDownloader:
+    """Thin handler over yt_dlp: probe metadata and download media."""
 
     def _base_opts(self, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """Base YoutubeDL options shared by probe() and download()."""
         return {
             "quiet": True,
             "no_warnings": True,
-            "logger": YtdlpProxyLogger(log),
+            "logger": YtdlpQtLogger(log or (lambda *_: None)),
             "noplaylist": True,
             "prefer_ffmpeg": True,
             "ffmpeg_location": str(Config.FFMPEG_BIN_DIR),
@@ -50,14 +28,16 @@ class YtDlpHandler:
             "extract_flat": False,
             "list_unplayable_formats": False,
             "allow_unplayable_formats": False,
+            # Slightly broader impersonation to improve format availability
             "extractor_args": {
                 "youtube": {"player_client": ["android", "web"]},
             },
         }
 
-    # ----- Probe -----
+    # ---------- Metadata (no download) ----------
 
     def probe(self, url: str, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """Return extractor, title, duration, (approx) filesize and raw formats."""
         opts = self._base_opts(log)
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -95,56 +75,24 @@ class YtDlpHandler:
             "suggested_filename": title,
         }
 
-    # ----- Download -----
-
-    def _format_selector(self, *, kind: Optional[str], quality: Optional[str]) -> str:
-        k = (kind or "").lower()
-        q = (quality or "").lower()
-
-        if k == "audio":
-            if q.endswith("k"):
-                try:
-                    abr = int(q[:-1])
-                    return f"bestaudio[abr<={abr}]/bestaudio/best"
-                except Exception:
-                    return "bestaudio/best"
-            return "bestaudio/best"
-
-        # video or auto
-        if q.endswith("p"):
-            try:
-                h = int(q[:-1])
-                return f"bestvideo[height<={h}]+bestaudio/best[height<={h}]"
-            except Exception:
-                return "bestvideo*+bestaudio/best"
-        return "bestvideo*+bestaudio/best"
-
-    def _postprocessors(self, *, kind: Optional[str], ext: Optional[str]) -> List[Dict[str, Any]]:
-        pp: List[Dict[str, Any]] = []
-        if not ext:
-            return pp
-        e = ext.lower()
-        if (kind or "").lower() == "audio":
-            if e in {"mp3", "m4a", "aac", "wav", "flac", "opus"}:
-                pp.append({"key": "FFmpegExtractAudio", "preferredcodec": e, "preferredquality": "0"})
-        else:
-            if e in {"mp4", "mkv"}:
-                pp.append({"key": "FFmpegVideoConvertor", "preferedformat": e})
-        return pp
+    # ---------- Download ----------
 
     def download(
         self,
-        urls: List[str],
-        on_file_ready: Optional[Callable[[Path], None]],
-        log: Callable[[str], None],
+        url: str,
         *,
-        kind: Optional[str] = None,
-        quality: Optional[str] = None,
+        out_dir: Optional[Path] = None,
+        format_id: Optional[str] = None,
         ext: Optional[str] = None,
-        progress_cb: Optional[Callable[[int, str], None]] = None,  # percent, stage
-    ) -> List[Path]:
-        results: List[Path] = []
-        out_dir = Config.DOWNLOADS_DIR
+        progress_cb: Optional[Callable[[int, str], None]] = None,
+        log: Optional[Callable[[str], None]] = None,
+        postprocess_audio: bool = False,
+    ) -> Path:
+        """
+        Download a single URL to out_dir and return the final file path.
+        If postprocess_audio is True, extract audio (preferredcodec = ext or m4a).
+        """
+        out_dir = out_dir or Config.DOWNLOADS_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
 
         def _hook(d: Dict[str, Any]) -> None:
@@ -155,56 +103,47 @@ class YtDlpHandler:
                 total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                 done = d.get("downloaded_bytes") or 0
                 pct = int(done * 100 / total) if total else 0
-                progress_cb(pct, "download")
+                progress_cb(pct, "pobieranie")
             elif status == "finished":
                 progress_cb(100, "postprocess")
 
         outtmpl = str(out_dir / "%(title)s.%(ext)s")
-        fmt = self._format_selector(kind=kind, quality=quality)
-        postprocessors = self._postprocessors(kind=kind, ext=ext)
 
-        for url in urls:
-            if progress_cb:
-                progress_cb(0, "analyze")
+        opts: Dict[str, Any] = self._base_opts(log)
+        opts.update({"outtmpl": outtmpl, "progress_hooks": [_hook]})
 
-            opts: Dict[str, Any] = self._base_opts(log)
-            opts.update(
-                {
-                    "outtmpl": outtmpl,
-                    "format": fmt,
-                    "progress_hooks": [_hook],
-                }
+        if format_id:
+            opts["format"] = format_id
+        else:
+            # Default: best video+audio, or best audio if we postprocess to audio
+            opts["format"] = "bestaudio/best" if postprocess_audio else "bestvideo*+bestaudio/best"
+
+        postprocessors: List[Dict[str, Any]] = []
+        if postprocess_audio:
+            postprocessors.append(
+                {"key": "FFmpegExtractAudio", "preferredcodec": (ext or "m4a"), "preferredquality": "0"}
             )
-            if postprocessors:
-                opts["postprocessors"] = postprocessors
+        elif ext and ext.lower() in {"mp4", "mkv"}:
+            postprocessors.append({"key": "FFmpegVideoConvertor", "preferedformat": ext.lower()})
+        if postprocessors:
+            opts["postprocessors"] = postprocessors
 
-            # Prefer container if user requested specific ext and no audio-extract
-            if ext and (kind or "").lower() != "audio" and not postprocessors:
+        with YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            final_path = Path(ydl.prepare_filename(info))
+
+            # Try to get more precise path from requested_downloads
+            try:
+                rd = info.get("requested_downloads")
+                if rd and isinstance(rd, list):
+                    cand = rd[-1].get("filepath")
+                    if cand:
+                        final_path = Path(cand)
+            except Exception:
                 pass
 
-            with YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                final_path = Path(ydl.prepare_filename(info))
+            # If audio postprocessed with a chosen ext, fix suffix
+            if postprocess_audio and ext:
+                final_path = final_path.with_suffix(f".{ext}")
 
-                try:
-                    rd = info.get("requested_downloads")
-                    if rd and isinstance(rd, list):
-                        cand = rd[-1].get("filepath")
-                        if cand:
-                            final_path = Path(cand)
-                except Exception:
-                    pass
-
-                # If we extracted audio and specified ext, enforce suffix
-                if (kind or "").lower() == "audio" and ext:
-                    final_path = final_path.with_suffix(f".{ext.lower()}")
-
-                if on_file_ready:
-                    try:
-                        on_file_ready(final_path)
-                    except Exception:
-                        pass
-
-                results.append(final_path)
-
-        return results
+        return final_path
