@@ -8,74 +8,76 @@ from typing import Optional
 from core.config.app_config import AppConfig as Config
 
 
+class AudioError(RuntimeError):
+    """Audio error carrying a translation key + params (UI will localize)."""
+    def __init__(self, key: str, **params) -> None:
+        self.key = key
+        self.params = params
+        super().__init__(key)
+
+
 class AudioExtractor:
     """FFmpeg-based helpers for audio preparation and probing."""
 
     @staticmethod
-    def _bin(name: str) -> str:
-        """
-        Resolve executable path from bundled ffmpeg bin dir, fallback to plain name in PATH.
-        """
-        exe = f"{name}.exe" if Path().anchor and (Path().anchor != "/") else name
-        candidate = Config.FFMPEG_BIN_DIR / exe
-        return str(candidate) if candidate.exists() else name
+    def _ffmpeg_exe() -> str:
+        """Return absolute ffmpeg executable path or name on PATH."""
+        base = Config.FFMPEG_BIN_DIR
+        exe = "ffmpeg.exe" if Path().anchor or (hasattr(Path, "home") and Path.home().drive) else "ffmpeg"
+        cand = base / exe
+        return str(cand) if cand.exists() else "ffmpeg"
 
     @staticmethod
-    def _ffmpeg_bin() -> str:
-        return AudioExtractor._bin("ffmpeg")
+    def _ffprobe_exe() -> str:
+        """Return absolute ffprobe executable path or name on PATH."""
+        base = Config.FFMPEG_BIN_DIR
+        exe = "ffprobe.exe" if Path().anchor or (hasattr(Path, "home") and Path.home().drive) else "ffprobe"
+        cand = base / exe
+        return str(cand) if cand.exists() else "ffprobe"
 
     @staticmethod
-    def _ffprobe_bin() -> str:
-        return AudioExtractor._bin("ffprobe")
-
-    @staticmethod
-    def ensure_mono_16k(src: Path, dst: Path, log=print, verbose: bool = False) -> None:
+    def ensure_mono_16k(src: Path, dst: Path) -> None:
         """
-        Convert any media to WAV PCM 16 kHz mono suitable for Whisper. Overwrites if exists.
+        Convert any media to WAV PCM 16kHz mono (overwrite if exists).
+        Raises AudioError with i18n key on failure.
         """
         cmd = [
-            AudioExtractor._ffmpeg_bin(),
+            AudioExtractor._ffmpeg_exe(),
             "-y",
             "-i",
             str(src),
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
+            "-ar", "16000",
+            "-ac", "1",
             "-vn",
-            "-f",
-            "wav",
+            "-f", "wav",
             str(dst),
         ]
         try:
-            if verbose:
-                subprocess.run(cmd, check=True)
-            else:
-                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            log(str(dst))
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"ffmpeg failed: {e}") from e
+            raise AudioError("error.audio.ffmpeg_failed", detail=str(e), src=str(src))
 
     @staticmethod
     def probe_duration(path: Path) -> Optional[float]:
         """
-        Return media duration in seconds using ffprobe, or None if unavailable.
+        Return media duration in seconds using ffprobe.
+        Returns None if probing fails (non-fatal).
         """
         cmd = [
-            AudioExtractor._ffprobe_bin(),
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
+            AudioExtractor._ffprobe_exe(),
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
             str(path),
         ]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
             txt = (proc.stdout or "").strip()
-            if not txt:
-                return None
-            return float(txt)
+            return float(txt) if txt else None
         except Exception:
             return None

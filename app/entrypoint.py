@@ -1,50 +1,60 @@
 # app/entrypoint.py
 from __future__ import annotations
 
-import sys
+import locale
+from pathlib import Path
+from typing import Optional
+
 from PyQt5 import QtWidgets
 
-from core.config.app_config import AppConfig as Config, ConfigError
+from core.config.app_config import AppConfig as Config
 from ui.i18n.translator import Translator
-from ui.views.dialogs import ask_restore_defaults
 from ui.views.main_window import MainWindow
 
 
-def run() -> int:
+def _pick_language(locales_dir: Path, preferred: Optional[str]) -> str:
     """
-    Application entrypoint:
-    - Create QApplication
-    - Bootstrap translations (system language → fallback to EN)
-    - Initialize configuration (settings-first)
-    - On config error: offer to restore from defaults.json
-    - Reload translations using user's language and show the main window
+    Choose UI language in order:
+    1) preferred from settings.json (e.g. "pl", "en"),
+    2) system language (first two letters),
+    3) fallback: "en".
     """
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+    available = set(Translator.available_languages(locales_dir))
+    # settings.json preference
+    if preferred and preferred in available:
+        return preferred
 
-    # Early i18n so error dialogs are localized
-    Translator.load_best(Config.ROOT_DIR / "resources" / "locales")
-
+    # system language (e.g. "pl_PL" -> "pl")
     try:
-        Config.initialize()
-    except ConfigError as e:
-        wants_restore = ask_restore_defaults(str(Config._DEFAULTS_PATH), e.params.get("detail", ""))
-        if wants_restore:
-            try:
-                Config.restore_settings_from_defaults()
-                Config.initialize()
-            except Exception as ex2:
-                QtWidgets.QMessageBox.critical(
-                    None,
-                    Translator.tr("app.title"),
-                    Translator.tr("error.config.generic", detail=str(ex2)),
-                )
-                return 1
-        else:
-            return 1
+        sys_lang, _ = locale.getdefaultlocale()  # deprecated but ok for simple fallback
+    except Exception:
+        sys_lang = None
+    if sys_lang:
+        lang2 = sys_lang.split("_")[0].lower()
+        if lang2 in available:
+            return lang2
 
-    # Reload translations using the user's language after successful init
-    Translator.load_best(Config.RESOURCES_DIR / "locales", system_first=False, fallback=Config.language())
+    return "en"
 
+
+def run() -> int:
+    app = QtWidgets.QApplication([])
+
+    # Initialize runtime (paths, ffmpeg, device/dtype) via settings.json
+    Config.initialize()
+
+    # Load translations from JSON according to settings/fallbacks
+    locales_dir = Config.ROOT_DIR / "resources" / "locales"
+    lang = _pick_language(locales_dir, Config.language())
+    try:
+        Translator.load(locales_dir, lang=lang)
+    except Exception:
+        try:
+            Translator.load(locales_dir, lang="en")
+        except Exception:
+            pass
+
+    # Main window
     win = MainWindow()
     win.show()
     return app.exec_()

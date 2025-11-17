@@ -1,12 +1,8 @@
 {
   "app.title": "PySkryptor",
 
-  "error.defaults_missing": "Brak pliku domyślnych ustawień: {path}. Dodaj defaults.json lub uruchom naprawę konfiguracji.",
-  "error.settings_invalid": "Plik ustawień jest uszkodzony lub niekompletny ({detail}). Przywrócić ustawienia domyślne z: {path}?",
-  "error.config.generic": "Błąd konfiguracji: {detail}",
-
-  "action.restore_defaults": "Przywróć ustawienia domyślne",
   "action.exit": "Zamknij program",
+  "action.restore_defaults": "Przywróć ustawienia domyślne",
 
   "tabs.group": "Zakładki",
   "tabs.files": "Transkrypcja plików",
@@ -43,7 +39,7 @@
   "log.add.missing": "⚠️ Ścieżka nie istnieje.",
   "log.add.ok": "✅ Dodano: {text}",
 
-  "log.start": "▶️ Start transkrypcji…",
+  "log.start": "▶️ Start transkrykcji…",
   "log.no_items": "ℹ️ Dodaj przynajmniej jedno źródło (plik lub URL).",
   "log.pipe_not_ready": "⚠️ Pipeline nie jest gotowy.",
   "log.session.plan": "🗂️ Sesja wynikowa (plan): {path}",
@@ -78,5 +74,28 @@
   "down.log.meta_ready": "✅ Metadane gotowe.",
   "down.log.downloading": "⬇️ Pobieranie…",
   "down.log.downloaded": "✅ Pobrano: {path}",
-  "down.log.error": "❌ Błąd: {msg}"
+  "down.log.error": "❌ Błąd: {msg}",
+
+  "error.defaults_missing": "Brak pliku domyślnych ustawień: {path}. Dodaj defaults.json lub uruchom naprawę konfiguracji.",
+  "error.settings_missing": "Brak pliku ustawień: {path}.",
+  "error.settings_invalid": "Plik ustawień jest uszkodzony lub niekompletny ({detail}). Przywrócić ustawienia domyślne z: {path}?",
+  "error.json_invalid": "Nieprawidłowy plik JSON: {path}. Szczegóły: {detail}",
+  "error.defaults_section_missing": "Brak sekcji w defaults.json: {section}.",
+  "error.settings_section_invalid": "Sekcja w settings.json jest niepoprawna: {section}.",
+  "error.settings_missing_keys": "W sekcji {section} brakuje kluczy: {keys}.",
+  "error.type_string_nonempty": "Pole {field} musi być niepustym łańcuchem.",
+  "error.type_list_strings": "Pole {field} musi być listą napisów.",
+  "error.type_int": "Pole {field} musi być liczbą całkowitą.",
+  "error.enum_invalid": "Pole {field} ma niepoprawną wartość „{value}”. Dozwolone: {allowed}.",
+  "error.config.generic": "Błąd konfiguracji: {detail}",
+
+  "error.audio.ffmpeg_failed": "Konwersja audio (ffmpeg) nie powiodła się: {detail}",
+  "error.audio.ffprobe_failed": "Odczyt długości (ffprobe) nie powiódł się dla pliku: {path}. Szczegóły: {detail}",
+
+  "error.model.load_failed": "Nie udało się załadować modelu: {detail}",
+
+  "error.down.invalid_url": "Niepoprawny adres URL: {url}",
+  "error.down.probe_failed": "Analiza URL nie powiodła się: {detail}",
+  "error.down.output_dir": "Nie można utworzyć katalogu wyjściowego: {path}. Szczegóły: {detail}",
+  "error.down.download_failed": "Pobieranie nie powiodło się: {detail}"
 }
