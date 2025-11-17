@@ -1,11 +1,15 @@
-# pyskryptor/core/io/microphone.py
+# core/io/microphone.py
 from __future__ import annotations
 
 from typing import Iterable
 
 
 class MicrophoneSource:
-    """Stub microphone source for future live STT."""
+    """
+    Stub microphone source for future live STT.
+
+    Matches AudioSource Protocol: start()/stop()/frames().
+    """
 
     def start(self) -> None:
         pass

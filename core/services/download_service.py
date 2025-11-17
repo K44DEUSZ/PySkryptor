@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable, Optional, Dict, Any
 
 from core.config.app_config import AppConfig as Config
-from core.io.ytdlp_downloader import YtDlpDownloader
+from core.io.ytdlp import YtDlpDownloader
 from core.utils.text import is_url, sanitize_filename
 
 

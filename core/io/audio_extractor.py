@@ -12,32 +12,26 @@ class AudioExtractor:
     """FFmpeg-based helpers for audio preparation and probing."""
 
     @staticmethod
+    def _bin(name: str) -> str:
+        """
+        Resolve executable path from bundled ffmpeg bin dir, fallback to plain name in PATH.
+        """
+        exe = f"{name}.exe" if Path().anchor and (Path().anchor != "/") else name
+        candidate = Config.FFMPEG_BIN_DIR / exe
+        return str(candidate) if candidate.exists() else name
+
+    @staticmethod
     def _ffmpeg_bin() -> str:
-        # Try configured binary, fallback to PATH
-        for attr in ("FFMPEG_PATH", "FFMPEG_BIN", "FFMPEG"):
-            p = getattr(Config, attr, None)
-            if p:
-                return str(p)
-        return "ffmpeg"
+        return AudioExtractor._bin("ffmpeg")
 
     @staticmethod
     def _ffprobe_bin() -> str:
-        for attr in ("FFPROBE_PATH", "FFPROBE_BIN", "FFPROBE"):
-            p = getattr(Config, attr, None)
-            if p:
-                return str(p)
-        # Some bundles ship ffprobe next to ffmpeg
-        ffmpeg = AudioExtractor._ffmpeg_bin()
-        if "ffmpeg" in ffmpeg:
-            candidate = ffmpeg.replace("ffmpeg", "ffprobe")
-            return candidate
-        return "ffprobe"
+        return AudioExtractor._bin("ffprobe")
 
     @staticmethod
-    def ensure_mono_16k(src: Path, dst: Path, log=print) -> None:
+    def ensure_mono_16k(src: Path, dst: Path, log=print, verbose: bool = False) -> None:
         """
-        Convert any media to wav PCM 16kHz mono suitable for Whisper.
-        Overwrite if exists.
+        Convert any media to WAV PCM 16 kHz mono suitable for Whisper. Overwrites if exists.
         """
         cmd = [
             AudioExtractor._ffmpeg_bin(),
@@ -54,7 +48,10 @@ class AudioExtractor:
             str(dst),
         ]
         try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if verbose:
+                subprocess.run(cmd, check=True)
+            else:
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             log(str(dst))
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"ffmpeg failed: {e}") from e
@@ -62,7 +59,7 @@ class AudioExtractor:
     @staticmethod
     def probe_duration(path: Path) -> Optional[float]:
         """
-        Return media duration in seconds (float) using ffprobe, or None if unavailable.
+        Return media duration in seconds using ffprobe, or None if unavailable.
         """
         cmd = [
             AudioExtractor._ffprobe_bin(),
