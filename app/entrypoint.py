@@ -26,7 +26,7 @@ def _pick_language(locales_dir: Path, preferred: Optional[str]) -> str:
 
     # system language (e.g. "pl_PL" -> "pl")
     try:
-        sys_lang, _ = locale.getdefaultlocale()  # deprecated but ok for simple fallback
+        sys_lang, _ = locale.getdefaultlocale()
     except Exception:
         sys_lang = None
     if sys_lang:
