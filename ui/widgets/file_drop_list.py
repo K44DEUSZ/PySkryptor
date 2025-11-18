@@ -2,32 +2,46 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Iterable
 
 from PyQt5 import QtCore, QtWidgets
 
 from core.config.app_config import AppConfig as Config
 
 
-def _is_supported(path: Path) -> bool:
-    if not path.is_file():
-        return False
-    return path.suffix.lower() in (Config.AUDIO_EXT | Config.VIDEO_EXT)
+def _supported_suffixes() -> set[str]:
+    """
+    Collect supported suffixes (lowercased, with leading dot) from settings-driven config.
+    """
+    audio = set(Config.audio_extensions())
+    video = set(Config.video_extensions())
+    return {s.lower() if s.startswith(".") else f".{s.lower()}" for s in (audio | video)}
 
 
-def _flatten_supported_from_dir(dir_path: Path) -> List[Path]:
-    files: List[Path] = []
+def _is_supported(path: Path, *, allowed: set[str]) -> bool:
+    """
+    Return True if path is a file and its suffix is in allowed set.
+    """
+    return path.is_file() and path.suffix.lower() in allowed
+
+
+def _flatten_supported_from_dir(dir_path: Path, *, allowed: set[str]) -> Iterable[Path]:
+    """
+    Yield all supported files from a directory (recursive).
+    """
     for p in dir_path.rglob("*"):
-        if p.is_file() and _is_supported(p):
-            files.append(p)
-    return files
+        if _is_supported(p, allowed=allowed):
+            yield p
 
 
 class FileDropList(QtWidgets.QListWidget):
     """
-    Prosty widżet obsługujący drag&drop plików/folderów.
-    Sygnał `pathsDropped` emituje listę ścieżek (str) po odfiltrowaniu
-    do wspieranych rozszerzeń z Config.AUDIO_EXT | Config.VIDEO_EXT.
+    Lightweight drag&drop emitter.
+
+    - Accepts files/folders/URL-list drops from the OS.
+    - Filters files by extensions defined in settings (Config.audio_extensions/video_extensions).
+    - Emits `pathsDropped: list[str]` with de-duplicated absolute paths.
+    - Does NOT add items to itself (keeps UI responsibility in parent panel).
     """
     pathsDropped = QtCore.pyqtSignal(list)
 
@@ -37,52 +51,48 @@ class FileDropList(QtWidgets.QListWidget):
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
 
-    # --- Qt DnD ---
+    # ---------- Qt DnD ----------
 
-    def dragEnterEvent(self, e: QtGui.QDragEnterEvent) -> None:  # type: ignore[name-defined]
+    def dragEnterEvent(self, e):  # type: ignore[override]
         if e.mimeData().hasUrls() or e.mimeData().hasText():
             e.acceptProposedAction()
         else:
             e.ignore()
 
-    def dragMoveEvent(self, e: QtGui.QDragMoveEvent) -> None:  # type: ignore[name-defined]
+    def dragMoveEvent(self, e):  # type: ignore[override]
         if e.mimeData().hasUrls() or e.mimeData().hasText():
             e.acceptProposedAction()
         else:
             e.ignore()
 
-    def dropEvent(self, e: QtGui.QDropEvent) -> None:  # type: ignore[name-defined]
+    def dropEvent(self, e):  # type: ignore[override]
+        allowed = _supported_suffixes()
         paths: List[Path] = []
 
+        # File/dir URLs
         if e.mimeData().hasUrls():
             for url in e.mimeData().urls():
                 p = Path(url.toLocalFile())
                 if not p.exists():
                     continue
                 if p.is_dir():
-                    paths.extend(_flatten_supported_from_dir(p))
-                elif _is_supported(p):
+                    paths.extend(_flatten_supported_from_dir(p, allowed=allowed))
+                elif _is_supported(p, allowed=allowed):
                     paths.append(p)
 
-        # (opcjonalnie) tekstowe ścieżki przeciągnięte z eksploratora
+        # Text payload (some explorers drop plain text paths)
         if e.mimeData().hasText():
             for line in e.mimeData().text().splitlines():
-                try:
-                    p = Path(line.strip())
-                except Exception:
-                    continue
+                p = Path(line.strip())
                 if p.exists():
                     if p.is_dir():
-                        paths.extend(_flatten_supported_from_dir(p))
-                    elif _is_supported(p):
+                        paths.extend(_flatten_supported_from_dir(p, allowed=allowed))
+                    elif _is_supported(p, allowed=allowed):
                         paths.append(p)
 
-        # deduplikacja i emisja
+        # De-duplicate (preserve order)
         out = [str(p) for p in dict.fromkeys(paths)]
         if out:
             self.pathsDropped.emit(out)
-            # opcjonalnie pokaż na liście (widżet bywa ukryty w UI)
-            for s in out:
-                self.addItem(s)
 
         e.acceptProposedAction()

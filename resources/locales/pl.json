@@ -3,14 +3,14 @@
 
   "action.exit": "Zamknij program",
   "action.restore_defaults": "Przywróć ustawienia domyślne",
-  "action.cancel_now": "Przerwij teraz",
-  "action.keep_working": "Kontynuuj",
 
   "tabs.group": "Zakładki",
   "tabs.files": "Transkrypcja plików",
   "tabs.downloader": "Downloader",
   "tabs.live": "Transkrypcja live",
   "tabs.settings": "Ustawienia",
+
+  "ui.placeholder.soon": "— w przygotowaniu.",
 
   "files.placeholder": "Wklej ścieżkę pliku lub adres URL…",
   "files.add": "Dodaj",
@@ -45,9 +45,11 @@
   "log.no_items": "ℹ️ Dodaj przynajmniej jedno źródło (plik lub URL).",
   "log.pipe_not_ready": "⚠️ Pipeline nie jest gotowy.",
   "log.session.plan": "🗂️ Sesja wynikowa (plan): {path}",
-  "log.tmp.cleaned": "🧹 Wyczyczczono katalog tymczasowy.",
+  "log.tmp.cleaned": "🧹 Wyczyszczono katalog tymczasowy.",
   "log.done": "✅ Zakończono transkrypcję.",
   "log.unexpected": "❗ Nieoczekiwany błąd: {msg}",
+  "log.transcript.saved": "💾 Zapisano transkrypt: {path}",
+  "log.cancelled": "⏹️ Operację przerwano.",
 
   "status.skipped": "Pominięto",
   "status.prep": "Przygotowanie audio…",
@@ -55,6 +57,7 @@
   "status.dl": "Pobieranie…",
   "status.analyze": "Analiza…",
   "status.error": "Błąd",
+  "status.done": "Gotowe",
 
   "down.url.placeholder": "Wklej URL (np. YouTube/TikTok)…",
   "down.probe": "Analizuj",
@@ -77,14 +80,7 @@
   "down.log.downloading": "⬇️ Pobieranie…",
   "down.log.downloaded": "✅ Pobrano: {path}",
   "down.log.error": "❌ Błąd: {msg}",
-
-  "dialog.cancel_confirm": "Czy na pewno chcesz przerwać trwającą operację? Niezapisane postępy mogą zostać utracone.",
-  "dialog.conflict.title": "Konflikt nazw",
-  "dialog.conflict.text": "Element „{name}” już istnieje w wynikach. Co chcesz zrobić?",
-  "dialog.conflict.skip": "Pomiń ten element",
-  "dialog.conflict.overwrite": "Nadpisz istniejący",
-  "dialog.conflict.new_name": "Zapisz pod nową nazwą:",
-  "dialog.conflict.apply_all": "Zastosuj do wszystkich kolejnych konfliktów (jeśli możliwe)",
+  "down.log.cancelled": "⏹️ Pobieranie przerwane.",
 
   "error.defaults_missing": "Brak pliku domyślnych ustawień: {path}. Dodaj defaults.json lub uruchom naprawę konfiguracji.",
   "error.settings_missing": "Brak pliku ustawień: {path}.",
@@ -98,6 +94,7 @@
   "error.type_int": "Pole {field} musi być liczbą całkowitą.",
   "error.enum_invalid": "Pole {field} ma niepoprawną wartość „{value}”. Dozwolone: {allowed}.",
   "error.config.generic": "Błąd konfiguracji: {detail}",
+  "error.config.unknown_action": "Nieznana akcja workera: {action}",
 
   "error.i18n.locale_not_found": "Nie znaleziono tłumaczenia dla „{lang}” w {dir}.",
   "error.i18n.locale_invalid": "Plik tłumaczeń ma nieprawidłowy format: {path}.",

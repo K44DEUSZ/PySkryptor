@@ -8,6 +8,7 @@ from PyQt5 import QtCore
 
 from core.config.app_config import AppConfig as Config
 from core.services.download_service import DownloadService
+from core.utils.concurrency import CancellationToken
 from ui.i18n.translator import tr
 
 
@@ -35,44 +36,99 @@ class DownloadWorker(QtCore.QObject):
         self._quality = quality
         self._ext = ext
         self._svc = DownloadService()
+        self._token = CancellationToken()
+
+    # ---------- Cancellation ----------
+
+    @QtCore.pyqtSlot()
+    def cancel(self) -> None:
+        self._token.cancel()
+
+    def _is_cancelled(self) -> bool:
+        # token OR thread-level interruption
+        if self._token.is_cancelled:
+            return True
+        th = QtCore.QThread.currentThread()
+        return bool(th and th.isInterruptionRequested())
+
+    # ---------- Main ----------
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         try:
+            if self._action not in ("probe", "download"):
+                self.download_error.emit(tr("error.config.unknown_action", action=self._action))
+                return
+
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+                return
+
             if self._action == "probe":
                 self._do_probe()
-            elif self._action == "download":
-                self._do_download()
             else:
-                self.download_error.emit(tr("down.log.error", msg=f"Nieznana akcja: {self._action}"))
+                self._do_download()
         except Exception as e:
-            self.download_error.emit(str(e))
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+            else:
+                self.download_error.emit(tr("error.down.download_failed", detail=str(e)))
         finally:
             self.finished.emit()
 
     def _do_probe(self) -> None:
-        self.progress_log.emit(tr("down.log.analyze"))
-        meta = self._svc.probe(self._url, log=lambda m: None)
-        self.meta_ready.emit(meta)
-        self.progress_log.emit(tr("down.log.meta_ready"))
+        try:
+            self.progress_log.emit(tr("down.log.analyze"))
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+                return
+            meta = self._svc.probe(self._url, log=lambda m: None)
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+                return
+            self.meta_ready.emit(meta)
+            self.progress_log.emit(tr("down.log.meta_ready"))
+        except Exception as e:
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+            else:
+                self.download_error.emit(tr("error.down.probe_failed", detail=str(e)))
 
     def _do_download(self) -> None:
-        def _on_progress(pct: int, stage: str) -> None:
+        def _on_progress(pct: int, _stage: str) -> None:
+            # If cancelled mid-download: stop yt_dlp by raising
+            if self._is_cancelled():
+                raise RuntimeError("cancelled")
             self.progress_pct.emit(max(0, min(100, int(pct))))
 
-        self.progress_log.emit(tr("down.log.downloading"))
-        path = self._svc.download(
-            url=self._url,
-            kind=self._kind or "video",
-            quality=self._quality or "auto",
-            ext=self._ext or "mp4",
-            out_dir=Config.DOWNLOADS_DIR,
-            progress_cb=_on_progress,
-            log=lambda m: None,
-        )
-        if not path:
-            self.download_error.emit(tr("down.log.error", msg="Brak pliku wyjściowego."))
-            return
-        self.progress_pct.emit(100)
-        self.progress_log.emit(tr("down.log.downloaded", path=str(path)))
-        self.download_finished.emit(path)
+        try:
+            self.progress_log.emit(tr("down.log.downloading"))
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+                return
+
+            path = self._svc.download(
+                url=self._url,
+                kind=(self._kind or "video"),
+                quality=(self._quality or "auto"),
+                ext=(self._ext or "mp4"),
+                out_dir=Config.DOWNLOADS_DIR,
+                progress_cb=_on_progress,
+                log=lambda m: None,
+            )
+            if self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+                return
+
+            if not path:
+                self.download_error.emit(tr("error.down.download_failed", detail="no output file"))
+                return
+
+            self.progress_pct.emit(100)
+            self.progress_log.emit(tr("down.log.downloaded", path=str(path)))
+            self.download_finished.emit(path)
+        except Exception as e:
+            if str(e).lower().strip() == "cancelled" or self._is_cancelled():
+                self.progress_log.emit(tr("down.log.cancelled"))
+            else:
+                self.download_error.emit(tr("error.down.download_failed", detail=str(e)))
