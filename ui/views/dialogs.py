@@ -63,18 +63,3 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
     if rb_new.isChecked():
         return "new", name_edit.text().strip(), False  # 'apply_all' disabled for new names
     return "skip", "", cb_all.isChecked()
-
-
-def ask_restore_defaults(path_defaults: str, detail: str) -> bool:
-    """
-    Ask user to restore settings from defaults.json.
-    Returns True if user agrees.
-    """
-    title = Translator.tr("app.title")
-    text = Translator.tr("error.settings_invalid", path=path_defaults, detail=detail)
-    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, title, text)
-    restore_btn = box.addButton(Translator.tr("action.restore_defaults"), QtWidgets.QMessageBox.AcceptRole)
-    exit_btn = box.addButton(Translator.tr("action.exit"), QtWidgets.QMessageBox.RejectRole)
-    box.setDefaultButton(restore_btn)
-    box.exec_()
-    return box.clickedButton() is restore_btn

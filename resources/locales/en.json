@@ -3,6 +3,8 @@
 
   "action.exit": "Exit",
   "action.restore_defaults": "Restore default settings",
+  "action.cancel_now": "Cancel now",
+  "action.keep_working": "Keep working",
 
   "tabs.group": "Tabs",
   "tabs.files": "File transcription",
@@ -75,6 +77,14 @@
   "down.log.downloading": "⬇️ Downloading…",
   "down.log.downloaded": "✅ Downloaded: {path}",
   "down.log.error": "❌ Error: {msg}",
+
+  "dialog.cancel_confirm": "Are you sure you want to cancel the ongoing operation? Unsaved progress may be lost.",
+  "dialog.conflict.title": "Name conflict",
+  "dialog.conflict.text": "Item “{name}” already exists in the results. What would you like to do?",
+  "dialog.conflict.skip": "Skip this item",
+  "dialog.conflict.overwrite": "Overwrite existing",
+  "dialog.conflict.new_name": "Save under a new name:",
+  "dialog.conflict.apply_all": "Apply to all following conflicts (when possible)",
 
   "error.defaults_missing": "Missing defaults.json: {path}. Add defaults.json or run configuration repair.",
   "error.settings_missing": "Missing settings file: {path}.",
