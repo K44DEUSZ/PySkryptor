@@ -11,8 +11,7 @@ from PyQt5 import QtCore
 from core.config.app_config import AppConfig as Config
 from core.files.file_manager import FileManager
 from core.services.download_service import DownloadService
-from core.utils.text_postprocessor import TextPostprocessor
-from core.utils.text import is_url, sanitize_filename
+from core.utils.text import is_url, sanitize_filename, TextPostprocessor
 from ui.i18n.translator import tr
 
 GUIEntry = Union[str, Dict[str, Any]]

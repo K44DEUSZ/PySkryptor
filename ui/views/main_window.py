@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets
 
 from ui.i18n.translator import tr
 from ui.views.files_panel import FilesPanel

@@ -7,8 +7,7 @@ from typing import Optional, List, Dict, Any
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
-from core.files.file_manager import FileManager
-from core.utils.text import format_bytes, format_hms, sanitize_filename, is_url
+from core.utils.text import format_bytes, format_hms, is_url
 from ui.i18n.translator import tr
 from ui.widgets.file_drop_list import FileDropList
 from ui.workers.model_loader_worker import ModelLoadWorker
@@ -298,7 +297,6 @@ class FilesPanel(QtWidgets.QWidget):
         self._loader_worker = ModelLoadWorker()
         self._loader_worker.moveToThread(self._loader_thread)
         self._loader_thread.started.connect(self._loader_worker.run)
-        self._loader_worker.progress_log.connect(self._append_log)
         self._loader_worker.model_ready.connect(self._on_model_ready)
         self._loader_worker.model_error.connect(self._on_model_error)
         self._loader_worker.finished.connect(self._loader_thread.quit)

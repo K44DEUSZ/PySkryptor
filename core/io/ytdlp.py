@@ -10,7 +10,7 @@ from core.config.app_config import AppConfig as Config
 from core.utils.logging import YtdlpQtLogger
 
 
-class YtDlpDownloader:
+class YtDlpHandler:
     """Thin handler over yt_dlp: probe metadata and download media."""
 
     def _base_opts(self, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
