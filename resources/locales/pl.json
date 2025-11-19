@@ -4,6 +4,9 @@
   "action.exit": "Zamknij program",
   "action.restore_defaults": "Przywróć ustawienia domyślne",
 
+  "info.settings_restored_missing": "Plik ustawień nie istniał i został odtworzony z domyślnych.",
+  "info.settings_restored_invalid": "Plik ustawień był uszkodzony i został naprawiony na podstawie domyślnych.",
+
   "tabs.group": "Zakładki",
   "tabs.files": "Transkrypcja plików",
   "tabs.downloader": "Downloader",

@@ -4,6 +4,9 @@
   "action.exit": "Exit",
   "action.restore_defaults": "Restore default settings",
 
+  "info.settings_restored_missing": "Settings file was missing and has been recreated from defaults.",
+  "info.settings_restored_invalid": "Settings file was invalid and has been repaired using defaults.",
+
   "tabs.group": "Tabs",
   "tabs.files": "File transcription",
   "tabs.downloader": "Downloader",

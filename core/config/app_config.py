@@ -18,15 +18,16 @@ class ConfigError(RuntimeError):
 class AppConfig:
     """
     Central runtime configuration (paths, binaries, device/dtype).
-    Does NOT read JSON directly; consumes SettingsService.
+    Consumes SettingsService; does not read JSON directly.
     """
 
-    # Derived paths (filled during initialize)
-    ROOT_DIR: Path = Path.cwd()
+    # ---------- Derived paths (filled during initialize) ----------
+    ROOT_DIR: Path = Path(__file__).resolve().parents[2]
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
     MODELS_DIR: Path = RESOURCES_DIR / "models"
     AI_ENGINE_DIR: Path = MODELS_DIR / "whisper-turbo"
+    LOCALES_DIR: Path = RESOURCES_DIR / "locales"
 
     DATA_DIR: Path = ROOT_DIR / "data"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
@@ -34,27 +35,22 @@ class AppConfig:
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    # Media extensions from settings
+    # ---------- Media extensions ----------
     AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3")
     VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm")
 
-    # Device/dtype/runtime
+    # ---------- Device/dtype/runtime ----------
     DEVICE: torch.device = torch.device("cpu")
     DTYPE: Any = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
     TF32_ENABLED: bool = False
 
-    # Cached settings snapshot
+    # ---------- Cached settings ----------
     SETTINGS: SettingsSnapshot | None = None
 
     # ---------- Public initialization ----------
-
     @classmethod
     def initialize(cls, settings: SettingsService | None = None) -> None:
-        """
-        Load settings via SettingsService (or create a default instance),
-        compute paths, ensure dirs, expose ffmpeg, and resolve device/dtype.
-        """
         ss = settings or SettingsService(cls.ROOT_DIR)
         try:
             snap = ss.load()
@@ -69,23 +65,22 @@ class AppConfig:
         cls._setup_device_dtype(user=snap.user)
 
     # ---------- Apply sections ----------
-
     @classmethod
     def _apply_paths(cls, paths: Dict[str, Any]) -> None:
         def _resolve(p: str) -> Path:
             path = Path(p)
             return path if path.is_absolute() else (cls.ROOT_DIR / path)
 
-        resources = _resolve(paths["resources_dir"])
-        data = _resolve(paths["data_dir"])
-        cls.RESOURCES_DIR = resources
-        cls.FFMPEG_DIR = resources / paths["ffmpeg_subdir"]
-        cls.MODELS_DIR = resources / paths["models_subdir"]
-        cls.AI_ENGINE_DIR = cls.MODELS_DIR / paths["ai_engine_subdir"]
-        cls.DATA_DIR = data
-        cls.DOWNLOADS_DIR = data / paths["downloads_subdir"]
-        cls.INPUT_TMP_DIR = data / paths["input_tmp_subdir"]
-        cls.TRANSCRIPTIONS_DIR = data / paths["transcriptions_subdir"]
+        cls.RESOURCES_DIR = _resolve(paths["resources_dir"])
+        cls.FFMPEG_DIR = _resolve(paths["ffmpeg_dir"])
+        cls.MODELS_DIR = _resolve(paths["models_dir"])
+        cls.AI_ENGINE_DIR = _resolve(paths["ai_engine_dir"])
+        cls.LOCALES_DIR = _resolve(paths["locales_dir"])
+
+        cls.DATA_DIR = _resolve(paths["data_dir"])
+        cls.DOWNLOADS_DIR = _resolve(paths["downloads_dir"])
+        cls.INPUT_TMP_DIR = _resolve(paths["input_tmp_dir"])
+        cls.TRANSCRIPTIONS_DIR = _resolve(paths["transcriptions_dir"])
 
     @classmethod
     def _apply_media_exts(cls, media: Dict[str, Any]) -> None:
@@ -97,8 +92,7 @@ class AppConfig:
                 if not s.startswith("."):
                     s = "." + s
                 out.append(s)
-            return tuple(dict.fromkeys(out))  # unique & preserve order
-
+            return tuple(dict.fromkeys(out))
         cls.AUDIO_EXT = _norm(media.get("audio_ext"))
         cls.VIDEO_EXT = _norm(media.get("video_ext"))
 
@@ -114,7 +108,6 @@ class AppConfig:
             cls.TRANSCRIPTIONS_DIR,
         ):
             p.mkdir(parents=True, exist_ok=True)
-        # INPUT_TMP_DIR is managed per run by workers; ensure parent exists
         cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -140,7 +133,6 @@ class AppConfig:
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
     # ---------- Device / DType ----------
-
     @classmethod
     def _setup_device_dtype(cls, *, user: Dict[str, Any]) -> None:
         device = cls._resolve_device(user)
@@ -184,7 +176,6 @@ class AppConfig:
             return torch.device("cpu")
         if pref == "gpu":
             return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-        # auto
         return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
     @staticmethod
@@ -197,12 +188,10 @@ class AppConfig:
                 return torch.float16
             if prec == "bfloat16":
                 return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            # auto
             return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         return torch.float32
 
     # ---------- Convenience accessors ----------
-
     @classmethod
     def language(cls) -> str:
         if cls.SETTINGS:

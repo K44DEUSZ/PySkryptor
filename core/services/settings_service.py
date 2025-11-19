@@ -27,7 +27,7 @@ class SettingsSnapshot:
 class SettingsService:
     """
     Loads and validates settings.json against defaults.json schema.
-    No implicit fallback of values; defaults.json is only a template for restore.
+    Defaults are a template (no implicit value fallback).
     """
 
     def __init__(
@@ -105,10 +105,15 @@ class SettingsService:
     # ---------- Section validators ----------
 
     def _validate_paths(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        NEW schema: settings contain *final folders*, no '*_subdir':
+          - resources_dir, ffmpeg_dir, models_dir, ai_engine_dir, locales_dir,
+            data_dir, downloads_dir, input_tmp_dir, transcriptions_dir
+        """
         self._require_keys("paths", src, schema)
         out: Dict[str, Any] = {}
-        for k, v in src.items():
-            out[k] = self._as_nonempty_str(v, f"paths.{k}")
+        for k in schema.keys():
+            out[k] = self._as_nonempty_str(src.get(k), f"paths.{k}")
         return out
 
     def _validate_media(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -186,8 +191,7 @@ class SettingsService:
         if sections is None:
             data = defaults
         else:
-            # Merge: overwrite only specified sections; keep others if present
-            data = {}
+            data: Dict[str, Any] = {}
             if self._settings_path.exists():
                 try:
                     data = self._read_json(self._settings_path)
@@ -197,3 +201,22 @@ class SettingsService:
                 if sec in defaults:
                     data[sec] = defaults[sec]
         self._write_json(self._settings_path, data)
+
+    # ---------- Convenience loader with auto-restore ----------
+
+    def load_or_restore(self) -> Tuple[SettingsSnapshot, bool, str]:
+        """Try load; if settings missing/invalid, restore from defaults and load again."""
+        try:
+            snap = self.load()
+            return snap, False, ""
+        except SettingsError as ex:
+            if ex.key == "error.defaults_missing":
+                raise
+            reason = ex.key
+            if reason not in ("error.settings_missing", "error.settings_invalid"):
+                raise
+            if not self._defaults_path.exists():
+                raise
+            self.restore_defaults(sections=None)
+            snap = self.load()
+            return snap, True, reason

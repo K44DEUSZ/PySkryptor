@@ -1,24 +1,26 @@
 {
   "paths": {
     "resources_dir": "resources",
-    "ffmpeg_subdir": "ffmpeg",
-    "models_subdir": "models",
-    "ai_engine_subdir": "whisper-turbo",
+    "ffmpeg_dir": "resources/ffmpeg",
+    "models_dir": "resources/models",
+    "ai_engine_dir": "resources/models/whisper-turbo",
+    "locales_dir": "resources/locales",
+
     "data_dir": "data",
-    "downloads_subdir": "downloads",
-    "input_tmp_subdir": ".input_tmp",
-    "transcriptions_subdir": "transcriptions"
+    "downloads_dir": "data/downloads",
+    "input_tmp_dir": "data/.input_tmp",
+    "transcriptions_dir": "data/transcriptions"
   },
   "media": {
-    "audio_ext": [".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".alac", ".aiff", ".opus", ".amr", ".mp2"],
-    "video_ext": [".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".wmv", ".mpeg", ".mpg", ".m4v", ".3gp"]
+    "audio_ext": [".wav", ".mp3"],
+    "video_ext": [".mp4", ".webm"]
   },
   "model": {
     "ai_engine_name": "whisper-turbo",
     "local_models_only": true,
     "chunk_length_s": 60,
     "stride_length_s": 5,
-    "pipeline_task": "transcribe",
+    "pipeline_task": "automatic-speech-recognition",
     "ignore_warning": true,
     "default_language": null,
     "return_timestamps": true,
