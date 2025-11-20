@@ -1,10 +1,11 @@
 # ui/views/panels/downloader_panel.py
 from __future__ import annotations
 
+import html
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Set
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
 from core.utils.text import format_bytes, format_hms
@@ -13,7 +14,7 @@ from ui.workers.download_worker import DownloadWorker
 
 
 class DownloaderPanel(QtWidgets.QWidget):
-    """Downloader tab UI + logic (probe + download)."""
+    """Downloader tab: probe + download."""
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
 
@@ -48,8 +49,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_kind.addItems([tr("down.select.type.video"), tr("down.select.type.audio")])
         self.cb_quality = QtWidgets.QComboBox()
         self.cb_ext = QtWidgets.QComboBox()
-        self.cb_quality.addItems(["Auto", "1080p", "720p", "480p"])
-        self.cb_ext.addItems(["mp4", "webm", "m4a", "mp3"])
         sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.type")))
         sel_layout.addWidget(self.cb_kind)
         sel_layout.addSpacing(8)
@@ -71,9 +70,18 @@ class DownloaderPanel(QtWidgets.QWidget):
         dl_row.addWidget(self.pb_download, 1)
         root.addLayout(dl_row)
 
-        self.down_log = QtWidgets.QTextEdit()
-        self.down_log.setReadOnly(True)
+        # QTextBrowser log: manual link handling; each line via cursor -> separate block
+        self.down_log = QtWidgets.QTextBrowser()
+        self.down_log.setOpenExternalLinks(False)
+        self.down_log.setOpenLinks(False)
+        self.down_log.anchorClicked.connect(lambda url: QtGui.QDesktopServices.openUrl(url))
         root.addWidget(self.down_log, 2)
+
+        # ---------- Dynamic options derived from probe ----------
+        self._vid_quals: List[str] = ["Auto", "1080p", "720p", "480p"]
+        self._vid_exts: List[str] = ["mp4", "webm"]
+        self._aud_quals: List[str] = ["Auto", "320k", "256k", "192k", "128k"]
+        self._aud_exts: List[str] = ["m4a", "mp3"]
 
         # ---------- State ----------
         self._down_thread: Optional[QtCore.QThread] = None
@@ -89,17 +97,36 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_ext.currentIndexChanged.connect(self._update_buttons_and_size)
         self.btn_open_downloads.clicked.connect(self._on_open_downloads_clicked)
 
-    # ---------- Utils ----------
-    def _log(self, text: str) -> None:
+        # Initialize selectors according to default kind (Video)
+        self.cb_kind.setCurrentIndex(0)
+        self._on_kind_changed()
+
+    # ---------- Logging helpers ----------
+    def _append_html_line(self, html_line: str) -> None:
+        """Append a single HTML line as its own block (prevents anchor bleed)."""
         try:
-            self.down_log.append(text)
+            doc = self.down_log.document()
+            cur = QtGui.QTextCursor(doc)
+            cur.movePosition(QtGui.QTextCursor.End)
+            cur.insertHtml(html_line)
+            # Force a new paragraph so the next message is never part of the same <a>
+            cur.insertBlock()
+            self.down_log.setTextCursor(cur)
+            self.down_log.ensureCursorVisible()
         except Exception:
             pass
 
+    def _log(self, text: str) -> None:
+        if "<a " in text:
+            self._append_html_line(text)
+        else:
+            self._append_html_line(html.escape(str(text)))
+
+    # ---------- Open downloads ----------
     def _on_open_downloads_clicked(self) -> None:
         try:
             Config.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-            QtWidgets.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.DOWNLOADS_DIR)))
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.DOWNLOADS_DIR)))
         except Exception as e:
             self._log(tr("down.log.error", msg=str(e)))
 
@@ -148,7 +175,56 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.lbl_title.setText(str(title))
         self.lbl_duration.setText(format_hms(duration))
         self.lbl_est_size.setText(format_bytes(filesize) if filesize else "-")
-        self._update_buttons_and_size()
+
+        # --- Build dynamic options from formats ---
+        fmts = meta.get("formats") or []
+        vid_heights: Set[int] = set()
+        aud_bitrates: Set[int] = set()
+        vid_exts: Set[str] = set()
+        aud_exts: Set[str] = set()
+
+        for f in fmts:
+            ext = str(f.get("ext") or "").lower()
+            vcodec = f.get("vcodec")
+            acodec = f.get("acodec")
+            is_video = vcodec not in (None, "none")
+            is_audio_only = (vcodec in (None, "none")) and acodec not in (None, "none")
+
+            if is_video:
+                h = f.get("height")
+                if isinstance(h, int) and h > 0:
+                    vid_heights.add(h)
+                if ext:
+                    vid_exts.add(ext)
+            if is_audio_only:
+                br = f.get("abr") or f.get("tbr")
+                try:
+                    if br:
+                        aud_bitrates.add(int(br))
+                except Exception:
+                    pass
+                if ext:
+                    aud_exts.add(ext)
+
+        if vid_heights:
+            self._vid_quals = ["Auto"] + [f"{h}p" for h in sorted(vid_heights, reverse=True)]
+        else:
+            self._vid_quals = ["Auto", "1080p", "720p", "480p"]
+
+        vexts_sorted = [e for e in ("mp4", "webm") if e in vid_exts]
+        if not vexts_sorted:
+            vexts_sorted = ["mp4", "webm"]
+        self._vid_exts = vexts_sorted
+
+        if aud_bitrates:
+            self._aud_quals = ["Auto"] + [f"{k}k" for k in sorted(aud_bitrates, reverse=True)]
+        else:
+            self._aud_quals = ["Auto", "320k", "256k", "192k", "128k"]
+
+        aexts_sorted = [e for e in ("m4a", "mp3") if e in aud_exts] or ["m4a", "mp3"]
+        self._aud_exts = aexts_sorted
+
+        self._on_kind_changed()
 
     # ---------- Download ----------
     def _on_download_clicked(self) -> None:
@@ -160,7 +236,8 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._log("ℹ️ " + tr("down.log.downloading"))
             return
 
-        kind = "video" if tr("down.select.type.video").lower() in self.cb_kind.currentText().lower() else "audio"
+        is_audio = (self.cb_kind.currentIndex() == 1)  # 0 = Video, 1 = Audio
+        kind = "audio" if is_audio else "video"
         quality = self.cb_quality.currentText().lower()
         ext = self.cb_ext.currentText().lower()
 
@@ -191,7 +268,13 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def _on_download_finished(self, path: Path) -> None:
         self.pb_download.setValue(100)
-        self._log(tr("down.log.downloaded", path=str(path)))
+
+        title = (self._down_meta or {}).get("title") or path.stem
+        safe_title = html.escape(str(title))
+        file_url = QtCore.QUrl.fromLocalFile(str(path)).toString()
+
+        line_html = tr("down.log.downloaded", path=f"<a href='{file_url}'>{safe_title}</a>")
+        self._append_html_line(line_html)
         self._update_buttons_and_size()
 
     def _on_download_error(self, msg: str) -> None:
@@ -206,17 +289,24 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     # ---------- Selections / UI ----------
     def _on_kind_changed(self) -> None:
-        kind = self.cb_kind.currentText().lower()
-        if tr("down.select.type.audio").lower() in kind:
-            self.cb_quality.clear()
-            self.cb_quality.addItems(["Auto", "320k", "256k", "192k", "128k"])
-            self.cb_ext.clear()
-            self.cb_ext.addItems(["m4a", "mp3"])
+        is_audio = (self.cb_kind.currentIndex() == 1)
+
+        self.cb_quality.blockSignals(True)
+        self.cb_ext.blockSignals(True)
+
+        self.cb_quality.clear()
+        self.cb_ext.clear()
+
+        if is_audio:
+            self.cb_quality.addItems(self._aud_quals)
+            self.cb_ext.addItems(self._aud_exts)
         else:
-            self.cb_quality.clear()
-            self.cb_quality.addItems(["Auto", "1080p", "720p", "480p"])
-            self.cb_ext.clear()
-            self.cb_ext.addItems(["mp4", "webm"])
+            self.cb_quality.addItems(self._vid_quals)
+            self.cb_ext.addItems(self._vid_exts)
+
+        self.cb_quality.blockSignals(False)
+        self.cb_ext.blockSignals(False)
+
         self._update_buttons_and_size()
 
     def _update_buttons_and_size(self) -> None:
@@ -231,7 +321,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             self.lbl_est_size.setText("-")
             return
 
-        kind = self.cb_kind.currentText().lower()
+        is_audio = (self.cb_kind.currentIndex() == 1)
         q = self.cb_quality.currentText().lower()
         ext = self.cb_ext.currentText().lower()
 
@@ -241,21 +331,18 @@ class DownloaderPanel(QtWidgets.QWidget):
             height = f.get("height") or 0
             abr = f.get("abr") or f.get("tbr") or 0
 
-            # type filter
-            is_video = f.get("vcodec") not in (None, "none")
-            if tr("down.select.type.audio").lower() in kind and is_video:
+            is_video_fmt = f.get("vcodec") not in (None, "none")
+            if is_audio and is_video_fmt:
                 continue
-            if tr("down.select.type.video").lower() in kind and not is_video:
+            if (not is_audio) and (not is_video_fmt):
                 continue
 
-            # ext filter
             if ext and fext and ext != "auto" and fext != ext:
                 continue
 
-            # quality filter
             if q != "auto":
                 try:
-                    if tr("down.select.type.audio").lower() in kind:
+                    if is_audio:
                         want = int(q.replace("k", ""))
                         if not abr or abs(int(abr) - want) > 64:
                             continue
@@ -276,7 +363,6 @@ class DownloaderPanel(QtWidgets.QWidget):
     def on_parent_close(self) -> None:
         try:
             if self._down_thread and self._down_worker:
-                self._down_worker.cancel()
                 self._down_thread.requestInterruption()
         except Exception:
             pass

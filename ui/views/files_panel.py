@@ -17,7 +17,7 @@ from ui.views.dialogs import ask_cancel, ask_conflict
 
 
 class FilesPanel(QtWidgets.QWidget):
-    """Full Files tab UI + logic (model load, metadata, transcription)."""
+    """Files tab: sources list, metadata, model loading, transcription."""
     log_signal = QtCore.pyqtSignal(str)
 
     COL_NAME = 0
@@ -34,7 +34,7 @@ class FilesPanel(QtWidgets.QWidget):
         # ---------- Layout ----------
         root = QtWidgets.QVBoxLayout(self)
 
-        # Source input
+        # Source input bar
         src_bar = QtWidgets.QHBoxLayout()
         self.src_edit = QtWidgets.QLineEdit()
         self.src_edit.setPlaceholderText(tr("files.placeholder"))
@@ -43,7 +43,7 @@ class FilesPanel(QtWidgets.QWidget):
         src_bar.addWidget(self.btn_src_add)
         root.addLayout(src_bar)
 
-        # Ops
+        # Operations
         ops_bar = QtWidgets.QHBoxLayout()
         self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
         self.btn_add_folder = QtWidgets.QPushButton(tr("files.add_folder"))
@@ -57,7 +57,7 @@ class FilesPanel(QtWidgets.QWidget):
             ops_bar.addWidget(w)
         root.addLayout(ops_bar)
 
-        # Hidden DnD list (API only)
+        # Hidden DnD list (API helper only)
         self.file_list = FileDropList()
         self.file_list.setVisible(False)
         root.addWidget(self.file_list)
@@ -126,14 +126,12 @@ class FilesPanel(QtWidgets.QWidget):
 
         # ---------- Signals ----------
         self.log_signal.connect(self._append_log)
-
         self.btn_src_add.clicked.connect(self._on_src_add_clicked)
         self.btn_add_files.clicked.connect(self._on_add_files)
         self.btn_add_folder.clicked.connect(self._on_add_folder)
         self.btn_open_output.clicked.connect(self._open_output_folder)
         self.btn_remove_selected.clicked.connect(self._on_remove_selected)
         self.btn_clear_list.clicked.connect(self._on_clear_list)
-
         self.btn_start.clicked.connect(self._on_start_clicked)
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)
 
@@ -250,7 +248,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _refresh_details_for_keys(self, keys: List[str]) -> None:
         if not keys:
             return
-        # cancel previous
+
         if self._meta_thread is not None:
             try:
                 if self._meta_worker:
@@ -446,7 +444,7 @@ class FilesPanel(QtWidgets.QWidget):
         return entries
 
     def on_parent_close(self) -> None:
-        # cancel background metadata/model/transcription
+        # Best-effort background cancellation
         try:
             if self._meta_thread and self._meta_worker:
                 self._meta_worker.cancel()

@@ -10,7 +10,7 @@ from ui.views.downloader_panel import DownloaderPanel
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    """Thin shell: tab radio group + stacked panels. All logic lives in panels."""
+    """Thin shell: radio tabs + stacked panels. Logic lives inside panels."""
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("app.title"))
@@ -37,15 +37,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack = QtWidgets.QStackedWidget()
         layout.addWidget(self.stack, 1)
 
-        # Files panel
+        # Files
         self.files_panel = FilesPanel(self)
         self.stack.addWidget(self.files_panel)
 
-        # Downloader panel
+        # Downloader
         self.downloader_panel = DownloaderPanel(self)
         self.stack.addWidget(self.downloader_panel)
 
-        # Placeholders (indexes 2,3)
+        # Placeholders
         self.stack.addWidget(self._make_placeholder(tr("tabs.live")))
         self.stack.addWidget(self._make_placeholder(tr("tabs.settings")))
 
@@ -63,8 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addStretch(1)
         return page
 
-    # Let panels attempt graceful cleanup on close
-    def closeEvent(self, e):  # type: ignore[override]
+    def closeEvent(self, e):
         for pnl in (self.files_panel, self.downloader_panel):
             try:
                 pnl.on_parent_close()
