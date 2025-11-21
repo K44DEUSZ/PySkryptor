@@ -7,7 +7,7 @@ from typing import Callable, Dict, Any, Optional, List
 from yt_dlp import YoutubeDL
 
 from core.config.app_config import AppConfig as Config
-from core.utils.logging import YtdlpQtLogger
+from ui.utils.logging import YtdlpQtLogger
 
 
 class YtDlpHandler:
@@ -34,7 +34,7 @@ class YtDlpHandler:
             },
         }
 
-    # ---------- Metadata (no download) ----------
+    # ----- Metadata (no download) -----
 
     def probe(self, url: str, log: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
         """Return extractor, title, duration, (approx) filesize and raw formats."""
@@ -75,7 +75,7 @@ class YtDlpHandler:
             "suggested_filename": title,
         }
 
-    # ---------- Download ----------
+    # ----- Download -----
 
     def download(
         self,

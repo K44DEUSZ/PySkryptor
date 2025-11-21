@@ -1,6 +1,7 @@
 # ui/workers/model_loader_worker.py
 
 from __future__ import annotations
+
 from PyQt5 import QtCore
 from core.transcription.model_loader import ModelLoader
 

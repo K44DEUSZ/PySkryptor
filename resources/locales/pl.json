@@ -1,114 +1,152 @@
 {
-  "app.title": "PySkryptor",
+  "app": {
+    "title": "PySkryptor"
+  },
 
-  "action.exit": "Zamknij program",
-  "action.restore_defaults": "Przywróć ustawienia domyślne",
+  "tabs": {
+    "group": "Zakładki",
+    "files": "Transkrypcja plików",
+    "downloader": "Downloader",
+    "live": "Transkrypcja live",
+    "settings": "Ustawienia"
+  },
 
-  "info.settings_restored_missing": "Plik ustawień nie istniał i został odtworzony z domyślnych.",
-  "info.settings_restored_invalid": "Plik ustawień był uszkodzony i został naprawiony na podstawie domyślnych.",
+  "ui": {
+    "placeholder": {
+      "soon": "wkrótce"
+    }
+  },
 
-  "tabs.group": "Zakładki",
-  "tabs.files": "Transkrypcja plików",
-  "tabs.downloader": "Downloader",
-  "tabs.live": "Transkrypcja live",
-  "tabs.settings": "Ustawienia",
+  "ctrl": {
+    "start": "Rozpocznij transkrypcję",
+    "cancel": "Anuluj"
+  },
 
-  "ui.placeholder.soon": "— w przygotowaniu.",
+  "action": {
+    "cancel_now": "Przerwij teraz",
+    "keep_working": "Kontynuuj"
+  },
 
-  "files.placeholder": "Wklej ścieżkę pliku lub adres URL…",
-  "files.add": "Dodaj",
-  "files.add_files": "Dodaj pliki…",
-  "files.add_folder": "Dodaj folder…",
-  "files.open_output": "Otwórz folder transkrykcji",
-  "files.remove_selected": "Usuń zaznaczone",
-  "files.clear": "Wyczyść listę",
+  "dialog": {
+    "cancel_confirm": "Czy na pewno chcesz przerwać bieżące działanie?",
+    "conflict": {
+      "title": "Konflikt nazw",
+      "text": "Wynik o nazwie „{name}” już istnieje. Co zrobić?",
+      "skip": "Pomiń ten element",
+      "overwrite": "Nadpisz istniejący wynik",
+      "new_name": "Użyj nowej nazwy:",
+      "apply_all": "Zastosuj dla wszystkich kolejnych"
+    }
+  },
 
-  "files.details.title": "Szczegóły pozycji",
-  "files.details.col.name": "Nazwa",
-  "files.details.col.source": "Źródło",
-  "files.details.col.path": "Ścieżka",
-  "files.details.col.size": "Waga",
-  "files.details.col.duration": "Długość",
-  "files.details.col.status": "Stan",
-  "files.details.col.preview": "Podgląd",
+  "files": {
+    "placeholder": "Wklej ścieżkę pliku lub adres URL...",
+    "add": "Dodaj",
+    "add_files": "Dodaj pliki...",
+    "add_folder": "Dodaj folder...",
+    "open_output": "Otwórz folder transkrypcji",
+    "remove_selected": "Usuń zaznaczone",
+    "clear": "Wyczyść listę",
 
-  "ctrl.start": "Rozpocznij transkrypcję",
-  "ctrl.cancel": "Anuluj",
+    "details": {
+      "title": "Szczegóły pozycji",
+      "col": {
+        "name": "Nazwa",
+        "source": "Źródło",
+        "path": "Ścieżka",
+        "size": "Waga",
+        "duration": "Długość",
+        "status": "Stan",
+        "preview": "Podgląd"
+      }
+    }
+  },
 
-  "log.init.bg": "🟢 Inicjalizacja — ładowanie modelu w tle…",
-  "log.model.init": "🟣 Inicjalizacja modelu…",
-  "log.model.ready": "✅ Model załadowany — możesz rozpocząć transkrypcję",
-  "log.model.error": "❌ Błąd ładowania modelu: {msg}",
+  "log": {
+    "init": {
+      "bg": "Inicjalizacja — ładowanie modelu w tle…"
+    },
+    "model": {
+      "ready": "Model załadowany — możesz rozpocząć transkrypcję",
+      "error": "Błąd modelu: {msg}"
+    },
+    "pipe_not_ready": "Model nie jest jeszcze gotowy.",
+    "no_items": "Dodaj przynajmniej jedno źródło (plik lub URL).",
+    "start": "▶️ Start transkrypcji…",
+    "cancelled": "⏹️ Anulowano.",
+    "done": "✅ Zakończono transkrypcję.",
+    "unexpected": "❗ Nieoczekiwany błąd: {msg}",
+    "add": {
+      "empty": "Pole wejściowe jest puste.",
+      "missing": "Ścieżka nie istnieje.",
+      "ok": "Dodano: {text}"
+    },
+    "transcript": {
+      "saved": "Zapisano transkrypt: {path}"
+    }
+  },
 
-  "log.add.empty": "ℹ️ Wpisz ścieżkę pliku lub adres URL.",
-  "log.add.missing": "⚠️ Ścieżka nie istnieje.",
-  "log.add.ok": "✅ Dodano: {text}",
+  "down": {
+    "url": {
+      "placeholder": "Wklej URL (np. YouTube/TikTok)…"
+    },
+    "probe": "Analizuj",
+    "open_folder": "Otwórz folder pobrań",
 
-  "log.start": "▶️ Start transkrypcji…",
-  "log.no_items": "ℹ️ Dodaj przynajmniej jedno źródło (plik lub URL).",
-  "log.pipe_not_ready": "⚠️ Pipeline nie jest gotowy.",
-  "log.session.plan": "🗂️ Sesja wynikowa (plan): {path}",
-  "log.tmp.cleaned": "🧹 Wyczyszczono katalog tymczasowy.",
-  "log.done": "✅ Zakończono transkrypcję.",
-  "log.unexpected": "❗ Nieoczekiwany błąd: {msg}",
-  "log.transcript.saved": "💾 Zapisano transkrypt: {path}",
-  "log.cancelled": "⏹️ Operację przerwano.",
+    "meta": {
+      "title": "Metadane",
+      "service": "Serwis:",
+      "name": "Tytuł:",
+      "duration": "Długość:",
+      "size": "Szacowany rozmiar:"
+    },
 
-  "status.skipped": "Pominięto",
-  "status.prep": "Przygotowanie audio…",
-  "status.proc": "Przetwarzanie…",
-  "status.dl": "Pobieranie…",
-  "status.analyze": "Analiza…",
-  "status.error": "Błąd",
-  "status.done": "Gotowe",
+    "select": {
+      "title": "Wybór formatu",
+      "type": "Typ:",
+      "type.video": "Wideo",
+      "type.audio": "Audio",
+      "quality": "Jakość:",
+      "ext": "Rozszerzenie:"
+    },
 
-  "down.url.placeholder": "Wklej URL (np. YouTube/TikTok)…",
-  "down.probe": "Analizuj",
-  "down.open_folder": "Otwórz folder pobrań",
-  "down.meta.title": "Metadane",
-  "down.meta.service": "Serwis:",
-  "down.meta.name": "Tytuł:",
-  "down.meta.duration": "Długość:",
-  "down.meta.size": "Szacowany rozmiar:",
-  "down.select.title": "Wybór formatu",
-  "down.select.type": "Typ:",
-  "down.select.quality": "Jakość:",
-  "down.select.ext": "Rozszerzenie:",
-  "down.select.type.video": "Wideo",
-  "down.select.type.audio": "Audio",
-  "down.download": "Pobierz",
+    "download": "Pobierz",
 
-  "down.log.analyze": "🔎 Analiza URL…",
-  "down.log.meta_ready": "✅ Metadane gotowe.",
-  "down.log.downloading": "⬇️ Pobieranie…",
-  "down.log.downloaded": "✅ Pobrano: {path}",
-  "down.log.error": "❌ Błąd: {msg}",
-  "down.log.cancelled": "⏹️ Pobieranie przerwane.",
+    "log": {
+      "analyze": "🔎 Analiza URL…",
+      "meta_ready": "✅ Metadane gotowe.",
+      "downloading": "⬇️ Pobieranie…",
+      "downloaded_prefix": "Pobrano:",
+      "already": "Już pobrano:",
+      "downloaded": "Pobrano: {path}",
+      "error": "❌ Błąd: {msg}"
+    },
 
-  "error.defaults_missing": "Brak pliku domyślnych ustawień: {path}. Dodaj defaults.json lub uruchom naprawę konfiguracji.",
-  "error.settings_missing": "Brak pliku ustawień: {path}.",
-  "error.settings_invalid": "Plik ustawień jest uszkodzony lub niekompletny ({detail}). Przywrócić ustawienia domyślne z: {path}?",
-  "error.json_invalid": "Nieprawidłowy plik JSON: {path}. Szczegóły: {detail}",
-  "error.defaults_section_missing": "Brak sekcji w defaults.json: {section}.",
-  "error.settings_section_invalid": "Sekcja w settings.json jest niepoprawna: {section}.",
-  "error.settings_missing_keys": "W sekcji {section} brakuje kluczy: {keys}.",
-  "error.type_string_nonempty": "Pole {field} musi być niepustym łańcuchem.",
-  "error.type_list_strings": "Pole {field} musi być listą napisów.",
-  "error.type_int": "Pole {field} musi być liczbą całkowitą.",
-  "error.enum_invalid": "Pole {field} ma niepoprawną wartość „{value}”. Dozwolone: {allowed}.",
-  "error.config.generic": "Błąd konfiguracji: {detail}",
-  "error.config.unknown_action": "Nieznana akcja workera: {action}",
+    "dialog": {
+      "exists": {
+        "text": "Ten plik już istnieje:\n„{title}”. Co chcesz zrobić?",
+        "open": "Otwórz istniejący",
+        "overwrite": "Pobierz ponownie (nadpisz)",
+        "skip": "Pomiń"
+      }
+    }
+  },
 
-  "error.i18n.locale_not_found": "Nie znaleziono tłumaczenia dla „{lang}” w {dir}.",
-  "error.i18n.locale_invalid": "Plik tłumaczeń ma nieprawidłowy format: {path}.",
+  "status": {
+    "prep": "Przygotowanie…",
+    "proc": "Przetwarzanie…",
+    "done": "Gotowe",
+    "skipped": "Pominięto",
+    "error": "Błąd"
+  },
 
-  "error.audio.ffmpeg_failed": "Konwersja audio (ffmpeg) nie powiodła się: {detail}",
-  "error.audio.ffprobe_failed": "Odczyt długości (ffprobe) nie powiódł się dla pliku: {path}. Szczegóły: {detail}",
-
-  "error.model.load_failed": "Nie udało się załadować modelu: {detail}",
-
-  "error.down.invalid_url": "Niepoprawny adres URL: {url}",
-  "error.down.probe_failed": "Analiza URL nie powiodła się: {detail}",
-  "error.down.output_dir": "Nie można utworzyć katalogu wyjściowego: {path}. Szczegóły: {detail}",
-  "error.down.download_failed": "Pobieranie nie powiodło się: {detail}"
+  "error": {
+    "down": {
+      "probe_failed": "Analiza nie powiodła się: {detail}",
+      "download_failed": "Pobieranie nie powiodło się: {detail}"
+    },
+    "config": {
+      "unknown_action": "Nieznane działanie: {action}"
+    }
+  }
 }

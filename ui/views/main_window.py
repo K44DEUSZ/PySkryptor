@@ -64,6 +64,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return page
 
     def closeEvent(self, e):
+        """Allow panels to perform best-effort cleanup."""
         for pnl in (self.files_panel, self.downloader_panel):
             try:
                 pnl.on_parent_close()

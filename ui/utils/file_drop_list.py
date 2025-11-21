@@ -1,4 +1,4 @@
-# ui/widgets/file_drop_list.py
+# ui/utils/file_drop_list.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,7 +51,7 @@ class FileDropList(QtWidgets.QListWidget):
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
 
-    # ---------- Qt DnD ----------
+    # ----- Qt DnD -----
 
     def dragEnterEvent(self, e):  # type: ignore[override]
         if e.mimeData().hasUrls() or e.mimeData().hasText():

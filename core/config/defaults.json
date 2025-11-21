@@ -5,15 +5,20 @@
     "models_dir": "resources/models",
     "ai_engine_dir": "resources/models/whisper-turbo",
     "locales_dir": "resources/locales",
-
     "data_dir": "data",
     "downloads_dir": "data/downloads",
     "input_tmp_dir": "data/.input_tmp",
     "transcriptions_dir": "data/transcriptions"
   },
   "media": {
-    "audio_ext": [".wav", ".mp3"],
-    "video_ext": [".mp4", ".webm"]
+    "audio_ext": [
+      ".wav",
+      ".mp3"
+    ],
+    "video_ext": [
+      ".mp4",
+      ".webm"
+    ]
   },
   "model": {
     "ai_engine_name": "whisper-turbo",
@@ -28,12 +33,24 @@
     "low_cpu_mem_usage": true
   },
   "user": {
-    "language": "en",
+    "language": "pl",
     "preferred_device": "auto",
     "precision": "auto",
     "allow_tf32": true,
     "timestamps_output": true,
     "keep_downloaded_files": true,
     "keep_wav_temp": false
+  },
+  "download": {
+    "min_video_height": 144,
+    "max_video_height": 4320
+  },
+  "network": {
+    "max_bandwidth_kbps": null,
+    "retries": 3,
+    "concurrent_fragments": 4,
+    "http_timeout_s": 30,
+    "proxy": null,
+    "throttle_startup_s": 0
   }
 }

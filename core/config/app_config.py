@@ -21,7 +21,7 @@ class AppConfig:
     Consumes SettingsService; does not read JSON directly.
     """
 
-    # ---------- Derived paths (filled during initialize) ----------
+    # ----- Derived paths (filled during initialize) -----
     ROOT_DIR: Path = Path(__file__).resolve().parents[2]
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
@@ -35,20 +35,32 @@ class AppConfig:
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    # ---------- Media extensions ----------
+    # ----- Media extensions -----
     AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3")
     VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm")
 
-    # ---------- Device/dtype/runtime ----------
+    # ----- Download prefs -----
+    VIDEO_MIN_HEIGHT: int = 144
+    VIDEO_MAX_HEIGHT: int = 4320
+
+    # ----- Network (from settings) -----
+    NET_MAX_KBPS: int | None = None
+    NET_RETRIES: int = 3
+    NET_CONC_FRAG: int = 4
+    NET_TIMEOUT_S: int = 30
+    NET_PROXY: str | None = None
+    NET_THROTTLE_S: int = 0
+
+    # ----- Device/dtype/runtime -----
     DEVICE: torch.device = torch.device("cpu")
     DTYPE: Any = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
     TF32_ENABLED: bool = False
 
-    # ---------- Cached settings ----------
+    # ----- Cached settings -----
     SETTINGS: SettingsSnapshot | None = None
 
-    # ---------- Public initialization ----------
+    # ----- Public initialization -----
     @classmethod
     def initialize(cls, settings: SettingsService | None = None) -> None:
         ss = settings or SettingsService(cls.ROOT_DIR)
@@ -62,9 +74,11 @@ class AppConfig:
         cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
         cls._apply_media_exts(snap.media)
+        cls._apply_download(snap.download if hasattr(snap, "download") else {})
+        cls._apply_network(getattr(snap, "network", {}) or {})
         cls._setup_device_dtype(user=snap.user)
 
-    # ---------- Apply sections ----------
+    # ----- Apply sections -----
     @classmethod
     def _apply_paths(cls, paths: Dict[str, Any]) -> None:
         def _resolve(p: str) -> Path:
@@ -95,6 +109,44 @@ class AppConfig:
             return tuple(dict.fromkeys(out))
         cls.AUDIO_EXT = _norm(media.get("audio_ext"))
         cls.VIDEO_EXT = _norm(media.get("video_ext"))
+
+    @classmethod
+    def _apply_download(cls, download: Dict[str, Any]) -> None:
+        try:
+            mn = int(download.get("min_video_height", cls.VIDEO_MIN_HEIGHT))
+        except Exception:
+            mn = cls.VIDEO_MIN_HEIGHT
+        try:
+            mx = int(download.get("max_video_height", cls.VIDEO_MAX_HEIGHT))
+        except Exception:
+            mx = cls.VIDEO_MAX_HEIGHT
+        if mx < mn:
+            mx = mn
+        cls.VIDEO_MIN_HEIGHT = max(1, mn)
+        cls.VIDEO_MAX_HEIGHT = max(cls.VIDEO_MIN_HEIGHT, mx)
+
+    @classmethod
+    def _apply_network(cls, network: Dict[str, Any]) -> None:
+        def _to_int(v, default):
+            try:
+                return int(v)
+            except Exception:
+                return default
+
+        kbps = network.get("max_bandwidth_kbps")
+        try:
+            kbps_val = int(kbps) if kbps is not None else None
+            if kbps_val is not None and kbps_val <= 0:
+                kbps_val = None
+        except Exception:
+            kbps_val = None
+
+        cls.NET_MAX_KBPS = kbps_val
+        cls.NET_RETRIES = _to_int(network.get("retries", cls.NET_RETRIES), cls.NET_RETRIES)
+        cls.NET_CONC_FRAG = max(1, _to_int(network.get("concurrent_fragments", cls.NET_CONC_FRAG), cls.NET_CONC_FRAG))
+        cls.NET_TIMEOUT_S = max(1, _to_int(network.get("http_timeout_s", cls.NET_TIMEOUT_S), cls.NET_TIMEOUT_S))
+        cls.NET_PROXY = (str(network.get("proxy")).strip() or None) if network.get("proxy") is not None else None
+        cls.NET_THROTTLE_S = max(0, _to_int(network.get("throttle_startup_s", cls.NET_THROTTLE_S), cls.NET_THROTTLE_S))
 
     @classmethod
     def _ensure_dirs(cls) -> None:
@@ -132,7 +184,7 @@ class AppConfig:
         if ffprobe_exe.exists():
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
-    # ---------- Device / DType ----------
+    # ----- Device / DType -----
     @classmethod
     def _setup_device_dtype(cls, *, user: Dict[str, Any]) -> None:
         device = cls._resolve_device(user)
@@ -156,13 +208,13 @@ class AppConfig:
         allow_tf32 = bool(user.get("allow_tf32", True))
         if device.type == "cuda" and allow_tf32:
             try:
-                torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore[attr-defined]
+                torch.backends.cuda.matmul.allow_tf32 = True
                 cls.TF32_ENABLED = True
             except Exception:
                 cls.TF32_ENABLED = False
         else:
             try:
-                torch.backends.cuda.matmul.allow_tf32 = False  # type: ignore[attr-defined]
+                torch.backends.cuda.matmul.allow_tf32 = False
             except Exception:
                 pass
             cls.TF32_ENABLED = False
@@ -191,7 +243,7 @@ class AppConfig:
             return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         return torch.float32
 
-    # ---------- Convenience accessors ----------
+    # ----- Convenience accessors -----
     @classmethod
     def language(cls) -> str:
         if cls.SETTINGS:
@@ -213,3 +265,26 @@ class AppConfig:
     @classmethod
     def user_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.user) if cls.SETTINGS else {}
+
+    # Download prefs
+    @classmethod
+    def min_video_height(cls) -> int:
+        return int(cls.VIDEO_MIN_HEIGHT)
+
+    @classmethod
+    def max_video_height(cls) -> int:
+        return int(cls.VIDEO_MAX_HEIGHT)
+
+    # Network
+    @classmethod
+    def net_max_kbps(cls) -> int | None: return cls.NET_MAX_KBPS
+    @classmethod
+    def net_retries(cls) -> int: return cls.NET_RETRIES
+    @classmethod
+    def net_concurrent_fragments(cls) -> int: return cls.NET_CONC_FRAG
+    @classmethod
+    def net_timeout_s(cls) -> int: return cls.NET_TIMEOUT_S
+    @classmethod
+    def net_proxy(cls) -> str | None: return cls.NET_PROXY
+    @classmethod
+    def net_throttle_startup_s(cls) -> int: return cls.NET_THROTTLE_S

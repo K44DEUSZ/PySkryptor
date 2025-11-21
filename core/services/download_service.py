@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional, Dict, Any
 
 import yt_dlp
 
 from core.config.app_config import AppConfig as Config
-from core.utils.logging import YtdlpQtLogger
+from ui.utils.logging import YtdlpQtLogger
 
 
 class DownloadError(RuntimeError):
@@ -24,22 +24,22 @@ class DownloadService:
     def __init__(self) -> None:
         pass
 
-    # ---------- Probe ----------
-
+    # ----- Probe -------------------------------------------------------------
     def probe(self, url: str, *, log=lambda msg: None) -> Dict[str, Any]:
-        """
-        Lightweight metadata fetch without downloading the media.
-        Returns a small dict with the most useful fields for the UI.
-        """
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
             "nocheckcertificate": True,
-            # Helps avoid SABR-only formats on YouTube; reduces noisy warnings.
             "extractor_args": {"youtube": {"player_client": ["default"]}},
-            # Route yt_dlp logs to GUI with filtering.
             "logger": YtdlpQtLogger(log),
+            "retries": Config.net_retries(),
+            "socket_timeout": Config.net_timeout_s(),
         }
+        if Config.net_proxy():
+            ydl_opts["proxy"] = Config.net_proxy()
+        if Config.net_max_kbps():
+            ydl_opts["ratelimit"] = int(Config.net_max_kbps()) * 1024
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -53,8 +53,7 @@ class DownloadService:
         except Exception as ex:
             raise DownloadError("error.down.probe_failed", detail=str(ex))
 
-    # ---------- Download ----------
-
+    # ----- Download ----------------------------------------------------------
     def download(
         self,
         *,
@@ -66,30 +65,24 @@ class DownloadService:
         progress_cb=None,
         log=lambda msg: None,
     ) -> Optional[Path]:
-        """
-        Download media and return the final output path.
-        Uses postprocessors to ensure the requested container/codec where possible.
-        """
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # ---- Format selection ----
-        postprocessors: list[Dict[str, Any]] = []
+        postprocessors = []
+        format_sort: list[str] = []
         ytdlp_format: str
 
-        if kind == "audio":
-            # Choose best audio, optionally constrained by extension/bitrate.
-            fmt_parts = ["bestaudio"]
-            if ext:
-                fmt_parts[0] += f"[ext={ext}]"
-            # Fallback to any bestaudio if ext-specific match is not found.
-            ytdlp_format = "/".join(fmt_parts + ["bestaudio"])
+        min_h = Config.min_video_height()
+        max_h = Config.max_video_height()
 
-            # FFmpegExtractAudio will set final codec/container.
+        if kind == "audio":
+            fmt = "bestaudio"
+            if ext:
+                fmt += f"[ext={ext}]"
+            ytdlp_format = "/".join([fmt, "bestaudio"])
             pp_audio: Dict[str, Any] = {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": ext or "m4a",
             }
-            # Map "320k" etc. to preferredquality for audio when possible.
             if quality.endswith("k"):
                 try:
                     q = int(quality[:-1])
@@ -97,108 +90,99 @@ class DownloadService:
                 except Exception:
                     pass
             postprocessors.append(pp_audio)
-
         else:
-            # Video: prefer a height cap + container, with sane fallbacks.
+            # video
             if quality.endswith("p"):
                 try:
-                    h = int(quality[:-1])
-                    ytdlp_format = (
-                        f"bestvideo[height<={h}][ext={ext}]+bestaudio/"
-                        f"bestvideo[height<={h}]+bestaudio/"
-                        f"best[ext={ext}]/best"
-                    )
+                    req_h = int(quality[:-1])
                 except Exception:
-                    ytdlp_format = f"bestvideo[ext={ext}]+bestaudio/best[ext={ext}]/best"
+                    req_h = max_h
             else:
-                ytdlp_format = f"bestvideo[ext={ext}]+bestaudio/best[ext={ext}]/best"
+                req_h = max_h
+            upper = min(req_h, max_h)
 
-            # Convert/merge into the requested container (yt-dlp uses 'preferedformat').
+            filt_main = f"bestvideo[height>={min_h}][height<={upper}][ext={ext}]+bestaudio"
+            alt_same = f"bestvideo[height>={min_h}][height<={upper}]+bestaudio"
+            fallback = f"bestvideo[height>={min_h}]+bestaudio"
+            ytdlp_format = "/".join([filt_main, alt_same, fallback])
+            format_sort = [f"res:{upper}", "vcodec:avc", "fps", "size"]
+
             postprocessors.append({
                 "key": "FFmpegVideoConvertor",
                 "preferedformat": ext,
             })
 
-        # ---- Output template; avoid leaving .part files behind ----
-        outtmpl = str(out_dir / "%(title)s.%(ext)s")
+        outtmpl = str(out_dir / "%(title)s.%(ext)s")  # let yt-dlp do the % mapping
 
         ydl_opts: Dict[str, Any] = {
             "format": ytdlp_format,
+            "format_sort": format_sort,
+            "format_sort_force": True,
             "outtmpl": outtmpl,
             "quiet": True,
             "nocheckcertificate": True,
             "noprogress": False,
-            "retries": 3,
-            "concurrent_fragment_downloads": 4,
-            "nopart": True,               # write directly to final file when possible
-            "continuedl": False,          # do not attempt partial resume (less .part clutter)
+            "retries": Config.net_retries(),
+            "concurrent_fragment_downloads": Config.net_concurrent_fragments(),
+            "socket_timeout": Config.net_timeout_s(),
+            "nopart": True,
+            "continuedl": False,
             "postprocessors": postprocessors,
             "merge_output_format": ext if kind == "video" else None,
             "progress_hooks": [lambda d: self._on_progress(d, progress_cb)],
-            # Reduce SABR/EJS noise and keep formats widely supported:
             "extractor_args": {"youtube": {"player_client": ["default"]}},
-            # Route logs to GUI with filtering:
             "logger": YtdlpQtLogger(log),
         }
+        if Config.net_proxy():
+            ydl_opts["proxy"] = Config.net_proxy()
+        if Config.net_max_kbps():
+            ydl_opts["ratelimit"] = int(Config.net_max_kbps()) * 1024
 
-        # Remove None-valued options (yt-dlp may be picky about None).
+        # drop None values
         ydl_opts = {k: v for k, v in ydl_opts.items() if v is not None}
 
-        # Point yt-dlp/ffmpeg to our bundled ffmpeg if available.
         if Config.FFMPEG_BIN_DIR.exists():
             ydl_opts["ffmpeg_location"] = str(Config.FFMPEG_BIN_DIR)
 
-        # ---- Actual download ----
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-
-                # Prefer a path reported by requested_downloads (most reliable).
                 out_path: Optional[Path] = None
                 if isinstance(info, dict):
                     req = info.get("requested_downloads")
                     if isinstance(req, list) and req:
-                        fp = req[0].get("filepath")
+                        fp = req[-1].get("filepath")
                         if fp and not str(fp).endswith(".part"):
                             out_path = Path(fp)
-
-                    # Fallback: _filename (may be missing after postproc).
                     if out_path is None:
                         fn = info.get("_filename")
                         if fn and not str(fn).endswith(".part"):
                             out_path = Path(fn)
-
-                # Last resort: find the newest non-.part file in out_dir.
                 if out_path is None:
                     candidates = [p for p in out_dir.glob("*.*") if not p.name.endswith(".part")]
                     if not candidates:
                         raise DownloadError("error.down.download_failed", detail="no output file")
                     out_path = max(candidates, key=lambda p: p.stat().st_mtime)
-
                 return out_path
-
         except DownloadError:
-            # Already wrapped with an i18n key; re-raise.
             raise
         except Exception as ex:
-            # Wrap any unexpected exception as a localized error.
+            # Surface the original message (e.g., "format requires a mapping") to UI.
             raise DownloadError("error.down.download_failed", detail=str(ex))
 
-    # ---------- Internal ----------
-
+    # ----- Internal ----------------------------------------------------------
     @staticmethod
     def _on_progress(d: Dict[str, Any], cb) -> None:
-        """Translate yt_dlp progress dict into a simple (percent, stage) callback."""
         if not cb:
             return
         try:
             status = d.get("status")
             if status == "downloading":
-                pct_str = (d.get("_percent_str") or "").strip().rstrip("%")
-                if pct_str:
-                    cb(int(float(pct_str)), "downloading")
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                done = d.get("downloaded_bytes") or 0
+                pct = int(done * 100 / total) if total else 0
+                cb(pct, "downloading")
             elif status == "finished":
                 cb(100, "finished")
         except Exception:
-            # Swallow any progress parsing errors to avoid breaking the download.
             pass

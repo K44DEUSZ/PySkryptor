@@ -1,114 +1,152 @@
 {
-  "app.title": "PySkryptor",
+  "app": {
+    "title": "PySkryptor"
+  },
 
-  "action.exit": "Exit",
-  "action.restore_defaults": "Restore default settings",
+  "tabs": {
+    "group": "Tabs",
+    "files": "File transcription",
+    "downloader": "Downloader",
+    "live": "Live transcription",
+    "settings": "Settings"
+  },
 
-  "info.settings_restored_missing": "Settings file was missing and has been recreated from defaults.",
-  "info.settings_restored_invalid": "Settings file was invalid and has been repaired using defaults.",
+  "ui": {
+    "placeholder": {
+      "soon": "coming soon"
+    }
+  },
 
-  "tabs.group": "Tabs",
-  "tabs.files": "File transcription",
-  "tabs.downloader": "Downloader",
-  "tabs.live": "Live transcription",
-  "tabs.settings": "Settings",
+  "ctrl": {
+    "start": "Start transcription",
+    "cancel": "Cancel"
+  },
 
-  "ui.placeholder.soon": "— coming soon.",
+  "action": {
+    "cancel_now": "Stop now",
+    "keep_working": "Keep working"
+  },
 
-  "files.placeholder": "Paste a file path or URL…",
-  "files.add": "Add",
-  "files.add_files": "Add files…",
-  "files.add_folder": "Add folder…",
-  "files.open_output": "Open transcription folder",
-  "files.remove_selected": "Remove selected",
-  "files.clear": "Clear list",
+  "dialog": {
+    "cancel_confirm": "Are you sure you want to stop the current task?",
+    "conflict": {
+      "title": "Name conflict",
+      "text": "An output named “{name}” already exists. What would you like to do?",
+      "skip": "Skip this item",
+      "overwrite": "Overwrite existing output",
+      "new_name": "Use a new name:",
+      "apply_all": "Apply to all next items"
+    }
+  },
 
-  "files.details.title": "Item details",
-  "files.details.col.name": "Name",
-  "files.details.col.source": "Source",
-  "files.details.col.path": "Path",
-  "files.details.col.size": "Size",
-  "files.details.col.duration": "Duration",
-  "files.details.col.status": "Status",
-  "files.details.col.preview": "Preview",
+  "files": {
+    "placeholder": "Paste a file path or URL...",
+    "add": "Add",
+    "add_files": "Add files...",
+    "add_folder": "Add folder...",
+    "open_output": "Open transcripts folder",
+    "remove_selected": "Remove selected",
+    "clear": "Clear list",
 
-  "ctrl.start": "Start transcription",
-  "ctrl.cancel": "Cancel",
+    "details": {
+      "title": "Item details",
+      "col": {
+        "name": "Name",
+        "source": "Source",
+        "path": "Path",
+        "size": "Size",
+        "duration": "Duration",
+        "status": "Status",
+        "preview": "Preview"
+      }
+    }
+  },
 
-  "log.init.bg": "🟢 Initialization — loading model in background…",
-  "log.model.init": "🟣 Initializing model…",
-  "log.model.ready": "✅ Model loaded — you can start transcription",
-  "log.model.error": "❌ Model load error: {msg}",
+  "log": {
+    "init": {
+      "bg": "Initializing — loading model in the background…"
+    },
+    "model": {
+      "ready": "Model loaded — you can start transcription",
+      "error": "Model error: {msg}"
+    },
+    "pipe_not_ready": "The model is not ready yet.",
+    "no_items": "Add at least one source (file or URL).",
+    "start": "▶️ Starting transcription…",
+    "cancelled": "⏹️ Cancelled.",
+    "done": "✅ Transcription finished.",
+    "unexpected": "❗ Unexpected error: {msg}",
+    "add": {
+      "empty": "Input field is empty.",
+      "missing": "Path does not exist.",
+      "ok": "Added: {text}"
+    },
+    "transcript": {
+      "saved": "Transcript saved: {path}"
+    }
+  },
 
-  "log.add.empty": "ℹ️ Enter a file path or URL.",
-  "log.add.missing": "⚠️ Path does not exist.",
-  "log.add.ok": "✅ Added: {text}",
+  "down": {
+    "url": {
+      "placeholder": "Paste URL (e.g., YouTube/TikTok)…"
+    },
+    "probe": "Analyze",
+    "open_folder": "Open downloads folder",
 
-  "log.start": "▶️ Transcription started…",
-  "log.no_items": "ℹ️ Add at least one source (file or URL).",
-  "log.pipe_not_ready": "⚠️ Pipeline not ready.",
-  "log.session.plan": "🗂️ Planned output session: {path}",
-  "log.tmp.cleaned": "🧹 Temporary folder cleaned.",
-  "log.done": "✅ Transcription finished.",
-  "log.unexpected": "❗ Unexpected error: {msg}",
-  "log.transcript.saved": "💾 Saved transcript: {path}",
-  "log.cancelled": "⏹️ Operation cancelled.",
+    "meta": {
+      "title": "Metadata",
+      "service": "Service:",
+      "name": "Title:",
+      "duration": "Duration:",
+      "size": "Estimated size:"
+    },
 
-  "status.skipped": "Skipped",
-  "status.prep": "Preparing audio…",
-  "status.proc": "Processing…",
-  "status.dl": "Downloading…",
-  "status.analyze": "Analyzing…",
-  "status.error": "Error",
-  "status.done": "Done",
+    "select": {
+      "title": "Format selection",
+      "type": "Type:",
+      "type.video": "Video",
+      "type.audio": "Audio",
+      "quality": "Quality:",
+      "ext": "Extension:"
+    },
 
-  "down.url.placeholder": "Paste URL (e.g. YouTube/TikTok)…",
-  "down.probe": "Analyze",
-  "down.open_folder": "Open downloads folder",
-  "down.meta.title": "Metadata",
-  "down.meta.service": "Service:",
-  "down.meta.name": "Title:",
-  "down.meta.duration": "Duration:",
-  "down.meta.size": "Estimated size:",
-  "down.select.title": "Format selection",
-  "down.select.type": "Type:",
-  "down.select.quality": "Quality:",
-  "down.select.ext": "Extension:",
-  "down.select.type.video": "Video",
-  "down.select.type.audio": "Audio",
-  "down.download": "Download",
+    "download": "Download",
 
-  "down.log.analyze": "🔎 Analyzing URL…",
-  "down.log.meta_ready": "✅ Metadata ready.",
-  "down.log.downloading": "⬇️ Downloading…",
-  "down.log.downloaded": "✅ Downloaded: {path}",
-  "down.log.error": "❌ Error: {msg}",
-  "down.log.cancelled": "⏹️ Download cancelled.",
+    "log": {
+      "analyze": "🔎 Analyzing URL…",
+      "meta_ready": "✅ Metadata ready.",
+      "downloading": "⬇️ Downloading…",
+      "downloaded_prefix": "Downloaded:",
+      "already": "Already downloaded:",
+      "downloaded": "Downloaded: {path}",
+      "error": "❌ Error: {msg}"
+    },
 
-  "error.defaults_missing": "Missing defaults.json: {path}. Add defaults.json or run configuration repair.",
-  "error.settings_missing": "Missing settings file: {path}.",
-  "error.settings_invalid": "Settings file is corrupted or incomplete ({detail}). Restore defaults from: {path}?",
-  "error.json_invalid": "Invalid JSON file: {path}. Details: {detail}",
-  "error.defaults_section_missing": "Missing section in defaults.json: {section}.",
-  "error.settings_section_invalid": "Invalid section in settings.json: {section}.",
-  "error.settings_missing_keys": "Missing keys in section {section}: {keys}.",
-  "error.type_string_nonempty": "{field} must be a non-empty string.",
-  "error.type_list_strings": "{field} must be a list of strings.",
-  "error.type_int": "{field} must be an integer.",
-  "error.enum_invalid": "{field} has invalid value “{value}”. Allowed: {allowed}.",
-  "error.config.generic": "Configuration error: {detail}",
-  "error.config.unknown_action": "Unknown worker action: {action}",
+    "dialog": {
+      "exists": {
+        "text": "This file already exists:\n“{title}”. What would you like to do?",
+        "open": "Open existing",
+        "overwrite": "Download again (overwrite)",
+        "skip": "Skip"
+      }
+    }
+  },
 
-  "error.i18n.locale_not_found": "Locale “{lang}” not found in {dir}.",
-  "error.i18n.locale_invalid": "Locale file has invalid format: {path}.",
+  "status": {
+    "prep": "Preparing…",
+    "proc": "Processing…",
+    "done": "Done",
+    "skipped": "Skipped",
+    "error": "Error"
+  },
 
-  "error.audio.ffmpeg_failed": "Audio conversion (ffmpeg) failed: {detail}",
-  "error.audio.ffprobe_failed": "Reading duration (ffprobe) failed for file: {path}. Details: {detail}",
-
-  "error.model.load_failed": "Failed to load model: {detail}",
-
-  "error.down.invalid_url": "Invalid URL: {url}",
-  "error.down.probe_failed": "URL analysis failed: {detail}",
-  "error.down.output_dir": "Cannot create output directory: {path}. Details: {detail}",
-  "error.down.download_failed": "Download failed: {detail}"
+  "error": {
+    "down": {
+      "probe_failed": "Probe failed: {detail}",
+      "download_failed": "Download failed: {detail}"
+    },
+    "config": {
+      "unknown_action": "Unknown action: {action}"
+    }
+  }
 }

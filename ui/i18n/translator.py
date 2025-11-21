@@ -22,6 +22,20 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return data
 
 
+def _flatten(d: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
+    """Flatten nested dicts into dot-separated keys (e.g., tabs.files)."""
+    out: Dict[str, str] = {}
+    for k, v in d.items():
+        if not isinstance(k, str):
+            continue
+        key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            out.update(_flatten(v, key))
+        else:
+            out[key] = str(v)
+    return out
+
+
 def system_lang_hint() -> str:
     loc = QtCore.QLocale.system()
     name = loc.name()  # e.g. 'pl_PL'
@@ -70,7 +84,7 @@ def load(locales_dir: Path, lang: str) -> None:
         raise RuntimeError(f"error.i18n.locale_not_found::{lang}::{locales_dir}")
 
     data = _read_json(path)
-    _MESSAGES = {k: str(v) for k, v in data.items() if isinstance(k, str)}
+    _MESSAGES = _flatten(data)
     _CURRENT_LANG = lang
 
 

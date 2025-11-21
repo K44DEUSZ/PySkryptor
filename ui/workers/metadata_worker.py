@@ -31,7 +31,7 @@ class MetadataWorker(QtCore.QObject):
         self._down = DownloadService()
         self._token = CancellationToken()
 
-    # ---------- Cancellation ----------
+    # ----- Cancellation -----
 
     @QtCore.pyqtSlot()
     def cancel(self) -> None:
@@ -43,7 +43,7 @@ class MetadataWorker(QtCore.QObject):
         th = QtCore.QThread.currentThread()
         return bool(th and th.isInterruptionRequested())
 
-    # ---------- Main ----------
+    # ----- Main -----
 
     @QtCore.pyqtSlot()
     def run(self) -> None:

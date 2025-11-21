@@ -42,7 +42,7 @@ class SettingsService:
         self._defaults_path = Path(defaults_path) if defaults_path else (cfg_dir / "defaults.json")
         self._settings_path = Path(settings_path) if settings_path else (cfg_dir / "settings.json")
 
-    # ---------- I/O ----------
+    # ----- I/O -----
 
     @staticmethod
     def _read_json(path: Path) -> Dict[str, Any]:
@@ -61,7 +61,7 @@ class SettingsService:
         with path.open("w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-    # ---------- Validation helpers ----------
+    # ----- Validation helpers -----
 
     @staticmethod
     def _ensure_dict(obj: Any, name: str) -> Dict[str, Any]:
@@ -102,7 +102,7 @@ class SettingsService:
             raise SettingsError("error.enum_invalid", field=field, value=s, allowed=", ".join(allowed))
         return s
 
-    # ---------- Section validators ----------
+    # ----- Section validators -----
 
     def _validate_paths(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -150,7 +150,7 @@ class SettingsService:
         out["keep_wav_temp"] = bool(src.get("keep_wav_temp", False))
         return out
 
-    # ---------- Public API ----------
+    # ----- Public API -----
 
     def load(self) -> SettingsSnapshot:
         if not self._defaults_path.exists():
@@ -202,7 +202,7 @@ class SettingsService:
                     data[sec] = defaults[sec]
         self._write_json(self._settings_path, data)
 
-    # ---------- Convenience loader with auto-restore ----------
+    # ----- Convenience loader with auto-restore -----
 
     def load_or_restore(self) -> Tuple[SettingsSnapshot, bool, str]:
         """Try load; if settings missing/invalid, restore from defaults and load again."""
