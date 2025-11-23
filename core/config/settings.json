@@ -25,7 +25,7 @@
     "local_models_only": true,
     "chunk_length_s": 60,
     "stride_length_s": 5,
-    "pipeline_task": "automatic-speech-recognition",
+    "pipeline_task": "transcribe",
     "ignore_warning": true,
     "default_language": null,
     "return_timestamps": true,

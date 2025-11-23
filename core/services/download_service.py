@@ -12,6 +12,7 @@ from ui.utils.logging import YtdlpQtLogger
 
 class DownloadError(RuntimeError):
     """Error with i18n key and params to be localized by UI."""
+
     def __init__(self, key: str, **params: Any) -> None:
         self.key = key
         self.params = params
@@ -24,7 +25,9 @@ class DownloadService:
     def __init__(self) -> None:
         pass
 
-    # ----- Probe -------------------------------------------------------------
+
+    # ----- Probe -----
+
     def probe(self, url: str, *, log=lambda msg: None) -> Dict[str, Any]:
         ydl_opts = {
             "quiet": True,
@@ -53,7 +56,9 @@ class DownloadService:
         except Exception as ex:
             raise DownloadError("error.down.probe_failed", detail=str(ex))
 
-    # ----- Download ----------------------------------------------------------
+
+    # ----- Download -----
+
     def download(
         self,
         *,
@@ -67,7 +72,7 @@ class DownloadService:
     ) -> Optional[Path]:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        postprocessors = []
+        postprocessors: list[Dict[str, Any]] = []
         format_sort: list[str] = []
         ytdlp_format: str
 
@@ -112,7 +117,7 @@ class DownloadService:
                 "preferedformat": ext,
             })
 
-        outtmpl = str(out_dir / "%(title)s.%(ext)s")  # let yt-dlp do the % mapping
+        outtmpl = str(out_dir / "%(title)s.%(ext)s")
 
         ydl_opts: Dict[str, Any] = {
             "format": ytdlp_format,
@@ -148,6 +153,7 @@ class DownloadService:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 out_path: Optional[Path] = None
+
                 if isinstance(info, dict):
                     req = info.get("requested_downloads")
                     if isinstance(req, list) and req:
@@ -158,19 +164,24 @@ class DownloadService:
                         fn = info.get("_filename")
                         if fn and not str(fn).endswith(".part"):
                             out_path = Path(fn)
+
                 if out_path is None:
                     candidates = [p for p in out_dir.glob("*.*") if not p.name.endswith(".part")]
                     if not candidates:
-                        raise DownloadError("error.down.download_failed", detail="no output file")
+                        raise DownloadError("error.down.no_output_file")
                     out_path = max(candidates, key=lambda p: p.stat().st_mtime)
+
                 return out_path
+
         except DownloadError:
             raise
+
         except Exception as ex:
-            # Surface the original message (e.g., "format requires a mapping") to UI.
             raise DownloadError("error.down.download_failed", detail=str(ex))
 
-    # ----- Internal ----------------------------------------------------------
+
+    # ----- Internal -----
+
     @staticmethod
     def _on_progress(d: Dict[str, Any], cb) -> None:
         if not cb:

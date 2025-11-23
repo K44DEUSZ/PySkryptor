@@ -7,7 +7,7 @@ from PyQt5 import QtWidgets
 
 from core.config.app_config import AppConfig as Config
 from core.services.settings_service import SettingsService, SettingsError
-from ui.i18n.translator import Translator
+from ui.utils.translating import Translator
 from ui.views.dialogs import (
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,
@@ -24,12 +24,12 @@ def _resolve(root: Path, p: str) -> Path:
 def run() -> int:
     app = QtWidgets.QApplication(sys.argv)
 
-    # ----- Resolve project root & prepare services -----
+    # Resolve project root & prepare services
     project_root = Path(__file__).resolve().parent.parent
     Config.ROOT_DIR = project_root
     svc = SettingsService(project_root)
 
-    # ----- Load or restore settings snapshot (but DO NOT localize errors yet) -----
+    # Load or restore settings snapshot (but DO NOT localize errors yet)
     try:
         snap, restored, reason = svc.load_or_restore()
     except SettingsError as ex:
@@ -37,20 +37,19 @@ def run() -> int:
         if getattr(ex, "key", "") == "error.defaults_missing":
             critical_defaults_missing_and_exit(None)
             return 1
-        # Other fatal settings errors (invalid settings without defaults, etc.)
+
         title = "Application Error"
         body = f"Cannot load configuration.\n\nDetails: {getattr(ex, 'key', str(ex))}"
         QtWidgets.QMessageBox.critical(None, title, body)
         return 1
 
-    # ----- Load i18n (after we know paths + language) -----
+    # Load i18n (after we know paths + language)
     locales_dir = _resolve(project_root, snap.paths["locales_dir"])
     lang_code = str(snap.user.get("language", "en"))
 
     try:
         Translator.load(locales_dir, lang_code)
     except Exception:
-        # If specific locale missing (e.g., file not found), show critical EN info and exit.
         critical_locales_missing_and_exit(None)
         return 1
 
@@ -58,10 +57,10 @@ def run() -> int:
     if restored and reason == "error.settings_missing":
         info_settings_restored(None)
 
-    # ----- Apply runtime config (paths, device/dtype, etc.) -----
+    # Apply runtime config (paths, device/dtype, etc.)
     Config.initialize(svc)
 
-    # ----- Create & show main window (panels live there) -----
+    # Create & show main window
     from ui.views.main_window import MainWindow
     win = MainWindow()
     win.show()

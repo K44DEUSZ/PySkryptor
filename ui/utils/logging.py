@@ -31,7 +31,7 @@ def _is_noisy(msg: str, extra_noise: Iterable[str] | None = None) -> bool:
     return False
 
 
-# ----- yt-dlp adapter (no Qt widgets) -----
+# ----- yt-dlp adapter -----
 
 class YtdlpQtLogger:
     """
@@ -61,7 +61,7 @@ class YtdlpQtLogger:
             self._log(str(msg))
 
 
-# ----- Qt HTML appender (thread-safe) -----
+# ----- Qt HTML appender -----
 
 class _QtHtmlAppender(QtCore.QObject):
     """
@@ -92,6 +92,7 @@ class _QtHtmlAppender(QtCore.QObject):
         cursor = self._w.textCursor()
         cursor.movePosition(QtGui.QTextCursor.End)
         cursor.insertHtml(html)
+        cursor.insertBlock()
         self._w.setTextCursor(cursor)
         self._w.ensureCursorVisible()
 
@@ -112,16 +113,11 @@ def _href_for_path(path: Path) -> str:
     return QtCore.QUrl.fromLocalFile(str(Path(path))).toString()
 
 
-# ----- High-level GUI sink -----
+# ----- GUI sink -----
 
 class QtHtmlLogSink:
     """
-    High-level log builder for GUI.
-
-    Rules we enforce here:
-    - Exactly one visual line per log entry (no big gaps).
-    - Links can be printed *inline* with a prefix (e.g., "Downloaded: <link>").
-    - API: plain/info/ok/warn/err/line_with_link/hr/clear.
+    Log builder for GUI.
     """
 
     def __init__(self, text_widget) -> None:
@@ -137,25 +133,27 @@ class QtHtmlLogSink:
         self._emit_line(_escape_html(text))
 
     def info(self, text: str) -> None:
-        self._emit_line("ℹ️ " + _escape_html(text))
+        self._emit_line(_escape_html(text))
 
     def ok(self, text: str) -> None:
-        self._emit_line("✅ " + _escape_html(text))
+        self._emit_line(_escape_html(text))
 
     def warn(self, text: str) -> None:
-        self._emit_line("⚠️ " + _escape_html(text))
+        self._emit_line(_escape_html(text))
 
     def err(self, text: str) -> None:
-        self._emit_line("❌ " + _escape_html(text))
+        self._emit_line(_escape_html(text))
 
     def line_with_link(self, prefix: str, path: Path, *, title: Optional[str] = None, icon: str = "") -> None:
         """
-        Print one *single* line in the form:
+        Print one logical line in the form:
         "<icon><prefix> <a href='file://...'>title</a>"
         """
         t = _escape_html(title or Path(path).stem)
         href = _href_for_path(path)
-        pref = (icon + " " if icon else "") + _escape_html(prefix)
+        pref = _escape_html(prefix)
+        if icon:
+            pref = icon + " " + pref
         self._emit_line(f"{pref} <a href=\"{href}\">{t}</a>")
 
     # Backwards compatibility: a standalone link line.
@@ -167,12 +165,13 @@ class QtHtmlLogSink:
         self._emit_line(f"{txt}<a href=\"{href}\">{_escape_html(title or Path(path).stem)}</a>")
 
     def hr(self) -> None:
+        # Horizontal rule is its own block.
         self._appender.append_html.emit("<hr/>")
 
     # ----- internal helpers -----
 
     def _emit_line(self, inner_html: str) -> None:
-        # Enforce exactly one visual line per entry (no extra <br/> / insertBlock).
+        # Wrap inner HTML in a paragraph so CSS can control spacing.
         self._appender.append_html.emit(f"<p class='logline'>{inner_html}</p>")
 
 

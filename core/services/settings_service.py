@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 class SettingsError(RuntimeError):
     """Settings error carrying a translation key + params (UI will localize)."""
+
     def __init__(self, key: str, **params: Any) -> None:
         self.key = key
         self.params = params
@@ -18,6 +19,7 @@ class SettingsError(RuntimeError):
 @dataclass(frozen=True)
 class SettingsSnapshot:
     """Immutable snapshot of validated settings."""
+
     paths: Dict[str, Any]
     media: Dict[str, Any]
     model: Dict[str, Any]

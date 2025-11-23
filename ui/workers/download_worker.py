@@ -9,10 +9,12 @@ from PyQt5 import QtCore
 from core.config.app_config import AppConfig as Config
 from core.services.download_service import DownloadService, DownloadError
 from core.utils.text import sanitize_filename
-from ui.i18n.translator import tr
+from ui.utils.translating import tr
 
 
 class DownloadWorker(QtCore.QObject):
+    """Background worker for probing and downloading media via DownloadService."""
+
     progress_log = QtCore.pyqtSignal(str)
     progress_pct = QtCore.pyqtSignal(int)
 
@@ -22,7 +24,7 @@ class DownloadWorker(QtCore.QObject):
     download_error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
-    # NEW: rendezvous for duplicate handling in panel
+    # duplicate handling with GUI
     duplicate_check = QtCore.pyqtSignal(str, str)  # (title, existing_path)
 
     def __init__(
@@ -47,17 +49,20 @@ class DownloadWorker(QtCore.QObject):
         self._dup_decision_action: Optional[str] = None  # "skip" | "overwrite" | "rename"
         self._dup_decision_name: str = ""
 
-    # ----- API ---------------------------------------------------------------
+
+    # ----- API -----
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
+        """Entry point for the worker thread."""
         try:
             if self._action == "probe":
                 self._do_probe()
             elif self._action == "download":
                 self._do_download()
             else:
-                self.download_error.emit(tr("down.log.error", msg=f"Unknown action: {self._action}"))
+                msg = tr("error.config.unknown_action", action=self._action)
+                self.download_error.emit(tr("down.log.error", msg=msg))
         except DownloadError as de:
             self.download_error.emit(tr(de.key, **de.params))
         except Exception as e:
@@ -65,26 +70,47 @@ class DownloadWorker(QtCore.QObject):
         finally:
             self.finished.emit()
 
+
     @QtCore.pyqtSlot()
     def cancel(self) -> None:
+        """Mark current operation as cancelled (best-effort)."""
         self._cancelled = True
+
 
     @QtCore.pyqtSlot(str, str)
     def on_duplicate_decided(self, action: str, new_name: str) -> None:
+        """Callback from GUI with user decision on duplicate file."""
         self._dup_decision_action = action
         self._dup_decision_name = new_name
 
-    # ----- Steps -------------------------------------------------------------
+
+    # ----- Steps -----
 
     def _do_probe(self) -> None:
+        """Probe URL metadata and emit meta_ready."""
         self.progress_log.emit(tr("down.log.analyze"))
         meta = self._svc.probe(self._url, log=lambda m: None)
         self.meta_ready.emit(meta)
-        # do NOT log meta_ready here; panel will log it once
+
 
     def _do_download(self) -> None:
+        """Run download with duplicate handling and progress callback."""
+        seen_stage_downloading = False
+        seen_stage_post = False
+
         def _on_progress(pct: int, stage: str) -> None:
+            nonlocal seen_stage_downloading, seen_stage_post
+
+            # progress bar
             self.progress_pct.emit(max(0, min(100, int(pct))))
+
+            # stage logs (localized via JSON)
+            if stage == "downloading" and not seen_stage_downloading:
+                self.progress_log.emit(tr("down.log.downloading"))
+                seen_stage_downloading = True
+            elif stage in ("finished", "postprocess") and not seen_stage_post:
+                self.progress_log.emit(tr("down.log.postprocess"))
+                seen_stage_post = True
 
         kind = (self._kind or "video").lower()
         ext = (self._ext or "mp4").lower()
@@ -104,7 +130,6 @@ class DownloadWorker(QtCore.QObject):
                 if candidate.exists():
                     existing = candidate
                 else:
-                    # any file sharing the stem?
                     for p in Config.DOWNLOADS_DIR.glob(f"{safe}.*"):
                         if p.is_file():
                             existing = p
@@ -117,18 +142,19 @@ class DownloadWorker(QtCore.QObject):
                         QtCore.QThread.msleep(10)
 
                     if self._dup_decision_action == "skip":
-                        self.download_error.emit(tr("down.log.error", msg=tr("down.dialog.exists.skip")))
+                        # wrap inner message from dialog key, outer from down.log.error
+                        msg = tr("down.dialog.exists.skip")
+                        self.download_error.emit(tr("down.log.error", msg=msg))
                         return
                     if self._dup_decision_action == "rename":
-                        # rename target by new stem; DownloadService will still decide final path
+                        # rename target by new stem; DownloadService still decides final path
                         safe = sanitize_filename(self._dup_decision_name or safe)
-                        # nothing else here; outtmpl uses %(title)s so the rename happens after download
 
         except Exception:
             # ignore duplicate pre-check failures; we'll proceed with download
             pass
 
-        self.progress_log.emit(tr("down.log.downloading"))
+        # actual download (progress + logging via callback)
         path = self._svc.download(
             url=self._url,
             kind=kind,
@@ -139,8 +165,10 @@ class DownloadWorker(QtCore.QObject):
             log=lambda m: None,
         )
         if not path:
-            self.download_error.emit(tr("down.log.error", msg="No output file."))
+            detail = tr("error.down.no_output_file") if "error.down.no_output_file" else ""
+            self.download_error.emit(tr("error.down.download_failed", detail=detail))
             return
+
         if not self._cancelled:
             self.progress_pct.emit(100)
             self.download_finished.emit(path)

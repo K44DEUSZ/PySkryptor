@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Union, Optional
+from typing import List, Dict, Any, Tuple, Union
 
 from PyQt5 import QtCore
 
@@ -10,7 +10,7 @@ from core.io.audio_extractor import AudioExtractor
 from core.services.download_service import DownloadService
 from core.utils.concurrency import CancellationToken
 from core.utils.text import is_url
-from ui.i18n.translator import tr
+from ui.utils.translating import tr
 
 GUIEntry = Union[str, Dict[str, Any]]
 
@@ -99,7 +99,7 @@ class MetadataWorker(QtCore.QObject):
                         batch = []
 
                 except Exception as e:
-                    self.progress_log.emit(tr("error.config.generic", detail=f"metadata: {e}"))
+                    self.progress_log.emit(tr("log.unexpected", msg=f"metadata: {e}"))
 
             if not self._is_cancelled() and batch:
                 self.table_ready.emit(batch)

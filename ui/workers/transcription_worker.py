@@ -1,4 +1,3 @@
-# ui/workers/transcription_worker.py
 from __future__ import annotations
 
 import shutil
@@ -12,7 +11,7 @@ from core.config.app_config import AppConfig as Config
 from core.files.file_manager import FileManager
 from core.services.download_service import DownloadService, DownloadError
 from core.utils.text import is_url, sanitize_filename, TextPostprocessor
-from ui.i18n.translator import tr
+from ui.utils.translating import tr
 
 GUIEntry = Union[str, Dict[str, Any]]
 WorkItem = Tuple[str, Path, Optional[str]]
@@ -27,7 +26,7 @@ class TranscriptionWorker(QtCore.QObject):
     progress = QtCore.pyqtSignal(int)
     finished = QtCore.pyqtSignal()
 
-    conflict_check = QtCore.pyqtSignal(str, str)  # stem, existing_dir
+    conflict_check = QtCore.pyqtSignal(str, str)      # stem, existing_dir
 
     item_status = QtCore.pyqtSignal(str, str)         # key, status label
     item_path_update = QtCore.pyqtSignal(str, str)    # old_key, new_local_path
@@ -230,7 +229,8 @@ class TranscriptionWorker(QtCore.QObject):
             FileManager.end_session()
             self.finished.emit()
 
-    # ----- Conflict decision rendezvous -----
+
+    # ----- Conflict decision -----
 
     @QtCore.pyqtSlot(str, str)
     def on_conflict_decided(self, action: str, new_stem: str = "") -> None:
@@ -240,6 +240,7 @@ class TranscriptionWorker(QtCore.QObject):
         self._conflict_action = action
         self._conflict_new_stem = new_stem
         self._conflict_event.set()
+
 
     # ----- Helpers -----
 
@@ -258,10 +259,12 @@ class TranscriptionWorker(QtCore.QObject):
         s, t = self._normalize_entry(raw)
 
         # ----- URL entry -----
+
         if t == "url" or is_url(s):
             key = s
-            self.log.emit(f"🌐 {tr('down.log.analyze')} {s}")
-            self.item_status.emit(key, tr("status.analyze"))
+            # Generic "analyze URL" log – localized + optional emoji from i18n.
+            self.log.emit(tr("down.log.analyze"))
+            self.item_status.emit(key, tr("status.prep"))
             try:
                 meta = self._download.probe(s, log=lambda m: None)
             except DownloadError as de:
@@ -300,8 +303,10 @@ class TranscriptionWorker(QtCore.QObject):
 
             if self._cancel.is_set():
                 return []
-            self.log.emit(f"🌐 {tr('down.log.downloading')} {s}")
-            self.item_status.emit(key, tr("status.dl"))
+
+            # Download, again with localized log.
+            self.log.emit(tr("down.log.downloading"))
+            self.item_status.emit(key, tr("status.prep"))
             try:
                 local = self._download.download(
                     url=s,
@@ -330,6 +335,7 @@ class TranscriptionWorker(QtCore.QObject):
                 return []
 
         # ----- Local directory -----
+
         p = Path(s)
         if p.is_dir():
             allowed = set(Config.audio_extensions()) | set(Config.video_extensions())
@@ -339,6 +345,7 @@ class TranscriptionWorker(QtCore.QObject):
             return [(str(f), f, None) for f in sorted(files)]
 
         # ----- Local file -----
+
         if p.is_file():
             return [(str(p), p, None)]
 

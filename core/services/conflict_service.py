@@ -22,6 +22,7 @@ class ConflictService:
         safe = sanitize_filename(stem)
         return FileManager.find_existing_output(safe) is not None
 
+
     @staticmethod
     def next_free(stem: str) -> str:
         """Return a non-colliding stem by appending (n)."""
@@ -35,11 +36,13 @@ class ConflictService:
                 return candidate
             i += 1
 
+
     @staticmethod
     def ensure(stem: str):
         """Create (if needed) and return output directory for stem in the current session."""
         safe = sanitize_filename(stem)
         return FileManager.ensure_output(safe)
+
 
     @staticmethod
     def existing_dir(stem: str) -> Optional[str]:

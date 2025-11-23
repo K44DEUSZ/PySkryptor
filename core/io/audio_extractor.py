@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 from core.config.app_config import AppConfig as Config
 
 
 class AudioError(RuntimeError):
     """Audio error carrying a translation key + params (UI will localize)."""
+
     def __init__(self, key: str, **params) -> None:
         self.key = key
         self.params = params
@@ -27,6 +28,7 @@ class AudioExtractor:
         cand = base / exe
         return str(cand) if cand.exists() else "ffmpeg"
 
+
     @staticmethod
     def _ffprobe_exe() -> str:
         """Return absolute ffprobe executable path or name on PATH."""
@@ -35,8 +37,9 @@ class AudioExtractor:
         cand = base / exe
         return str(cand) if cand.exists() else "ffprobe"
 
+
     @staticmethod
-    def ensure_mono_16k(src: Path, dst: Path) -> None:
+    def ensure_mono_16k(src: Path, dst: Path, log: Optional[Callable[[str], None]]) -> None:
         """
         Convert any media to WAV PCM 16kHz mono (overwrite if exists).
         Raises AudioError with i18n key on failure.
@@ -61,6 +64,7 @@ class AudioExtractor:
             )
         except subprocess.CalledProcessError as e:
             raise AudioError("error.audio.ffmpeg_failed", detail=str(e), src=str(src))
+
 
     @staticmethod
     def probe_duration(path: Path) -> Optional[float]:

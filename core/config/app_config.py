@@ -18,10 +18,12 @@ class ConfigError(RuntimeError):
 class AppConfig:
     """
     Central runtime configuration (paths, binaries, device/dtype).
-    Consumes SettingsService; does not read JSON directly.
+    Uses SettingsService as the single source of truth.
     """
 
-    # ----- Derived paths (filled during initialize) -----
+    # ----- Init settings -----
+
+    # Derived paths
     ROOT_DIR: Path = Path(__file__).resolve().parents[2]
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
@@ -35,15 +37,15 @@ class AppConfig:
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    # ----- Media extensions -----
+    # Media extensions
     AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3")
     VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm")
 
-    # ----- Download prefs -----
+    # Download prefs
     VIDEO_MIN_HEIGHT: int = 144
     VIDEO_MAX_HEIGHT: int = 4320
 
-    # ----- Network (from settings) -----
+    # Network
     NET_MAX_KBPS: int | None = None
     NET_RETRIES: int = 3
     NET_CONC_FRAG: int = 4
@@ -51,18 +53,21 @@ class AppConfig:
     NET_PROXY: str | None = None
     NET_THROTTLE_S: int = 0
 
-    # ----- Device/dtype/runtime -----
+    # Device/dtype/runtime
     DEVICE: torch.device = torch.device("cpu")
     DTYPE: Any = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
     TF32_ENABLED: bool = False
 
-    # ----- Cached settings -----
+    # Cached settings
     SETTINGS: SettingsSnapshot | None = None
 
+
     # ----- Public initialization -----
+
     @classmethod
     def initialize(cls, settings: SettingsService | None = None) -> None:
+        """Load settings and apply all runtime configuration."""
         ss = settings or SettingsService(cls.ROOT_DIR)
         try:
             snap = ss.load()
@@ -78,9 +83,12 @@ class AppConfig:
         cls._apply_network(getattr(snap, "network", {}) or {})
         cls._setup_device_dtype(user=snap.user)
 
+
     # ----- Apply sections -----
+
     @classmethod
     def _apply_paths(cls, paths: Dict[str, Any]) -> None:
+        """Resolve configurable paths and store them as absolute."""
         def _resolve(p: str) -> Path:
             path = Path(p)
             return path if path.is_absolute() else (cls.ROOT_DIR / path)
@@ -96,8 +104,10 @@ class AppConfig:
         cls.INPUT_TMP_DIR = _resolve(paths["input_tmp_dir"])
         cls.TRANSCRIPTIONS_DIR = _resolve(paths["transcriptions_dir"])
 
+
     @classmethod
     def _apply_media_exts(cls, media: Dict[str, Any]) -> None:
+        """Normalize audio/video extensions from settings."""
         def _norm(exts: Any) -> Tuple[str, ...]:
             seq = list(exts or [])
             out = []
@@ -110,8 +120,10 @@ class AppConfig:
         cls.AUDIO_EXT = _norm(media.get("audio_ext"))
         cls.VIDEO_EXT = _norm(media.get("video_ext"))
 
+
     @classmethod
     def _apply_download(cls, download: Dict[str, Any]) -> None:
+        """Apply download min/max video height with basic clamping."""
         try:
             mn = int(download.get("min_video_height", cls.VIDEO_MIN_HEIGHT))
         except Exception:
@@ -125,8 +137,10 @@ class AppConfig:
         cls.VIDEO_MIN_HEIGHT = max(1, mn)
         cls.VIDEO_MAX_HEIGHT = max(cls.VIDEO_MIN_HEIGHT, mx)
 
+
     @classmethod
     def _apply_network(cls, network: Dict[str, Any]) -> None:
+        """Apply basic network options: retries, timeouts, proxy, bandwidth."""
         def _to_int(v, default):
             try:
                 return int(v)
@@ -148,8 +162,10 @@ class AppConfig:
         cls.NET_PROXY = (str(network.get("proxy")).strip() or None) if network.get("proxy") is not None else None
         cls.NET_THROTTLE_S = max(0, _to_int(network.get("throttle_startup_s", cls.NET_THROTTLE_S), cls.NET_THROTTLE_S))
 
+
     @classmethod
     def _ensure_dirs(cls) -> None:
+        """Create all required resource/data directories if missing."""
         for p in (
             cls.RESOURCES_DIR,
             cls.FFMPEG_DIR,
@@ -162,8 +178,10 @@ class AppConfig:
             p.mkdir(parents=True, exist_ok=True)
         cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+
     @classmethod
     def _setup_ffmpeg_on_path(cls) -> None:
+        """Expose ffmpeg/ffprobe via PATH and related environment variables."""
         bin_dir = cls.FFMPEG_DIR / "bin"
         cls.FFMPEG_BIN_DIR = bin_dir if bin_dir.exists() else cls.FFMPEG_DIR
 
@@ -184,9 +202,12 @@ class AppConfig:
         if ffprobe_exe.exists():
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
+
     # ----- Device / DType -----
+
     @classmethod
     def _setup_device_dtype(cls, *, user: Dict[str, Any]) -> None:
+        """Pick device and dtype according to user preferences and hardware."""
         device = cls._resolve_device(user)
         cls.DEVICE = device
 
@@ -219,8 +240,10 @@ class AppConfig:
                 pass
             cls.TF32_ENABLED = False
 
+
     @staticmethod
     def _resolve_device(user: Dict[str, Any]) -> torch.device:
+        """Resolve torch.device from user preference and availability."""
         pref = str(user.get("preferred_device", "auto")).lower()
         if os.environ.get("FORCE_CPU", "0") == "1":
             return torch.device("cpu")
@@ -230,8 +253,10 @@ class AppConfig:
             return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
         return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
+
     @staticmethod
     def _resolve_dtype(user: Dict[str, Any], device: torch.device):
+        """Resolve torch dtype for selected device and precision."""
         prec = str(user.get("precision", "auto")).lower()
         if device.type == "cuda":
             if prec == "float32":
@@ -243,13 +268,18 @@ class AppConfig:
             return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         return torch.float32
 
+
     # ----- Convenience accessors -----
+
     @classmethod
     def language(cls) -> str:
+        """Return current UI language code (or 'en' as fallback)."""
         if cls.SETTINGS:
             return str(cls.SETTINGS.user.get("language", "en"))
         return "en"
 
+
+    # Media extensions
     @classmethod
     def audio_extensions(cls) -> Tuple[str, ...]:
         return cls.AUDIO_EXT
@@ -258,6 +288,8 @@ class AppConfig:
     def video_extensions(cls) -> Tuple[str, ...]:
         return cls.VIDEO_EXT
 
+
+    # Model settings
     @classmethod
     def model_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.model) if cls.SETTINGS else {}
@@ -265,6 +297,7 @@ class AppConfig:
     @classmethod
     def user_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.user) if cls.SETTINGS else {}
+
 
     # Download prefs
     @classmethod
@@ -275,16 +308,28 @@ class AppConfig:
     def max_video_height(cls) -> int:
         return int(cls.VIDEO_MAX_HEIGHT)
 
+
     # Network
     @classmethod
-    def net_max_kbps(cls) -> int | None: return cls.NET_MAX_KBPS
+    def net_max_kbps(cls) -> int | None:
+        return cls.NET_MAX_KBPS
+
     @classmethod
-    def net_retries(cls) -> int: return cls.NET_RETRIES
+    def net_retries(cls) -> int:
+        return cls.NET_RETRIES
+
     @classmethod
-    def net_concurrent_fragments(cls) -> int: return cls.NET_CONC_FRAG
+    def net_concurrent_fragments(cls) -> int:
+        return cls.NET_CONC_FRAG
+
     @classmethod
-    def net_timeout_s(cls) -> int: return cls.NET_TIMEOUT_S
+    def net_timeout_s(cls) -> int:
+        return cls.NET_TIMEOUT_S
+
     @classmethod
-    def net_proxy(cls) -> str | None: return cls.NET_PROXY
+    def net_proxy(cls) -> str | None:
+        return cls.NET_PROXY
+
     @classmethod
-    def net_throttle_startup_s(cls) -> int: return cls.NET_THROTTLE_S
+    def net_throttle_startup_s(cls) -> int:
+        return cls.NET_THROTTLE_S

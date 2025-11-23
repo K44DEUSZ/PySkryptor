@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Tuple
 from PyQt5 import QtWidgets
 
-from ui.i18n.translator import Translator as T
+from ui.utils.translating import Translator as T
 
 
 # ----- Critical startup dialogs -----

@@ -1,4 +1,3 @@
-# ui/views/downloader_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,7 +7,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
 from core.utils.text import format_bytes, format_hms
-from ui.i18n.translator import tr
+from ui.utils.translating import tr
 from ui.utils.logging import QtHtmlLogSink
 from ui.views.dialogs import ask_download_duplicate
 from ui.workers.download_worker import DownloadWorker
@@ -18,6 +17,7 @@ class DownloaderPanel(QtWidgets.QWidget):
     """Downloader tab UI + logic (probe + download, cancel, duplicate handling)."""
 
     # ----- Init / Layout -----
+
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
 
@@ -115,7 +115,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_ext.currentIndexChanged.connect(self._update_buttons_and_size)
         self.btn_open_downloads.clicked.connect(self._on_open_downloads_clicked)
 
+
     # ----- Link opener / Folders -----
+
     def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
         try:
             if url.isLocalFile():
@@ -260,8 +262,8 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _on_download_finished(self, path: Path) -> None:
         title = self._down_meta.get("title") if isinstance(self._down_meta, dict) else path.stem
         self.pb_download.setValue(100)
-        # single line: "Pobrano: <link>"
-        self.log.line_with_link(tr("down.log.downloaded_prefix"), path, title=title, icon="✅")
+        # single line: "Pobrano: <link>" – prefix z i18n
+        self.log.line_with_link(tr("down.log.downloaded_prefix"), path, title=title)
         self._update_buttons_and_size()
 
     def _on_down_thread_finished(self) -> None:
@@ -354,7 +356,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         for w in (self.ed_url, self.btn_probe, self.cb_kind, self.cb_quality, self.cb_ext, self.btn_open_downloads):
             w.setEnabled(enabled)
 
+
     # ----- Cleanup -----
+
     def on_parent_close(self) -> None:
         try:
             if self._down_thread and self._down_worker:

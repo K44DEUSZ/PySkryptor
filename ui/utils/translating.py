@@ -1,4 +1,4 @@
-# ui/i18n/translator.py
+# ui/i18n/translating.py
 from __future__ import annotations
 
 import json

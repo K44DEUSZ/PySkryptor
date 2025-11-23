@@ -8,7 +8,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
 from core.utils.text import format_bytes, format_hms, is_url
-from ui.i18n.translator import tr
+from ui.utils.translating import tr
 from ui.utils.file_drop_list import FileDropList
 from ui.utils.logging import QtHtmlLogSink
 from ui.workers.model_loader_worker import ModelLoadWorker
@@ -377,17 +377,6 @@ class FilesPanel(QtWidgets.QWidget):
             self.log.ok(tr("log.done"))
         self._update_buttons()
 
-    def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
-        self._transcript_by_key[key] = transcript_path
-        row = self._row_by_key.get(key)
-        if row is None:
-            return
-        w = self.tbl_details.cellWidget(row, self.COL_PREVIEW)
-        if isinstance(w, QtWidgets.QToolButton):
-            w.setEnabled(True)
-        # one-line: "<ok> Zapisano zapis: <link>"
-        self.log.line_with_link(tr("log.transcript.saved_prefix"), Path(transcript_path), icon="✅")
-
     # ----- Conflict rendezvous -----
     @QtCore.pyqtSlot(str, str)
     def _on_conflict(self, stem: str, existing_dir: str) -> None:
@@ -431,6 +420,12 @@ class FilesPanel(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot(str, str)
     def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
+        """
+        Update UI when a transcript has been written.
+
+        - enable preview button,
+        - log a localized message with a clickable link.
+        """
         self._transcript_by_key[key] = transcript_path
         row = self._row_by_key.get(key)
         if row is None:
@@ -438,9 +433,13 @@ class FilesPanel(QtWidgets.QWidget):
         w = self.tbl_details.cellWidget(row, self.COL_PREVIEW)
         if isinstance(w, QtWidgets.QToolButton):
             w.setEnabled(True)
-        # show as clickable link in log
-        self.log.ok(tr("log.transcript.saved_prefix"))
-        self.log.link(Path(transcript_path).name, Path(transcript_path))
+
+        # One line with prefix from i18n + clickable link to the transcript.
+        self.log.line_with_link(
+            tr("log.transcript.saved_prefix"),
+            Path(transcript_path),
+            title=Path(transcript_path).name,
+        )
 
     # ----- Buttons -----
     def _update_buttons(self) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional
 from PyQt5 import QtWidgets
 
-from ui.i18n.translator import tr
+from ui.utils.translating import tr
 from ui.views.files_panel import FilesPanel
 from ui.views.downloader_panel import DownloaderPanel
 

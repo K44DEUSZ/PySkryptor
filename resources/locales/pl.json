@@ -64,11 +64,11 @@
 
   "log": {
     "init": {
-      "bg": "Inicjalizacja — ładowanie modelu w tle…"
+      "bg": "ℹ️ Inicjalizacja — ładowanie modelu w tle…"
     },
     "model": {
-      "ready": "Model załadowany — możesz rozpocząć transkrypcję",
-      "error": "Błąd modelu: {msg}"
+      "ready": "✅ Model załadowany — możesz rozpocząć transkrypcję",
+      "error": "❌ Błąd modelu: {msg}"
     },
     "pipe_not_ready": "Model nie jest jeszcze gotowy.",
     "no_items": "Dodaj przynajmniej jedno źródło (plik lub URL).",
@@ -76,13 +76,24 @@
     "cancelled": "⏹️ Anulowano.",
     "done": "✅ Zakończono transkrypcję.",
     "unexpected": "❗ Nieoczekiwany błąd: {msg}",
+
+    "session": {
+      "plan": "📂 Utworzono nową sesję w folderze: {path}"
+    },
+
+    "tmp": {
+      "cleaned": "🧹 Wyczyszczono tymczasowe pliki."
+    },
+
     "add": {
       "empty": "Pole wejściowe jest puste.",
       "missing": "Ścieżka nie istnieje.",
-      "ok": "Dodano: {text}"
+      "ok": "✅ Dodano: {text}"
     },
+
     "transcript": {
-      "saved": "Zapisano transkrypt: {path}"
+      "saved": "✅ Zapisano transkrypt: {path}",
+      "saved_prefix": "✅ Zapisano transkrypt:"
     }
   },
 
@@ -116,18 +127,20 @@
       "analyze": "🔎 Analiza URL…",
       "meta_ready": "✅ Metadane gotowe.",
       "downloading": "⬇️ Pobieranie…",
-      "downloaded_prefix": "Pobrano:",
-      "already": "Już pobrano:",
+      "postprocess": "⚙️ Przetwarzanie pliku…",
+      "downloaded_prefix": "✅ Pobrano:",
+      "already": "ℹ️ Już pobrano:",
       "downloaded": "Pobrano: {path}",
       "error": "❌ Błąd: {msg}"
     },
 
     "dialog": {
       "exists": {
-        "text": "Ten plik już istnieje:\n„{title}”. Co chcesz zrobić?",
+        "text": "Ten plik już istnieje: „{title}”. Co chcesz zrobić?",
         "open": "Otwórz istniejący",
         "overwrite": "Pobierz ponownie (nadpisz)",
-        "skip": "Pomiń"
+        "skip": "Pomiń",
+        "rename": "Zmień nazwę"
       }
     }
   },
@@ -146,7 +159,8 @@
       "download_failed": "Pobieranie nie powiodło się: {detail}"
     },
     "config": {
-      "unknown_action": "Nieznane działanie: {action}"
+      "unknown_action": "Nieznane działanie: {action}",
+      "generic": "Błąd konfiguracji: {detail}"
     }
   }
 }
