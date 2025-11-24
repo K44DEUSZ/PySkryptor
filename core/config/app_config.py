@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -57,6 +59,8 @@ class AppConfig:
     DEVICE: torch.device = torch.device("cpu")
     DTYPE: Any = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
+    DEVICE_KIND: str = "CPU"
+    DEVICE_MODEL: str | None = None
     TF32_ENABLED: bool = False
 
     # Cached settings
@@ -79,7 +83,7 @@ class AppConfig:
         cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
         cls._apply_media_exts(snap.media)
-        cls._apply_download(snap.download if hasattr(snap, "download") else {})
+        cls._apply_download(getattr(snap, "download", {}) or {})
         cls._apply_network(getattr(snap, "network", {}) or {})
         cls._setup_device_dtype(user=snap.user)
 
@@ -104,7 +108,6 @@ class AppConfig:
         cls.INPUT_TMP_DIR = _resolve(paths["input_tmp_dir"])
         cls.TRANSCRIPTIONS_DIR = _resolve(paths["transcriptions_dir"])
 
-
     @classmethod
     def _apply_media_exts(cls, media: Dict[str, Any]) -> None:
         """Normalize audio/video extensions from settings."""
@@ -117,9 +120,9 @@ class AppConfig:
                     s = "." + s
                 out.append(s)
             return tuple(dict.fromkeys(out))
+
         cls.AUDIO_EXT = _norm(media.get("audio_ext"))
         cls.VIDEO_EXT = _norm(media.get("video_ext"))
-
 
     @classmethod
     def _apply_download(cls, download: Dict[str, Any]) -> None:
@@ -137,7 +140,6 @@ class AppConfig:
         cls.VIDEO_MIN_HEIGHT = max(1, mn)
         cls.VIDEO_MAX_HEIGHT = max(cls.VIDEO_MIN_HEIGHT, mx)
 
-
     @classmethod
     def _apply_network(cls, network: Dict[str, Any]) -> None:
         """Apply basic network options: retries, timeouts, proxy, bandwidth."""
@@ -149,10 +151,10 @@ class AppConfig:
 
         kbps = network.get("max_bandwidth_kbps")
         try:
-            kbps_val = int(kbps) if kbps is not None else None
-            if kbps_val is not None and kbps_val <= 0:
-                kbps_val = None
+            kbps_val = int(kps) if (kps := kbps) is not None else None  # type: ignore[name-defined]
         except Exception:
+            kbps_val = None
+        if kbps_val is not None and kbps_val <= 0:
             kbps_val = None
 
         cls.NET_MAX_KBPS = kbps_val
@@ -161,7 +163,6 @@ class AppConfig:
         cls.NET_TIMEOUT_S = max(1, _to_int(network.get("http_timeout_s", cls.NET_TIMEOUT_S), cls.NET_TIMEOUT_S))
         cls.NET_PROXY = (str(network.get("proxy")).strip() or None) if network.get("proxy") is not None else None
         cls.NET_THROTTLE_S = max(0, _to_int(network.get("throttle_startup_s", cls.NET_THROTTLE_S), cls.NET_THROTTLE_S))
-
 
     @classmethod
     def _ensure_dirs(cls) -> None:
@@ -177,7 +178,6 @@ class AppConfig:
         ):
             p.mkdir(parents=True, exist_ok=True)
         cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
-
 
     @classmethod
     def _setup_ffmpeg_on_path(cls) -> None:
@@ -205,6 +205,76 @@ class AppConfig:
 
     # ----- Device / DType -----
 
+    @staticmethod
+    def _cpu_model_name() -> str | None:
+        """Best-effort CPU model string for friendly display."""
+        try:
+            system = platform.system().lower()
+
+            if system == "windows":
+                # 1) Registry query – usually matches Settings → System → About.
+                try:
+                    out = subprocess.check_output(
+                        [
+                            "reg", "query",
+                            r"HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+                            "/v", "ProcessorNameString",
+                        ],
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                    )
+                    for line in out.splitlines():
+                        if "ProcessorNameString" in line:
+                            parts = [p for p in line.split("  ") if p.strip()]
+                            if parts:
+                                name = parts[-1].strip()
+                                if name:
+                                    return name
+                except Exception:
+                    pass
+
+                # 2) Fallback: WMIC.
+                try:
+                    out = subprocess.check_output(
+                        ["wmic", "cpu", "get", "Name"],
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                    )
+                    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+                    lines = [ln for ln in lines if ln.lower() != "name"]
+                    if lines:
+                        return lines[0]
+                except Exception:
+                    pass
+
+                # 3) Last resort.
+                name = platform.processor() or ""
+                if not name:
+                    name = os.environ.get("PROCESSOR_IDENTIFIER", "") or ""
+                return name or None
+
+            if system == "linux":
+                info = Path("/proc/cpuinfo")
+                if info.exists():
+                    for line in info.read_text(errors="ignore").splitlines():
+                        if "model name" in line.lower():
+                            return line.split(":", 1)[1].strip() or None
+                return None
+
+            if system == "darwin":
+                out = subprocess.check_output(
+                    ["sysctl", "-n", "machdep.cpu.brand_string"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                out = (out or "").strip()
+                return out or None
+
+        except Exception:
+            return None
+
+        return None
+
     @classmethod
     def _setup_device_dtype(cls, *, user: Dict[str, Any]) -> None:
         """Pick device and dtype according to user preferences and hardware."""
@@ -213,13 +283,20 @@ class AppConfig:
 
         if device.type == "cuda":
             cls.DTYPE = cls._resolve_dtype(user, device)
+            cls.DEVICE_KIND = "GPU"
             try:
-                cls.DEVICE_FRIENDLY_NAME = torch.cuda.get_device_name(0)
+                cls.DEVICE_MODEL = torch.cuda.get_device_name(0)
             except Exception:
-                cls.DEVICE_FRIENDLY_NAME = "GPU"
+                cls.DEVICE_MODEL = None
         else:
             cls.DTYPE = torch.float32
-            cls.DEVICE_FRIENDLY_NAME = "CPU"
+            cls.DEVICE_KIND = "CPU"
+            cls.DEVICE_MODEL = cls._cpu_model_name()
+
+        if cls.DEVICE_MODEL:
+            cls.DEVICE_FRIENDLY_NAME = f"{cls.DEVICE_KIND} ({cls.DEVICE_MODEL})"
+        else:
+            cls.DEVICE_FRIENDLY_NAME = cls.DEVICE_KIND
 
         try:
             torch.set_float32_matmul_precision("medium")
@@ -240,7 +317,6 @@ class AppConfig:
                 pass
             cls.TF32_ENABLED = False
 
-
     @staticmethod
     def _resolve_device(user: Dict[str, Any]) -> torch.device:
         """Resolve torch.device from user preference and availability."""
@@ -252,7 +328,6 @@ class AppConfig:
         if pref == "gpu":
             return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
         return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-
 
     @staticmethod
     def _resolve_dtype(user: Dict[str, Any], device: torch.device):
@@ -278,7 +353,6 @@ class AppConfig:
             return str(cls.SETTINGS.user.get("language", "en"))
         return "en"
 
-
     # Media extensions
     @classmethod
     def audio_extensions(cls) -> Tuple[str, ...]:
@@ -287,7 +361,6 @@ class AppConfig:
     @classmethod
     def video_extensions(cls) -> Tuple[str, ...]:
         return cls.VIDEO_EXT
-
 
     # Model settings
     @classmethod
@@ -298,7 +371,6 @@ class AppConfig:
     def user_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.user) if cls.SETTINGS else {}
 
-
     # Download prefs
     @classmethod
     def min_video_height(cls) -> int:
@@ -307,7 +379,6 @@ class AppConfig:
     @classmethod
     def max_video_height(cls) -> int:
         return int(cls.VIDEO_MAX_HEIGHT)
-
 
     # Network
     @classmethod
