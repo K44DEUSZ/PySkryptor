@@ -37,11 +37,9 @@ def _flatten_supported_from_dir(dir_path: Path, *, allowed: set[str]) -> Iterabl
 class FileDropList(QtWidgets.QListWidget):
     """
     Lightweight drag&drop emitter.
-
     - Accepts files/folders/URL-list drops from the OS.
     - Filters files by extensions defined in settings (Config.audio_extensions/video_extensions).
     - Emits `pathsDropped: list[str]` with de-duplicated absolute paths.
-    - Does NOT add items to itself (keeps UI responsibility in parent panel).
     """
     pathsDropped = QtCore.pyqtSignal(list)
 
@@ -51,6 +49,7 @@ class FileDropList(QtWidgets.QListWidget):
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
 
+
     # ----- Qt DnD -----
 
     def dragEnterEvent(self, e):  # type: ignore[override]
@@ -59,11 +58,13 @@ class FileDropList(QtWidgets.QListWidget):
         else:
             e.ignore()
 
+
     def dragMoveEvent(self, e):  # type: ignore[override]
         if e.mimeData().hasUrls() or e.mimeData().hasText():
             e.acceptProposedAction()
         else:
             e.ignore()
+
 
     def dropEvent(self, e):  # type: ignore[override]
         allowed = _supported_suffixes()

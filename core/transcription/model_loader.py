@@ -1,9 +1,9 @@
 # core/transcription/model_loader.py
-
 from __future__ import annotations
 
 from typing import Callable, Any
 import torch
+import logging
 
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from core.config.app_config import AppConfig as Config
@@ -14,6 +14,8 @@ class ModelLoader:
         self.pipeline = None
 
     def load(self, log: Callable[[Any], None] | None = None):
+        logging.getLogger("transformers").setLevel(logging.ERROR)
+
         try:
             torch.set_float32_matmul_precision("medium")
         except Exception:

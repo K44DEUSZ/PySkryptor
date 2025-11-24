@@ -29,6 +29,7 @@
 
   "dialog": {
     "cancel_confirm": "Czy na pewno chcesz przerwać bieżące działanie?",
+    "settings_restored": "Plik ustawień był nieobecny. Przywrócono ustawienia domyślne.",
     "conflict": {
       "title": "Konflikt nazw",
       "text": "Wynik o nazwie „{name}” już istnieje. Co zrobić?",
@@ -63,11 +64,8 @@
   },
 
   "log": {
-    "init": {
-      "bg": "ℹ️ Inicjalizacja — ładowanie modelu w tle…"
-    },
     "model": {
-      "ready": "✅ Model załadowany — możesz rozpocząć transkrypcję",
+      "ready": "✅ Model załadowany — tryb: {device}",
       "error": "❌ Błąd modelu: {msg}"
     },
     "pipe_not_ready": "Model nie jest jeszcze gotowy.",
@@ -82,7 +80,7 @@
     },
 
     "tmp": {
-      "cleaned": "🧹 Wyczyszczono tymczasowe pliki."
+      "cleaned": "🧹 Wyczyszczono tymczasowe pliki audio."
     },
 
     "add": {
@@ -156,7 +154,8 @@
   "error": {
     "down": {
       "probe_failed": "Analiza nie powiodła się: {detail}",
-      "download_failed": "Pobieranie nie powiodło się: {detail}"
+      "download_failed": "Pobieranie nie powiodło się: {detail}",
+      "no_output_file": "Pobieranie nie zwróciło żadnego pliku wyjściowego."
     },
     "config": {
       "unknown_action": "Nieznane działanie: {action}",

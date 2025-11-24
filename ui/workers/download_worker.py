@@ -165,10 +165,11 @@ class DownloadWorker(QtCore.QObject):
             log=lambda m: None,
         )
         if not path:
-            detail = tr("error.down.no_output_file") if "error.down.no_output_file" else ""
+            detail = tr("error.down.no_output_file")
             self.download_error.emit(tr("error.down.download_failed", detail=detail))
             return
 
         if not self._cancelled:
             self.progress_pct.emit(100)
             self.download_finished.emit(path)
+

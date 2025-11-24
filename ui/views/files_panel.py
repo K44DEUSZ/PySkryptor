@@ -1,4 +1,3 @@
-# ui/views/files_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,12 +8,69 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 from core.config.app_config import AppConfig as Config
 from core.utils.text import format_bytes, format_hms, is_url
 from ui.utils.translating import tr
-from ui.utils.file_drop_list import FileDropList
+from ui.utils.file_drop_list import _supported_suffixes, _is_supported, _flatten_supported_from_dir
 from ui.utils.logging import QtHtmlLogSink
 from ui.workers.model_loader_worker import ModelLoadWorker
 from ui.workers.transcription_worker import TranscriptionWorker
 from ui.workers.metadata_worker import MetadataWorker
 from ui.views.dialogs import ask_cancel, ask_conflict
+
+
+class DropTableWidget(QtWidgets.QTableWidget):
+    """
+    QTableWidget with drag&drop support for local files/folders.
+    Emits pathsDropped(list[str]) with de-duplicated absolute paths.
+    """
+    pathsDropped = QtCore.pyqtSignal(list)
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(0, 7, parent)
+        self.setAcceptDrops(True)
+
+
+    def dragEnterEvent(self, e):  # type: ignore[override]
+        if e.mimeData().hasUrls() or e.mimeData().hasText():
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dragMoveEvent(self, e):  # type: ignore[override]
+        if e.mimeData().hasUrls() or e.mimeData().hasText():
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dropEvent(self, e):  # type: ignore[override]
+        allowed = _supported_suffixes()
+        paths: List[Path] = []
+
+        # File/dir URLs
+        if e.mimeData().hasUrls():
+            for url in e.mimeData().urls():
+                p = Path(url.toLocalFile())
+                if not p.exists():
+                    continue
+                if p.is_dir():
+                    paths.extend(_flatten_supported_from_dir(p, allowed=allowed))
+                elif _is_supported(p, allowed=allowed):
+                    paths.append(p)
+
+        # Text payload (plain-text paths)
+        if e.mimeData().hasText():
+            for line in e.mimeData().text().splitlines():
+                p = Path(line.strip())
+                if p.exists():
+                    if p.is_dir():
+                        paths.extend(_flatten_supported_from_dir(p, allowed=allowed))
+                    elif _is_supported(p, allowed=allowed):
+                        paths.append(p)
+
+        # De-duplicate (preserve order)
+        out = [str(p) for p in dict.fromkeys(paths)]
+        if out:
+            self.pathsDropped.emit(out)
+
+        e.acceptProposedAction()
 
 
 class FilesPanel(QtWidgets.QWidget):
@@ -33,6 +89,7 @@ class FilesPanel(QtWidgets.QWidget):
         super().__init__(parent)
 
         # ----- Layout -----
+
         root = QtWidgets.QVBoxLayout(self)
 
         # Source input bar
@@ -58,15 +115,10 @@ class FilesPanel(QtWidgets.QWidget):
             ops_bar.addWidget(w)
         root.addLayout(ops_bar)
 
-        # Hidden DnD list (API helper only)
-        self.file_list = FileDropList()
-        self.file_list.setVisible(False)
-        root.addWidget(self.file_list)
-
-        # Details table
+        # Details table (now DnD-enabled)
         details_group = QtWidgets.QGroupBox(tr("files.details.title"))
         details_layout = QtWidgets.QVBoxLayout(details_group)
-        self.tbl_details = QtWidgets.QTableWidget(0, 7)
+        self.tbl_details = DropTableWidget()
         self.tbl_details.setHorizontalHeaderLabels([
             tr("files.details.col.name"),
             tr("files.details.col.source"),
@@ -83,6 +135,9 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl_details.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         details_layout.addWidget(self.tbl_details, 2)
         root.addWidget(details_group, 2)
+
+        # connect DnD on table
+        self.tbl_details.pathsDropped.connect(self._on_paths_dropped)
 
         # Controls
         ctrl_bar = QtWidgets.QHBoxLayout()
@@ -106,6 +161,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.log = QtHtmlLogSink(self.output)
 
         # ----- State -----
+
         self._row_by_key: Dict[str, int] = {}
         self._transcript_by_key: Dict[str, str] = {}
 
@@ -125,11 +181,11 @@ class FilesPanel(QtWidgets.QWidget):
         self._conflict_apply_all_new_base: Optional[str] = None
 
         self.log.clear()
-        self.log.info(tr("log.init.bg"))
         self._start_model_loading_thread()
         self._update_buttons()
 
         # ----- Signals -----
+
         self.log_signal.connect(self.log.plain)
         self.btn_src_add.clicked.connect(self._on_src_add_clicked)
         self.btn_add_files.clicked.connect(self._on_add_files)
@@ -143,7 +199,9 @@ class FilesPanel(QtWidgets.QWidget):
         for b in (self.btn_start, self.btn_cancel, self.btn_clear_list, self.btn_remove_selected):
             b.setAttribute(QtCore.Qt.WA_AlwaysShowToolTips, True)
 
+
     # ----- Link opener -----
+
     def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
         try:
             if url.isLocalFile():
@@ -151,7 +209,32 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception:
             pass
 
+
+    # ----- DnD on table -----
+
+    @QtCore.pyqtSlot(list)
+    def _on_paths_dropped(self, paths: List[str]) -> None:
+        """Add dropped files as LOCAL entries and refresh metadata."""
+        added_keys: List[str] = []
+
+        for raw in paths:
+            p = Path(raw)
+            key = str(p)
+            if key in self._row_by_key:
+                continue
+
+            name = p.stem
+            src = "LOCAL"
+            self._append_row(name, src, key)
+            added_keys.append(key)
+
+        if added_keys:
+            self._refresh_details_for_keys(added_keys)
+            self._update_buttons()
+
+
     # ----- Table ops -----
+
     def _append_row(self, name: str, src: str, path: str) -> None:
         row = self.tbl_details.rowCount()
         self.tbl_details.insertRow(row)
@@ -177,8 +260,10 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._row_by_key[path] = row
 
+
     def _rows_selected(self) -> List[int]:
         return sorted({idx.row() for idx in self.tbl_details.selectionModel().selectedRows()})
+
 
     def _on_remove_selected(self) -> None:
         rows = self._rows_selected()
@@ -190,11 +275,13 @@ class FilesPanel(QtWidgets.QWidget):
             self._transcript_by_key.pop(key, None)
         self._update_buttons()
 
+
     def _on_clear_list(self) -> None:
         self.tbl_details.setRowCount(0)
         self._row_by_key.clear()
         self._transcript_by_key.clear()
         self._update_buttons()
+
 
     def _on_src_add_clicked(self) -> None:
         text = self.src_edit.text().strip()
@@ -216,6 +303,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._update_buttons()
         self.log.ok(tr("log.add.ok", text=text))
 
+
     def _on_add_files(self) -> None:
         dlg = QtWidgets.QFileDialog(self, tr("files.add_files"))
         dlg.setFileMode(QtWidgets.QFileDialog.ExistingFiles)
@@ -226,6 +314,7 @@ class FilesPanel(QtWidgets.QWidget):
                 self._refresh_details_for_keys([path])
         self._update_buttons()
 
+
     def _on_add_folder(self) -> None:
         dir_path = QtWidgets.QFileDialog.getExistingDirectory(self, tr("files.add_folder"))
         if dir_path:
@@ -233,12 +322,14 @@ class FilesPanel(QtWidgets.QWidget):
             self._refresh_details_for_keys([dir_path])
         self._update_buttons()
 
+
     def _open_output_folder(self) -> None:
         try:
             Config.TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.TRANSCRIPTIONS_DIR)))
         except Exception as e:
             self.log.err(tr("log.unexpected", msg=str(e)))
+
 
     def _open_transcript_for_row(self, row: int) -> None:
         try:
@@ -250,7 +341,9 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception:
             pass
 
+
     # ----- Metadata -----
+
     def _refresh_details_for_keys(self, keys: List[str]) -> None:
         if not keys:
             return
@@ -277,6 +370,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._meta_thread.finished.connect(self._meta_thread.deleteLater)
         self._meta_thread.start()
 
+
     def _on_details_ready_partial(self, rows: List[dict]) -> None:
         for r in rows:
             key = str(r.get("path", ""))
@@ -288,12 +382,15 @@ class FilesPanel(QtWidgets.QWidget):
             self.tbl_details.item(row, self.COL_SIZE).setText(format_bytes(r.get("size")))
             self.tbl_details.item(row, self.COL_DUR).setText(format_hms(r.get("duration")))
 
+
     def _on_details_finished(self) -> None:
         self._meta_thread = None
         self._meta_worker = None
         self._update_buttons()
 
+
     # ----- Transcription -----
+
     def _start_model_loading_thread(self) -> None:
         if self._loader_thread is not None:
             return
@@ -309,19 +406,23 @@ class FilesPanel(QtWidgets.QWidget):
         self._loader_thread.finished.connect(self._loader_thread.deleteLater)
         self._loader_thread.start()
 
+
     def _on_model_ready(self, pipe_obj: object) -> None:
         self.pipe = pipe_obj
-        self.log.ok(tr("log.model.ready"))
+        self.log.ok(tr("log.model.ready", device=Config.DEVICE_FRIENDLY_NAME))
         self._update_buttons()
+
 
     def _on_model_error(self, msg: str) -> None:
         self.log.err(tr("log.model.error", msg=msg))
         self._update_buttons()
 
+
     def _on_loader_finished(self) -> None:
         self._loader_thread = None
         self._loader_worker = None
         self._update_buttons()
+
 
     def _on_start_clicked(self) -> None:
         if not self.pipe:
@@ -358,6 +459,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcribe_thread.start()
         self._update_buttons()
 
+
     def _on_cancel_clicked(self) -> None:
         if not self._transcribe_worker:
             return
@@ -370,6 +472,7 @@ class FilesPanel(QtWidgets.QWidget):
             pass
         self.log.warn(tr("log.cancelled"))
 
+
     def _on_transcribe_finished(self) -> None:
         self._transcribe_thread = None
         self._transcribe_worker = None
@@ -377,7 +480,9 @@ class FilesPanel(QtWidgets.QWidget):
             self.log.ok(tr("log.done"))
         self._update_buttons()
 
+
     # ----- Conflict rendezvous -----
+
     @QtCore.pyqtSlot(str, str)
     def _on_conflict(self, stem: str, existing_dir: str) -> None:
         try:
@@ -400,13 +505,16 @@ class FilesPanel(QtWidgets.QWidget):
             if self._transcribe_worker is not None:
                 self._transcribe_worker.on_conflict_decided("skip", "")
 
+
     # ---------- Row updates ----------
+
     @QtCore.pyqtSlot(str, str)
     def _on_item_status(self, key: str, status: str) -> None:
         row = self._row_by_key.get(key)
         if row is None:
             return
         self.tbl_details.item(row, self.COL_STATUS).setText(status)
+
 
     @QtCore.pyqtSlot(str, str)
     def _on_item_path_update(self, old_key: str, new_local_path: str) -> None:
@@ -418,11 +526,11 @@ class FilesPanel(QtWidgets.QWidget):
         self._row_by_key.pop(old_key, None)
         self._row_by_key[new_local_path] = row
 
+
     @QtCore.pyqtSlot(str, str)
     def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
         """
         Update UI when a transcript has been written.
-
         - enable preview button,
         - log a localized message with a clickable link.
         """
@@ -434,14 +542,15 @@ class FilesPanel(QtWidgets.QWidget):
         if isinstance(w, QtWidgets.QToolButton):
             w.setEnabled(True)
 
-        # One line with prefix from i18n + clickable link to the transcript.
         self.log.line_with_link(
             tr("log.transcript.saved_prefix"),
             Path(transcript_path),
             title=Path(transcript_path).name,
         )
 
+
     # ----- Buttons -----
+
     def _update_buttons(self) -> None:
         has_items = self.tbl_details.rowCount() > 0
         has_sel = bool(self._rows_selected())
@@ -452,7 +561,9 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_clear_list.setEnabled(has_items and not running)
         self.btn_remove_selected.setEnabled(has_sel and not running)
 
+
     # ----- Public helpers -----
+
     def get_entries(self) -> List[Dict[str, Any]]:
         entries: List[Dict[str, Any]] = []
         for r in range(self.tbl_details.rowCount()):
@@ -460,6 +571,7 @@ class FilesPanel(QtWidgets.QWidget):
             src = self.tbl_details.item(r, self.COL_SRC).text().lower()
             entries.append({"type": ("url" if src == "url" else "file"), "value": path})
         return entries
+
 
     def on_parent_close(self) -> None:
         """Best-effort background cancellation."""

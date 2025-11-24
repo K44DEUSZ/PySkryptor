@@ -216,7 +216,7 @@ class AppConfig:
             try:
                 cls.DEVICE_FRIENDLY_NAME = torch.cuda.get_device_name(0)
             except Exception:
-                cls.DEVICE_FRIENDLY_NAME = "CUDA"
+                cls.DEVICE_FRIENDLY_NAME = "GPU"
         else:
             cls.DTYPE = torch.float32
             cls.DEVICE_FRIENDLY_NAME = "CPU"
