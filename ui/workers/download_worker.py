@@ -8,6 +8,7 @@ from PyQt5 import QtCore
 
 from core.config.app_config import AppConfig as Config
 from core.services.download_service import DownloadService, DownloadError
+from core.services.media_metadata import MediaMetadataService
 from core.utils.text import sanitize_filename
 from ui.utils.translating import tr
 
@@ -43,6 +44,7 @@ class DownloadWorker(QtCore.QObject):
         self._quality = quality
         self._ext = ext
         self._svc = DownloadService()
+        self._meta = MediaMetadataService(self._svc)
         self._cancelled = False
 
         # duplicate rendezvous state
@@ -89,8 +91,22 @@ class DownloadWorker(QtCore.QObject):
     def _do_probe(self) -> None:
         """Probe URL metadata and emit meta_ready."""
         self.progress_log.emit(tr("down.log.analyze"))
-        meta = self._svc.probe(self._url, log=lambda m: None)
-        self.meta_ready.emit(meta)
+
+        # Use unified metadata service; keep payload shape compatible with UI.
+        meta_obj = self._meta.from_url(self._url, log=lambda m: None)
+
+        payload = {
+            "title": meta_obj.title,
+            "duration": meta_obj.duration,
+            "filesize": meta_obj.size,
+            "extractor": meta_obj.service,
+            "formats": meta_obj.formats or [],
+        }
+        # Optional extra: audio language info if available.
+        if meta_obj.audio_langs:
+            payload["audio_langs"] = meta_obj.audio_langs
+
+        self.meta_ready.emit(payload)
 
 
     def _do_download(self) -> None:
@@ -119,8 +135,8 @@ class DownloadWorker(QtCore.QObject):
 
         # duplicate check (ask panel once, before hitting network)
         try:
-            meta = self._svc.probe(self._url, log=lambda _: None)
-            title = str(meta.get("title") or "")
+            meta_obj = self._meta.from_url(self._url, log=lambda _: None)
+            title = str(meta_obj.title or "")
             if title:
                 safe = sanitize_filename(title)
                 candidate = Config.DOWNLOADS_DIR / f"{safe}.{ext}"
@@ -172,4 +188,3 @@ class DownloadWorker(QtCore.QObject):
         if not self._cancelled:
             self.progress_pct.emit(100)
             self.download_finished.emit(path)
-

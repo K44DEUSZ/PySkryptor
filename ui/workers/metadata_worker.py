@@ -6,8 +6,7 @@ from typing import List, Dict, Any, Tuple, Union
 
 from PyQt5 import QtCore
 
-from core.io.audio_extractor import AudioExtractor
-from core.services.download_service import DownloadService
+from core.services.media_metadata import MediaMetadataService
 from core.utils.concurrency import CancellationToken
 from core.utils.text import is_url
 from ui.utils.translating import tr
@@ -28,7 +27,7 @@ class MetadataWorker(QtCore.QObject):
     def __init__(self, entries: List[GUIEntry]) -> None:
         super().__init__()
         self._entries = list(entries)
-        self._down = DownloadService()
+        self._meta = MediaMetadataService()
         self._token = CancellationToken()
 
     # ----- Cancellation -----
@@ -56,42 +55,22 @@ class MetadataWorker(QtCore.QObject):
 
                 try:
                     value, ty = self._normalize_entry(raw)
+
+                    # URLs (or things that look like URLs) → use DownloadService via MediaMetadataService
                     if ty == "url" or is_url(value):
                         self.progress_log.emit(tr("down.log.analyze"))
                         if self._is_cancelled():
                             self.progress_log.emit(tr("log.cancelled"))
                             break
-                        try:
-                            meta = self._down.probe(value, log=lambda m: None)
-                        except Exception as e:
-                            self.progress_log.emit(tr("error.down.probe_failed", detail=str(e)))
-                            continue
-                        title = meta.get("title") or value
-                        duration = meta.get("duration")
-                        size = meta.get("filesize") or meta.get("filesize_approx")
-                        row = {
-                            "name": title,
-                            "source": "URL",
-                            "path": value,
-                            "size": int(size) if size else None,
-                            "duration": float(duration) if duration else None,
-                        }
+                        meta = self._meta.from_url(value, log=lambda m: None)
                     else:
-                        p = Path(value)
-                        if not p.exists() or not p.is_file():
-                            continue
-                        try:
-                            size = p.stat().st_size
-                        except Exception:
-                            size = None
-                        dur = AudioExtractor.probe_duration(p)
-                        row = {
-                            "name": p.stem,
-                            "source": "LOCAL",
-                            "path": str(p),
-                            "size": int(size) if size is not None else None,
-                            "duration": float(dur) if dur is not None else None,
-                        }
+                        # Local file metadata
+                        meta = self._meta.from_local(Path(value))
+
+                    if not meta:
+                        continue
+
+                    row = meta.as_files_row()
 
                     batch.append(row)
                     if len(batch) >= 10:

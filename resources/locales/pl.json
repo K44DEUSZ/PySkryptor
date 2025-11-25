@@ -116,7 +116,9 @@
       "type.video": "Wideo",
       "type.audio": "Audio",
       "quality": "Jakość:",
-      "ext": "Rozszerzenie:"
+      "ext": "Rozszerzenie:",
+      "audio_track": "Ścieżka audio:",
+      "audio_track.default": "Domyślna"
     },
 
     "download": "Pobierz",

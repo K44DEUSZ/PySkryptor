@@ -1,3 +1,4 @@
+# ui/panels/downloader_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,6 +55,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_kind.addItems([tr("down.select.type.video"), tr("down.select.type.audio")])
         self.cb_quality = QtWidgets.QComboBox()
         self.cb_ext = QtWidgets.QComboBox()
+        self.cb_audio = QtWidgets.QComboBox()
 
         # defaults overridden after probe
         self._vid_quals: List[str] = ["Auto", "1080p", "720p", "480p"]
@@ -64,6 +66,11 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_quality.addItems(self._vid_quals)
         self.cb_ext.addItems(self._vid_exts)
 
+        # audio language selection (will be filled after probe)
+        self._audio_lang_codes: List[Optional[str]] = [None]
+        self.cb_audio.addItem(tr("down.select.audio_track.default"))
+        self.cb_audio.setEnabled(False)
+
         sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.type")))
         sel_layout.addWidget(self.cb_kind)
         sel_layout.addSpacing(8)
@@ -72,6 +79,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         sel_layout.addSpacing(8)
         sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.ext")))
         sel_layout.addWidget(self.cb_ext)
+        sel_layout.addSpacing(8)
+        sel_layout.addWidget(QtWidgets.QLabel(tr("down.select.audio_track")))
+        sel_layout.addWidget(self.cb_audio)
         sel_layout.addStretch(1)
         root.addWidget(sel_group)
 
@@ -113,8 +123,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_kind.currentIndexChanged.connect(self._on_kind_changed)
         self.cb_quality.currentIndexChanged.connect(self._update_buttons_and_size)
         self.cb_ext.currentIndexChanged.connect(self._update_buttons_and_size)
+        self.cb_audio.currentIndexChanged.connect(self._update_buttons_and_size)
         self.btn_open_downloads.clicked.connect(self._on_open_downloads_clicked)
-
 
     # ----- Link opener / Folders -----
 
@@ -150,6 +160,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.log.clear()
         self.btn_download.setEnabled(False)
         self.btn_cancel.setEnabled(False)
+        self._reset_audio_tracks()
 
         # thread + worker
         self._down_thread = QtCore.QThread(self)
@@ -185,12 +196,19 @@ class DownloaderPanel(QtWidgets.QWidget):
         vid_heights = {int(f["height"]) for f in fmts if f.get("height")}
         aud_abrs = {int(f["abr"]) for f in fmts if f.get("abr")}
 
-        self._vid_quals = ["Auto"] + ([f"{h}p" for h in sorted(vid_heights, reverse=True)]
-                                      if vid_heights else ["1080p", "720p", "480p"])
-        self._aud_quals = ["Auto"] + ([f"{k}k" for k in sorted(aud_abrs, reverse=True)]
-                                      if aud_abrs else ["320k", "256k", "192k", "128k"])
+        self._vid_quals = ["Auto"] + (
+            [f"{h}p" for h in sorted(vid_heights, reverse=True)]
+            if vid_heights
+            else ["1080p", "720p", "480p"]
+        )
+        self._aud_quals = ["Auto"] + (
+            [f"{k}k" for k in sorted(aud_abrs, reverse=True)]
+            if aud_abrs
+            else ["320k", "256k", "192k", "128k"]
+        )
 
         self._on_kind_changed(force=True)
+        self._update_audio_tracks(meta)
         self._update_buttons_and_size()
         self.log.ok(tr("down.log.meta_ready"))
 
@@ -208,6 +226,11 @@ class DownloaderPanel(QtWidgets.QWidget):
         quality = self.cb_quality.currentText().lower()
         ext = self.cb_ext.currentText().lower()
 
+        audio_lang: Optional[str] = None
+        idx = self.cb_audio.currentIndex()
+        if 0 <= idx < len(self._audio_lang_codes):
+            audio_lang = self._audio_lang_codes[idx]
+
         self.pb_download.setValue(0)
 
         self._down_thread = QtCore.QThread(self)
@@ -217,6 +240,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             kind=kind,
             quality=quality,
             ext=ext,
+            audio_lang=audio_lang,
         )
         self._down_worker.moveToThread(self._down_thread)
 
@@ -275,6 +299,58 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._update_buttons_and_size()
 
     # ----- Selections / UI helpers -----
+
+    @staticmethod
+    def _normalize_lang_code(code: str | None) -> str | None:
+        """Same normalization as in DownloadService – keep local to avoid coupling."""
+        if not code:
+            return None
+        code = str(code).strip()
+        if not code:
+            return None
+        code = code.replace("_", "-")
+        parts = [p for p in code.split("-") if p]
+        if not parts:
+            return None
+        parts[0] = parts[0].lower()
+        for i in range(1, len(parts)):
+            if len(parts[i]) == 2:
+                parts[i] = parts[i].upper()
+            else:
+                parts[i] = parts[i].lower()
+        return "-".join(parts)
+
+    def _reset_audio_tracks(self) -> None:
+        self.cb_audio.blockSignals(True)
+        self.cb_audio.clear()
+        self.cb_audio.addItem(tr("down.select.audio_track.default"))
+        self.cb_audio.blockSignals(False)
+        self.cb_audio.setEnabled(False)
+        self._audio_lang_codes = [None]
+
+    def _update_audio_tracks(self, meta: Dict[str, Any]) -> None:
+        """Fill audio-track combo from metadata."""
+        raw = meta.get("audio_tracks") or []
+        codes: List[str] = []
+        for t in raw:
+            code = t.get("lang_code") or t.get("lang")
+            norm = self._normalize_lang_code(code)
+            if norm and norm not in codes:
+                codes.append(norm)
+
+        self.cb_audio.blockSignals(True)
+        self.cb_audio.clear()
+        self.cb_audio.addItem(tr("down.select.audio_track.default"))
+        self._audio_lang_codes = [None]
+        for c in sorted(codes):
+            self.cb_audio.addItem(c)
+            self._audio_lang_codes.append(c)
+        self.cb_audio.setCurrentIndex(0)
+        self.cb_audio.blockSignals(False)
+
+        # if there is only one actual track → do not allow changing
+        self.cb_audio.setEnabled(len(self._audio_lang_codes) > 2)
+
     def _on_kind_changed(self, *, force: bool = False) -> None:
         kind = self.cb_kind.currentText().lower()
 
@@ -353,9 +429,16 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.lbl_est_size.setText(format_bytes(max(candidates)) if candidates else "-")
 
     def _toggle_inputs(self, enabled: bool) -> None:
-        for w in (self.ed_url, self.btn_probe, self.cb_kind, self.cb_quality, self.cb_ext, self.btn_open_downloads):
+        for w in (
+            self.ed_url,
+            self.btn_probe,
+            self.cb_kind,
+            self.cb_quality,
+            self.cb_ext,
+            self.cb_audio,
+            self.btn_open_downloads,
+        ):
             w.setEnabled(enabled)
-
 
     # ----- Cleanup -----
 
