@@ -1,4 +1,3 @@
-# app/entrypoint.py
 from __future__ import annotations
 
 import sys
@@ -43,12 +42,16 @@ def run() -> int:
         QtWidgets.QMessageBox.critical(None, title, body)
         return 1
 
-    # Load i18n (after we know paths + language)
+    # Load i18n (after we know paths + language preference)
     locales_dir = _resolve(project_root, snap.paths["locales_dir"])
-    lang_code = str(snap.user.get("language", "en"))
+    lang_pref = str(snap.app.get("language", "auto"))
 
     try:
-        Translator.load(locales_dir, lang_code)
+        if lang_pref.lower() == "auto":
+            # Pick best match based on system locale, fallback to English.
+            Translator.load_best(locales_dir, system_first=True, fallback="en")
+        else:
+            Translator.load(locales_dir, lang_pref)
     except Exception:
         critical_locales_missing_and_exit(None)
         return 1

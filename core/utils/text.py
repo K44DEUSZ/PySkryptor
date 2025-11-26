@@ -1,4 +1,3 @@
-#core/utils/text.py
 from __future__ import annotations
 
 import re
@@ -42,7 +41,7 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
 
 
 def format_bytes(num: Optional[int]) -> str:
-    """Human-readable file size."""
+    """Return human-readable file size."""
     if not num or num <= 0:
         return "-"
     units = ["B", "KB", "MB", "GB", "TB"]
@@ -54,7 +53,7 @@ def format_bytes(num: Optional[int]) -> str:
 
 
 def format_hms(seconds: Optional[float]) -> str:
-    """Format seconds → HH:MM:SS."""
+    """Format seconds as HH:MM:SS."""
     if seconds is None:
         return "-"
     s = int(seconds)
@@ -64,7 +63,7 @@ def format_hms(seconds: Optional[float]) -> str:
 
 
 def clean_text(text: str) -> str:
-    """Light cleanup for ASR output (newlines/whitespace)."""
+    """Light cleanup for ASR output (newlines and whitespace)."""
     t = text.replace("\r\n", "\n")
     t = re.sub(r"[ \t]+\n", "\n", t)
     t = re.sub(r"\n{3,}", "\n\n", t)

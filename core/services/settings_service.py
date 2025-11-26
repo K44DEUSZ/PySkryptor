@@ -1,4 +1,3 @@
-# core/services/settings_service.py
 from __future__ import annotations
 
 import json
@@ -22,8 +21,12 @@ class SettingsSnapshot:
 
     paths: Dict[str, Any]
     media: Dict[str, Any]
+    app: Dict[str, Any]
+    engine: Dict[str, Any]
     model: Dict[str, Any]
-    user: Dict[str, Any]
+    transcription: Dict[str, Any]
+    downloader: Dict[str, Any]
+    network: Dict[str, Any]
 
 
 class SettingsService:
@@ -108,7 +111,7 @@ class SettingsService:
 
     def _validate_paths(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         """
-        NEW schema: settings contain *final folders*, no '*_subdir':
+        Settings contain final folders, no '*_subdir':
           - resources_dir, ffmpeg_dir, models_dir, ai_engine_dir, locales_dir,
             data_dir, downloads_dir, input_tmp_dir, transcriptions_dir
         """
@@ -120,36 +123,116 @@ class SettingsService:
 
     def _validate_media(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("media", src, schema)
-        return {
-            "audio_ext": self._as_list_of_str(src.get("audio_ext"), "media.audio_ext"),
-            "video_ext": self._as_list_of_str(src.get("video_ext"), "media.video_ext"),
+
+        out: Dict[str, Any] = {}
+
+        # input.{audio_ext, video_ext}
+        schema_input = self._ensure_dict(schema.get("input"), "media.input")
+        src_input = self._ensure_dict(src.get("input"), "media.input")
+        self._require_keys("media.input", src_input, schema_input)
+        out["input"] = {
+            "audio_ext": self._as_list_of_str(src_input.get("audio_ext"), "media.input.audio_ext"),
+            "video_ext": self._as_list_of_str(src_input.get("video_ext"), "media.input.video_ext"),
         }
+
+        # downloader.{audio_ext, video_ext}
+        schema_down = self._ensure_dict(schema.get("downloader"), "media.downloader")
+        src_down = self._ensure_dict(src.get("downloader"), "media.downloader")
+        self._require_keys("media.downloader", src_down, schema_down)
+        out["downloader"] = {
+            "audio_ext": self._as_list_of_str(src_down.get("audio_ext"), "media.downloader.audio_ext"),
+            "video_ext": self._as_list_of_str(src_down.get("video_ext"), "media.downloader.video_ext"),
+        }
+
+        # transcripts.{default_ext, ext}
+        schema_tr = self._ensure_dict(schema.get("transcripts"), "media.transcripts")
+        src_tr = self._ensure_dict(src.get("transcripts"), "media.transcripts")
+        self._require_keys("media.transcripts", src_tr, schema_tr)
+        out["transcripts"] = {
+            "default_ext": self._as_nonempty_str(
+                src_tr.get("default_ext"),
+                "media.transcripts.default_ext",
+            ).lower(),
+            "ext": self._as_list_of_str(src_tr.get("ext"), "media.transcripts.ext"),
+        }
+
+        return out
+
+    def _validate_app(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_keys("app", src, schema)
+        out: Dict[str, Any] = {}
+        # language: allow any non-empty string (e.g. "auto", "pl", "en", "pl-PL", etc.)
+        out["language"] = self._as_nonempty_str(src.get("language"), "app.language")
+        # theme: constrained to known values
+        out["theme"] = self._enum_str(src.get("theme"), ("auto", "light", "dark"), "app.theme")
+        return out
+
+    def _validate_engine(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_keys("engine", src, schema)
+        out: Dict[str, Any] = {}
+        out["preferred_device"] = self._enum_str(
+            src.get("preferred_device"),
+            ("auto", "cpu", "gpu"),
+            "engine.preferred_device",
+        )
+        out["precision"] = self._enum_str(
+            src.get("precision"),
+            ("auto", "float32", "float16", "bfloat16"),
+            "engine.precision",
+        )
+        out["allow_tf32"] = bool(src.get("allow_tf32", True))
+        return out
 
     def _validate_model(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("model", src, schema)
         out: Dict[str, Any] = {}
         out["ai_engine_name"] = self._as_nonempty_str(src.get("ai_engine_name"), "model.ai_engine_name")
         out["local_models_only"] = bool(src.get("local_models_only", True))
+
         out["chunk_length_s"] = self._as_int(src.get("chunk_length_s"), "model.chunk_length_s")
         out["stride_length_s"] = self._as_int(src.get("stride_length_s"), "model.stride_length_s")
+
         out["pipeline_task"] = self._as_nonempty_str(src.get("pipeline_task"), "model.pipeline_task")
         out["ignore_warning"] = bool(src.get("ignore_warning", True))
         out["default_language"] = src.get("default_language", None)
-        out["return_timestamps"] = bool(src.get("return_timestamps", True))
+
+        out["return_timestamps"] = bool(src.get("return_timestamps", False))
         out["use_safetensors"] = bool(src.get("use_safetensors", True))
         out["low_cpu_mem_usage"] = bool(src.get("low_cpu_mem_usage", True))
         return out
 
-    def _validate_user(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        self._require_keys("user", src, schema)
+    def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_keys("transcription", src, schema)
         out: Dict[str, Any] = {}
-        out["language"] = self._enum_str(src.get("language"), ("pl", "en"), "user.language")
-        out["preferred_device"] = self._enum_str(src.get("preferred_device"), ("auto", "cpu", "gpu"), "user.preferred_device")
-        out["precision"] = self._enum_str(src.get("precision"), ("auto", "float32", "float16", "bfloat16"), "user.precision")
-        out["allow_tf32"] = bool(src.get("allow_tf32", True))
-        out["timestamps_output"] = bool(src.get("timestamps_output", True))
+        out["timestamps_output"] = bool(src.get("timestamps_output", False))
         out["keep_downloaded_files"] = bool(src.get("keep_downloaded_files", True))
         out["keep_wav_temp"] = bool(src.get("keep_wav_temp", False))
+        return out
+
+    def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_keys("downloader", src, schema)
+        out: Dict[str, Any] = {}
+        out["min_video_height"] = self._as_int(src.get("min_video_height"), "downloader.min_video_height")
+        out["max_video_height"] = self._as_int(src.get("max_video_height"), "downloader.max_video_height")
+        return out
+
+    def _validate_network(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_keys("network", src, schema)
+        out: Dict[str, Any] = {}
+        # Allow None or int for bandwidth
+        bw = src.get("max_bandwidth_kbps")
+        if bw is not None and not isinstance(bw, int):
+            raise SettingsError("error.type_int", field="network.max_bandwidth_kbps")
+        out["max_bandwidth_kbps"] = bw
+        out["retries"] = self._as_int(src.get("retries"), "network.retries")
+        out["concurrent_fragments"] = self._as_int(src.get("concurrent_fragments"), "network.concurrent_fragments")
+        out["http_timeout_s"] = self._as_int(src.get("http_timeout_s"), "network.http_timeout_s")
+        # proxy may be null or string
+        proxy = src.get("proxy", None)
+        if proxy is not None and not isinstance(proxy, str):
+            raise SettingsError("error.type_string_nonempty", field="network.proxy")
+        out["proxy"] = proxy
+        out["throttle_startup_s"] = self._as_int(src.get("throttle_startup_s"), "network.throttle_startup_s")
         return out
 
     # ----- Public API -----
@@ -161,28 +244,51 @@ class SettingsService:
 
         schema_paths = self._ensure_dict(defaults.get("paths"), "paths")
         schema_media = self._ensure_dict(defaults.get("media"), "media")
+        schema_app = self._ensure_dict(defaults.get("app"), "app")
+        schema_engine = self._ensure_dict(defaults.get("engine"), "engine")
         schema_model = self._ensure_dict(defaults.get("model"), "model")
-        schema_user = self._ensure_dict(defaults.get("user"), "user")
+        schema_transcription = self._ensure_dict(defaults.get("transcription"), "transcription")
+        schema_downloader = self._ensure_dict(defaults.get("downloader"), "downloader")
+        schema_network = self._ensure_dict(defaults.get("network"), "network")
 
         if not self._settings_path.exists():
             raise SettingsError("error.settings_missing", path=str(self._settings_path))
+
         try:
             settings = self._read_json(self._settings_path)
+
             src_paths = self._ensure_dict(settings.get("paths"), "paths")
             src_media = self._ensure_dict(settings.get("media"), "media")
+            src_app = self._ensure_dict(settings.get("app"), "app")
+            src_engine = self._ensure_dict(settings.get("engine"), "engine")
             src_model = self._ensure_dict(settings.get("model"), "model")
-            src_user = self._ensure_dict(settings.get("user"), "user")
+            src_transcription = self._ensure_dict(settings.get("transcription"), "transcription")
+            src_downloader = self._ensure_dict(settings.get("downloader"), "downloader")
+            src_network = self._ensure_dict(settings.get("network"), "network")
 
             v_paths = self._validate_paths(src_paths, schema_paths)
             v_media = self._validate_media(src_media, schema_media)
+            v_app = self._validate_app(src_app, schema_app)
+            v_engine = self._validate_engine(src_engine, schema_engine)
             v_model = self._validate_model(src_model, schema_model)
-            v_user = self._validate_user(src_user, schema_user)
+            v_transcription = self._validate_transcription(src_transcription, schema_transcription)
+            v_downloader = self._validate_downloader(src_downloader, schema_downloader)
+            v_network = self._validate_network(src_network, schema_network)
         except SettingsError:
             raise
         except Exception as ex:
             raise SettingsError("error.settings_invalid", path=str(self._settings_path), detail=str(ex))
 
-        return SettingsSnapshot(paths=v_paths, media=v_media, model=v_model, user=v_user)
+        return SettingsSnapshot(
+            paths=v_paths,
+            media=v_media,
+            app=v_app,
+            engine=v_engine,
+            model=v_model,
+            transcription=v_transcription,
+            downloader=v_downloader,
+            network=v_network,
+        )
 
     def restore_defaults(self, sections: Optional[List[str]] = None) -> None:
         """Overwrite settings.json with defaults (all or selected sections)."""

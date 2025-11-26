@@ -1,4 +1,3 @@
-# ui/panels/downloader_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,9 +58,16 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         # defaults overridden after probe
         self._vid_quals: List[str] = ["Auto", "1080p", "720p", "480p"]
-        self._vid_exts: List[str] = ["mp4", "webm"]
+
+        # Extensions for output formats now driven by settings (media.downloader.*).
+        # We normalize by stripping a leading dot to keep UI values clean.
+        down_vid_ext = [e.lstrip(".") for e in getattr(Config, "downloader_video_extensions", lambda: ())()]
+        down_aud_ext = [e.lstrip(".") for e in getattr(Config, "downloader_audio_extensions", lambda: ())()]
+
+        # Fallbacks in case settings are missing or empty.
+        self._vid_exts: List[str] = down_vid_ext or ["mp4", "webm"]
         self._aud_quals: List[str] = ["Auto", "320k", "256k", "192k", "128k"]
-        self._aud_exts: List[str] = ["m4a", "mp3"]
+        self._aud_exts: List[str] = down_aud_ext or ["m4a", "mp3"]
 
         self.cb_quality.addItems(self._vid_quals)
         self.cb_ext.addItems(self._vid_exts)
@@ -143,6 +149,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             self.log.err(tr("down.log.error", msg=str(e)))
 
     # ----- Probe flow -----
+
     def _on_probe_clicked(self) -> None:
         url = self.ed_url.text().strip()
         if not url:
@@ -213,6 +220,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.log.ok(tr("down.log.meta_ready"))
 
     # ----- Download / Cancel flow (+ duplicate decision) -----
+
     def _on_download_clicked(self) -> None:
         url = self.ed_url.text().strip()
         if not url or not self._down_meta:
@@ -286,7 +294,7 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _on_download_finished(self, path: Path) -> None:
         title = self._down_meta.get("title") if isinstance(self._down_meta, dict) else path.stem
         self.pb_download.setValue(100)
-        # single line: "Pobrano: <link>" – prefix z i18n
+        # single line: "Pobrano: <link>" – prefix from i18n
         self.log.line_with_link(tr("down.log.downloaded_prefix"), path, title=title)
         self._update_buttons_and_size()
 

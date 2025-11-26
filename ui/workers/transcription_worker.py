@@ -19,7 +19,7 @@ WorkItem = Tuple[str, Path, Optional[str]]
 
 class TranscriptionWorker(QtCore.QObject):
     """
-    Processes a list of entries (local files or URLs), prepares mono 16k WAV,
+    Processes a list of entries (local files or URLs), prepares mono 16 kHz WAV,
     runs the ASR pipeline with parameters from settings.json, and saves transcripts.
     """
     log = QtCore.pyqtSignal(str)
@@ -46,33 +46,37 @@ class TranscriptionWorker(QtCore.QObject):
         self._conflict_new_stem: str = ""
 
     def cancel(self) -> None:
+        """Request best-effort cancellation of the current run."""
         self._cancel.set()
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         processed_any = False
-        # ---------- User runtime flags ----------
-        user_cfg = Config.user_settings()
-        keep_downloaded_files: bool = bool(user_cfg.get("keep_downloaded_files", True))
-        keep_wav_temp: bool = bool(user_cfg.get("keep_wav_temp", False))
+
+        # ---------- Runtime flags from settings ----------
+        trans_cfg = Config.transcription_settings()
+        keep_downloaded_files: bool = bool(trans_cfg.get("keep_downloaded_files", True))
+        keep_wav_temp: bool = bool(trans_cfg.get("keep_wav_temp", False))
 
         try:
-            # ---------- Prepare temp ----------
+            # ---------- Prepare temp area ----------
             try:
                 if Config.INPUT_TMP_DIR.exists():
                     shutil.rmtree(Config.INPUT_TMP_DIR, ignore_errors=True)
                 Config.INPUT_TMP_DIR.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                self.log.emit(tr("log.unexpected", msg=f"Temp init failed: {e}"))
+                # Localized: "Temp directory initialization failed: {detail}"
+                self.log.emit(tr("log.temp_init_failed", detail=str(e)))
 
-            # ---------- Plan session (lazy create) ----------
+            # ---------- Plan session (lazy directory creation) ----------
             try:
                 planned = FileManager.plan_session()
                 self.log.emit(tr("log.session.plan", path=str(planned)))
             except Exception as e:
-                self.log.emit(tr("log.unexpected", msg=f"Session plan failed: {e}"))
+                # Localized: "Session planning failed: {detail}"
+                self.log.emit(tr("log.session_plan_failed", detail=str(e)))
 
-            # ----- Build work list -----
+            # ---------- Build work list ----------
             work_items: List[WorkItem] = []
             for entry in self._raw_entries:
                 if self._cancel.is_set():
@@ -81,14 +85,17 @@ class TranscriptionWorker(QtCore.QObject):
                     items = self._materialize_entry(entry)
                     work_items.extend(items)
                 except Exception as e:
-                    self.log.emit(tr("log.unexpected", msg=f"Entry prep error '{entry}': {e}"))
+                    # Localized: "Entry preparation error '{entry}': {detail}"
+                    self.log.emit(
+                        tr("log.entry_prep_error", entry=str(entry), detail=str(e))
+                    )
 
             total = len(work_items)
             if total == 0:
                 self.log.emit(tr("log.no_items"))
                 return
 
-            # ----- Model settings ("knobs") from JSON -----
+            # ---------- Model settings from AppConfig ----------
             model_cfg = Config.model_settings()
             chunk_len = int(model_cfg.get("chunk_length_s", 60))
             stride_len = int(model_cfg.get("stride_length_s", 5))
@@ -97,24 +104,33 @@ class TranscriptionWorker(QtCore.QObject):
             task = str(model_cfg.get("pipeline_task", "transcribe"))
             default_lang = model_cfg.get("default_language")
 
-            # ----- Process items -----
+            # ---------- Process each item ----------
             for idx, (key, path, forced_stem) in enumerate(work_items, start=1):
                 if self._cancel.is_set():
                     break
 
                 stem = sanitize_filename(forced_stem) if forced_stem else sanitize_filename(path.stem)
 
-                # ----- Ensure file is complete -----
+                # Ensure file exists and is not a partial download
                 if (not path.exists()) or path.name.endswith(".part"):
                     self.item_status.emit(key, tr("status.error"))
-                    self.log.emit(tr("error.down.download_failed", detail=f"incomplete file: {path.name}"))
+                    self.log.emit(
+                        tr(
+                            "error.down.download_failed",
+                            detail=tr(
+                                "error.transcription.incomplete_file",
+                                name=path.name,
+                            ),
+                        )
+                    )
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # ----- Conflict handling -----
+                # ---------- Output conflict handling ----------
                 existing = FileManager.find_existing_output(stem)
                 out_dir = FileManager.output_dir_for(stem)
                 write_into_existing = False
+
                 if existing is not None:
                     if not out_dir.exists() or existing.resolve() != out_dir.resolve():
                         try:
@@ -122,7 +138,10 @@ class TranscriptionWorker(QtCore.QObject):
                             self.conflict_check.emit(stem, str(existing))
                             self._conflict_event.wait()
                         except Exception as e:
-                            self.log.emit(tr("log.unexpected", msg=f"Conflict dialog error: {e} — skipping."))
+                            # Localized: "Conflict dialog failed: {detail}"
+                            self.log.emit(
+                                tr("log.conflict_dialog_error", detail=str(e))
+                            )
                             self._set_conflict_decision("skip", "")
 
                         if self._conflict_action == "skip":
@@ -137,7 +156,7 @@ class TranscriptionWorker(QtCore.QObject):
                             out_dir = Path(existing)
                             write_into_existing = True
 
-                # ----- Prepare WAV -----
+                # ---------- Prepare WAV input ----------
                 try:
                     if self._cancel.is_set():
                         break
@@ -145,14 +164,21 @@ class TranscriptionWorker(QtCore.QObject):
                     wav = FileManager.ensure_tmp_wav(path)
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    self.log.emit(tr("log.unexpected", msg=f"Audio prep failed for {path.name}: {e}"))
+                    # Localized: "Audio preparation failed for {name}: {detail}"
+                    self.log.emit(
+                        tr(
+                            "log.audio_prep_failed",
+                            name=path.name,
+                            detail=str(e),
+                        )
+                    )
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
                 if self._cancel.is_set():
                     break
 
-                # ----- Run ASR -----
+                # ---------- Run ASR ----------
                 self.item_status.emit(key, tr("status.proc"))
                 try:
                     generate_kwargs: Dict[str, Any] = {"task": task}
@@ -171,39 +197,63 @@ class TranscriptionWorker(QtCore.QObject):
                     text = TextPostprocessor.clean(text)
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    self.log.emit(tr("log.unexpected", msg=f"Transcription failed for {path.name}: {e}"))
+                    # Localized: "Transcription failed for {name}: {detail}"
+                    self.log.emit(
+                        tr(
+                            "log.transcription_failed",
+                            name=path.name,
+                            detail=str(e),
+                        )
+                    )
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # ----- Ensure session dir -----
+                # ---------- Ensure session directory exists ----------
                 try:
                     if not write_into_existing:
                         FileManager.ensure_session()
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    self.log.emit(tr("log.unexpected", msg=f"Session dir create failed: {e}"))
+                    # Localized: "Session directory creation failed: {detail}"
+                    self.log.emit(
+                        tr("log.session_dir_failed", detail=str(e))
+                    )
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # ----- Save transcript -----
+                # ---------- Save transcript ----------
                 created_dir = False
                 try:
                     if not out_dir.exists():
                         out_dir.mkdir(parents=True, exist_ok=True)
                         created_dir = True
-                    out_txt = out_dir / "transcript.txt"
+
+                    # Base name is taken from i18n so it can be localized per language.
+                    base_name = tr("files.transcript.default_name")
+                    if base_name == "files.transcript.default_name":
+                        base_name = "transcript"
+
+                    out_txt = FileManager.transcript_path(stem, base_name=base_name)
                     out_txt.write_text(text, encoding="utf-8")
+
                     self.log.emit(tr("log.transcript.saved", path=str(out_txt)))
                     self.item_status.emit(key, tr("status.done"))
                     self.transcript_ready.emit(key, str(out_txt))
                     processed_any = True
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    self.log.emit(tr("log.unexpected", msg=f"Transcript save failed for {path.name}: {e}"))
+                    # Localized: "Transcript save failed for {name}: {detail}"
+                    self.log.emit(
+                        tr(
+                            "log.transcript_save_failed",
+                            name=path.name,
+                            detail=str(e),
+                        )
+                    )
                     if created_dir:
                         FileManager.remove_dir_if_empty(out_dir)
 
-                # ----- Optional cleanup of downloaded originals -----
+                # ---------- Optional cleanup of downloaded originals ----------
                 try:
                     if (not keep_downloaded_files) and (path in self._downloaded):
                         path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -213,15 +263,17 @@ class TranscriptionWorker(QtCore.QObject):
                 self.progress.emit(int(idx * 100 / total))
 
         except Exception as e:
-            self.log.emit(tr("log.unexpected", msg=f"Transcription worker error: {e}"))
+            # Localized: "Transcription worker error: {detail}"
+            self.log.emit(tr("log.worker_error", detail=str(e)))
         finally:
-            # ----- Temp cleanup -----
+            # ---------- Temp cleanup ----------
             try:
                 if (not keep_wav_temp) and Config.INPUT_TMP_DIR.exists():
                     shutil.rmtree(Config.INPUT_TMP_DIR, ignore_errors=True)
                     self.log.emit(tr("log.tmp.cleaned"))
             except Exception as e:
-                self.log.emit(tr("log.unexpected", msg=f"Temp cleanup issue: {e}"))
+                # Localized: "Temp cleanup issue: {detail}"
+                self.log.emit(tr("log.temp_cleanup_issue", detail=str(e)))
 
             if not processed_any:
                 FileManager.rollback_session_if_empty()
@@ -229,8 +281,7 @@ class TranscriptionWorker(QtCore.QObject):
             FileManager.end_session()
             self.finished.emit()
 
-
-    # ----- Conflict decision -----
+    # ----- Conflict decision rendezvous -----
 
     @QtCore.pyqtSlot(str, str)
     def on_conflict_decided(self, action: str, new_stem: str = "") -> None:
@@ -240,7 +291,6 @@ class TranscriptionWorker(QtCore.QObject):
         self._conflict_action = action
         self._conflict_new_stem = new_stem
         self._conflict_event.set()
-
 
     # ----- Helpers -----
 
@@ -259,10 +309,8 @@ class TranscriptionWorker(QtCore.QObject):
         s, t = self._normalize_entry(raw)
 
         # ----- URL entry -----
-
         if t == "url" or is_url(s):
             key = s
-            # Generic "analyze URL" log – localized + optional emoji from i18n.
             self.log.emit(tr("down.log.analyze"))
             self.item_status.emit(key, tr("status.prep"))
             try:
@@ -289,7 +337,7 @@ class TranscriptionWorker(QtCore.QObject):
                     self.conflict_check.emit(predicted_stem, str(existing))
                     self._conflict_event.wait()
                 except Exception as e:
-                    self.log.emit(tr("log.unexpected", msg=f"Conflict dialog error: {e} — skipping."))
+                    self.log.emit(tr("log.conflict_dialog_error", detail=str(e)))
                     self._set_conflict_decision("skip", "")
 
                 if self._conflict_action == "skip":
@@ -304,7 +352,7 @@ class TranscriptionWorker(QtCore.QObject):
             if self._cancel.is_set():
                 return []
 
-            # Download, again with localized log.
+            # Download with basic logging (details handled inside DownloadService).
             self.log.emit(tr("down.log.downloading"))
             self.item_status.emit(key, tr("status.prep"))
             try:
@@ -323,7 +371,12 @@ class TranscriptionWorker(QtCore.QObject):
                     new_key = str(local)
                     return [(new_key, local, forced_stem)]
                 self.item_status.emit(key, tr("status.error"))
-                self.log.emit(tr("error.down.download_failed", detail="no output file"))
+                self.log.emit(
+                    tr(
+                        "error.down.download_failed",
+                        detail=tr("error.down.no_output_file"),
+                    )
+                )
                 return []
             except DownloadError as de:
                 self.item_status.emit(key, tr("status.error"))
@@ -331,23 +384,31 @@ class TranscriptionWorker(QtCore.QObject):
                 return []
             except Exception as e:
                 self.item_status.emit(key, tr("status.error"))
-                self.log.emit(tr("error.down.download_failed", detail=str(e)))
+                self.log.emit(
+                    tr(
+                        "error.down.download_failed",
+                        detail=str(e),
+                    )
+                )
                 return []
 
         # ----- Local directory -----
-
         p = Path(s)
         if p.is_dir():
             allowed = set(Config.audio_extensions()) | set(Config.video_extensions())
             files = [x for x in p.rglob("*") if x.is_file() and x.suffix.lower() in allowed]
             if not files:
-                self.log.emit(tr("log.unexpected", msg=f"No supported files in folder: {p}"))
+                # Localized: "No supported files in folder: {path}"
+                self.log.emit(
+                    tr("log.no_supported_files_in_folder", path=str(p))
+                )
             return [(str(f), f, None) for f in sorted(files)]
 
         # ----- Local file -----
-
         if p.is_file():
             return [(str(p), p, None)]
 
-        self.log.emit(tr("log.unexpected", msg=f"Path not found: {p}"))
+        # ----- Invalid path -----
+        # Localized: "Path not found: {path}"
+        self.log.emit(tr("log.path_not_found", path=str(p)))
         return []

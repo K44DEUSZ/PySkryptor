@@ -5,46 +5,88 @@
     "models_dir": "resources/models",
     "ai_engine_dir": "resources/models/whisper-turbo",
     "locales_dir": "resources/locales",
+
     "data_dir": "data",
     "downloads_dir": "data/downloads",
     "input_tmp_dir": "data/.input_tmp",
     "transcriptions_dir": "data/transcriptions"
   },
+
   "media": {
-    "audio_ext": [
-      ".wav",
-      ".mp3"
-    ],
-    "video_ext": [
-      ".mp4",
-      ".webm"
-    ]
+    "input": {
+      "audio_ext": [
+        ".wav",
+        ".mp3",
+        ".flac",
+        ".m4a",
+        ".ogg",
+        ".aac"
+      ],
+      "video_ext": [
+        ".mp4",
+        ".webm",
+        ".mkv",
+        ".mov",
+        ".avi"
+      ]
+    },
+    "downloader": {
+      "audio_ext": [
+        "m4a",
+        "mp3"
+      ],
+      "video_ext": [
+        "mp4",
+        "webm"
+      ]
+    },
+    "transcripts": {
+      "default_ext": "txt",
+      "ext": [
+        "txt",
+        "srt",
+        "sub"
+      ]
+    }
   },
+
+  "app": {
+    "language": "auto",
+    "theme": "auto"
+  },
+
+  "engine": {
+    "preferred_device": "auto",
+    "precision": "auto",
+    "allow_tf32": true
+  },
+
   "model": {
     "ai_engine_name": "whisper-turbo",
     "local_models_only": true,
+
     "chunk_length_s": 60,
     "stride_length_s": 5,
-    "pipeline_task": "automatic-speech-recognition",
+    "pipeline_task": "transcribe",
     "ignore_warning": true,
     "default_language": null,
-    "return_timestamps": true,
+
+    "return_timestamps": false,
     "use_safetensors": true,
     "low_cpu_mem_usage": true
   },
-  "user": {
-    "language": "pl",
-    "preferred_device": "auto",
-    "precision": "auto",
-    "allow_tf32": true,
-    "timestamps_output": true,
+
+  "transcription": {
+    "timestamps_output": false,
     "keep_downloaded_files": true,
     "keep_wav_temp": false
   },
-  "download": {
+
+  "downloader": {
     "min_video_height": 144,
     "max_video_height": 4320
   },
+
   "network": {
     "max_bandwidth_kbps": null,
     "retries": 3,

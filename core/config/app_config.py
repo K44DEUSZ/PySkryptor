@@ -1,4 +1,3 @@
-# core/config/app_config.py
 from __future__ import annotations
 
 import os
@@ -25,7 +24,7 @@ class AppConfig:
 
     # ----- Init settings -----
 
-    # Derived paths
+    # Derived paths (will be overridden by initialize() based on settings.json)
     ROOT_DIR: Path = Path(__file__).resolve().parents[2]
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
@@ -39,9 +38,17 @@ class AppConfig:
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    # Media extensions
+    # Media extensions (input = what we accept as sources)
     AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3")
     VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm")
+
+    # Downloader output extensions (what we offer in download formats)
+    DOWN_AUDIO_EXT: Tuple[str, ...] = ("m4a", "mp3")
+    DOWN_VIDEO_EXT: Tuple[str, ...] = ("mp4", "webm")
+
+    # Transcript formats
+    TRANSCRIPT_DEFAULT_EXT: str = "txt"  # without leading dot
+    TRANSCRIPT_EXT: Tuple[str, ...] = ("txt",)
 
     # Download prefs
     VIDEO_MIN_HEIGHT: int = 144
@@ -63,9 +70,8 @@ class AppConfig:
     DEVICE_MODEL: str | None = None
     TF32_ENABLED: bool = False
 
-    # Cached settings
+    # Cached settings snapshot
     SETTINGS: SettingsSnapshot | None = None
-
 
     # ----- Public initialization -----
 
@@ -82,17 +88,17 @@ class AppConfig:
         cls._apply_paths(snap.paths)
         cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
-        cls._apply_media_exts(snap.media)
-        cls._apply_download(getattr(snap, "download", {}) or {})
-        cls._apply_network(getattr(snap, "network", {}) or {})
-        cls._setup_device_dtype(user=snap.user)
-
+        cls._apply_media(snap.media)
+        cls._apply_downloader(snap.downloader)
+        cls._apply_network(snap.network)
+        cls._setup_device_dtype(user=snap.engine)
 
     # ----- Apply sections -----
 
     @classmethod
     def _apply_paths(cls, paths: Dict[str, Any]) -> None:
         """Resolve configurable paths and store them as absolute."""
+
         def _resolve(p: str) -> Path:
             path = Path(p)
             return path if path.is_absolute() else (cls.ROOT_DIR / path)
@@ -109,30 +115,61 @@ class AppConfig:
         cls.TRANSCRIPTIONS_DIR = _resolve(paths["transcriptions_dir"])
 
     @classmethod
-    def _apply_media_exts(cls, media: Dict[str, Any]) -> None:
-        """Normalize audio/video extensions from settings."""
-        def _norm(exts: Any) -> Tuple[str, ...]:
+    def _apply_media(cls, media: Dict[str, Any]) -> None:
+        """Normalize audio/video extensions and transcript formats from settings."""
+        def _norm_with_dot(exts: Any) -> Tuple[str, ...]:
             seq = list(exts or [])
             out = []
             for x in seq:
-                s = str(x).lower()
+                s = str(x).lower().strip()
+                if not s:
+                    continue
                 if not s.startswith("."):
                     s = "." + s
                 out.append(s)
+            # de-duplicate preserving order
             return tuple(dict.fromkeys(out))
 
-        cls.AUDIO_EXT = _norm(media.get("audio_ext"))
-        cls.VIDEO_EXT = _norm(media.get("video_ext"))
+        def _norm_no_dot(exts: Any) -> Tuple[str, ...]:
+            seq = list(exts or [])
+            out = []
+            for x in seq:
+                s = str(x).lower().strip()
+                if not s:
+                    continue
+                if s.startswith("."):
+                    s = s[1:]
+                out.append(s)
+            return tuple(dict.fromkeys(out))
+
+        input_cfg = media.get("input", {}) or {}
+        dl_cfg = media.get("downloader", {}) or {}
+        tr_cfg = media.get("transcripts", {}) or {}
+
+        # Input (files the app accepts as sources)
+        cls.AUDIO_EXT = _norm_with_dot(input_cfg.get("audio_ext"))
+        cls.VIDEO_EXT = _norm_with_dot(input_cfg.get("video_ext"))
+
+        # Downloader formats (output options; no leading dots)
+        cls.DOWN_AUDIO_EXT = _norm_no_dot(dl_cfg.get("audio_ext"))
+        cls.DOWN_VIDEO_EXT = _norm_no_dot(dl_cfg.get("video_ext"))
+
+        # Transcript formats (no leading dots)
+        default_ext = str(tr_cfg.get("default_ext") or "txt").lower().strip()
+        if default_ext.startswith("."):
+            default_ext = default_ext[1:]
+        cls.TRANSCRIPT_DEFAULT_EXT = default_ext or "txt"
+        cls.TRANSCRIPT_EXT = _norm_no_dot(tr_cfg.get("ext") or [cls.TRANSCRIPT_DEFAULT_EXT])
 
     @classmethod
-    def _apply_download(cls, download: Dict[str, Any]) -> None:
+    def _apply_downloader(cls, downloader: Dict[str, Any]) -> None:
         """Apply download min/max video height with basic clamping."""
         try:
-            mn = int(download.get("min_video_height", cls.VIDEO_MIN_HEIGHT))
+            mn = int(downloader.get("min_video_height", cls.VIDEO_MIN_HEIGHT))
         except Exception:
             mn = cls.VIDEO_MIN_HEIGHT
         try:
-            mx = int(download.get("max_video_height", cls.VIDEO_MAX_HEIGHT))
+            mx = int(downloader.get("max_video_height", cls.VIDEO_MAX_HEIGHT))
         except Exception:
             mx = cls.VIDEO_MAX_HEIGHT
         if mx < mn:
@@ -151,7 +188,7 @@ class AppConfig:
 
         kbps = network.get("max_bandwidth_kbps")
         try:
-            kbps_val = int(kps) if (kps := kbps) is not None else None  # type: ignore[name-defined]
+            kbps_val = int(kbps) if kbps is not None else None
         except Exception:
             kbps_val = None
         if kbps_val is not None and kbps_val <= 0:
@@ -159,10 +196,20 @@ class AppConfig:
 
         cls.NET_MAX_KBPS = kbps_val
         cls.NET_RETRIES = _to_int(network.get("retries", cls.NET_RETRIES), cls.NET_RETRIES)
-        cls.NET_CONC_FRAG = max(1, _to_int(network.get("concurrent_fragments", cls.NET_CONC_FRAG), cls.NET_CONC_FRAG))
-        cls.NET_TIMEOUT_S = max(1, _to_int(network.get("http_timeout_s", cls.NET_TIMEOUT_S), cls.NET_TIMEOUT_S))
-        cls.NET_PROXY = (str(network.get("proxy")).strip() or None) if network.get("proxy") is not None else None
-        cls.NET_THROTTLE_S = max(0, _to_int(network.get("throttle_startup_s", cls.NET_THROTTLE_S), cls.NET_THROTTLE_S))
+        cls.NET_CONC_FRAG = max(
+            1,
+            _to_int(network.get("concurrent_fragments", cls.NET_CONC_FRAG), cls.NET_CONC_FRAG),
+        )
+        cls.NET_TIMEOUT_S = max(
+            1,
+            _to_int(network.get("http_timeout_s", cls.NET_TIMEOUT_S), cls.NET_TIMEOUT_S),
+        )
+        proxy_raw = network.get("proxy")
+        cls.NET_PROXY = (str(proxy_raw).strip() or None) if proxy_raw is not None else None
+        cls.NET_THROTTLE_S = max(
+            0,
+            _to_int(network.get("throttle_startup_s", cls.NET_THROTTLE_S), cls.NET_THROTTLE_S),
+        )
 
     @classmethod
     def _ensure_dirs(cls) -> None:
@@ -177,7 +224,6 @@ class AppConfig:
             cls.TRANSCRIPTIONS_DIR,
         ):
             p.mkdir(parents=True, exist_ok=True)
-        cls.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def _setup_ffmpeg_on_path(cls) -> None:
@@ -202,7 +248,6 @@ class AppConfig:
         if ffprobe_exe.exists():
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
-
     # ----- Device / DType -----
 
     @staticmethod
@@ -216,9 +261,11 @@ class AppConfig:
                 try:
                     out = subprocess.check_output(
                         [
-                            "reg", "query",
+                            "reg",
+                            "query",
                             r"HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-                            "/v", "ProcessorNameString",
+                            "/v",
+                            "ProcessorNameString",
                         ],
                         stderr=subprocess.DEVNULL,
                         text=True,
@@ -277,7 +324,7 @@ class AppConfig:
 
     @classmethod
     def _setup_device_dtype(cls, *, user: Dict[str, Any]) -> None:
-        """Pick device and dtype according to user preferences and hardware."""
+        """Pick device and dtype according to engine preferences and hardware."""
         device = cls._resolve_device(user)
         cls.DEVICE = device
 
@@ -343,17 +390,20 @@ class AppConfig:
             return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         return torch.float32
 
-
     # ----- Convenience accessors -----
 
     @classmethod
     def language(cls) -> str:
-        """Return current UI language code (or 'en' as fallback)."""
+        """
+        Return current UI language code from settings (or 'en' as fallback).
+        'auto' means 'let the Translator decide', so we fall back to 'en' here.
+        """
         if cls.SETTINGS:
-            return str(cls.SETTINGS.user.get("language", "en"))
+            lang = str(cls.SETTINGS.app.get("language", "auto"))
+            return "en" if lang == "auto" else lang
         return "en"
 
-    # Media extensions
+    # Media extensions (input)
     @classmethod
     def audio_extensions(cls) -> Tuple[str, ...]:
         return cls.AUDIO_EXT
@@ -362,14 +412,49 @@ class AppConfig:
     def video_extensions(cls) -> Tuple[str, ...]:
         return cls.VIDEO_EXT
 
-    # Model settings
+    # Downloader extensions (output)
+    @classmethod
+    def downloader_audio_extensions(cls) -> Tuple[str, ...]:
+        return cls.DOWN_AUDIO_EXT
+
+    @classmethod
+    def downloader_video_extensions(cls) -> Tuple[str, ...]:
+        return cls.DOWN_VIDEO_EXT
+
+    # Transcript formats
+    @classmethod
+    def transcript_default_ext(cls) -> str:
+        return cls.TRANSCRIPT_DEFAULT_EXT
+
+    @classmethod
+    def transcript_extensions(cls) -> Tuple[str, ...]:
+        return cls.TRANSCRIPT_EXT
+
+    # Model / app / engine / transcription / downloader / network settings
+
     @classmethod
     def model_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.model) if cls.SETTINGS else {}
 
     @classmethod
-    def user_settings(cls) -> Dict[str, Any]:
-        return dict(cls.SETTINGS.user) if cls.SETTINGS else {}
+    def app_settings(cls) -> Dict[str, Any]:
+        return dict(cls.SETTINGS.app) if cls.SETTINGS else {}
+
+    @classmethod
+    def engine_settings(cls) -> Dict[str, Any]:
+        return dict(cls.SETTINGS.engine) if cls.SETTINGS else {}
+
+    @classmethod
+    def transcription_settings(cls) -> Dict[str, Any]:
+        return dict(cls.SETTINGS.transcription) if cls.SETTINGS else {}
+
+    @classmethod
+    def downloader_settings(cls) -> Dict[str, Any]:
+        return dict(cls.SETTINGS.downloader) if cls.SETTINGS else {}
+
+    @classmethod
+    def network_settings(cls) -> Dict[str, Any]:
+        return dict(cls.SETTINGS.network) if cls.SETTINGS else {}
 
     # Download prefs
     @classmethod

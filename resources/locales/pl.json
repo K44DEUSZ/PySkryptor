@@ -60,6 +60,10 @@
         "status": "Stan",
         "preview": "Podgląd"
       }
+    },
+
+    "transcript": {
+      "default_name": "Transkrypt"
     }
   },
 
@@ -68,6 +72,7 @@
       "ready": "✅ Model załadowany — tryb: {device}",
       "error": "❌ Błąd modelu: {msg}"
     },
+
     "pipe_not_ready": "Model nie jest jeszcze gotowy.",
     "no_items": "Dodaj przynajmniej jedno źródło (plik lub URL).",
     "start": "▶️ Start transkrypcji…",
@@ -92,7 +97,20 @@
     "transcript": {
       "saved": "✅ Zapisano transkrypt: {path}",
       "saved_prefix": "✅ Zapisano transkrypt:"
-    }
+    },
+
+    "temp_init_failed": "❗ Błąd inicjalizacji katalogu tymczasowego: {detail}",
+    "session_plan_failed": "❗ Błąd planowania sesji: {detail}",
+    "entry_prep_error": "❗ Błąd przygotowania pozycji „{entry}”: {detail}",
+    "conflict_dialog_error": "❗ Błąd okna konfliktu nazw: {detail}",
+    "audio_prep_failed": "❗ Błąd przygotowania audio dla pliku „{name}”: {detail}",
+    "transcription_failed": "❗ Błąd transkrypcji pliku „{name}”: {detail}",
+    "session_dir_failed": "❗ Błąd tworzenia katalogu sesji: {detail}",
+    "transcript_save_failed": "❗ Błąd zapisu transkryptu dla pliku „{name}”: {detail}",
+    "worker_error": "❗ Błąd modułu transkrypcji: {detail}",
+    "temp_cleanup_issue": "❗ Problem podczas czyszczenia plików tymczasowych: {detail}",
+    "no_supported_files_in_folder": "ℹ️ W folderze „{path}” nie znaleziono obsługiwanych plików.",
+    "path_not_found": "❗ Ścieżka nie istnieje: {path}"
   },
 
   "down": {
@@ -162,6 +180,9 @@
     "config": {
       "unknown_action": "Nieznane działanie: {action}",
       "generic": "Błąd konfiguracji: {detail}"
+    },
+    "transcription": {
+      "incomplete_file": "Plik jest niekompletny (pobrany częściowo): {name}"
     }
   }
 }
