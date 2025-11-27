@@ -7,6 +7,7 @@ from PyQt5 import QtWidgets
 from ui.utils.translating import tr
 from ui.views.files_panel import FilesPanel
 from ui.views.downloader_panel import DownloaderPanel
+from ui.views.settings_panel import SettingsPanel
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -45,9 +46,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.downloader_panel = DownloaderPanel(self)
         self.stack.addWidget(self.downloader_panel)
 
-        # Placeholders
+        # Live placeholder
         self.stack.addWidget(self._make_placeholder(tr("tabs.live")))
-        self.stack.addWidget(self._make_placeholder(tr("tabs.settings")))
+
+        # Settings panel
+        self.settings_panel = SettingsPanel(self)
+        self.stack.addWidget(self.settings_panel)
 
         # Switch handlers
         self.rb_files.toggled.connect(lambda: self.stack.setCurrentIndex(0))
@@ -65,7 +69,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, e):
         """Allow panels to perform best-effort cleanup."""
-        for pnl in (self.files_panel, self.downloader_panel):
+        for pnl in (self.files_panel, self.downloader_panel, self.settings_panel):
             try:
                 pnl.on_parent_close()
             except Exception:

@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 import yt_dlp
 
 from core.config.app_config import AppConfig as Config
+from core.io.text import sanitize_filename
 from ui.utils.logging import YtdlpQtLogger
 
 
@@ -138,6 +139,7 @@ class DownloadService:
         progress_cb=None,
         log=lambda msg: None,
         audio_lang: Optional[str] = None,  # normalized language code or None
+        file_stem: Optional[str] = None,   # optional base name override
     ) -> Optional[Path]:
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -224,7 +226,12 @@ class DownloadService:
             fallback = f"bestvideo[height>={min_h}]+bestaudio"
             ytdlp_format = "/".join([filt_main, alt_same, fallback])
 
-        outtmpl = str(out_dir / "%(title)s.%(ext)s")
+        # Output template – optionally honour requested stem (e.g. rename-on-duplicate).
+        if file_stem:
+            safe = sanitize_filename(file_stem)
+            outtmpl = str(out_dir / f"{safe}.%(ext)s")
+        else:
+            outtmpl = str(out_dir / "%(title)s.%(ext)s")
 
         ydl_opts: Dict[str, Any] = {
             "format": ytdlp_format,

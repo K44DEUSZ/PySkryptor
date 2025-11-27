@@ -20,8 +20,8 @@ WorkItem = Tuple[str, Path, Optional[str]]
 
 class TranscriptionWorker(QtCore.QObject):
     """
-    Processes entries (local files or URLs), prepares mono 16 kHz WAV,
-    runs the ASR pipeline with parameters from settings.json, and saves transcripts.
+    Processes a list of entries (local files or URLs), prepares model input,
+    runs the ASR pipeline using settings.json, and saves transcripts.
     """
 
     log = QtCore.pyqtSignal(str)
@@ -34,12 +34,7 @@ class TranscriptionWorker(QtCore.QObject):
     item_path_update = QtCore.pyqtSignal(str, str)    # old_key, new_local_path
     transcript_ready = QtCore.pyqtSignal(str, str)    # key, transcript_path
 
-    def __init__(
-        self,
-        files: Optional[List[Path]] = None,
-        pipe=None,
-        entries: Optional[List[GUIEntry]] = None,
-    ) -> None:
+    def __init__(self, files: Optional[List[Path]] = None, pipe=None, entries: Optional[List[GUIEntry]] = None) -> None:
         super().__init__()
         self._cancel = threading.Event()
         self._pipe = pipe
@@ -60,32 +55,10 @@ class TranscriptionWorker(QtCore.QObject):
     def run(self) -> None:
         processed_any = False
 
-        # ----- Runtime flags from settings -----
+        # Runtime flags from settings
         trans_cfg = Config.transcription_settings()
         keep_downloaded_files: bool = bool(trans_cfg.get("keep_downloaded_files", True))
         keep_wav_temp: bool = bool(trans_cfg.get("keep_wav_temp", False))
-        timestamps_output: bool = bool(trans_cfg.get("timestamps_output", False))
-
-        # Model-related settings
-        model_cfg = Config.model_settings()
-        chunk_len = int(model_cfg.get("chunk_length_s", 60))
-        stride_len = int(model_cfg.get("stride_length_s", 5))
-        user_return_ts = bool(model_cfg.get("return_timestamps", False))
-        ignore_warn = bool(model_cfg.get("ignore_warning", True))
-        task = str(model_cfg.get("pipeline_task", "transcribe"))
-        default_lang = model_cfg.get("default_language")
-
-        # Output format (controls how we render timestamps)
-        default_ext = Config.transcript_default_ext().lower()
-        # We want segments when either:
-        #  - user explicitly asked (model.return_timestamps),
-        #  - timestamps_output is enabled,
-        #  - or the default extension is a subtitle-like format.
-        want_segments = (
-            user_return_ts
-            or timestamps_output
-            or default_ext in ("srt", "sub", "vtt")
-        )
 
         try:
             # ----- Prepare temp area -----
@@ -96,7 +69,7 @@ class TranscriptionWorker(QtCore.QObject):
             except Exception as e:
                 self.log.emit(tr("log.temp_init_failed", detail=str(e)))
 
-            # ----- Plan session (lazy directory creation) -----
+            # ----- Plan session (lazy creation on first write) -----
             try:
                 planned = FileManager.plan_session()
                 self.log.emit(tr("log.session.plan", path=str(planned)))
@@ -121,14 +94,23 @@ class TranscriptionWorker(QtCore.QObject):
                 self.log.emit(tr("log.no_items"))
                 return
 
-            # ----- Process each item -----
+            # ----- Model settings -----
+            model_cfg = Config.model_settings()
+            chunk_len = int(model_cfg.get("chunk_length_s", 60))
+            stride_len = int(model_cfg.get("stride_length_s", 5))
+            return_ts = bool(model_cfg.get("return_timestamps", True))
+            ignore_warn = bool(model_cfg.get("ignore_warning", True))
+            task = str(model_cfg.get("pipeline_task", "transcribe"))
+            default_lang = model_cfg.get("default_language")
+
+            # ----- Process items -----
             for idx, (key, path, forced_stem) in enumerate(work_items, start=1):
                 if self._cancel.is_set():
                     break
 
                 stem = sanitize_filename(forced_stem) if forced_stem else sanitize_filename(path.stem)
 
-                # Ensure file exists and is not a partial download
+                # Skip incomplete / partial files
                 if (not path.exists()) or path.name.endswith(".part"):
                     self.item_status.emit(key, tr("status.error"))
                     self.log.emit(
@@ -172,12 +154,14 @@ class TranscriptionWorker(QtCore.QObject):
                             out_dir = Path(existing)
                             write_into_existing = True
 
-                # ----- Prepare WAV input -----
+                # ----- Prepare model input (audio or temp WAV) -----
                 try:
                     if self._cancel.is_set():
                         break
                     self.item_status.emit(key, tr("status.prep"))
-                    wav = FileManager.ensure_tmp_wav(path)
+                    # For audio files we now return the original file;
+                    # for video/non-audio we still create a temp WAV.
+                    model_input = FileManager.ensure_tmp_wav(path)
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
                     self.log.emit(
@@ -201,26 +185,15 @@ class TranscriptionWorker(QtCore.QObject):
                         generate_kwargs["language"] = default_lang
 
                     result = self._pipe(
-                        str(wav),
+                        str(model_input),
                         chunk_length_s=chunk_len,
                         stride_length_s=stride_len,
-                        return_timestamps=want_segments,
+                        return_timestamps=return_ts,
                         generate_kwargs=generate_kwargs,
                         ignore_warning=ignore_warn,
                     )
-
-                    # Decide how to render output based on settings and extension.
-                    if want_segments:
-                        segments = TextPostprocessor.segments_from_result(result)
-                        if default_ext == "srt":
-                            text_out = TextPostprocessor.to_srt(segments)
-                        elif timestamps_output:
-                            text_out = TextPostprocessor.to_timestamped_plain(segments)
-                        else:
-                            text_out = TextPostprocessor.to_plain(segments)
-                    else:
-                        text_out = TextPostprocessor.plain_from_result(result)
-
+                    text = result["text"] if isinstance(result, dict) and "text" in result else str(result)
+                    text = TextPostprocessor.clean(text)
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
                     self.log.emit(
@@ -239,9 +212,7 @@ class TranscriptionWorker(QtCore.QObject):
                         FileManager.ensure_session()
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    self.log.emit(
-                        tr("log.session_dir_failed", detail=str(e))
-                    )
+                    self.log.emit(tr("log.session_dir_failed", detail=str(e)))
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
@@ -252,13 +223,12 @@ class TranscriptionWorker(QtCore.QObject):
                         out_dir.mkdir(parents=True, exist_ok=True)
                         created_dir = True
 
-                    # Base name is taken from i18n so it can be localized per language.
                     base_name = tr("files.transcript.default_name")
                     if base_name == "files.transcript.default_name":
                         base_name = "transcript"
 
                     out_txt = FileManager.transcript_path(stem, base_name=base_name)
-                    out_txt.write_text(text_out, encoding="utf-8")
+                    out_txt.write_text(text, encoding="utf-8")
 
                     self.log.emit(tr("log.transcript.saved", path=str(out_txt)))
                     self.item_status.emit(key, tr("status.done"))
@@ -276,7 +246,7 @@ class TranscriptionWorker(QtCore.QObject):
                     if created_dir:
                         FileManager.remove_dir_if_empty(out_dir)
 
-                # Optional cleanup of downloaded originals
+                # ----- Optional cleanup of downloaded originals -----
                 try:
                     if (not keep_downloaded_files) and (path in self._downloaded):
                         path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -288,7 +258,7 @@ class TranscriptionWorker(QtCore.QObject):
         except Exception as e:
             self.log.emit(tr("log.worker_error", detail=str(e)))
         finally:
-            # ----- Temp cleanup -----
+            # Temp cleanup
             try:
                 if (not keep_wav_temp) and Config.INPUT_TMP_DIR.exists():
                     shutil.rmtree(Config.INPUT_TMP_DIR, ignore_errors=True)
@@ -313,7 +283,7 @@ class TranscriptionWorker(QtCore.QObject):
         self._conflict_new_stem = new_stem
         self._conflict_event.set()
 
-    # ----- Helpers -----
+    # ----- Entry helpers -----
 
     def _normalize_entry(self, raw: GUIEntry) -> Tuple[str, str]:
         if isinstance(raw, dict):
@@ -334,6 +304,12 @@ class TranscriptionWorker(QtCore.QObject):
             key = s
             self.log.emit(tr("down.log.analyze"))
             self.item_status.emit(key, tr("status.prep"))
+
+            # Transcription behaviour for URL → audio/video + where to store it.
+            trans_cfg = Config.transcription_settings()
+            download_audio_only: bool = bool(trans_cfg.get("download_audio_only", True))
+            keep_downloaded_files: bool = bool(trans_cfg.get("keep_downloaded_files", True))
+
             try:
                 meta = self._download.probe(s, log=lambda m: None)
             except DownloadError as de:
@@ -344,6 +320,7 @@ class TranscriptionWorker(QtCore.QObject):
                 self.item_status.emit(key, tr("status.error"))
                 self.log.emit(tr("error.down.probe_failed", detail=str(e)))
                 return []
+
             if self._cancel.is_set():
                 return []
 
@@ -373,16 +350,28 @@ class TranscriptionWorker(QtCore.QObject):
             if self._cancel.is_set():
                 return []
 
-            # Download with basic logging (details handled inside DownloadService).
+            # Download – now honours audio-only + temp/keep settings.
             self.log.emit(tr("down.log.downloading"))
             self.item_status.emit(key, tr("status.prep"))
+
+            kind = "audio" if download_audio_only else "video"
+
+            if kind == "audio":
+                audio_exts = list(Config.downloader_audio_extensions())
+                ext = audio_exts[0] if audio_exts else "m4a"
+            else:
+                video_exts = list(Config.downloader_video_extensions())
+                ext = video_exts[0] if video_exts else "mp4"
+
+            out_dir = Config.DOWNLOADS_DIR if keep_downloaded_files else Config.INPUT_TMP_DIR
+
             try:
                 local = self._download.download(
                     url=s,
-                    kind="video",
+                    kind=kind,
                     quality="auto",
-                    ext="mp4",
-                    out_dir=Config.DOWNLOADS_DIR,
+                    ext=ext,
+                    out_dir=out_dir,
                     progress_cb=lambda *_: None,
                     log=lambda *_: None,
                 )
@@ -391,6 +380,7 @@ class TranscriptionWorker(QtCore.QObject):
                     self.item_path_update.emit(key, str(local))
                     new_key = str(local)
                     return [(new_key, local, forced_stem)]
+
                 self.item_status.emit(key, tr("status.error"))
                 self.log.emit(
                     tr(
@@ -416,7 +406,13 @@ class TranscriptionWorker(QtCore.QObject):
         # ----- Local directory -----
         p = Path(s)
         if p.is_dir():
-            allowed = set(Config.audio_extensions()) | set(Config.video_extensions())
+            allowed = {
+                e.lower() if e.startswith(".") else f".{e.lower()}"
+                for e in Config.audio_extensions()
+            } | {
+                e.lower() if e.startswith(".") else f".{e.lower()}"
+                for e in Config.video_extensions()
+            }
             files = [x for x in p.rglob("*") if x.is_file() and x.suffix.lower() in allowed]
             if not files:
                 self.log.emit(

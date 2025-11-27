@@ -34,6 +34,7 @@ class SettingsService:
     """
     Loads and validates settings.json against defaults.json schema.
     Defaults are a template (no implicit value fallback).
+    Also provides helpers for saving selected sections (used by Settings UI).
     """
 
     def __init__(
@@ -208,6 +209,8 @@ class SettingsService:
         out["timestamps_output"] = bool(src.get("timestamps_output", False))
         out["keep_downloaded_files"] = bool(src.get("keep_downloaded_files", True))
         out["keep_wav_temp"] = bool(src.get("keep_wav_temp", False))
+        # New flag: download audio-only for URL transcriptions.
+        out["download_audio_only"] = bool(src.get("download_audio_only", True))
         return out
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -226,17 +229,23 @@ class SettingsService:
             raise SettingsError("error.type_int", field="network.max_bandwidth_kbps")
         out["max_bandwidth_kbps"] = bw
         out["retries"] = self._as_int(src.get("retries"), "network.retries")
-        out["concurrent_fragments"] = self._as_int(src.get("concurrent_fragments"), "network.concurrent_fragments")
+        out["concurrent_fragments"] = self._as_int(
+            src.get("concurrent_fragments"),
+            "network.concurrent_fragments",
+        )
         out["http_timeout_s"] = self._as_int(src.get("http_timeout_s"), "network.http_timeout_s")
         # proxy may be null or string
         proxy = src.get("proxy", None)
         if proxy is not None and not isinstance(proxy, str):
             raise SettingsError("error.type_string_nonempty", field="network.proxy")
         out["proxy"] = proxy
-        out["throttle_startup_s"] = self._as_int(src.get("throttle_startup_s"), "network.throttle_startup_s")
+        out["throttle_startup_s"] = self._as_int(
+            src.get("throttle_startup_s"),
+            "network.throttle_startup_s",
+        )
         return out
 
-    # ----- Public API -----
+    # ----- Public load API -----
 
     def load(self) -> SettingsSnapshot:
         if not self._defaults_path.exists():
@@ -329,3 +338,87 @@ class SettingsService:
             self.restore_defaults(sections=None)
             snap = self.load()
             return snap, True, reason
+
+    # ----- Save selected sections (used by SettingsPanel) -----
+
+    def save_sections(
+        self,
+        *,
+        app: Optional[Dict[str, Any]] = None,
+        engine: Optional[Dict[str, Any]] = None,
+        model: Optional[Dict[str, Any]] = None,
+        transcription: Optional[Dict[str, Any]] = None,
+        downloader: Optional[Dict[str, Any]] = None,
+        network: Optional[Dict[str, Any]] = None,
+    ) -> SettingsSnapshot:
+        """
+        Validate and write chosen sections back to settings.json.
+        Any section set to None is loaded from current settings (or defaults).
+        Returns a fresh validated snapshot.
+        """
+        if not self._defaults_path.exists():
+            raise SettingsError("error.defaults_missing", path=str(self._defaults_path))
+        defaults = self._read_json(self._defaults_path)
+
+        schema_paths = self._ensure_dict(defaults.get("paths"), "paths")
+        schema_media = self._ensure_dict(defaults.get("media"), "media")
+        schema_app = self._ensure_dict(defaults.get("app"), "app")
+        schema_engine = self._ensure_dict(defaults.get("engine"), "engine")
+        schema_model = self._ensure_dict(defaults.get("model"), "model")
+        schema_transcription = self._ensure_dict(defaults.get("transcription"), "transcription")
+        schema_downloader = self._ensure_dict(defaults.get("downloader"), "downloader")
+        schema_network = self._ensure_dict(defaults.get("network"), "network")
+
+        if self._settings_path.exists():
+            current = self._read_json(self._settings_path)
+        else:
+            current = defaults
+
+        # Helper: get section from provided value, or current, or defaults.
+        def _section(name: str, override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+            if override is not None:
+                return self._ensure_dict(override, name)
+            if name in current:
+                return self._ensure_dict(current[name], name)
+            return self._ensure_dict(defaults.get(name, {}), name)
+
+        src_paths = _section("paths", None)
+        src_media = _section("media", None)
+        src_app = _section("app", app)
+        src_engine = _section("engine", engine)
+        src_model = _section("model", model)
+        src_transcription = _section("transcription", transcription)
+        src_downloader = _section("downloader", downloader)
+        src_network = _section("network", network)
+
+        v_paths = self._validate_paths(src_paths, schema_paths)
+        v_media = self._validate_media(src_media, schema_media)
+        v_app = self._validate_app(src_app, schema_app)
+        v_engine = self._validate_engine(src_engine, schema_engine)
+        v_model = self._validate_model(src_model, schema_model)
+        v_transcription = self._validate_transcription(src_transcription, schema_transcription)
+        v_downloader = self._validate_downloader(src_downloader, schema_downloader)
+        v_network = self._validate_network(src_network, schema_network)
+
+        data: Dict[str, Any] = {
+            "paths": v_paths,
+            "media": v_media,
+            "app": v_app,
+            "engine": v_engine,
+            "model": v_model,
+            "transcription": v_transcription,
+            "downloader": v_downloader,
+            "network": v_network,
+        }
+        self._write_json(self._settings_path, data)
+
+        return SettingsSnapshot(
+            paths=v_paths,
+            media=v_media,
+            app=v_app,
+            engine=v_engine,
+            model=v_model,
+            transcription=v_transcription,
+            downloader=v_downloader,
+            network=v_network,
+        )

@@ -36,6 +36,7 @@ class DownloadWorker(QtCore.QObject):
         kind: Optional[str] = None,
         quality: Optional[str] = None,
         ext: Optional[str] = None,
+        audio_lang: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._action = action
@@ -43,6 +44,7 @@ class DownloadWorker(QtCore.QObject):
         self._kind = kind
         self._quality = quality
         self._ext = ext
+        self._audio_lang = audio_lang
 
         self._svc = DownloadService()
         self._meta = MediaMetadataService(self._svc)
@@ -52,6 +54,7 @@ class DownloadWorker(QtCore.QObject):
         # duplicate rendezvous state
         self._dup_decision_action: Optional[str] = None  # "skip" | "overwrite" | "rename"
         self._dup_decision_name: str = ""
+        self._file_stem: Optional[str] = None
 
     # ----- API -----
 
@@ -113,6 +116,7 @@ class DownloadWorker(QtCore.QObject):
         # Reset duplicate decision for this run
         self._dup_decision_action = None
         self._dup_decision_name = ""
+        self._file_stem = None
 
         seen_stage_downloading = False
         seen_stage_post = False
@@ -195,8 +199,9 @@ class DownloadWorker(QtCore.QObject):
 
                     if self._dup_decision_action == "rename":
                         safe = sanitize_filename(self._dup_decision_name or safe)
-                        # `safe` is only used to suggest the filename; yt_dlp still
-                        # controls final path via outtmpl, so no extra work here.
+                        # store for use as file_stem in DownloadService
+                        self._file_stem = safe
+                    # "overwrite" – zachowujemy domyślne nazewnictwo (%(title)s)
         except Exception:
             # If duplicate pre-check fails, ignore and proceed with standard download.
             pass
@@ -213,7 +218,8 @@ class DownloadWorker(QtCore.QObject):
             out_dir=Config.DOWNLOADS_DIR,
             progress_cb=_on_progress,
             log=lambda _m: None,
-            audio_lang=None,  # GUI-specific language selection handled at panel level
+            audio_lang=self._audio_lang,
+            file_stem=self._file_stem,
         )
 
         if not path:

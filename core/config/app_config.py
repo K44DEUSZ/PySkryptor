@@ -128,7 +128,6 @@ class AppConfig:
                 if not s.startswith("."):
                     s = "." + s
                 out.append(s)
-            # de-duplicate preserving order
             return tuple(dict.fromkeys(out))
 
         def _norm_no_dot(exts: Any) -> Tuple[str, ...]:
@@ -396,13 +395,12 @@ class AppConfig:
     @classmethod
     def language(cls) -> str:
         """
-        Return current UI language code from settings (or 'en' as fallback).
-        'auto' means 'let the Translator decide', so we fall back to 'en' here.
+        Return current UI language code from settings.
+        May be 'auto' or a concrete code like 'pl', 'en', etc.
         """
         if cls.SETTINGS:
-            lang = str(cls.SETTINGS.app.get("language", "auto"))
-            return "en" if lang == "auto" else lang
-        return "en"
+            return str(cls.SETTINGS.app.get("language", "auto"))
+        return "auto"
 
     # Media extensions (input)
     @classmethod

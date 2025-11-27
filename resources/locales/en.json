@@ -28,12 +28,13 @@
   },
 
   "dialog": {
-    "cancel_confirm": "Are you sure you want to stop the current task?",
+    "cancel_confirm": "Are you sure you want to stop the current operation?",
+    "settings_restored": "The settings file was missing. Default settings have been restored.",
     "conflict": {
       "title": "Name conflict",
-      "text": "An output named “{name}” already exists. What would you like to do?",
+      "text": "A result named \"{name}\" already exists. What would you like to do?",
       "skip": "Skip this item",
-      "overwrite": "Overwrite existing output",
+      "overwrite": "Overwrite existing result",
       "new_name": "Use a new name:",
       "apply_all": "Apply to all next items"
     }
@@ -44,7 +45,7 @@
     "add": "Add",
     "add_files": "Add files...",
     "add_folder": "Add folder...",
-    "open_output": "Open transcripts folder",
+    "open_output": "Open transcription folder",
     "remove_selected": "Remove selected",
     "clear": "Clear list",
 
@@ -59,36 +60,62 @@
         "status": "Status",
         "preview": "Preview"
       }
+    },
+
+    "transcript": {
+      "default_name": "Transcript"
     }
   },
 
   "log": {
-    "init": {
-      "bg": "Initializing — loading model in the background…"
-    },
     "model": {
-      "ready": "Model loaded — you can start transcription",
-      "error": "Model error: {msg}"
+      "ready": "✅ Model loaded — mode: {device}",
+      "error": "❌ Model error: {msg}"
     },
+
     "pipe_not_ready": "The model is not ready yet.",
     "no_items": "Add at least one source (file or URL).",
     "start": "▶️ Starting transcription…",
     "cancelled": "⏹️ Cancelled.",
     "done": "✅ Transcription finished.",
     "unexpected": "❗ Unexpected error: {msg}",
+
+    "session": {
+      "plan": "📂 Created a new session in folder: {path}"
+    },
+
+    "tmp": {
+      "cleaned": "🧹 Temporary audio files cleaned."
+    },
+
     "add": {
       "empty": "Input field is empty.",
       "missing": "Path does not exist.",
-      "ok": "Added: {text}"
+      "ok": "✅ Added: {text}"
     },
+
     "transcript": {
-      "saved": "Transcript saved: {path}"
-    }
+      "saved": "✅ Transcript saved: {path}",
+      "saved_prefix": "✅ Transcript saved:"
+    },
+
+    "temp_init_failed": "❗ Temporary directory initialization error: {detail}",
+    "session_plan_failed": "❗ Session planning error: {detail}",
+    "entry_prep_error": "❗ Error preparing item \"{entry}\": {detail}",
+    "conflict_dialog_error": "❗ Name conflict dialog error: {detail}",
+    "audio_prep_failed": "❗ Error preparing audio for file \"{name}\": {detail}",
+    "transcription_failed": "❗ Error transcribing file \"{name}\": {detail}",
+    "session_dir_failed": "❗ Session directory creation error: {detail}",
+    "transcript_save_failed": "❗ Error saving transcript for file \"{name}\": {detail}",
+    "worker_error": "❗ Transcription worker error: {detail}",
+    "temp_cleanup_issue": "❗ Problem while cleaning temporary files: {detail}",
+    "no_supported_files_in_folder": "ℹ️ No supported files found in folder \"{path}\".",
+    "path_not_found": "❗ Path does not exist: {path}"
   },
 
   "down": {
     "url": {
-      "placeholder": "Paste URL (e.g., YouTube/TikTok)…"
+      "placeholder": "Paste URL (e.g. YouTube/TikTok)…"
     },
     "probe": "Analyze",
     "open_folder": "Open downloads folder",
@@ -107,7 +134,9 @@
       "type.video": "Video",
       "type.audio": "Audio",
       "quality": "Quality:",
-      "ext": "Extension:"
+      "ext": "Extension:",
+      "audio_track": "Audio track:",
+      "audio_track.default": "Default"
     },
 
     "download": "Download",
@@ -116,37 +145,146 @@
       "analyze": "🔎 Analyzing URL…",
       "meta_ready": "✅ Metadata ready.",
       "downloading": "⬇️ Downloading…",
-      "downloaded_prefix": "Downloaded:",
-      "already": "Already downloaded:",
+      "postprocess": "⚙️ Processing file…",
+      "downloaded_prefix": "✅ Downloaded:",
+      "already": "ℹ️ Already downloaded:",
       "downloaded": "Downloaded: {path}",
       "error": "❌ Error: {msg}"
     },
 
     "dialog": {
       "exists": {
-        "text": "This file already exists:\n“{title}”. What would you like to do?",
+        "text": "This file already exists: \"{title}\". What would you like to do?",
         "open": "Open existing",
         "overwrite": "Download again (overwrite)",
-        "skip": "Skip"
+        "skip": "Skip",
+        "rename": "Rename"
       }
     }
   },
 
-  "status": {
-    "prep": "Preparing…",
-    "proc": "Processing…",
-    "done": "Done",
-    "skipped": "Skipped",
-    "error": "Error"
-  },
-
-  "error": {
-    "down": {
-      "probe_failed": "Probe failed: {detail}",
-      "download_failed": "Download failed: {detail}"
+  "settings": {
+    "title": "Settings",
+    "info": {
+      "restart_required": "Some changes may require restarting the application."
     },
-    "config": {
-      "unknown_action": "Unknown action: {action}"
+
+    "buttons": {
+      "save": "Save",
+      "reload": "Discard changes"
+    },
+
+    "msg": {
+      "saved": "Settings have been saved."
+    },
+
+    "section": {
+      "app": "Application",
+      "engine": "Engine",
+      "model": "Model",
+      "transcription": "Transcription",
+      "downloader": "Downloader",
+      "network": "Network"
+    },
+
+    "app": {
+      "language": {
+        "label": "Interface language"
+      },
+      "theme": {
+        "label": "Theme",
+        "auto": "System",
+        "light": "Light",
+        "dark": "Dark"
+      }
+    },
+
+    "engine": {
+      "device": {
+        "label": "Device",
+        "auto": "Auto",
+        "cpu": "CPU",
+        "gpu": "GPU"
+      },
+      "precision": {
+        "label": "Precision",
+        "auto": "Auto",
+        "float32": "Float32",
+        "float16": "Float16",
+        "bfloat16": "BFloat16"
+      },
+      "allow_tf32": {
+        "label": "Allow TF32 (GPU)"
+      }
+    },
+
+    "model": {
+      "ai_engine_name": {
+        "label": "AI engine (model)"
+      },
+      "local_models_only": {
+        "label": "Local models only"
+      },
+      "default_language": {
+        "label": "Default audio language (optional)"
+      },
+      "chunk_length_s": {
+        "label": "Chunk length (s)"
+      },
+      "stride_length_s": {
+        "label": "Stride (s)"
+      },
+      "return_timestamps": {
+        "label": "Return timestamps"
+      },
+      "ignore_warning": {
+        "label": "Ignore model warnings"
+      },
+      "low_cpu_mem_usage": {
+        "label": "Low RAM usage mode"
+      }
+    },
+
+    "transcription": {
+      "timestamps_output": {
+        "label": "Write timestamps to file"
+      },
+      "keep_downloaded_files": {
+        "label": "Keep downloaded files"
+      },
+      "keep_wav_temp": {
+        "label": "Keep WAV files in temp folder"
+      }
+    },
+
+    "downloader": {
+      "min_video_height": {
+        "label": "Minimum video height (p)"
+      },
+      "max_video_height": {
+        "label": "Maximum video height (p)"
+      }
+    },
+
+    "network": {
+      "max_bandwidth_kbps": {
+        "label": "Bandwidth limit (KB/s, 0 = unlimited)"
+      },
+      "retries": {
+        "label": "Retry count"
+      },
+      "concurrent_fragments": {
+        "label": "Concurrent fragments"
+      },
+      "http_timeout_s": {
+        "label": "HTTP timeout (s)"
+      },
+      "proxy": {
+        "label": "Proxy (URL, optional)"
+      },
+      "throttle_startup_s": {
+        "label": "Startup delay (s)"
+      }
     }
   }
 }

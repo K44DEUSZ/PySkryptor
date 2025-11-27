@@ -253,6 +253,7 @@ class DownloaderPanel(QtWidgets.QWidget):
                 kind=kind,
                 quality=quality,
                 ext=ext,
+                audio_lang=audio_lang,
             )
             self._down_worker.moveToThread(self._down_thread)
 

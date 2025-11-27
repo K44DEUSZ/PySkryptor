@@ -79,7 +79,8 @@
   "transcription": {
     "timestamps_output": false,
     "keep_downloaded_files": true,
-    "keep_wav_temp": false
+    "keep_wav_temp": false,
+    "download_audio_only": false
   },
 
   "downloader": {

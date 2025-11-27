@@ -5,13 +5,11 @@
     "models_dir": "resources/models",
     "ai_engine_dir": "resources/models/whisper-turbo",
     "locales_dir": "resources/locales",
-
     "data_dir": "data",
     "downloads_dir": "data/downloads",
     "input_tmp_dir": "data/.input_tmp",
     "transcriptions_dir": "data/transcriptions"
   },
-
   "media": {
     "input": {
       "audio_ext": [
@@ -49,44 +47,37 @@
       ]
     }
   },
-
   "app": {
-    "language": "auto",
+    "language": "pl",
     "theme": "auto"
   },
-
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
     "allow_tf32": true
   },
-
   "model": {
     "ai_engine_name": "whisper-turbo",
     "local_models_only": true,
-
     "chunk_length_s": 60,
     "stride_length_s": 5,
     "pipeline_task": "transcribe",
     "ignore_warning": true,
     "default_language": null,
-
     "return_timestamps": false,
     "use_safetensors": true,
     "low_cpu_mem_usage": true
   },
-
   "transcription": {
-    "timestamps_output": false,
-    "keep_downloaded_files": true,
-    "keep_wav_temp": false
+    "timestamps_output": true,
+    "keep_downloaded_files": false,
+    "keep_wav_temp": false,
+    "download_audio_only": true
   },
-
   "downloader": {
     "min_video_height": 144,
     "max_video_height": 4320
   },
-
   "network": {
     "max_bandwidth_kbps": null,
     "retries": 3,

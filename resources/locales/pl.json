@@ -35,7 +35,7 @@
       "text": "Wynik o nazwie „{name}” już istnieje. Co zrobić?",
       "skip": "Pomiń ten element",
       "overwrite": "Nadpisz istniejący wynik",
-      "new_name": "Użyj nowej nazwy:",
+      "new_name": "Użyj nowej nazw: ",
       "apply_all": "Zastosuj dla wszystkich kolejnych"
     }
   },
@@ -163,26 +163,128 @@
     }
   },
 
-  "status": {
-    "prep": "Przygotowanie…",
-    "proc": "Przetwarzanie…",
-    "done": "Gotowe",
-    "skipped": "Pominięto",
-    "error": "Błąd"
-  },
+   "settings": {
+    "title": "Ustawienia",
+    "info": {
+      "restart_required": "Niektóre zmiany mogą wymagać ponownego uruchomienia aplikacji."
+    },
 
-  "error": {
-    "down": {
-      "probe_failed": "Analiza nie powiodła się: {detail}",
-      "download_failed": "Pobieranie nie powiodło się: {detail}",
-      "no_output_file": "Pobieranie nie zwróciło żadnego pliku wyjściowego."
+    "buttons": {
+      "save": "Zapisz",
+      "reload": "Odrzuć zmiany"
     },
-    "config": {
-      "unknown_action": "Nieznane działanie: {action}",
-      "generic": "Błąd konfiguracji: {detail}"
+
+    "msg": {
+      "saved": "Zapisano ustawienia."
     },
+
+    "section": {
+      "app": "Aplikacja",
+      "engine": "Silnik",
+      "model": "Model",
+      "transcription": "Transkrypcja",
+      "downloader": "Downloader",
+      "network": "Sieć"
+    },
+
+    "app": {
+      "language": {
+        "label": "Język interfejsu"
+      },
+      "theme": {
+        "label": "Motyw",
+        "auto": "Systemowy",
+        "light": "Jasny",
+        "dark": "Ciemny"
+      }
+    },
+
+    "engine": {
+      "device": {
+        "label": "Urządzenie",
+        "auto": "Auto",
+        "cpu": "CPU",
+        "gpu": "GPU"
+      },
+      "precision": {
+        "label": "Precyzja",
+        "auto": "Auto",
+        "float32": "Float32",
+        "float16": "Float16",
+        "bfloat16": "BFloat16"
+      },
+      "allow_tf32": {
+        "label": "Zezwalaj na TF32 (GPU)"
+      }
+    },
+
+    "model": {
+      "ai_engine_name": {
+        "label": "Silnik AI (model)"
+      },
+      "local_models_only": {
+        "label": "Tylko modele lokalne"
+      },
+      "default_language": {
+        "label": "Domyślny język nagrania (opcjonalny)"
+      },
+      "chunk_length_s": {
+        "label": "Długość fragmentu (s)"
+      },
+      "stride_length_s": {
+        "label": "Przesunięcie (s)"
+      },
+      "return_timestamps": {
+        "label": "Zwracaj znaczniki czasu"
+      },
+      "ignore_warning": {
+        "label": "Ignoruj ostrzeżenia modelu"
+      },
+      "low_cpu_mem_usage": {
+        "label": "Tryb niskiego zużycia RAM"
+      }
+    },
+
     "transcription": {
-      "incomplete_file": "Plik jest niekompletny (pobrany częściowo): {name}"
+      "timestamps_output": {
+        "label": "Zapisuj znaczniki czasu w pliku"
+      },
+      "keep_downloaded_files": {
+        "label": "Zachowuj pobrane pliki"
+      },
+      "keep_wav_temp": {
+        "label": "Zostaw pliki WAV w katalogu tymczasowym"
+      }
+    },
+
+    "downloader": {
+      "min_video_height": {
+        "label": "Minimalna wysokość wideo (p)"
+      },
+      "max_video_height": {
+        "label": "Maksymalna wysokość wideo (p)"
+      }
+    },
+
+    "network": {
+      "max_bandwidth_kbps": {
+        "label": "Limit przepustowości (KB/s, 0 = bez limitu)"
+      },
+      "retries": {
+        "label": "Liczba ponowień"
+      },
+      "concurrent_fragments": {
+        "label": "Równoległe fragmenty"
+      },
+      "http_timeout_s": {
+        "label": "Timeout HTTP (s)"
+      },
+      "proxy": {
+        "label": "Proxy (URL, opcjonalnie)"
+      },
+      "throttle_startup_s": {
+        "label": "Opóźnienie startu (s)"
+      }
     }
   }
 }

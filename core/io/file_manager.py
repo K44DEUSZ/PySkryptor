@@ -118,9 +118,20 @@ class FileManager:
     @staticmethod
     def ensure_tmp_wav(source: Path, log=print) -> Path:
         """
-        Ensure 16 kHz mono WAV in INPUT_TMP_DIR for Whisper.
-        If source is video → extract audio; if audio but wrong params → transcode.
+        Return a path suitable as ASR model input.
+
+        - If 'source' is already a supported audio file (per settings) → return it as-is.
+        - Otherwise create a 16 kHz mono WAV copy in INPUT_TMP_DIR and return that path.
         """
+        # Normalize audio extensions from config (".wav", ".mp3", ...)
+        audio_exts = {
+            e.lower() if e.startswith(".") else f".{e.lower()}"
+            for e in Config.audio_extensions()
+        }
+        if source.suffix.lower() in audio_exts:
+            # No need to transcode; model/ffmpeg can read compressed audio directly.
+            return source
+
         target = Config.INPUT_TMP_DIR / (source.stem + ".wav")
         target.parent.mkdir(parents=True, exist_ok=True)
         AudioExtractor.ensure_mono_16k(source, target, log=log)
@@ -148,7 +159,6 @@ class FileManager:
         if filename is not None:
             return out_dir / filename
 
-        # Default extension comes from settings, e.g. "txt" / "srt" / "sub".
         ext = Config.transcript_default_ext()
         raw_base = (base_name or "").strip() or "transcript"
         safe_base = sanitize_filename(raw_base) or "transcript"
