@@ -1,3 +1,4 @@
+# ui/workers/transcription_worker.py
 from __future__ import annotations
 
 import shutil
@@ -8,9 +9,9 @@ from typing import List, Optional, Tuple, Union, Dict, Any, Set
 from PyQt5 import QtCore
 
 from core.config.app_config import AppConfig as Config
-from core.files.file_manager import FileManager
+from core.io.file_manager import FileManager
 from core.services.download_service import DownloadService, DownloadError
-from core.utils.text import is_url, sanitize_filename, TextPostprocessor
+from core.io.text import is_url, sanitize_filename, TextPostprocessor
 from ui.utils.translating import tr
 
 GUIEntry = Union[str, Dict[str, Any]]
@@ -19,9 +20,10 @@ WorkItem = Tuple[str, Path, Optional[str]]
 
 class TranscriptionWorker(QtCore.QObject):
     """
-    Processes a list of entries (local files or URLs), prepares mono 16 kHz WAV,
+    Processes entries (local files or URLs), prepares mono 16 kHz WAV,
     runs the ASR pipeline with parameters from settings.json, and saves transcripts.
     """
+
     log = QtCore.pyqtSignal(str)
     progress = QtCore.pyqtSignal(int)
     finished = QtCore.pyqtSignal()
@@ -32,7 +34,12 @@ class TranscriptionWorker(QtCore.QObject):
     item_path_update = QtCore.pyqtSignal(str, str)    # old_key, new_local_path
     transcript_ready = QtCore.pyqtSignal(str, str)    # key, transcript_path
 
-    def __init__(self, files: Optional[List[Path]] = None, pipe=None, entries: Optional[List[GUIEntry]] = None) -> None:
+    def __init__(
+        self,
+        files: Optional[List[Path]] = None,
+        pipe=None,
+        entries: Optional[List[GUIEntry]] = None,
+    ) -> None:
         super().__init__()
         self._cancel = threading.Event()
         self._pipe = pipe
@@ -53,30 +60,50 @@ class TranscriptionWorker(QtCore.QObject):
     def run(self) -> None:
         processed_any = False
 
-        # ---------- Runtime flags from settings ----------
+        # ----- Runtime flags from settings -----
         trans_cfg = Config.transcription_settings()
         keep_downloaded_files: bool = bool(trans_cfg.get("keep_downloaded_files", True))
         keep_wav_temp: bool = bool(trans_cfg.get("keep_wav_temp", False))
+        timestamps_output: bool = bool(trans_cfg.get("timestamps_output", False))
+
+        # Model-related settings
+        model_cfg = Config.model_settings()
+        chunk_len = int(model_cfg.get("chunk_length_s", 60))
+        stride_len = int(model_cfg.get("stride_length_s", 5))
+        user_return_ts = bool(model_cfg.get("return_timestamps", False))
+        ignore_warn = bool(model_cfg.get("ignore_warning", True))
+        task = str(model_cfg.get("pipeline_task", "transcribe"))
+        default_lang = model_cfg.get("default_language")
+
+        # Output format (controls how we render timestamps)
+        default_ext = Config.transcript_default_ext().lower()
+        # We want segments when either:
+        #  - user explicitly asked (model.return_timestamps),
+        #  - timestamps_output is enabled,
+        #  - or the default extension is a subtitle-like format.
+        want_segments = (
+            user_return_ts
+            or timestamps_output
+            or default_ext in ("srt", "sub", "vtt")
+        )
 
         try:
-            # ---------- Prepare temp area ----------
+            # ----- Prepare temp area -----
             try:
                 if Config.INPUT_TMP_DIR.exists():
                     shutil.rmtree(Config.INPUT_TMP_DIR, ignore_errors=True)
                 Config.INPUT_TMP_DIR.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                # Localized: "Temp directory initialization failed: {detail}"
                 self.log.emit(tr("log.temp_init_failed", detail=str(e)))
 
-            # ---------- Plan session (lazy directory creation) ----------
+            # ----- Plan session (lazy directory creation) -----
             try:
                 planned = FileManager.plan_session()
                 self.log.emit(tr("log.session.plan", path=str(planned)))
             except Exception as e:
-                # Localized: "Session planning failed: {detail}"
                 self.log.emit(tr("log.session_plan_failed", detail=str(e)))
 
-            # ---------- Build work list ----------
+            # ----- Build work list -----
             work_items: List[WorkItem] = []
             for entry in self._raw_entries:
                 if self._cancel.is_set():
@@ -85,7 +112,6 @@ class TranscriptionWorker(QtCore.QObject):
                     items = self._materialize_entry(entry)
                     work_items.extend(items)
                 except Exception as e:
-                    # Localized: "Entry preparation error '{entry}': {detail}"
                     self.log.emit(
                         tr("log.entry_prep_error", entry=str(entry), detail=str(e))
                     )
@@ -95,16 +121,7 @@ class TranscriptionWorker(QtCore.QObject):
                 self.log.emit(tr("log.no_items"))
                 return
 
-            # ---------- Model settings from AppConfig ----------
-            model_cfg = Config.model_settings()
-            chunk_len = int(model_cfg.get("chunk_length_s", 60))
-            stride_len = int(model_cfg.get("stride_length_s", 5))
-            return_ts = bool(model_cfg.get("return_timestamps", True))
-            ignore_warn = bool(model_cfg.get("ignore_warning", True))
-            task = str(model_cfg.get("pipeline_task", "transcribe"))
-            default_lang = model_cfg.get("default_language")
-
-            # ---------- Process each item ----------
+            # ----- Process each item -----
             for idx, (key, path, forced_stem) in enumerate(work_items, start=1):
                 if self._cancel.is_set():
                     break
@@ -126,7 +143,7 @@ class TranscriptionWorker(QtCore.QObject):
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # ---------- Output conflict handling ----------
+                # ----- Output conflict handling -----
                 existing = FileManager.find_existing_output(stem)
                 out_dir = FileManager.output_dir_for(stem)
                 write_into_existing = False
@@ -138,7 +155,6 @@ class TranscriptionWorker(QtCore.QObject):
                             self.conflict_check.emit(stem, str(existing))
                             self._conflict_event.wait()
                         except Exception as e:
-                            # Localized: "Conflict dialog failed: {detail}"
                             self.log.emit(
                                 tr("log.conflict_dialog_error", detail=str(e))
                             )
@@ -156,7 +172,7 @@ class TranscriptionWorker(QtCore.QObject):
                             out_dir = Path(existing)
                             write_into_existing = True
 
-                # ---------- Prepare WAV input ----------
+                # ----- Prepare WAV input -----
                 try:
                     if self._cancel.is_set():
                         break
@@ -164,7 +180,6 @@ class TranscriptionWorker(QtCore.QObject):
                     wav = FileManager.ensure_tmp_wav(path)
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    # Localized: "Audio preparation failed for {name}: {detail}"
                     self.log.emit(
                         tr(
                             "log.audio_prep_failed",
@@ -178,7 +193,7 @@ class TranscriptionWorker(QtCore.QObject):
                 if self._cancel.is_set():
                     break
 
-                # ---------- Run ASR ----------
+                # ----- Run ASR -----
                 self.item_status.emit(key, tr("status.proc"))
                 try:
                     generate_kwargs: Dict[str, Any] = {"task": task}
@@ -189,15 +204,25 @@ class TranscriptionWorker(QtCore.QObject):
                         str(wav),
                         chunk_length_s=chunk_len,
                         stride_length_s=stride_len,
-                        return_timestamps=return_ts,
+                        return_timestamps=want_segments,
                         generate_kwargs=generate_kwargs,
                         ignore_warning=ignore_warn,
                     )
-                    text = result["text"] if isinstance(result, dict) and "text" in result else str(result)
-                    text = TextPostprocessor.clean(text)
+
+                    # Decide how to render output based on settings and extension.
+                    if want_segments:
+                        segments = TextPostprocessor.segments_from_result(result)
+                        if default_ext == "srt":
+                            text_out = TextPostprocessor.to_srt(segments)
+                        elif timestamps_output:
+                            text_out = TextPostprocessor.to_timestamped_plain(segments)
+                        else:
+                            text_out = TextPostprocessor.to_plain(segments)
+                    else:
+                        text_out = TextPostprocessor.plain_from_result(result)
+
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    # Localized: "Transcription failed for {name}: {detail}"
                     self.log.emit(
                         tr(
                             "log.transcription_failed",
@@ -208,20 +233,19 @@ class TranscriptionWorker(QtCore.QObject):
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # ---------- Ensure session directory exists ----------
+                # ----- Ensure session directory exists -----
                 try:
                     if not write_into_existing:
                         FileManager.ensure_session()
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    # Localized: "Session directory creation failed: {detail}"
                     self.log.emit(
                         tr("log.session_dir_failed", detail=str(e))
                     )
                     self.progress.emit(int(idx * 100 / total))
                     continue
 
-                # ---------- Save transcript ----------
+                # ----- Save transcript -----
                 created_dir = False
                 try:
                     if not out_dir.exists():
@@ -234,7 +258,7 @@ class TranscriptionWorker(QtCore.QObject):
                         base_name = "transcript"
 
                     out_txt = FileManager.transcript_path(stem, base_name=base_name)
-                    out_txt.write_text(text, encoding="utf-8")
+                    out_txt.write_text(text_out, encoding="utf-8")
 
                     self.log.emit(tr("log.transcript.saved", path=str(out_txt)))
                     self.item_status.emit(key, tr("status.done"))
@@ -242,7 +266,6 @@ class TranscriptionWorker(QtCore.QObject):
                     processed_any = True
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
-                    # Localized: "Transcript save failed for {name}: {detail}"
                     self.log.emit(
                         tr(
                             "log.transcript_save_failed",
@@ -253,7 +276,7 @@ class TranscriptionWorker(QtCore.QObject):
                     if created_dir:
                         FileManager.remove_dir_if_empty(out_dir)
 
-                # ---------- Optional cleanup of downloaded originals ----------
+                # Optional cleanup of downloaded originals
                 try:
                     if (not keep_downloaded_files) and (path in self._downloaded):
                         path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -263,16 +286,14 @@ class TranscriptionWorker(QtCore.QObject):
                 self.progress.emit(int(idx * 100 / total))
 
         except Exception as e:
-            # Localized: "Transcription worker error: {detail}"
             self.log.emit(tr("log.worker_error", detail=str(e)))
         finally:
-            # ---------- Temp cleanup ----------
+            # ----- Temp cleanup -----
             try:
                 if (not keep_wav_temp) and Config.INPUT_TMP_DIR.exists():
                     shutil.rmtree(Config.INPUT_TMP_DIR, ignore_errors=True)
                     self.log.emit(tr("log.tmp.cleaned"))
             except Exception as e:
-                # Localized: "Temp cleanup issue: {detail}"
                 self.log.emit(tr("log.temp_cleanup_issue", detail=str(e)))
 
             if not processed_any:
@@ -398,7 +419,6 @@ class TranscriptionWorker(QtCore.QObject):
             allowed = set(Config.audio_extensions()) | set(Config.video_extensions())
             files = [x for x in p.rglob("*") if x.is_file() and x.suffix.lower() in allowed]
             if not files:
-                # Localized: "No supported files in folder: {path}"
                 self.log.emit(
                     tr("log.no_supported_files_in_folder", path=str(p))
                 )
@@ -409,6 +429,5 @@ class TranscriptionWorker(QtCore.QObject):
             return [(str(p), p, None)]
 
         # ----- Invalid path -----
-        # Localized: "Path not found: {path}"
         self.log.emit(tr("log.path_not_found", path=str(p)))
         return []

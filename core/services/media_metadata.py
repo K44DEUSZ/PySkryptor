@@ -12,6 +12,7 @@ from core.services.download_service import DownloadService
 @dataclass
 class MediaMetadata:
     """Unified metadata shape used across Files tab, URL and Downloader."""
+
     source: str                 # "LOCAL" | "URL"
     title: str
     path: str                   # filesystem path or URL
@@ -21,6 +22,7 @@ class MediaMetadata:
     # extra info, mainly for downloader / URL
     service: Optional[str] = None          # e.g. "YouTube"
     formats: Optional[List[Dict[str, Any]]] = None
+    # Actually carries audio track info (language + bitrate).
     audio_langs: Optional[List[Dict[str, Any]]] = None
 
     def as_files_row(self) -> Dict[str, Any]:
@@ -49,6 +51,9 @@ class MediaMetadataService:
         size = raw.get("filesize") or raw.get("filesize_approx")
         dur = raw.get("duration")
 
+        # Optional audio track info, if provided by DownloadService.probe.
+        audio_tracks = raw.get("audio_tracks") or raw.get("audio_langs") or None
+
         return MediaMetadata(
             source="URL",
             title=raw.get("title") or url,
@@ -57,14 +62,13 @@ class MediaMetadataService:
             size=int(size) if size is not None else None,
             service=raw.get("extractor_key") or raw.get("extractor"),
             formats=raw.get("formats") or [],
-            # jeśli w DownloadService.probe dorzucasz audio_langs, to tutaj:
-            audio_langs=raw.get("audio_langs") or None,
+            audio_langs=audio_tracks,
         )
 
     # ----- Local file -----
 
     def from_local(self, path: Path) -> Optional[MediaMetadata]:
-        """Build metadata for a local media file; returns None if file invalid."""
+        """Build metadata for a local media file; returns None if file is invalid."""
         p = Path(path)
         if not p.exists() or not p.is_file():
             return None

@@ -1,3 +1,4 @@
+# core/io/file_manager.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,7 +7,7 @@ import shutil
 
 from core.config.app_config import AppConfig as Config
 from core.io.audio_extractor import AudioExtractor
-from core.utils.text import sanitize_filename
+from core.io.text import sanitize_filename
 
 
 class FileManager:

@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from core.files.file_manager import FileManager
-from core.utils.text import sanitize_filename
+from core.io.file_manager import FileManager
+from core.io.text import sanitize_filename
 
 
 @dataclass

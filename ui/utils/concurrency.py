@@ -1,4 +1,4 @@
-# core/utils/concurrency.py
+# ui/utils/concurrency.py
 from __future__ import annotations
 
 from PyQt5 import QtCore

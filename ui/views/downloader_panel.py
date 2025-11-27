@@ -1,3 +1,4 @@
+# ui/views/downloader_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +7,7 @@ from typing import Optional, Dict, Any, List
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
-from core.utils.text import format_bytes, format_hms
+from core.io.text import format_bytes, format_hms
 from ui.utils.translating import tr
 from ui.utils.logging import QtHtmlLogSink
 from ui.views.dialogs import ask_download_duplicate
@@ -14,7 +15,7 @@ from ui.workers.download_worker import DownloadWorker
 
 
 class DownloaderPanel(QtWidgets.QWidget):
-    """Downloader tab UI + logic (probe + download, cancel, duplicate handling)."""
+    """Downloader tab UI and control logic."""
 
     # ----- Init / Layout -----
 
@@ -56,23 +57,21 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_ext = QtWidgets.QComboBox()
         self.cb_audio = QtWidgets.QComboBox()
 
-        # defaults overridden after probe
+        # Default quality lists; updated from formats after probe.
         self._vid_quals: List[str] = ["Auto", "1080p", "720p", "480p"]
+        self._aud_quals: List[str] = ["Auto", "320k", "256k", "192k", "128k"]
 
-        # Extensions for output formats now driven by settings (media.downloader.*).
-        # We normalize by stripping a leading dot to keep UI values clean.
+        # Extensions for output formats from settings.
         down_vid_ext = [e.lstrip(".") for e in getattr(Config, "downloader_video_extensions", lambda: ())()]
         down_aud_ext = [e.lstrip(".") for e in getattr(Config, "downloader_audio_extensions", lambda: ())()]
 
-        # Fallbacks in case settings are missing or empty.
         self._vid_exts: List[str] = down_vid_ext or ["mp4", "webm"]
-        self._aud_quals: List[str] = ["Auto", "320k", "256k", "192k", "128k"]
         self._aud_exts: List[str] = down_aud_ext or ["m4a", "mp3"]
 
         self.cb_quality.addItems(self._vid_quals)
         self.cb_ext.addItems(self._vid_exts)
 
-        # audio language selection (will be filled after probe)
+        # audio language selection (filled after probe)
         self._audio_lang_codes: List[Optional[str]] = [None]
         self.cb_audio.addItem(tr("down.select.audio_track.default"))
         self.cb_audio.setEnabled(False)
@@ -177,7 +176,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._down_thread.started.connect(self._down_worker.run)
         self._down_worker.progress_log.connect(self.log.plain)
         self._down_worker.meta_ready.connect(self._on_probe_ready)
-        self._down_worker.download_error.connect(lambda m: self.log.err(tr("down.log.error", msg=m)))
+        self._down_worker.download_error.connect(lambda m: self.log.err(m))
         self._down_worker.finished.connect(self._down_thread.quit)
         self._down_worker.finished.connect(self._down_worker.deleteLater)
         self._down_thread.finished.connect(self._on_down_thread_finished)
@@ -222,61 +221,69 @@ class DownloaderPanel(QtWidgets.QWidget):
     # ----- Download / Cancel flow (+ duplicate decision) -----
 
     def _on_download_clicked(self) -> None:
-        url = self.ed_url.text().strip()
-        if not url or not self._down_meta:
-            self.log.info(tr("down.url.placeholder"))
-            return
-        if self._down_running:
-            self.log.info(tr("down.log.downloading"))
-            return
+        try:
+            url = self.ed_url.text().strip()
+            if not url or not self._down_meta:
+                self.log.info(tr("down.url.placeholder"))
+                return
+            if self._down_running:
+                self.log.info(tr("down.log.downloading"))
+                return
 
-        kind = "video" if tr("down.select.type.video").lower() in self.cb_kind.currentText().lower() else "audio"
-        quality = self.cb_quality.currentText().lower()
-        ext = self.cb_ext.currentText().lower()
+            kind = (
+                "video"
+                if tr("down.select.type.video").lower()
+                in self.cb_kind.currentText().lower()
+                else "audio"
+            )
+            quality = self.cb_quality.currentText().lower()
+            ext = self.cb_ext.currentText().lower()
 
-        audio_lang: Optional[str] = None
-        idx = self.cb_audio.currentIndex()
-        if 0 <= idx < len(self._audio_lang_codes):
-            audio_lang = self._audio_lang_codes[idx]
+            audio_lang: Optional[str] = None
+            idx = self.cb_audio.currentIndex()
+            if 0 <= idx < len(self._audio_lang_codes):
+                audio_lang = self._audio_lang_codes[idx]
 
-        self.pb_download.setValue(0)
+            self.pb_download.setValue(0)
 
-        self._down_thread = QtCore.QThread(self)
-        self._down_worker = DownloadWorker(
-            action="download",
-            url=url,
-            kind=kind,
-            quality=quality,
-            ext=ext,
-            audio_lang=audio_lang,
-        )
-        self._down_worker.moveToThread(self._down_thread)
+            self._down_thread = QtCore.QThread(self)
+            self._down_worker = DownloadWorker(
+                action="download",
+                url=url,
+                kind=kind,
+                quality=quality,
+                ext=ext,
+            )
+            self._down_worker.moveToThread(self._down_thread)
 
-        self._down_thread.started.connect(self._down_worker.run)
-        self._down_worker.progress_log.connect(self.log.plain)
-        self._down_worker.progress_pct.connect(self.pb_download.setValue)
+            self._down_thread.started.connect(self._down_worker.run)
+            self._down_worker.progress_log.connect(self.log.plain)
+            self._down_worker.progress_pct.connect(self.pb_download.setValue)
 
-        # duplicate rendezvous
-        self._down_worker.duplicate_check.connect(self._on_duplicate_decision)
+            # duplicate rendezvous
+            self._down_worker.duplicate_check.connect(self._on_duplicate_decision)
 
-        self._down_worker.download_finished.connect(self._on_download_finished)
-        self._down_worker.download_error.connect(lambda m: self.log.err(m))
-        self._down_worker.finished.connect(self._down_thread.quit)
-        self._down_worker.finished.connect(self._down_worker.deleteLater)
-        self._down_thread.finished.connect(self._on_down_thread_finished)
-        self._down_thread.finished.connect(self._down_thread.deleteLater)
+            self._down_worker.download_finished.connect(self._on_download_finished)
+            self._down_worker.download_error.connect(self.log.err)
+            self._down_worker.finished.connect(self._down_thread.quit)
+            self._down_worker.finished.connect(self._down_worker.deleteLater)
+            self._down_thread.finished.connect(self._on_down_thread_finished)
+            self._down_thread.finished.connect(self._down_thread.deleteLater)
 
-        self._down_running = True
-        self._toggle_inputs(False)
-        self.btn_cancel.setEnabled(True)
-        self._down_thread.start()
+            self._down_running = True
+            self._toggle_inputs(False)
+            self.btn_cancel.setEnabled(True)
+            self._down_thread.start()
+        except Exception as e:
+            # Make sure any UI-side error is logged, not crashing the app.
+            self.log.err(tr("down.log.error", msg=str(e)))
 
     def _on_cancel_clicked(self) -> None:
-        if self._down_worker:
-            try:
+        try:
+            if self._down_worker:
                 self._down_worker.cancel()
-            except Exception:
-                pass
+        except Exception:
+            pass
         self.btn_cancel.setEnabled(False)
 
     @QtCore.pyqtSlot(str, str)
@@ -292,11 +299,17 @@ class DownloaderPanel(QtWidgets.QWidget):
                 self._down_worker.on_duplicate_decided("skip", "")
 
     def _on_download_finished(self, path: Path) -> None:
-        title = self._down_meta.get("title") if isinstance(self._down_meta, dict) else path.stem
-        self.pb_download.setValue(100)
-        # single line: "Pobrano: <link>" – prefix from i18n
-        self.log.line_with_link(tr("down.log.downloaded_prefix"), path, title=title)
-        self._update_buttons_and_size()
+        try:
+            title = None
+            if isinstance(self._down_meta, dict):
+                title = self._down_meta.get("title")
+            if not title:
+                title = path.stem
+            self.pb_download.setValue(100)
+            self.log.line_with_link(tr("down.log.downloaded_prefix"), path, title=title)
+            self._update_buttons_and_size()
+        except Exception as e:
+            self.log.err(tr("down.log.error", msg=str(e)))
 
     def _on_down_thread_finished(self) -> None:
         self._down_thread = None
@@ -310,7 +323,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _normalize_lang_code(code: str | None) -> str | None:
-        """Same normalization as in DownloadService – keep local to avoid coupling."""
+        """Normalize language tags to a simple BCP-47-like pattern."""
         if not code:
             return None
         code = str(code).strip()
@@ -337,11 +350,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._audio_lang_codes = [None]
 
     def _update_audio_tracks(self, meta: Dict[str, Any]) -> None:
-        """Fill audio-track combo from metadata."""
-        raw = meta.get("audio_tracks") or []
+        """Fill audio-track combo from metadata (if present)."""
+        raw = meta.get("audio_tracks") or meta.get("audio_langs") or []
         codes: List[str] = []
         for t in raw:
-            code = t.get("lang_code") or t.get("lang")
+            if isinstance(t, dict):
+                code = t.get("lang_code") or t.get("lang")
+            else:
+                code = t
             norm = self._normalize_lang_code(code)
             if norm and norm not in codes:
                 codes.append(norm)
@@ -356,14 +372,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.cb_audio.setCurrentIndex(0)
         self.cb_audio.blockSignals(False)
 
-        # if there is only one actual track → do not allow changing
         self.cb_audio.setEnabled(len(self._audio_lang_codes) > 2)
 
     def _on_kind_changed(self, *, force: bool = False) -> None:
-        kind = self.cb_kind.currentText().lower()
+        kind_text = self.cb_kind.currentText().lower()
 
-        if tr("down.select.type.audio").lower() in kind or force:
-            if tr("down.select.type.audio").lower() in kind:
+        # Switch quality/ext lists depending on kind.
+        if tr("down.select.type.audio").lower() in kind_text or force:
+            if tr("down.select.type.audio").lower() in kind_text:
                 self.cb_quality.blockSignals(True)
                 self.cb_ext.blockSignals(True)
                 self.cb_quality.clear()
@@ -373,8 +389,8 @@ class DownloaderPanel(QtWidgets.QWidget):
                 self.cb_quality.blockSignals(False)
                 self.cb_ext.blockSignals(False)
 
-        if tr("down.select.type.video").lower() in kind or force:
-            if tr("down.select.type.video").lower() in kind:
+        if tr("down.select.type.video").lower() in kind_text or force:
+            if tr("down.select.type.video").lower() in kind_text:
                 self.cb_quality.blockSignals(True)
                 self.cb_ext.blockSignals(True)
                 self.cb_quality.clear()
@@ -451,6 +467,7 @@ class DownloaderPanel(QtWidgets.QWidget):
     # ----- Cleanup -----
 
     def on_parent_close(self) -> None:
+        """Best-effort background cancellation."""
         try:
             if self._down_thread and self._down_worker:
                 self._down_worker.cancel()

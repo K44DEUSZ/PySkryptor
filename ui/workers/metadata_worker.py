@@ -7,8 +7,8 @@ from typing import List, Dict, Any, Tuple, Union
 from PyQt5 import QtCore
 
 from core.services.media_metadata import MediaMetadataService
-from core.utils.concurrency import CancellationToken
-from core.utils.text import is_url
+from ui.utils.concurrency import CancellationToken
+from core.io.text import is_url
 from ui.utils.translating import tr
 
 GUIEntry = Union[str, Dict[str, Any]]

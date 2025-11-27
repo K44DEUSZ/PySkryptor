@@ -1,3 +1,4 @@
+# ui/views/files_panel.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 from core.config.app_config import AppConfig as Config
-from core.utils.text import format_bytes, format_hms, is_url
+from core.io.text import format_bytes, format_hms, is_url
 from ui.utils.translating import tr
 from ui.utils.file_drop_list import _supported_suffixes, _is_supported, _flatten_supported_from_dir
 from ui.utils.logging import QtHtmlLogSink
