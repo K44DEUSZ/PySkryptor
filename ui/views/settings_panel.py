@@ -35,8 +35,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_app_theme.addItem(tr("settings.app.theme.light"))
         self.cb_app_theme.addItem(tr("settings.app.theme.dark"))
 
-        lay_app.addRow(tr("settings.app.language.label"), self.ed_app_language)
-        lay_app.addRow(tr("settings.app.theme.label"), self.cb_app_theme)
+        lay_app.addRow(tr("settings.app.language"), self.ed_app_language)
+        lay_app.addRow(tr("settings.app.theme"), self.cb_app_theme)
 
         root.addWidget(grp_app)
 
@@ -57,10 +57,10 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_engine_precision.addItem(tr("settings.engine.precision.float16"))
         self.cb_engine_precision.addItem(tr("settings.engine.precision.bfloat16"))
 
-        self.chk_engine_tf32 = QtWidgets.QCheckBox(tr("settings.engine.allow_tf32.label"))
+        self.chk_engine_tf32 = QtWidgets.QCheckBox(tr("settings.engine.allow_tf32"))
 
-        lay_eng.addRow(tr("settings.engine.device.label"), self.cb_engine_device)
-        lay_eng.addRow(tr("settings.engine.precision.label"), self.cb_engine_precision)
+        lay_eng.addRow(tr("settings.engine.device"), self.cb_engine_device)
+        lay_eng.addRow(tr("settings.engine.precision"), self.cb_engine_precision)
         lay_eng.addRow("", self.chk_engine_tf32)
 
         root.addWidget(grp_eng)
@@ -70,7 +70,9 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_model = QtWidgets.QFormLayout(grp_model)
 
         self.ed_model_engine_name = QtWidgets.QLineEdit()
-        self.chk_model_local_only = QtWidgets.QCheckBox(tr("settings.model.local_models_only.label"))
+        self.chk_model_local_only = QtWidgets.QCheckBox(
+            tr("settings.model.local_models_only")
+        )
         self.ed_model_default_lang = QtWidgets.QLineEdit()
 
         self.spin_model_chunk = QtWidgets.QSpinBox()
@@ -78,15 +80,21 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_model_stride = QtWidgets.QSpinBox()
         self.spin_model_stride.setRange(0, 120)
 
-        self.chk_model_return_ts = QtWidgets.QCheckBox(tr("settings.model.return_timestamps.label"))
-        self.chk_model_ignore_warn = QtWidgets.QCheckBox(tr("settings.model.ignore_warning.label"))
-        self.chk_model_low_cpu_mem = QtWidgets.QCheckBox(tr("settings.model.low_cpu_mem_usage.label"))
+        self.chk_model_return_ts = QtWidgets.QCheckBox(
+            tr("settings.model.return_timestamps")
+        )
+        self.chk_model_ignore_warn = QtWidgets.QCheckBox(
+            tr("settings.model.ignore_warning")
+        )
+        self.chk_model_low_cpu_mem = QtWidgets.QCheckBox(
+            tr("settings.model.low_cpu_mem_usage")
+        )
 
-        lay_model.addRow(tr("settings.model.ai_engine_name.label"), self.ed_model_engine_name)
+        lay_model.addRow(tr("settings.model.ai_engine_name"), self.ed_model_engine_name)
         lay_model.addRow("", self.chk_model_local_only)
-        lay_model.addRow(tr("settings.model.default_language.label"), self.ed_model_default_lang)
-        lay_model.addRow(tr("settings.model.chunk_length_s.label"), self.spin_model_chunk)
-        lay_model.addRow(tr("settings.model.stride_length_s.label"), self.spin_model_stride)
+        lay_model.addRow(tr("settings.model.default_language"), self.ed_model_default_lang)
+        lay_model.addRow(tr("settings.model.chunk_length_s"), self.spin_model_chunk)
+        lay_model.addRow(tr("settings.model.stride_length_s"), self.spin_model_stride)
         lay_model.addRow("", self.chk_model_return_ts)
         lay_model.addRow("", self.chk_model_ignore_warn)
         lay_model.addRow("", self.chk_model_low_cpu_mem)
@@ -97,9 +105,15 @@ class SettingsPanel(QtWidgets.QWidget):
         grp_tr = QtWidgets.QGroupBox(tr("settings.section.transcription"))
         lay_tr = QtWidgets.QFormLayout(grp_tr)
 
-        self.chk_tr_ts_output = QtWidgets.QCheckBox(tr("settings.transcription.timestamps_output.label"))
-        self.chk_tr_keep_downloaded = QtWidgets.QCheckBox(tr("settings.transcription.keep_downloaded_files.label"))
-        self.chk_tr_keep_wav = QtWidgets.QCheckBox(tr("settings.transcription.keep_wav_temp.label"))
+        self.chk_tr_ts_output = QtWidgets.QCheckBox(
+            tr("settings.transcription.timestamps_output")
+        )
+        self.chk_tr_keep_downloaded = QtWidgets.QCheckBox(
+            tr("settings.transcription.keep_downloaded_files")
+        )
+        self.chk_tr_keep_wav = QtWidgets.QCheckBox(
+            tr("settings.transcription.keep_wav_temp")
+        )
 
         lay_tr.addRow("", self.chk_tr_ts_output)
         lay_tr.addRow("", self.chk_tr_keep_downloaded)
@@ -116,8 +130,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_down_max_h = QtWidgets.QSpinBox()
         self.spin_down_max_h.setRange(1, 4320)
 
-        lay_down.addRow(tr("settings.downloader.min_video_height.label"), self.spin_down_min_h)
-        lay_down.addRow(tr("settings.downloader.max_video_height.label"), self.spin_down_max_h)
+        lay_down.addRow(tr("settings.downloader.min_video_height"), self.spin_down_min_h)
+        lay_down.addRow(tr("settings.downloader.max_video_height"), self.spin_down_max_h)
 
         root.addWidget(grp_down)
 
@@ -141,12 +155,18 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_net_throttle = QtWidgets.QSpinBox()
         self.spin_net_throttle.setRange(0, 600)
 
-        lay_net.addRow(tr("settings.network.max_bandwidth_kbps.label"), self.spin_net_bw)
-        lay_net.addRow(tr("settings.network.retries.label"), self.spin_net_retries)
-        lay_net.addRow(tr("settings.network.concurrent_fragments.label"), self.spin_net_frag)
-        lay_net.addRow(tr("settings.network.http_timeout_s.label"), self.spin_net_timeout)
-        lay_net.addRow(tr("settings.network.proxy.label"), self.ed_net_proxy)
-        lay_net.addRow(tr("settings.network.throttle_startup_s.label"), self.spin_net_throttle)
+        lay_net.addRow(
+            tr("settings.network.max_bandwidth_kbps"), self.spin_net_bw
+        )
+        lay_net.addRow(tr("settings.network.retries"), self.spin_net_retries)
+        lay_net.addRow(
+            tr("settings.network.concurrent_fragments"), self.spin_net_frag
+        )
+        lay_net.addRow(tr("settings.network.http_timeout_s"), self.spin_net_timeout)
+        lay_net.addRow(tr("settings.network.proxy"), self.ed_net_proxy)
+        lay_net.addRow(
+            tr("settings.network.throttle_startup_s"), self.spin_net_throttle
+        )
 
         root.addWidget(grp_net)
 
@@ -178,7 +198,9 @@ class SettingsPanel(QtWidgets.QWidget):
 
     # ----- Worker management -----
 
-    def _start_worker(self, *, action: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def _start_worker(
+        self, *, action: str, payload: Optional[Dict[str, Any]] = None
+    ) -> None:
         if self._thread is not None:
             return
 
@@ -218,7 +240,9 @@ class SettingsPanel(QtWidgets.QWidget):
         if isinstance(data, dict):
             self._data = data
             self._populate_from_data()
-        QtWidgets.QMessageBox.information(self, tr("app.title"), tr("settings.msg.saved"))
+        QtWidgets.QMessageBox.information(
+            self, tr("app.title"), tr("settings.msg.saved")
+        )
 
     @QtCore.pyqtSlot(str)
     def _on_error(self, msg: str) -> None:
@@ -243,32 +267,52 @@ class SettingsPanel(QtWidgets.QWidget):
         # app
         self.ed_app_language.setText(str(app.get("language", "auto")))
         theme_val = str(app.get("theme", "auto"))
-        self.cb_app_theme.setCurrentIndex(self._safe_index(self._theme_values, theme_val))
+        self.cb_app_theme.setCurrentIndex(
+            self._safe_index(self._theme_values, theme_val)
+        )
 
         # engine
         dev_val = str(eng.get("preferred_device", "auto"))
-        self.cb_engine_device.setCurrentIndex(self._safe_index(self._device_values, dev_val))
+        self.cb_engine_device.setCurrentIndex(
+            self._safe_index(self._device_values, dev_val)
+        )
 
         prec_val = str(eng.get("precision", "auto"))
-        self.cb_engine_precision.setCurrentIndex(self._safe_index(self._precision_values, prec_val))
+        self.cb_engine_precision.setCurrentIndex(
+            self._safe_index(self._precision_values, prec_val)
+        )
 
         self.chk_engine_tf32.setChecked(bool(eng.get("allow_tf32", True)))
 
         # model
         self.ed_model_engine_name.setText(str(model.get("ai_engine_name", "")))
-        self.chk_model_local_only.setChecked(bool(model.get("local_models_only", True)))
-        self.ed_model_default_lang.setText("" if model.get("default_language") is None else str(model.get("default_language")))
+        self.chk_model_local_only.setChecked(
+            bool(model.get("local_models_only", True))
+        )
+        self.ed_model_default_lang.setText(
+            "" if model.get("default_language") is None else str(model.get("default_language"))
+        )
 
         self.spin_model_chunk.setValue(int(model.get("chunk_length_s", 60)))
         self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
 
-        self.chk_model_return_ts.setChecked(bool(model.get("return_timestamps", False)))
-        self.chk_model_ignore_warn.setChecked(bool(model.get("ignore_warning", True)))
-        self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
+        self.chk_model_return_ts.setChecked(
+            bool(model.get("return_timestamps", False))
+        )
+        self.chk_model_ignore_warn.setChecked(
+            bool(model.get("ignore_warning", True))
+        )
+        self.chk_model_low_cpu_mem.setChecked(
+            bool(model.get("low_cpu_mem_usage", True))
+        )
 
         # transcription
-        self.chk_tr_ts_output.setChecked(bool(trc.get("timestamps_output", False)))
-        self.chk_tr_keep_downloaded.setChecked(bool(trc.get("keep_downloaded_files", True)))
+        self.chk_tr_ts_output.setChecked(
+            bool(trc.get("timestamps_output", False))
+        )
+        self.chk_tr_keep_downloaded.setChecked(
+            bool(trc.get("keep_downloaded_files", True))
+        )
         self.chk_tr_keep_wav.setChecked(bool(trc.get("keep_wav_temp", False)))
 
         # downloader
@@ -301,8 +345,12 @@ class SettingsPanel(QtWidgets.QWidget):
         }
 
         eng = {
-            "preferred_device": self._device_values[self.cb_engine_device.currentIndex()],
-            "precision": self._precision_values[self.cb_engine_precision.currentIndex()],
+            "preferred_device": self._device_values[
+                self.cb_engine_device.currentIndex()
+            ],
+            "precision": self._precision_values[
+                self.cb_engine_precision.currentIndex()
+            ],
             "allow_tf32": bool(self.chk_engine_tf32.isChecked()),
         }
 
@@ -311,11 +359,17 @@ class SettingsPanel(QtWidgets.QWidget):
             "local_models_only": bool(self.chk_model_local_only.isChecked()),
             "chunk_length_s": int(self.spin_model_chunk.value()),
             "stride_length_s": int(self.spin_model_stride.value()),
-            "pipeline_task": str(self._data.get("model", {}).get("pipeline_task", "transcribe")),
+            "pipeline_task": str(
+                self._data.get("model", {}).get("pipeline_task", "transcribe")
+            ),
             "ignore_warning": bool(self.chk_model_ignore_warn.isChecked()),
-            "default_language": (self.ed_model_default_lang.text().strip() or None),
+            "default_language": (
+                self.ed_model_default_lang.text().strip() or None
+            ),
             "return_timestamps": bool(self.chk_model_return_ts.isChecked()),
-            "use_safetensors": bool(self._data.get("model", {}).get("use_safetensors", True)),
+            "use_safetensors": bool(
+                self._data.get("model", {}).get("use_safetensors", True)
+            ),
             "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
         }
 

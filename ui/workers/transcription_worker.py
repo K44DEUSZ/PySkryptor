@@ -238,7 +238,7 @@ class TranscriptionWorker(QtCore.QObject):
                     self.item_status.emit(key, tr("status.error"))
                     self.log.emit(
                         tr(
-                            "log.transcript_save_failed",
+                            "log.transcript.save_failed",
                             name=path.name,
                             detail=str(e),
                         )

@@ -1,56 +1,38 @@
 {
   "app": {
-    "title": "PySkryptor"
+    "title": "Transcription Assistant 🎧"
   },
 
   "tabs": {
-    "group": "Tabs",
-    "files": "File transcription",
+    "group": "Mode",
+    "files": "Files",
     "downloader": "Downloader",
-    "live": "Live transcription",
+    "live": "Live",
     "settings": "Settings"
   },
 
   "ui": {
     "placeholder": {
-      "soon": "coming soon"
+      "soon": "Coming soon... 🚧"
     }
   },
 
   "ctrl": {
-    "start": "Start transcription",
-    "cancel": "Cancel"
-  },
-
-  "action": {
-    "cancel_now": "Stop now",
-    "keep_working": "Keep working"
-  },
-
-  "dialog": {
-    "cancel_confirm": "Are you sure you want to stop the current operation?",
-    "settings_restored": "The settings file was missing. Default settings have been restored.",
-    "conflict": {
-      "title": "Name conflict",
-      "text": "A result named \"{name}\" already exists. What would you like to do?",
-      "skip": "Skip this item",
-      "overwrite": "Overwrite existing result",
-      "new_name": "Use a new name:",
-      "apply_all": "Apply to all next items"
-    }
+    "start": "Start ▶️",
+    "cancel": "Cancel ✖️"
   },
 
   "files": {
-    "placeholder": "Paste a file path or URL...",
+    "placeholder": "Paste file path or URL here...",
     "add": "Add",
-    "add_files": "Add files...",
-    "add_folder": "Add folder...",
-    "open_output": "Open transcription folder",
-    "remove_selected": "Remove selected",
-    "clear": "Clear list",
+    "add_files": "Add files... 📁",
+    "add_folder": "Add folder... 📂",
+    "open_output": "Open transcripts folder 📂",
+    "remove_selected": "Remove selected 🗑️",
+    "clear": "Clear list 🧹",
 
     "details": {
-      "title": "Item details",
+      "title": "Sources",
       "col": {
         "name": "Name",
         "source": "Source",
@@ -67,224 +49,239 @@
     }
   },
 
-  "log": {
-    "model": {
-      "ready": "✅ Model loaded — mode: {device}",
-      "error": "❌ Model error: {msg}"
-    },
-
-    "pipe_not_ready": "The model is not ready yet.",
-    "no_items": "Add at least one source (file or URL).",
-    "start": "▶️ Starting transcription…",
-    "cancelled": "⏹️ Cancelled.",
-    "done": "✅ Transcription finished.",
-    "unexpected": "❗ Unexpected error: {msg}",
-
-    "session": {
-      "plan": "📂 Created a new session in folder: {path}"
-    },
-
-    "tmp": {
-      "cleaned": "🧹 Temporary audio files cleaned."
-    },
-
-    "add": {
-      "empty": "Input field is empty.",
-      "missing": "Path does not exist.",
-      "ok": "✅ Added: {text}"
-    },
-
-    "transcript": {
-      "saved": "✅ Transcript saved: {path}",
-      "saved_prefix": "✅ Transcript saved:"
-    },
-
-    "temp_init_failed": "❗ Temporary directory initialization error: {detail}",
-    "session_plan_failed": "❗ Session planning error: {detail}",
-    "entry_prep_error": "❗ Error preparing item \"{entry}\": {detail}",
-    "conflict_dialog_error": "❗ Name conflict dialog error: {detail}",
-    "audio_prep_failed": "❗ Error preparing audio for file \"{name}\": {detail}",
-    "transcription_failed": "❗ Error transcribing file \"{name}\": {detail}",
-    "session_dir_failed": "❗ Session directory creation error: {detail}",
-    "transcript_save_failed": "❗ Error saving transcript for file \"{name}\": {detail}",
-    "worker_error": "❗ Transcription worker error: {detail}",
-    "temp_cleanup_issue": "❗ Problem while cleaning temporary files: {detail}",
-    "no_supported_files_in_folder": "ℹ️ No supported files found in folder \"{path}\".",
-    "path_not_found": "❗ Path does not exist: {path}"
-  },
-
   "down": {
     "url": {
-      "placeholder": "Paste URL (e.g. YouTube/TikTok)…"
+      "placeholder": "Paste media URL here..."
     },
-    "probe": "Analyze",
-    "open_folder": "Open downloads folder",
+
+    "probe": "Analyze 🔍",
+    "open_folder": "Open downloads folder 📂",
 
     "meta": {
-      "title": "Metadata",
-      "service": "Service:",
-      "name": "Title:",
-      "duration": "Duration:",
-      "size": "Estimated size:"
+      "title": "Media info",
+      "service": "Service",
+      "name": "Title",
+      "duration": "Duration",
+      "size": "Estimated size"
     },
 
     "select": {
-      "title": "Format selection",
-      "type": "Type:",
+      "title": "Download options",
+      "type": "Type",
       "type.video": "Video",
       "type.audio": "Audio",
-      "quality": "Quality:",
-      "ext": "Extension:",
-      "audio_track": "Audio track:",
-      "audio_track.default": "Default"
+      "quality": "Quality",
+      "quality.auto": "Auto",
+      "ext": "Format",
+      "audio_track": "Audio track",
+      "audio_track.default": "Default track"
     },
 
-    "download": "Download",
+    "download": "Download ⬇️",
 
     "log": {
-      "analyze": "🔎 Analyzing URL…",
-      "meta_ready": "✅ Metadata ready.",
-      "downloading": "⬇️ Downloading…",
-      "postprocess": "⚙️ Processing file…",
-      "downloaded_prefix": "✅ Downloaded:",
-      "already": "ℹ️ Already downloaded:",
-      "downloaded": "Downloaded: {path}",
-      "error": "❌ Error: {msg}"
+      "analyze": "🔍 Analyzing media...",
+      "meta_ready": "✅ Metadata loaded.",
+      "downloading": "⬇️ Downloading...",
+      "postprocess": "⚙️ Processing file...",
+      "downloaded_prefix": "✅ Downloaded file:",
+      "error": "⚠️ {msg}"
     },
 
     "dialog": {
       "exists": {
-        "text": "This file already exists: \"{title}\". What would you like to do?",
-        "open": "Open existing",
-        "overwrite": "Download again (overwrite)",
-        "skip": "Skip",
-        "rename": "Rename"
+        "text": "File \"{title}\" already exists in the downloads folder.\nWhat do you want to do?",
+        "skip": "Skip ⏭️",
+        "overwrite": "Overwrite ♻️",
+        "rename": "Save under a new name ✏️"
       }
     }
   },
 
-  "settings": {
-    "title": "Settings",
-    "info": {
-      "restart_required": "Some changes may require restarting the application."
-    },
-
-    "buttons": {
-      "save": "Save",
-      "reload": "Discard changes"
-    },
-
-    "msg": {
-      "saved": "Settings have been saved."
-    },
-
-    "section": {
-      "app": "Application",
-      "engine": "Engine",
-      "model": "Model",
-      "transcription": "Transcription",
-      "downloader": "Downloader",
-      "network": "Network"
-    },
-
-    "app": {
-      "language": {
-        "label": "Interface language"
-      },
-      "theme": {
-        "label": "Theme",
-        "auto": "System",
-        "light": "Light",
-        "dark": "Dark"
-      }
-    },
-
-    "engine": {
-      "device": {
-        "label": "Device",
-        "auto": "Auto",
-        "cpu": "CPU",
-        "gpu": "GPU"
-      },
-      "precision": {
-        "label": "Precision",
-        "auto": "Auto",
-        "float32": "Float32",
-        "float16": "Float16",
-        "bfloat16": "BFloat16"
-      },
-      "allow_tf32": {
-        "label": "Allow TF32 (GPU)"
-      }
+  "log": {
+    "add": {
+      "empty": "✏️ Please enter a file path or URL.",
+      "missing": "⚠️ The specified file does not exist.",
+      "ok": "✅ Added: {text}"
     },
 
     "model": {
-      "ai_engine_name": {
-        "label": "AI engine (model)"
-      },
-      "local_models_only": {
-        "label": "Local models only"
-      },
-      "default_language": {
-        "label": "Default audio language (optional)"
-      },
-      "chunk_length_s": {
-        "label": "Chunk length (s)"
-      },
-      "stride_length_s": {
-        "label": "Stride (s)"
-      },
-      "return_timestamps": {
-        "label": "Return timestamps"
-      },
-      "ignore_warning": {
-        "label": "Ignore model warnings"
-      },
-      "low_cpu_mem_usage": {
-        "label": "Low RAM usage mode"
-      }
+      "ready": "✅ ASR model ready on {device}.",
+      "error": "❌ Could not initialize ASR model. Details: {msg}"
+    },
+
+    "pipe_not_ready": "⏳ The model is not ready yet.",
+    "no_items": "ℹ️ No items to process.",
+    "start": "📝 Starting transcription...",
+    "done": "✅ All items have been processed.",
+    "cancelled": "✖️ Operation cancelled.",
+
+    "temp_init_failed": "❌ Could not initialize temporary directory. Details: {detail}",
+
+    "session": {
+      "plan": "📁 Planned session directory at: {path}"
+    },
+
+    "session_plan_failed": "❌ Could not plan session directory. Details: {detail}",
+    "session_dir_failed": "❌ Could not create session directory. Details: {detail}",
+
+    "entry_prep_error": "⚠️ Could not prepare entry \"{entry}\". Details: {detail}",
+    "audio_prep_failed": "⚠️ Could not prepare audio for \"{name}\". Details: {detail}",
+    "transcription_failed": "❌ Transcription failed for \"{name}\". Details: {detail}",
+
+    "transcript": {
+      "saved_prefix": "✅ Transcript saved:",
+      "saved": "✅ Transcript saved to: {path}",
+      "save_failed": "❌ Could not save transcript for \"{name}\". Details: {detail}"
+    },
+
+    "worker_error": "❌ Internal worker error. Details: {detail}",
+
+    "tmp": {
+      "cleaned": "🧹 Temporary files cleaned."
+    },
+
+    "temp_cleanup_issue": "⚠️ Could not clean temporary directory. Details: {detail}",
+
+    "no_supported_files_in_folder": "ℹ️ Folder \"{path}\" does not contain supported media files.",
+    "path_not_found": "⚠️ Path not found: {path}",
+
+    "conflict_dialog_error": "❌ Conflict dialog error. Details: {detail}",
+
+    "unexpected": "⚠️ Unexpected error: {msg}"
+  },
+
+  "status": {
+    "prep": "⏳ Preparing...",
+    "proc": "🔄 Processing...",
+    "done": "✅ Done",
+    "skipped": "⏭️ Skipped",
+    "error": "❌ Error"
+  },
+
+  "dialog": {
+    "settings_restored": "✅ Settings file was missing. Defaults have been restored.",
+    "cancel_confirm": "❓ Do you really want to cancel the current operation?",
+
+    "conflict": {
+      "title": "⚠️ Transcript already exists",
+      "text": "A transcript named \"{name}\" already exists.\nWhat do you want to do?",
+      "skip": "Skip this item ⏭️",
+      "overwrite": "Overwrite existing transcript ♻️",
+      "new_name": "Save under a new name:",
+      "apply_all": "Apply this decision to all conflicts"
+    }
+  },
+
+  "action": {
+    "cancel_now": "Cancel now ✖️",
+    "keep_working": "Keep working ✅"
+  },
+
+  "settings": {
+    "section": {
+      "app": "Application ⚙️",
+      "engine": "Engine 🧠",
+      "model": "Model 🧬",
+      "transcription": "Transcription 📝",
+      "downloader": "Downloader ⬇️",
+      "network": "Network 🌐"
+    },
+
+    "app": {
+      "language": "UI language",
+      "theme": "Theme",
+      "theme.auto": "System",
+      "theme.light": "Light",
+      "theme.dark": "Dark"
+    },
+
+    "engine": {
+      "device": "Preferred device",
+      "precision": "Precision",
+      "allow_tf32": "Allow TF32 on GPU (if available)"
+    },
+
+    "model": {
+      "ai_engine_name": "Model name / path",
+      "local_models_only": "Use local models only",
+      "default_language": "Default transcription language",
+      "chunk_length_s": "Chunk length (s)",
+      "stride_length_s": "Stride length (s)",
+      "return_timestamps": "Return timestamps",
+      "ignore_warning": "Ignore non-critical warnings",
+      "low_cpu_mem_usage": "Optimize for low CPU memory usage"
     },
 
     "transcription": {
-      "timestamps_output": {
-        "label": "Write timestamps to file"
-      },
-      "keep_downloaded_files": {
-        "label": "Keep downloaded files"
-      },
-      "keep_wav_temp": {
-        "label": "Keep WAV files in temp folder"
-      }
+      "timestamps_output": "Include timestamps in output",
+      "keep_downloaded_files": "Keep downloaded files",
+      "keep_wav_temp": "Keep temporary WAV files"
     },
 
     "downloader": {
-      "min_video_height": {
-        "label": "Minimum video height (p)"
-      },
-      "max_video_height": {
-        "label": "Maximum video height (p)"
-      }
+      "min_video_height": "Minimum video height (px)",
+      "max_video_height": "Maximum video height (px)"
     },
 
     "network": {
-      "max_bandwidth_kbps": {
-        "label": "Bandwidth limit (KB/s, 0 = unlimited)"
-      },
-      "retries": {
-        "label": "Retry count"
-      },
-      "concurrent_fragments": {
-        "label": "Concurrent fragments"
-      },
-      "http_timeout_s": {
-        "label": "HTTP timeout (s)"
-      },
-      "proxy": {
-        "label": "Proxy (URL, optional)"
-      },
-      "throttle_startup_s": {
-        "label": "Startup delay (s)"
-      }
+      "max_bandwidth_kbps": "Max bandwidth (kbps; 0 = unlimited)",
+      "retries": "HTTP retries",
+      "concurrent_fragments": "Concurrent fragments",
+      "http_timeout_s": "HTTP timeout (s)",
+      "proxy": "HTTP proxy",
+      "throttle_startup_s": "Startup throttle (s)"
+    },
+
+    "info": {
+      "restart_required": "Some changes may require restarting the application. 🔁"
+    },
+
+    "buttons": {
+      "reload": "Reload 🔄",
+      "save": "Save 💾"
+    },
+
+    "msg": {
+      "saved": "✅ Settings have been saved."
+    }
+  },
+
+  "error": {
+    "audio": {
+      "ffmpeg_failed": "❌ Audio conversion failed for \"{src}\". Details: {detail}"
+    },
+
+    "settings": {
+      "json_invalid": "⚠️ Configuration file \"{path}\" contains invalid JSON. Details: {detail}",
+      "section_invalid": "⚠️ Settings section \"{section}\" is invalid.",
+      "missing_keys": "⚠️ Settings section \"{section}\" is missing required keys: {keys}",
+      "defaults_missing": "⚠️ Defaults file is missing: {path}",
+      "settings_missing": "⚠️ Settings file is missing: {path}",
+      "settings_invalid": "⚠️ Settings file \"{path}\" is invalid. Details: {detail}"
+    },
+
+    "type": {
+      "list_strings": "⚠️ Field \"{field}\" must be a list of strings.",
+      "string_nonempty": "⚠️ Field \"{field}\" must be a non-empty string.",
+      "int": "⚠️ Field \"{field}\" must be an integer.",
+      "enum_invalid": "⚠️ Field \"{field}\" has invalid value \"{value}\". Allowed values: {allowed}"
+    },
+
+    "down": {
+      "probe_failed": "❌ Could not analyze media. Details: {detail}",
+      "download_failed": "❌ Download failed. Details: {detail}",
+      "no_output_file": "⚠️ Downloader did not produce any output file.",
+      "duplicate_timeout": "⏱️ No decision was made in time for the existing download file."
+    },
+
+    "transcription": {
+      "incomplete_file": "⚠️ Input file \"{name}\" appears to be incomplete or still downloading."
+    },
+
+    "config": {
+      "unknown_action": "⚠️ Unknown action \"{action}\".",
+      "generic": "⚠️ Configuration error. Details: {detail}"
     }
   }
 }

@@ -1,63 +1,45 @@
 {
   "app": {
-    "title": "PySkryptor"
+    "title": "Asystent Transkrypcji 🎧"
   },
 
   "tabs": {
-    "group": "Zakładki",
-    "files": "Transkrypcja plików",
-    "downloader": "Downloader",
-    "live": "Transkrypcja live",
+    "group": "Tryb",
+    "files": "Pliki",
+    "downloader": "Pobieranie",
+    "live": "Na żywo",
     "settings": "Ustawienia"
   },
 
   "ui": {
     "placeholder": {
-      "soon": "wkrótce"
+      "soon": "Wkrótce dostępne... 🚧"
     }
   },
 
   "ctrl": {
-    "start": "Rozpocznij transkrypcję",
-    "cancel": "Anuluj"
-  },
-
-  "action": {
-    "cancel_now": "Przerwij teraz",
-    "keep_working": "Kontynuuj"
-  },
-
-  "dialog": {
-    "cancel_confirm": "Czy na pewno chcesz przerwać bieżące działanie?",
-    "settings_restored": "Plik ustawień był nieobecny. Przywrócono ustawienia domyślne.",
-    "conflict": {
-      "title": "Konflikt nazw",
-      "text": "Wynik o nazwie „{name}” już istnieje. Co zrobić?",
-      "skip": "Pomiń ten element",
-      "overwrite": "Nadpisz istniejący wynik",
-      "new_name": "Użyj nowej nazw: ",
-      "apply_all": "Zastosuj dla wszystkich kolejnych"
-    }
+    "start": "Start ▶️",
+    "cancel": "Anuluj ✖️"
   },
 
   "files": {
-    "placeholder": "Wklej ścieżkę pliku lub adres URL...",
+    "placeholder": "Wklej tutaj ścieżkę do pliku lub URL...",
     "add": "Dodaj",
-    "add_files": "Dodaj pliki...",
-    "add_folder": "Dodaj folder...",
-    "open_output": "Otwórz folder transkrypcji",
-    "remove_selected": "Usuń zaznaczone",
-    "clear": "Wyczyść listę",
+    "add_files": "Dodaj pliki... 📁",
+    "add_folder": "Dodaj folder... 📂",
+    "open_output": "Otwórz folder transkryptów 📂",
+    "remove_selected": "Usuń zaznaczone 🗑️",
+    "clear": "Wyczyść listę 🧹",
 
     "details": {
-      "title": "Szczegóły pozycji",
+      "title": "Źródła",
       "col": {
         "name": "Nazwa",
         "source": "Źródło",
         "path": "Ścieżka",
-        "size": "Waga",
-        "duration": "Długość",
-        "status": "Stan",
+        "size": "Rozmiar",
+        "duration": "Czas trwania",
+        "status": "Status",
         "preview": "Podgląd"
       }
     },
@@ -67,224 +49,239 @@
     }
   },
 
-  "log": {
-    "model": {
-      "ready": "✅ Model załadowany — tryb: {device}",
-      "error": "❌ Błąd modelu: {msg}"
-    },
-
-    "pipe_not_ready": "Model nie jest jeszcze gotowy.",
-    "no_items": "Dodaj przynajmniej jedno źródło (plik lub URL).",
-    "start": "▶️ Start transkrypcji…",
-    "cancelled": "⏹️ Anulowano.",
-    "done": "✅ Zakończono transkrypcję.",
-    "unexpected": "❗ Nieoczekiwany błąd: {msg}",
-
-    "session": {
-      "plan": "📂 Utworzono nową sesję w folderze: {path}"
-    },
-
-    "tmp": {
-      "cleaned": "🧹 Wyczyszczono tymczasowe pliki audio."
-    },
-
-    "add": {
-      "empty": "Pole wejściowe jest puste.",
-      "missing": "Ścieżka nie istnieje.",
-      "ok": "✅ Dodano: {text}"
-    },
-
-    "transcript": {
-      "saved": "✅ Zapisano transkrypt: {path}",
-      "saved_prefix": "✅ Zapisano transkrypt:"
-    },
-
-    "temp_init_failed": "❗ Błąd inicjalizacji katalogu tymczasowego: {detail}",
-    "session_plan_failed": "❗ Błąd planowania sesji: {detail}",
-    "entry_prep_error": "❗ Błąd przygotowania pozycji „{entry}”: {detail}",
-    "conflict_dialog_error": "❗ Błąd okna konfliktu nazw: {detail}",
-    "audio_prep_failed": "❗ Błąd przygotowania audio dla pliku „{name}”: {detail}",
-    "transcription_failed": "❗ Błąd transkrypcji pliku „{name}”: {detail}",
-    "session_dir_failed": "❗ Błąd tworzenia katalogu sesji: {detail}",
-    "transcript_save_failed": "❗ Błąd zapisu transkryptu dla pliku „{name}”: {detail}",
-    "worker_error": "❗ Błąd modułu transkrypcji: {detail}",
-    "temp_cleanup_issue": "❗ Problem podczas czyszczenia plików tymczasowych: {detail}",
-    "no_supported_files_in_folder": "ℹ️ W folderze „{path}” nie znaleziono obsługiwanych plików.",
-    "path_not_found": "❗ Ścieżka nie istnieje: {path}"
-  },
-
   "down": {
     "url": {
-      "placeholder": "Wklej URL (np. YouTube/TikTok)…"
+      "placeholder": "Wklej tutaj URL materiału..."
     },
-    "probe": "Analizuj",
-    "open_folder": "Otwórz folder pobrań",
+
+    "probe": "Analizuj 🔍",
+    "open_folder": "Otwórz folder pobierania 📂",
 
     "meta": {
-      "title": "Metadane",
-      "service": "Serwis:",
-      "name": "Tytuł:",
-      "duration": "Długość:",
-      "size": "Szacowany rozmiar:"
+      "title": "Informacje o materiale",
+      "service": "Serwis",
+      "name": "Tytuł",
+      "duration": "Czas trwania",
+      "size": "Szacowany rozmiar"
     },
 
     "select": {
-      "title": "Wybór formatu",
-      "type": "Typ:",
+      "title": "Opcje pobierania",
+      "type": "Typ",
       "type.video": "Wideo",
       "type.audio": "Audio",
-      "quality": "Jakość:",
-      "ext": "Rozszerzenie:",
-      "audio_track": "Ścieżka audio:",
-      "audio_track.default": "Domyślna"
+      "quality": "Jakość",
+      "quality.auto": "Auto",
+      "ext": "Format",
+      "audio_track": "Ścieżka audio",
+      "audio_track.default": "Domyślna ścieżka"
     },
 
-    "download": "Pobierz",
+    "download": "Pobierz ⬇️",
 
     "log": {
-      "analyze": "🔎 Analiza URL…",
-      "meta_ready": "✅ Metadane gotowe.",
-      "downloading": "⬇️ Pobieranie…",
-      "postprocess": "⚙️ Przetwarzanie pliku…",
-      "downloaded_prefix": "✅ Pobrano:",
-      "already": "ℹ️ Już pobrano:",
-      "downloaded": "Pobrano: {path}",
-      "error": "❌ Błąd: {msg}"
+      "analyze": "🔍 Analizuję materiał...",
+      "meta_ready": "✅ Metadane zostały wczytane.",
+      "downloading": "⬇️ Trwa pobieranie...",
+      "postprocess": "⚙️ Przetwarzanie pliku...",
+      "downloaded_prefix": "✅ Pobrany plik:",
+      "error": "⚠️ {msg}"
     },
 
     "dialog": {
       "exists": {
-        "text": "Ten plik już istnieje: „{title}”. Co chcesz zrobić?",
-        "open": "Otwórz istniejący",
-        "overwrite": "Pobierz ponownie (nadpisz)",
-        "skip": "Pomiń",
-        "rename": "Zmień nazwę"
+        "text": "Plik „{title}” już istnieje w folderze pobierania.\nCo chcesz zrobić?",
+        "skip": "Pomiń ⏭️",
+        "overwrite": "Nadpisz ♻️",
+        "rename": "Zapisz pod nową nazwą ✏️"
       }
     }
   },
 
-   "settings": {
-    "title": "Ustawienia",
-    "info": {
-      "restart_required": "Niektóre zmiany mogą wymagać ponownego uruchomienia aplikacji."
-    },
-
-    "buttons": {
-      "save": "Zapisz",
-      "reload": "Odrzuć zmiany"
-    },
-
-    "msg": {
-      "saved": "Zapisano ustawienia."
-    },
-
-    "section": {
-      "app": "Aplikacja",
-      "engine": "Silnik",
-      "model": "Model",
-      "transcription": "Transkrypcja",
-      "downloader": "Downloader",
-      "network": "Sieć"
-    },
-
-    "app": {
-      "language": {
-        "label": "Język interfejsu"
-      },
-      "theme": {
-        "label": "Motyw",
-        "auto": "Systemowy",
-        "light": "Jasny",
-        "dark": "Ciemny"
-      }
-    },
-
-    "engine": {
-      "device": {
-        "label": "Urządzenie",
-        "auto": "Auto",
-        "cpu": "CPU",
-        "gpu": "GPU"
-      },
-      "precision": {
-        "label": "Precyzja",
-        "auto": "Auto",
-        "float32": "Float32",
-        "float16": "Float16",
-        "bfloat16": "BFloat16"
-      },
-      "allow_tf32": {
-        "label": "Zezwalaj na TF32 (GPU)"
-      }
+  "log": {
+    "add": {
+      "empty": "✏️ Podaj ścieżkę do pliku lub URL.",
+      "missing": "⚠️ Podany plik nie istnieje.",
+      "ok": "✅ Dodano: {text}"
     },
 
     "model": {
-      "ai_engine_name": {
-        "label": "Silnik AI (model)"
-      },
-      "local_models_only": {
-        "label": "Tylko modele lokalne"
-      },
-      "default_language": {
-        "label": "Domyślny język nagrania (opcjonalny)"
-      },
-      "chunk_length_s": {
-        "label": "Długość fragmentu (s)"
-      },
-      "stride_length_s": {
-        "label": "Przesunięcie (s)"
-      },
-      "return_timestamps": {
-        "label": "Zwracaj znaczniki czasu"
-      },
-      "ignore_warning": {
-        "label": "Ignoruj ostrzeżenia modelu"
-      },
-      "low_cpu_mem_usage": {
-        "label": "Tryb niskiego zużycia RAM"
-      }
+      "ready": "✅ Model ASR jest gotowy na urządzeniu: {device}.",
+      "error": "❌ Nie udało się zainicjalizować modelu ASR. Szczegóły: {msg}"
+    },
+
+    "pipe_not_ready": "⏳ Model nie jest jeszcze gotowy.",
+    "no_items": "ℹ️ Brak elementów do przetworzenia.",
+    "start": "📝 Rozpoczynam transkrypcję...",
+    "done": "✅ Wszystkie elementy zostały przetworzone.",
+    "cancelled": "✖️ Operacja została anulowana.",
+
+    "temp_init_failed": "❌ Nie udało się zainicjalizować katalogu tymczasowego. Szczegóły: {detail}",
+
+    "session": {
+      "plan": "📁 Zaplanowano katalog sesji: {path}"
+    },
+
+    "session_plan_failed": "❌ Nie udało się zaplanować katalogu sesji. Szczegóły: {detail}",
+    "session_dir_failed": "❌ Nie udało się utworzyć katalogu sesji. Szczegóły: {detail}",
+
+    "entry_prep_error": "⚠️ Nie udało się przygotować elementu „{entry}”. Szczegóły: {detail}",
+    "audio_prep_failed": "⚠️ Nie udało się przygotować audio dla „{name}”. Szczegóły: {detail}",
+    "transcription_failed": "❌ Transkrypcja nie powiodła się dla „{name}”. Szczegóły: {detail}",
+
+    "transcript": {
+      "saved_prefix": "✅ Zapisano transkrypt:",
+      "saved": "✅ Transkrypt zapisano w: {path}",
+      "save_failed": "❌ Nie udało się zapisać transkryptu dla „{name}”. Szczegóły: {detail}"
+    },
+
+    "worker_error": "❌ Wewnętrzny błąd pracownika. Szczegóły: {detail}",
+
+    "tmp": {
+      "cleaned": "🧹 Pliki tymczasowe zostały usunięte."
+    },
+
+    "temp_cleanup_issue": "⚠️ Nie udało się wyczyścić katalogu tymczasowego. Szczegóły: {detail}",
+
+    "no_supported_files_in_folder": "ℹ️ Folder „{path}” nie zawiera obsługiwanych plików multimedialnych.",
+    "path_not_found": "⚠️ Ścieżka nie została odnaleziona: {path}",
+
+    "conflict_dialog_error": "❌ Błąd okna konfliktu. Szczegóły: {detail}",
+
+    "unexpected": "⚠️ Nieoczekiwany błąd: {msg}"
+  },
+
+  "status": {
+    "prep": "⏳ Przygotowywanie...",
+    "proc": "🔄 Przetwarzanie...",
+    "done": "✅ Zakończono",
+    "skipped": "⏭️ Pominięto",
+    "error": "❌ Błąd"
+  },
+
+  "dialog": {
+    "settings_restored": "✅ Brakujący plik ustawień został odtworzony z wartości domyślnych.",
+    "cancel_confirm": "❓ Czy na pewno chcesz przerwać bieżącą operację?",
+
+    "conflict": {
+      "title": "⚠️ Transkrypt już istnieje",
+      "text": "Transkrypt o nazwie „{name}” już istnieje.\nCo chcesz zrobić?",
+      "skip": "Pomiń ten element ⏭️",
+      "overwrite": "Nadpisz istniejący transkrypt ♻️",
+      "new_name": "Zapisz pod nową nazwą:",
+      "apply_all": "Zastosuj tę decyzję do wszystkich konfliktów"
+    }
+  },
+
+  "action": {
+    "cancel_now": "Przerwij teraz ✖️",
+    "keep_working": "Kontynuuj pracę ✅"
+  },
+
+  "settings": {
+    "section": {
+      "app": "Aplikacja ⚙️",
+      "engine": "Silnik 🧠",
+      "model": "Model 🧬",
+      "transcription": "Transkrypcja 📝",
+      "downloader": "Pobieranie ⬇️",
+      "network": "Sieć 🌐"
+    },
+
+    "app": {
+      "language": "Język interfejsu",
+      "theme": "Motyw",
+      "theme.auto": "Systemowy",
+      "theme.light": "Jasny",
+      "theme.dark": "Ciemny"
+    },
+
+    "engine": {
+      "device": "Preferowane urządzenie",
+      "precision": "Precyzja",
+      "allow_tf32": "Zezwól na TF32 na GPU (jeśli dostępne)"
+    },
+
+    "model": {
+      "ai_engine_name": "Nazwa / ścieżka modelu",
+      "local_models_only": "Używaj tylko modeli lokalnych",
+      "default_language": "Domyślny język transkrypcji",
+      "chunk_length_s": "Długość fragmentu (s)",
+      "stride_length_s": "Nakładanie (s)",
+      "return_timestamps": "Zwracaj znaczniki czasu",
+      "ignore_warning": "Ignoruj niekrytyczne ostrzeżenia",
+      "low_cpu_mem_usage": "Optymalizuj użycie pamięci CPU"
     },
 
     "transcription": {
-      "timestamps_output": {
-        "label": "Zapisuj znaczniki czasu w pliku"
-      },
-      "keep_downloaded_files": {
-        "label": "Zachowuj pobrane pliki"
-      },
-      "keep_wav_temp": {
-        "label": "Zostaw pliki WAV w katalogu tymczasowym"
-      }
+      "timestamps_output": "Dołącz znaczniki czasu w wyjściu",
+      "keep_downloaded_files": "Zachowuj pobrane pliki",
+      "keep_wav_temp": "Zachowuj tymczasowe pliki WAV"
     },
 
     "downloader": {
-      "min_video_height": {
-        "label": "Minimalna wysokość wideo (p)"
-      },
-      "max_video_height": {
-        "label": "Maksymalna wysokość wideo (p)"
-      }
+      "min_video_height": "Minimalna wysokość wideo (px)",
+      "max_video_height": "Maksymalna wysokość wideo (px)"
     },
 
     "network": {
-      "max_bandwidth_kbps": {
-        "label": "Limit przepustowości (KB/s, 0 = bez limitu)"
-      },
-      "retries": {
-        "label": "Liczba ponowień"
-      },
-      "concurrent_fragments": {
-        "label": "Równoległe fragmenty"
-      },
-      "http_timeout_s": {
-        "label": "Timeout HTTP (s)"
-      },
-      "proxy": {
-        "label": "Proxy (URL, opcjonalnie)"
-      },
-      "throttle_startup_s": {
-        "label": "Opóźnienie startu (s)"
-      }
+      "max_bandwidth_kbps": "Maksymalna przepustowość (kbps; 0 = bez limitu)",
+      "retries": "Liczba ponowień HTTP",
+      "concurrent_fragments": "Równoległe fragmenty",
+      "http_timeout_s": "Limit czasu HTTP (s)",
+      "proxy": "Proxy HTTP",
+      "throttle_startup_s": "Opóźnienie startowe (s)"
+    },
+
+    "info": {
+      "restart_required": "Niektóre zmiany mogą wymagać ponownego uruchomienia aplikacji. 🔁"
+    },
+
+    "buttons": {
+      "reload": "Wczytaj ponownie 🔄",
+      "save": "Zapisz 💾"
+    },
+
+    "msg": {
+      "saved": "✅ Ustawienia zostały zapisane."
+    }
+  },
+
+  "error": {
+    "audio": {
+      "ffmpeg_failed": "❌ Konwersja audio dla „{src}” nie powiodła się. Szczegóły: {detail}"
+    },
+
+    "settings": {
+      "json_invalid": "⚠️ Plik konfiguracyjny „{path}” zawiera nieprawidłowy JSON. Szczegóły: {detail}",
+      "section_invalid": "⚠️ Sekcja ustawień „{section}” jest nieprawidłowa.",
+      "missing_keys": "⚠️ Sekcja ustawień „{section}” nie zawiera wymaganych kluczy: {keys}",
+      "defaults_missing": "⚠️ Brakuje pliku wartości domyślnych: {path}",
+      "settings_missing": "⚠️ Brakuje pliku ustawień: {path}",
+      "settings_invalid": "⚠️ Plik ustawień „{path}” jest nieprawidłowy. Szczegóły: {detail}"
+    },
+
+    "type": {
+      "list_strings": "⚠️ Pole „{field}” musi być listą napisów.",
+      "string_nonempty": "⚠️ Pole „{field}” musi być niepustym napisem.",
+      "int": "⚠️ Pole „{field}” musi być liczbą całkowitą.",
+      "enum_invalid": "⚠️ Pole „{field}” ma nieprawidłową wartość „{value}”. Dozwolone wartości: {allowed}"
+    },
+
+    "down": {
+      "probe_failed": "❌ Nie udało się przeanalizować materiału. Szczegóły: {detail}",
+      "download_failed": "❌ Pobieranie nie powiodło się. Szczegóły: {detail}",
+      "no_output_file": "⚠️ Pobieranie nie zwróciło żadnego pliku wyjściowego.",
+      "duplicate_timeout": "⏱️ Nie podjęto decyzji w sprawie istniejącego pliku pobrania w wyznaczonym czasie."
+    },
+
+    "transcription": {
+      "incomplete_file": "⚠️ Plik wejściowy „{name}” wydaje się niekompletny lub jest w trakcie pobierania."
+    },
+
+    "config": {
+      "unknown_action": "⚠️ Nieznane działanie „{action}”.",
+      "generic": "⚠️ Błąd konfiguracji. Szczegóły: {detail}"
     }
   }
 }

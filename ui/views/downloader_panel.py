@@ -52,7 +52,12 @@ class DownloaderPanel(QtWidgets.QWidget):
         sel_group = QtWidgets.QGroupBox(tr("down.select.title"))
         sel_layout = QtWidgets.QHBoxLayout(sel_group)
         self.cb_kind = QtWidgets.QComboBox()
-        self.cb_kind.addItems([tr("down.select.type.video"), tr("down.select.type.audio")])
+        self.cb_kind.addItems(
+            [
+                tr("down.select.type.video"),
+                tr("down.select.type.audio"),
+            ]
+        )
         self.cb_quality = QtWidgets.QComboBox()
         self.cb_ext = QtWidgets.QComboBox()
         self.cb_audio = QtWidgets.QComboBox()
@@ -62,8 +67,12 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._aud_quals: List[str] = ["Auto", "320k", "256k", "192k", "128k"]
 
         # Extensions for output formats from settings.
-        down_vid_ext = [e.lstrip(".") for e in getattr(Config, "downloader_video_extensions", lambda: ())()]
-        down_aud_ext = [e.lstrip(".") for e in getattr(Config, "downloader_audio_extensions", lambda: ())()]
+        down_vid_ext = [
+            e.lstrip(".") for e in getattr(Config, "downloader_video_extensions", lambda: ())()
+        ]
+        down_aud_ext = [
+            e.lstrip(".") for e in getattr(Config, "downloader_audio_extensions", lambda: ())()
+        ]
 
         self._vid_exts: List[str] = down_vid_ext or ["mp4", "webm"]
         self._aud_exts: List[str] = down_aud_ext or ["m4a", "mp3"]
@@ -143,7 +152,9 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _on_open_downloads_clicked(self) -> None:
         try:
             Config.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Config.DOWNLOADS_DIR)))
+            QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl.fromLocalFile(str(Config.DOWNLOADS_DIR))
+            )
         except Exception as e:
             self.log.err(tr("down.log.error", msg=str(e)))
 
@@ -292,7 +303,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         """Popup for duplicate download; pass decision back to worker."""
         try:
             suggested = Path(existing_path).stem
-            action, new_name = ask_download_duplicate(self, title=title, suggested_name=suggested)
+            action, new_name = ask_download_duplicate(
+                self, title=title, suggested_name=suggested
+            )
             if self._down_worker is not None:
                 self._down_worker.on_duplicate_decided(action, new_name)
         except Exception:
