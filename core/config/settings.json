@@ -1,52 +1,4 @@
 {
-  "paths": {
-    "resources_dir": "resources",
-    "ffmpeg_dir": "resources/ffmpeg",
-    "models_dir": "resources/models",
-    "ai_engine_dir": "resources/models/whisper-turbo",
-    "locales_dir": "resources/locales",
-    "data_dir": "data",
-    "downloads_dir": "data/downloads",
-    "input_tmp_dir": "data/.input_tmp",
-    "transcriptions_dir": "data/transcriptions"
-  },
-  "media": {
-    "input": {
-      "audio_ext": [
-        ".wav",
-        ".mp3",
-        ".flac",
-        ".m4a",
-        ".ogg",
-        ".aac"
-      ],
-      "video_ext": [
-        ".mp4",
-        ".webm",
-        ".mkv",
-        ".mov",
-        ".avi"
-      ]
-    },
-    "downloader": {
-      "audio_ext": [
-        "m4a",
-        "mp3"
-      ],
-      "video_ext": [
-        "mp4",
-        "webm"
-      ]
-    },
-    "transcripts": {
-      "default_ext": "txt",
-      "ext": [
-        "txt",
-        "srt",
-        "sub"
-      ]
-    }
-  },
   "app": {
     "language": "pl",
     "theme": "auto"
@@ -72,7 +24,8 @@
     "timestamps_output": true,
     "keep_downloaded_files": false,
     "keep_wav_temp": false,
-    "download_audio_only": true
+    "download_audio_only": true,
+    "output_ext": "txt"
   },
   "downloader": {
     "min_video_height": 144,

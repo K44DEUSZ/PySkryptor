@@ -1,14 +1,15 @@
 {
   "app": {
-    "title": "Transcription Assistant 🎧"
+    "title": "PySkryptor: Transcription Assistant 🎧"
   },
 
   "tabs": {
     "group": "Mode",
     "files": "Files",
-    "downloader": "Downloader",
     "live": "Live",
-    "settings": "Settings"
+    "downloader": "Downloader",
+    "settings": "Settings",
+    "about": "About"
   },
 
   "ui": {
@@ -198,7 +199,14 @@
 
     "engine": {
       "device": "Preferred device",
+      "device.auto": "Automatic",
+      "device.cpu": "CPU only",
+      "device.gpu": "GPU (if available)",
       "precision": "Precision",
+      "precision.auto": "Automatic",
+      "precision.float32": "Float32 (highest quality)",
+      "precision.float16": "Float16 (faster, lower memory)",
+      "precision.bfloat16": "bfloat16 (GPU with BF16 support)",
       "allow_tf32": "Allow TF32 on GPU (if available)"
     },
 
@@ -247,26 +255,38 @@
     }
   },
 
+  "about": {
+    "section": {
+      "app": "Application info ℹ️",
+      "license": "License 📄"
+    },
+
+    "app": {
+      "description": "<b>{name_lower}</b> ({years})<br/>Version: {version}<br/>Author: {author}"
+    },
+
+    "license": {
+      "summary": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License version 3 (GPL-3.0) or (at your option) any later version.",
+      "full_link": "The full license text is available in the <a href=\"license\">LICENSE</a> file distributed with this application."
+    }
+  },
+
   "error": {
     "audio": {
       "ffmpeg_failed": "❌ Audio conversion failed for \"{src}\". Details: {detail}"
     },
 
-    "settings": {
-      "json_invalid": "⚠️ Configuration file \"{path}\" contains invalid JSON. Details: {detail}",
-      "section_invalid": "⚠️ Settings section \"{section}\" is invalid.",
-      "missing_keys": "⚠️ Settings section \"{section}\" is missing required keys: {keys}",
-      "defaults_missing": "⚠️ Defaults file is missing: {path}",
-      "settings_missing": "⚠️ Settings file is missing: {path}",
-      "settings_invalid": "⚠️ Settings file \"{path}\" is invalid. Details: {detail}"
-    },
+    "json_invalid": "⚠️ Configuration file \"{path}\" contains invalid JSON. Details: {detail}",
+    "settings_section_invalid": "⚠️ Settings section \"{section}\" is invalid.",
+    "settings_missing_keys": "⚠️ Settings section \"{section}\" is missing required keys: {keys}",
+    "defaults_missing": "⚠️ Defaults file is missing: {path}",
+    "settings_missing": "⚠️ Settings file is missing: {path}",
+    "settings_invalid": "⚠️ Settings file \"{path}\" is invalid. Details: {detail}",
 
-    "type": {
-      "list_strings": "⚠️ Field \"{field}\" must be a list of strings.",
-      "string_nonempty": "⚠️ Field \"{field}\" must be a non-empty string.",
-      "int": "⚠️ Field \"{field}\" must be an integer.",
-      "enum_invalid": "⚠️ Field \"{field}\" has invalid value \"{value}\". Allowed values: {allowed}"
-    },
+    "type_list_strings": "⚠️ Field \"{field}\" must be a list of strings.",
+    "type_string_nonempty": "⚠️ Field \"{field}\" must be a non-empty string.",
+    "type_int": "⚠️ Field \"{field}\" must be an integer.",
+    "enum_invalid": "⚠️ Field \"{field}\" has invalid value \"{value}\". Allowed values: {allowed}",
 
     "down": {
       "probe_failed": "❌ Could not analyze media. Details: {detail}",

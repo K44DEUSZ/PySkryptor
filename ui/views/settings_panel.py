@@ -354,13 +354,14 @@ class SettingsPanel(QtWidgets.QWidget):
             "allow_tf32": bool(self.chk_engine_tf32.isChecked()),
         }
 
+        prev_model = self._data.get("model", {})
         model = {
             "ai_engine_name": self.ed_model_engine_name.text().strip() or "whisper-turbo",
             "local_models_only": bool(self.chk_model_local_only.isChecked()),
             "chunk_length_s": int(self.spin_model_chunk.value()),
             "stride_length_s": int(self.spin_model_stride.value()),
             "pipeline_task": str(
-                self._data.get("model", {}).get("pipeline_task", "transcribe")
+                prev_model.get("pipeline_task", "transcribe")
             ),
             "ignore_warning": bool(self.chk_model_ignore_warn.isChecked()),
             "default_language": (
@@ -368,15 +369,18 @@ class SettingsPanel(QtWidgets.QWidget):
             ),
             "return_timestamps": bool(self.chk_model_return_ts.isChecked()),
             "use_safetensors": bool(
-                self._data.get("model", {}).get("use_safetensors", True)
+                prev_model.get("use_safetensors", True)
             ),
             "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
         }
 
+        prev_trc = self._data.get("transcription", {})
         trc = {
             "timestamps_output": bool(self.chk_tr_ts_output.isChecked()),
             "keep_downloaded_files": bool(self.chk_tr_keep_downloaded.isChecked()),
             "keep_wav_temp": bool(self.chk_tr_keep_wav.isChecked()),
+            # Preserve internal flag not exposed in UI.
+            "download_audio_only": bool(prev_trc.get("download_audio_only", True)),
         }
 
         down = {

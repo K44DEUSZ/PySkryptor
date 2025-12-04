@@ -1,19 +1,20 @@
 {
   "app": {
-    "title": "Asystent Transkrypcji 🎧"
+    "title": "PySkryptor: Asystent transkrypcji 🎧"
   },
 
   "tabs": {
     "group": "Tryb",
     "files": "Pliki",
-    "downloader": "Pobieranie",
     "live": "Na żywo",
-    "settings": "Ustawienia"
+    "downloader": "Pobieranie",
+    "settings": "Ustawienia",
+    "about": "Informacje"
   },
 
   "ui": {
     "placeholder": {
-      "soon": "Wkrótce dostępne... 🚧"
+      "soon": "Już wkrótce... 🚧"
     }
   },
 
@@ -23,7 +24,7 @@
   },
 
   "files": {
-    "placeholder": "Wklej tutaj ścieżkę do pliku lub URL...",
+    "placeholder": "Wklej tutaj ścieżkę pliku lub adres URL...",
     "add": "Dodaj",
     "add_files": "Dodaj pliki... 📁",
     "add_folder": "Dodaj folder... 📂",
@@ -51,14 +52,14 @@
 
   "down": {
     "url": {
-      "placeholder": "Wklej tutaj URL materiału..."
+      "placeholder": "Wklej tutaj adres URL multimediów..."
     },
 
     "probe": "Analizuj 🔍",
-    "open_folder": "Otwórz folder pobierania 📂",
+    "open_folder": "Otwórz folder pobranych plików 📂",
 
     "meta": {
-      "title": "Informacje o materiale",
+      "title": "Informacje o mediach",
       "service": "Serwis",
       "name": "Tytuł",
       "duration": "Czas trwania",
@@ -80,17 +81,17 @@
     "download": "Pobierz ⬇️",
 
     "log": {
-      "analyze": "🔍 Analizuję materiał...",
+      "analyze": "🔍 Analiza multimediów...",
       "meta_ready": "✅ Metadane zostały wczytane.",
-      "downloading": "⬇️ Trwa pobieranie...",
+      "downloading": "⬇️ Pobieranie...",
       "postprocess": "⚙️ Przetwarzanie pliku...",
-      "downloaded_prefix": "✅ Pobrany plik:",
+      "downloaded_prefix": "✅ Pobrano plik:",
       "error": "⚠️ {msg}"
     },
 
     "dialog": {
       "exists": {
-        "text": "Plik „{title}” już istnieje w folderze pobierania.\nCo chcesz zrobić?",
+        "text": "Plik \"{title}\" już istnieje w folderze pobranych.\nCo chcesz zrobić?",
         "skip": "Pomiń ⏭️",
         "overwrite": "Nadpisz ♻️",
         "rename": "Zapisz pod nową nazwą ✏️"
@@ -100,21 +101,21 @@
 
   "log": {
     "add": {
-      "empty": "✏️ Podaj ścieżkę do pliku lub URL.",
+      "empty": "✏️ Podaj ścieżkę pliku lub adres URL.",
       "missing": "⚠️ Podany plik nie istnieje.",
       "ok": "✅ Dodano: {text}"
     },
 
     "model": {
-      "ready": "✅ Model ASR jest gotowy na urządzeniu: {device}.",
+      "ready": "✅ Model ASR gotowy na urządzeniu {device}.",
       "error": "❌ Nie udało się zainicjalizować modelu ASR. Szczegóły: {msg}"
     },
 
     "pipe_not_ready": "⏳ Model nie jest jeszcze gotowy.",
     "no_items": "ℹ️ Brak elementów do przetworzenia.",
-    "start": "📝 Rozpoczynam transkrypcję...",
+    "start": "📝 Rozpoczynanie transkrypcji...",
     "done": "✅ Wszystkie elementy zostały przetworzone.",
-    "cancelled": "✖️ Operacja została anulowana.",
+    "cancelled": "✖️ Operacja anulowana.",
 
     "temp_init_failed": "❌ Nie udało się zainicjalizować katalogu tymczasowego. Szczegóły: {detail}",
 
@@ -125,17 +126,17 @@
     "session_plan_failed": "❌ Nie udało się zaplanować katalogu sesji. Szczegóły: {detail}",
     "session_dir_failed": "❌ Nie udało się utworzyć katalogu sesji. Szczegóły: {detail}",
 
-    "entry_prep_error": "⚠️ Nie udało się przygotować elementu „{entry}”. Szczegóły: {detail}",
-    "audio_prep_failed": "⚠️ Nie udało się przygotować audio dla „{name}”. Szczegóły: {detail}",
-    "transcription_failed": "❌ Transkrypcja nie powiodła się dla „{name}”. Szczegóły: {detail}",
+    "entry_prep_error": "⚠️ Nie udało się przygotować elementu \"{entry}\". Szczegóły: {detail}",
+    "audio_prep_failed": "⚠️ Nie udało się przygotować audio dla \"{name}\". Szczegóły: {detail}",
+    "transcription_failed": "❌ Transkrypcja nie powiodła się dla \"{name}\". Szczegóły: {detail}",
 
     "transcript": {
       "saved_prefix": "✅ Zapisano transkrypt:",
       "saved": "✅ Transkrypt zapisano w: {path}",
-      "save_failed": "❌ Nie udało się zapisać transkryptu dla „{name}”. Szczegóły: {detail}"
+      "save_failed": "❌ Nie udało się zapisać transkryptu dla \"{name}\". Szczegóły: {detail}"
     },
 
-    "worker_error": "❌ Wewnętrzny błąd pracownika. Szczegóły: {detail}",
+    "worker_error": "❌ Wewnętrzny błąd worker-a. Szczegóły: {detail}",
 
     "tmp": {
       "cleaned": "🧹 Pliki tymczasowe zostały usunięte."
@@ -143,10 +144,10 @@
 
     "temp_cleanup_issue": "⚠️ Nie udało się wyczyścić katalogu tymczasowego. Szczegóły: {detail}",
 
-    "no_supported_files_in_folder": "ℹ️ Folder „{path}” nie zawiera obsługiwanych plików multimedialnych.",
-    "path_not_found": "⚠️ Ścieżka nie została odnaleziona: {path}",
+    "no_supported_files_in_folder": "ℹ️ Folder \"{path}\" nie zawiera obsługiwanych plików multimedialnych.",
+    "path_not_found": "⚠️ Nie znaleziono ścieżki: {path}",
 
-    "conflict_dialog_error": "❌ Błąd okna konfliktu. Szczegóły: {detail}",
+    "conflict_dialog_error": "❌ Błąd okna dialogowego konfliktu. Szczegóły: {detail}",
 
     "unexpected": "⚠️ Nieoczekiwany błąd: {msg}"
   },
@@ -160,12 +161,12 @@
   },
 
   "dialog": {
-    "settings_restored": "✅ Brakujący plik ustawień został odtworzony z wartości domyślnych.",
-    "cancel_confirm": "❓ Czy na pewno chcesz przerwać bieżącą operację?",
+    "settings_restored": "✅ Plik ustawień nie został znaleziony. Przywrócono wartości domyślne.",
+    "cancel_confirm": "❓ Czy na pewno chcesz anulować bieżącą operację?",
 
     "conflict": {
       "title": "⚠️ Transkrypt już istnieje",
-      "text": "Transkrypt o nazwie „{name}” już istnieje.\nCo chcesz zrobić?",
+      "text": "Transkrypt o nazwie \"{name}\" już istnieje.\nCo chcesz zrobić?",
       "skip": "Pomiń ten element ⏭️",
       "overwrite": "Nadpisz istniejący transkrypt ♻️",
       "new_name": "Zapisz pod nową nazwą:",
@@ -174,7 +175,7 @@
   },
 
   "action": {
-    "cancel_now": "Przerwij teraz ✖️",
+    "cancel_now": "Anuluj teraz ✖️",
     "keep_working": "Kontynuuj pracę ✅"
   },
 
@@ -198,23 +199,30 @@
 
     "engine": {
       "device": "Preferowane urządzenie",
+      "device.auto": "Automatycznie",
+      "device.cpu": "Tylko CPU",
+      "device.gpu": "GPU (jeśli dostępne)",
       "precision": "Precyzja",
+      "precision.auto": "Automatyczna",
+      "precision.float32": "Float32 (najwyższa jakość)",
+      "precision.float16": "Float16 (szybsza, mniejsze zużycie pamięci)",
+      "precision.bfloat16": "bfloat16 (GPU z obsługą BF16)",
       "allow_tf32": "Zezwól na TF32 na GPU (jeśli dostępne)"
     },
 
     "model": {
       "ai_engine_name": "Nazwa / ścieżka modelu",
-      "local_models_only": "Używaj tylko modeli lokalnych",
+      "local_models_only": "Używaj wyłącznie modeli lokalnych",
       "default_language": "Domyślny język transkrypcji",
       "chunk_length_s": "Długość fragmentu (s)",
-      "stride_length_s": "Nakładanie (s)",
+      "stride_length_s": "Długość zakładki (s)",
       "return_timestamps": "Zwracaj znaczniki czasu",
       "ignore_warning": "Ignoruj niekrytyczne ostrzeżenia",
       "low_cpu_mem_usage": "Optymalizuj użycie pamięci CPU"
     },
 
     "transcription": {
-      "timestamps_output": "Dołącz znaczniki czasu w wyjściu",
+      "timestamps_output": "Dodaj znaczniki czasu do wyniku",
       "keep_downloaded_files": "Zachowuj pobrane pliki",
       "keep_wav_temp": "Zachowuj tymczasowe pliki WAV"
     },
@@ -225,12 +233,12 @@
     },
 
     "network": {
-      "max_bandwidth_kbps": "Maksymalna przepustowość (kbps; 0 = bez limitu)",
-      "retries": "Liczba ponowień HTTP",
+      "max_bandwidth_kbps": "Maks. przepustowość (kbps; 0 = bez limitu)",
+      "retries": "Liczba prób HTTP",
       "concurrent_fragments": "Równoległe fragmenty",
       "http_timeout_s": "Limit czasu HTTP (s)",
-      "proxy": "Proxy HTTP",
-      "throttle_startup_s": "Opóźnienie startowe (s)"
+      "proxy": "Serwer proxy HTTP",
+      "throttle_startup_s": "Opóźnienie początkowe (s)"
     },
 
     "info": {
@@ -247,40 +255,52 @@
     }
   },
 
+  "about": {
+    "section": {
+      "app": "Informacje o aplikacji ℹ️",
+      "license": "Licencja 📄"
+    },
+
+    "app": {
+      "description": "<b>{name_lower}</b> ({years})<br/>Wersja: {version}<br/>Autor: {author}"
+    },
+
+    "license": {
+      "summary": "Ten program jest wolnym oprogramowaniem rozpowszechnianym na licencji GNU General Public License w wersji 3 (GPL-3.0) lub — według Twojego wyboru — nowszej.",
+      "full_link": "Pełny tekst licencji znajdziesz w pliku <a href=\"license\">LICENSE</a> dołączonym do aplikacji."
+    }
+  },
+
   "error": {
     "audio": {
-      "ffmpeg_failed": "❌ Konwersja audio dla „{src}” nie powiodła się. Szczegóły: {detail}"
+      "ffmpeg_failed": "❌ Konwersja audio nie powiodła się dla \"{src}\". Szczegóły: {detail}"
     },
 
-    "settings": {
-      "json_invalid": "⚠️ Plik konfiguracyjny „{path}” zawiera nieprawidłowy JSON. Szczegóły: {detail}",
-      "section_invalid": "⚠️ Sekcja ustawień „{section}” jest nieprawidłowa.",
-      "missing_keys": "⚠️ Sekcja ustawień „{section}” nie zawiera wymaganych kluczy: {keys}",
-      "defaults_missing": "⚠️ Brakuje pliku wartości domyślnych: {path}",
-      "settings_missing": "⚠️ Brakuje pliku ustawień: {path}",
-      "settings_invalid": "⚠️ Plik ustawień „{path}” jest nieprawidłowy. Szczegóły: {detail}"
-    },
+    "json_invalid": "⚠️ Plik konfiguracji \"{path}\" zawiera niepoprawny JSON. Szczegóły: {detail}",
+    "settings_section_invalid": "⚠️ Sekcja ustawień \"{section}\" jest nieprawidłowa.",
+    "settings_missing_keys": "⚠️ Sekcja ustawień \"{section}\" nie zawiera wszystkich wymaganych kluczy: {keys}",
+    "defaults_missing": "⚠️ Brakuje pliku wartości domyślnych: {path}",
+    "settings_missing": "⚠️ Brakuje pliku ustawień: {path}",
+    "settings_invalid": "⚠️ Plik ustawień \"{path}\" jest nieprawidłowy. Szczegóły: {detail}",
 
-    "type": {
-      "list_strings": "⚠️ Pole „{field}” musi być listą napisów.",
-      "string_nonempty": "⚠️ Pole „{field}” musi być niepustym napisem.",
-      "int": "⚠️ Pole „{field}” musi być liczbą całkowitą.",
-      "enum_invalid": "⚠️ Pole „{field}” ma nieprawidłową wartość „{value}”. Dozwolone wartości: {allowed}"
-    },
+    "type_list_strings": "⚠️ Pole \"{field}\" musi być listą napisów.",
+    "type_string_nonempty": "⚠️ Pole \"{field}\" musi być niepustym napisem.",
+    "type_int": "⚠️ Pole \"{field}\" musi być liczbą całkowitą.",
+    "enum_invalid": "⚠️ Pole \"{field}\" ma nieprawidłową wartość \"{value}\". Dozwolone wartości: {allowed}",
 
     "down": {
-      "probe_failed": "❌ Nie udało się przeanalizować materiału. Szczegóły: {detail}",
+      "probe_failed": "❌ Nie udało się przeanalizować multimediów. Szczegóły: {detail}",
       "download_failed": "❌ Pobieranie nie powiodło się. Szczegóły: {detail}",
-      "no_output_file": "⚠️ Pobieranie nie zwróciło żadnego pliku wyjściowego.",
-      "duplicate_timeout": "⏱️ Nie podjęto decyzji w sprawie istniejącego pliku pobrania w wyznaczonym czasie."
+      "no_output_file": "⚠️ Downloader nie utworzył pliku wyjściowego.",
+      "duplicate_timeout": "⏱️ Nie podjęto decyzji w sprawie istniejącego pliku w wymaganym czasie."
     },
 
     "transcription": {
-      "incomplete_file": "⚠️ Plik wejściowy „{name}” wydaje się niekompletny lub jest w trakcie pobierania."
+      "incomplete_file": "⚠️ Plik wejściowy \"{name}\" wydaje się niekompletny lub wciąż jest pobierany."
     },
 
     "config": {
-      "unknown_action": "⚠️ Nieznane działanie „{action}”.",
+      "unknown_action": "⚠️ Nieznana akcja \"{action}\".",
       "generic": "⚠️ Błąd konfiguracji. Szczegóły: {detail}"
     }
   }

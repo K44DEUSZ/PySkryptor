@@ -10,6 +10,7 @@ from typing import Any, Dict, Tuple
 import torch
 
 from core.services.settings_service import SettingsService, SettingsSnapshot, SettingsError
+from core.io.time_utils import get_current_year
 
 
 class ConfigError(RuntimeError):
@@ -18,15 +19,28 @@ class ConfigError(RuntimeError):
 
 
 class AppConfig:
-    """
-    Central runtime configuration (paths, binaries, device/dtype).
-    Uses SettingsService as the single source of truth.
-    """
+    """Global application configuration and metadata."""
 
-    # ----- Init settings -----
+    # ----- Static app metadata (not user-configurable) -----
 
-    # Derived paths (will be overridden by initialize() based on settings.json)
+    APP_NAME: str = "PySkryptor"
+    APP_VERSION: str = "0.1.0"
+    APP_AUTHOR: str = "Bartosz Golat"
+
+    APP_COPYRIGHT_YEAR: int = get_current_year()
+    APP_COPYRIGHT_START_YEAR: int = 2025
+    APP_COPYRIGHT_RANGE: str = (
+        f"{APP_COPYRIGHT_START_YEAR}"
+        if APP_COPYRIGHT_START_YEAR == APP_COPYRIGHT_YEAR
+        else f"{APP_COPYRIGHT_START_YEAR}–{APP_COPYRIGHT_YEAR}"
+    )
+
+    APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"
+
+    # ----- Paths -----
+
     ROOT_DIR: Path = Path(__file__).resolve().parents[2]
+
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
     MODELS_DIR: Path = RESOURCES_DIR / "models"
@@ -39,23 +53,22 @@ class AppConfig:
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    # Media extensions (input = what we accept as sources)
-    AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3")
-    VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm")
+    # ----- Media extensions -----
 
-    # Downloader output extensions (what we offer in download formats)
+    AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
+    VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm", ".mkv", ".mov", ".avi")
+
     DOWN_AUDIO_EXT: Tuple[str, ...] = ("m4a", "mp3")
     DOWN_VIDEO_EXT: Tuple[str, ...] = ("mp4", "webm")
 
-    # Transcript formats
-    TRANSCRIPT_DEFAULT_EXT: str = "txt"  # without leading dot
-    TRANSCRIPT_EXT: Tuple[str, ...] = ("txt",)
+    TRANSCRIPT_EXT: Tuple[str, ...] = ("txt", "srt", "sub")
+    TRANSCRIPT_DEFAULT_EXT: str = "txt"
 
-    # Download prefs
+    # ----- Downloader / network defaults -----
+
     VIDEO_MIN_HEIGHT: int = 144
     VIDEO_MAX_HEIGHT: int = 4320
 
-    # Network
     NET_MAX_KBPS: int | None = None
     NET_RETRIES: int = 3
     NET_CONC_FRAG: int = 4
@@ -63,7 +76,8 @@ class AppConfig:
     NET_PROXY: str | None = None
     NET_THROTTLE_S: int = 0
 
-    # Device/dtype/runtime
+    # ----- Device / dtype / runtime -----
+
     DEVICE: torch.device = torch.device("cpu")
     DTYPE: Any = torch.float32
     DEVICE_FRIENDLY_NAME: str = "CPU"
@@ -78,7 +92,13 @@ class AppConfig:
 
     @classmethod
     def initialize(cls, settings: SettingsService | None = None) -> None:
-        """Load settings and apply all runtime configuration."""
+        """
+        Load settings and apply runtime configuration.
+
+        User-configurable sections come from settings.json (app, engine, model,
+        transcription, downloader, network). Paths and media extensions are fixed
+        in code and not driven by JSON anymore.
+        """
         ss = settings or SettingsService(cls.ROOT_DIR)
         try:
             snap = ss.load()
@@ -86,80 +106,16 @@ class AppConfig:
             raise ConfigError(str(ex)) from ex
 
         cls.SETTINGS = snap
-        cls._apply_paths(snap.paths)
+
         cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
-        cls._apply_media(snap.media)
+
         cls._apply_downloader(snap.downloader)
         cls._apply_network(snap.network)
+        cls._apply_transcription(snap.transcription)
         cls._setup_device_dtype(user=snap.engine)
 
-    # ----- Apply sections -----
-
-    @classmethod
-    def _apply_paths(cls, paths: Dict[str, Any]) -> None:
-        """Resolve configurable paths and store them as absolute."""
-
-        def _resolve(p: str) -> Path:
-            path = Path(p)
-            return path if path.is_absolute() else (cls.ROOT_DIR / path)
-
-        cls.RESOURCES_DIR = _resolve(paths["resources_dir"])
-        cls.FFMPEG_DIR = _resolve(paths["ffmpeg_dir"])
-        cls.MODELS_DIR = _resolve(paths["models_dir"])
-        cls.AI_ENGINE_DIR = _resolve(paths["ai_engine_dir"])
-        cls.LOCALES_DIR = _resolve(paths["locales_dir"])
-
-        cls.DATA_DIR = _resolve(paths["data_dir"])
-        cls.DOWNLOADS_DIR = _resolve(paths["downloads_dir"])
-        cls.INPUT_TMP_DIR = _resolve(paths["input_tmp_dir"])
-        cls.TRANSCRIPTIONS_DIR = _resolve(paths["transcriptions_dir"])
-
-    @classmethod
-    def _apply_media(cls, media: Dict[str, Any]) -> None:
-        """Normalize audio/video extensions and transcript formats from settings."""
-        def _norm_with_dot(exts: Any) -> Tuple[str, ...]:
-            seq = list(exts or [])
-            out = []
-            for x in seq:
-                s = str(x).lower().strip()
-                if not s:
-                    continue
-                if not s.startswith("."):
-                    s = "." + s
-                out.append(s)
-            return tuple(dict.fromkeys(out))
-
-        def _norm_no_dot(exts: Any) -> Tuple[str, ...]:
-            seq = list(exts or [])
-            out = []
-            for x in seq:
-                s = str(x).lower().strip()
-                if not s:
-                    continue
-                if s.startswith("."):
-                    s = s[1:]
-                out.append(s)
-            return tuple(dict.fromkeys(out))
-
-        input_cfg = media.get("input", {}) or {}
-        dl_cfg = media.get("downloader", {}) or {}
-        tr_cfg = media.get("transcripts", {}) or {}
-
-        # Input (files the app accepts as sources)
-        cls.AUDIO_EXT = _norm_with_dot(input_cfg.get("audio_ext"))
-        cls.VIDEO_EXT = _norm_with_dot(input_cfg.get("video_ext"))
-
-        # Downloader formats (output options; no leading dots)
-        cls.DOWN_AUDIO_EXT = _norm_no_dot(dl_cfg.get("audio_ext"))
-        cls.DOWN_VIDEO_EXT = _norm_no_dot(dl_cfg.get("video_ext"))
-
-        # Transcript formats (no leading dots)
-        default_ext = str(tr_cfg.get("default_ext") or "txt").lower().strip()
-        if default_ext.startswith("."):
-            default_ext = default_ext[1:]
-        cls.TRANSCRIPT_DEFAULT_EXT = default_ext or "txt"
-        cls.TRANSCRIPT_EXT = _norm_no_dot(tr_cfg.get("ext") or [cls.TRANSCRIPT_DEFAULT_EXT])
+    # ----- Apply sections from settings -----
 
     @classmethod
     def _apply_downloader(cls, downloader: Dict[str, Any]) -> None:
@@ -212,6 +168,23 @@ class AppConfig:
         )
 
     @classmethod
+    def _apply_transcription(cls, transcription: Dict[str, Any]) -> None:
+        """
+        Apply preferred transcript extension from settings.
+
+        Only updates TRANSCRIPT_DEFAULT_EXT if the value is one of supported
+        extensions (txt, srt, sub). Trailing dot is ignored.
+        """
+        raw = transcription.get("output_ext", cls.TRANSCRIPT_DEFAULT_EXT)
+        ext = str(raw).lower().strip()
+        if ext.startswith("."):
+            ext = ext[1:]
+        if ext and ext in cls.TRANSCRIPT_EXT:
+            cls.TRANSCRIPT_DEFAULT_EXT = ext
+
+    # ----- Filesystem / ffmpeg -----
+
+    @classmethod
     def _ensure_dirs(cls) -> None:
         """Create all required resource/data directories if missing."""
         for p in (
@@ -257,7 +230,6 @@ class AppConfig:
             system = platform.system().lower()
 
             if system == "windows":
-                # 1) Registry query – usually matches Settings → System → About.
                 try:
                     out = subprocess.check_output(
                         [
@@ -280,7 +252,6 @@ class AppConfig:
                 except Exception:
                     pass
 
-                # 2) Fallback: WMIC.
                 try:
                     out = subprocess.check_output(
                         ["wmic", "cpu", "get", "Name"],
@@ -294,7 +265,6 @@ class AppConfig:
                 except Exception:
                     pass
 
-                # 3) Last resort.
                 name = platform.processor() or ""
                 if not name:
                     name = os.environ.get("PROCESSOR_IDENTIFIER", "") or ""
@@ -394,15 +364,10 @@ class AppConfig:
 
     @classmethod
     def language(cls) -> str:
-        """
-        Return current UI language code from settings.
-        May be 'auto' or a concrete code like 'pl', 'en', etc.
-        """
         if cls.SETTINGS:
             return str(cls.SETTINGS.app.get("language", "auto"))
         return "auto"
 
-    # Media extensions (input)
     @classmethod
     def audio_extensions(cls) -> Tuple[str, ...]:
         return cls.AUDIO_EXT
@@ -411,7 +376,6 @@ class AppConfig:
     def video_extensions(cls) -> Tuple[str, ...]:
         return cls.VIDEO_EXT
 
-    # Downloader extensions (output)
     @classmethod
     def downloader_audio_extensions(cls) -> Tuple[str, ...]:
         return cls.DOWN_AUDIO_EXT
@@ -420,7 +384,6 @@ class AppConfig:
     def downloader_video_extensions(cls) -> Tuple[str, ...]:
         return cls.DOWN_VIDEO_EXT
 
-    # Transcript formats
     @classmethod
     def transcript_default_ext(cls) -> str:
         return cls.TRANSCRIPT_DEFAULT_EXT
@@ -428,8 +391,6 @@ class AppConfig:
     @classmethod
     def transcript_extensions(cls) -> Tuple[str, ...]:
         return cls.TRANSCRIPT_EXT
-
-    # Model / app / engine / transcription / downloader / network settings
 
     @classmethod
     def model_settings(cls) -> Dict[str, Any]:
@@ -455,7 +416,6 @@ class AppConfig:
     def network_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.network) if cls.SETTINGS else {}
 
-    # Download prefs
     @classmethod
     def min_video_height(cls) -> int:
         return int(cls.VIDEO_MIN_HEIGHT)
@@ -464,7 +424,6 @@ class AppConfig:
     def max_video_height(cls) -> int:
         return int(cls.VIDEO_MAX_HEIGHT)
 
-    # Network
     @classmethod
     def net_max_kbps(cls) -> int | None:
         return cls.NET_MAX_KBPS

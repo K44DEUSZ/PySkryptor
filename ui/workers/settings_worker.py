@@ -1,5 +1,4 @@
 # ui/workers/settings_worker.py
-# ui/workers/settings_worker.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,8 +17,8 @@ class SettingsWorker(QtCore.QObject):
     Uses existing validation logic (load()) to avoid duplication.
     """
 
-    settings_loaded = QtCore.pyqtSignal(object)  # dict with sections
-    saved = QtCore.pyqtSignal(object)            # dict with sections after save
+    settings_loaded = QtCore.pyqtSignal(object)
+    saved = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
@@ -27,8 +26,6 @@ class SettingsWorker(QtCore.QObject):
         super().__init__()
         self._action = action
         self._payload = payload or {}
-
-    # ----- Qt entry point -----
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
@@ -43,14 +40,8 @@ class SettingsWorker(QtCore.QObject):
         finally:
             self.finished.emit()
 
-    # ----- Helpers -----
-
     @staticmethod
     def _snapshot_to_dict(snap) -> Dict[str, Any]:
-        """
-        Convert SettingsSnapshot into a simple dict of sections.
-        Only sections that are useful for the SettingsPanel are exposed.
-        """
         return {
             "app": dict(snap.app),
             "engine": dict(snap.engine),
@@ -60,17 +51,13 @@ class SettingsWorker(QtCore.QObject):
             "network": dict(snap.network),
         }
 
-    # ----- Actions -----
-
     def _do_load(self) -> None:
-        """Load and validate settings, then emit normalized dict."""
         try:
             svc = SettingsService(Config.ROOT_DIR)
             snap = svc.load()
             data = self._snapshot_to_dict(snap)
             self.settings_loaded.emit(data)
         except SettingsError as ex:
-            # Use i18n key + params if available.
             try:
                 msg = tr(ex.key, **ex.params)
             except Exception:
@@ -83,11 +70,8 @@ class SettingsWorker(QtCore.QObject):
         """
         Save selected sections to settings.json.
 
-        Steps:
-          1) Read current settings.json via SettingsService helpers.
-          2) Apply incoming sections (app/engine/model/transcription/downloader/network).
-          3) Write to temporary file and re-run SettingsService.load() to validate.
-          4) If OK, write final file and emit updated snapshot.
+        Sections from payload are merged with existing ones,
+        so we do not drop unknown or non-editable keys.
         """
         try:
             svc = SettingsService(Config.ROOT_DIR)
@@ -95,20 +79,31 @@ class SettingsWorker(QtCore.QObject):
             settings_path: Path = svc._settings_path  # type: ignore[attr-defined]
 
             if not settings_path.exists():
-                raise SettingsError("error.settings_missing", path=str(settings_path))
+                raise SettingsError(
+                    "error.settings.settings_missing",
+                    path=str(settings_path),
+                )
 
-            # 1) Read current raw settings
             raw = svc._read_json(settings_path)  # type: ignore[attr-defined]
             if not isinstance(raw, dict):
-                raise SettingsError("error.settings_invalid", path=str(settings_path))
+                raise SettingsError(
+                    "error.settings.settings_invalid",
+                    path=str(settings_path),
+                )
 
-            # 2) Apply only known sections from payload
             updated = dict(raw)
+
             for section in ("app", "engine", "model", "transcription", "downloader", "network"):
                 if section in self._payload:
-                    updated[section] = self._payload[section]
+                    base = updated.get(section, {})
+                    patch = self._payload[section]
+                    if isinstance(base, dict) and isinstance(patch, dict):
+                        merged = dict(base)
+                        merged.update(patch)
+                        updated[section] = merged
+                    else:
+                        updated[section] = patch
 
-            # 3) Validate via temporary file
             tmp_path = settings_path.with_suffix(settings_path.suffix + ".tmp")
             try:
                 svc._write_json(tmp_path, updated)  # type: ignore[attr-defined]
@@ -118,9 +113,8 @@ class SettingsWorker(QtCore.QObject):
                     defaults_path=defaults_path,
                     settings_path=tmp_path,
                 )
-                snap = tmp_svc.load()  # may raise SettingsError
+                snap = tmp_svc.load()
 
-                # 4) Commit: write final file and reload snapshot from canonical service
                 svc._write_json(settings_path, updated)  # type: ignore[attr-defined]
                 final_snap = svc.load()
                 data = self._snapshot_to_dict(final_snap)

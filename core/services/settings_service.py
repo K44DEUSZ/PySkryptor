@@ -33,8 +33,10 @@ class SettingsSnapshot:
 class SettingsService:
     """
     Loads and validates settings.json against defaults.json schema.
-    Defaults are a template (no implicit value fallback).
-    Also provides helpers for saving selected sections (used by Settings UI).
+
+    Internal sections (paths, media) are defined in code only.
+    User-facing sections (app, engine, model, transcription, downloader, network)
+    come from JSON and are validated against defaults.json.
     """
 
     def __init__(
@@ -49,6 +51,39 @@ class SettingsService:
         self._defaults_path = Path(defaults_path) if defaults_path else (cfg_dir / "defaults.json")
         self._settings_path = Path(settings_path) if settings_path else (cfg_dir / "settings.json")
 
+    # ----- Internal defaults for paths/media -----
+
+    @staticmethod
+    def _default_paths_dict() -> Dict[str, Any]:
+        return {
+            "resources_dir": "resources",
+            "ffmpeg_dir": "resources/ffmpeg",
+            "models_dir": "resources/models",
+            "ai_engine_dir": "resources/models/whisper-turbo",
+            "locales_dir": "resources/locales",
+            "data_dir": "data",
+            "downloads_dir": "data/downloads",
+            "input_tmp_dir": "data/.input_tmp",
+            "transcriptions_dir": "data/transcriptions",
+        }
+
+    @staticmethod
+    def _default_media_dict() -> Dict[str, Any]:
+        return {
+            "input": {
+                "audio_ext": [".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"],
+                "video_ext": [".mp4", ".webm", ".mkv", ".mov", ".avi"],
+            },
+            "downloader": {
+                "audio_ext": ["m4a", "mp3"],
+                "video_ext": ["mp4", "webm"],
+            },
+            "transcripts": {
+                "default_ext": "txt",
+                "ext": ["txt", "srt", "sub"],
+            },
+        }
+
     # ----- I/O -----
 
     @staticmethod
@@ -57,9 +92,16 @@ class SettingsService:
             with path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as ex:
-            raise SettingsError("error.json_invalid", path=str(path), detail=str(ex))
+            raise SettingsError(
+                "error.settings.json_invalid",
+                path=str(path),
+                detail=str(ex),
+            )
         if not isinstance(data, dict):
-            raise SettingsError("error.settings_section_invalid", section="root")
+            raise SettingsError(
+                "error.settings.section_invalid",
+                section="root",
+            )
         return data
 
     @staticmethod
@@ -73,7 +115,10 @@ class SettingsService:
     @staticmethod
     def _ensure_dict(obj: Any, name: str) -> Dict[str, Any]:
         if not isinstance(obj, dict):
-            raise SettingsError("error.settings_section_invalid", section=name)
+            raise SettingsError(
+                "error.settings.section_invalid",
+                section=name,
+            )
         return obj
 
     @staticmethod
@@ -82,41 +127,45 @@ class SettingsService:
         have = set(src.keys())
         missing = sorted(req - have)
         if missing:
-            raise SettingsError("error.settings_missing_keys", section=sec_name, keys=", ".join(missing))
+            raise SettingsError(
+                "error.settings.missing_keys",
+                section=sec_name,
+                keys=", ".join(missing),
+            )
 
     @staticmethod
     def _as_list_of_str(val: Any, field: str) -> List[str]:
         if not isinstance(val, list) or not all(isinstance(x, (str, int, float)) for x in val):
-            raise SettingsError("error.type_list_strings", field=field)
+            raise SettingsError("error.type.list_strings", field=field)
         return [str(x).lower() for x in val]
 
     @staticmethod
     def _as_nonempty_str(val: Any, field: str) -> str:
         if not isinstance(val, str) or not val:
-            raise SettingsError("error.type_string_nonempty", field=field)
+            raise SettingsError("error.type.string_nonempty", field=field)
         return val
 
     @staticmethod
     def _as_int(val: Any, field: str) -> int:
         if not isinstance(val, int):
-            raise SettingsError("error.type_int", field=field)
+            raise SettingsError("error.type.int", field=field)
         return int(val)
 
     @staticmethod
     def _enum_str(val: Any, allowed: Tuple[str, ...], field: str) -> str:
         s = str(val).lower()
         if s not in allowed:
-            raise SettingsError("error.enum_invalid", field=field, value=s, allowed=", ".join(allowed))
+            raise SettingsError(
+                "error.type.enum_invalid",
+                field=field,
+                value=s,
+                allowed=", ".join(allowed),
+            )
         return s
 
     # ----- Section validators -----
 
     def _validate_paths(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Settings contain final folders, no '*_subdir':
-          - resources_dir, ffmpeg_dir, models_dir, ai_engine_dir, locales_dir,
-            data_dir, downloads_dir, input_tmp_dir, transcriptions_dir
-        """
         self._require_keys("paths", src, schema)
         out: Dict[str, Any] = {}
         for k in schema.keys():
@@ -128,25 +177,34 @@ class SettingsService:
 
         out: Dict[str, Any] = {}
 
-        # input.{audio_ext, video_ext}
         schema_input = self._ensure_dict(schema.get("input"), "media.input")
         src_input = self._ensure_dict(src.get("input"), "media.input")
         self._require_keys("media.input", src_input, schema_input)
         out["input"] = {
-            "audio_ext": self._as_list_of_str(src_input.get("audio_ext"), "media.input.audio_ext"),
-            "video_ext": self._as_list_of_str(src_input.get("video_ext"), "media.input.video_ext"),
+            "audio_ext": self._as_list_of_str(
+                src_input.get("audio_ext"),
+                "media.input.audio_ext",
+            ),
+            "video_ext": self._as_list_of_str(
+                src_input.get("video_ext"),
+                "media.input.video_ext",
+            ),
         }
 
-        # downloader.{audio_ext, video_ext}
         schema_down = self._ensure_dict(schema.get("downloader"), "media.downloader")
         src_down = self._ensure_dict(src.get("downloader"), "media.downloader")
         self._require_keys("media.downloader", src_down, schema_down)
         out["downloader"] = {
-            "audio_ext": self._as_list_of_str(src_down.get("audio_ext"), "media.downloader.audio_ext"),
-            "video_ext": self._as_list_of_str(src_down.get("video_ext"), "media.downloader.video_ext"),
+            "audio_ext": self._as_list_of_str(
+                src_down.get("audio_ext"),
+                "media.downloader.audio_ext",
+            ),
+            "video_ext": self._as_list_of_str(
+                src_down.get("video_ext"),
+                "media.downloader.video_ext",
+            ),
         }
 
-        # transcripts.{default_ext, ext}
         schema_tr = self._ensure_dict(schema.get("transcripts"), "media.transcripts")
         src_tr = self._ensure_dict(src.get("transcripts"), "media.transcripts")
         self._require_keys("media.transcripts", src_tr, schema_tr)
@@ -155,7 +213,10 @@ class SettingsService:
                 src_tr.get("default_ext"),
                 "media.transcripts.default_ext",
             ).lower(),
-            "ext": self._as_list_of_str(src_tr.get("ext"), "media.transcripts.ext"),
+            "ext": self._as_list_of_str(
+                src_tr.get("ext"),
+                "media.transcripts.ext",
+            ),
         }
 
         return out
@@ -163,10 +224,12 @@ class SettingsService:
     def _validate_app(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("app", src, schema)
         out: Dict[str, Any] = {}
-        # language: allow any non-empty string (e.g. "auto", "pl", "en", "pl-PL", etc.)
         out["language"] = self._as_nonempty_str(src.get("language"), "app.language")
-        # theme: constrained to known values
-        out["theme"] = self._enum_str(src.get("theme"), ("auto", "light", "dark"), "app.theme")
+        out["theme"] = self._enum_str(
+            src.get("theme"),
+            ("auto", "light", "dark"),
+            "app.theme",
+        )
         return out
 
     def _validate_engine(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -188,13 +251,25 @@ class SettingsService:
     def _validate_model(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("model", src, schema)
         out: Dict[str, Any] = {}
-        out["ai_engine_name"] = self._as_nonempty_str(src.get("ai_engine_name"), "model.ai_engine_name")
+        out["ai_engine_name"] = self._as_nonempty_str(
+            src.get("ai_engine_name"),
+            "model.ai_engine_name",
+        )
         out["local_models_only"] = bool(src.get("local_models_only", True))
 
-        out["chunk_length_s"] = self._as_int(src.get("chunk_length_s"), "model.chunk_length_s")
-        out["stride_length_s"] = self._as_int(src.get("stride_length_s"), "model.stride_length_s")
+        out["chunk_length_s"] = self._as_int(
+            src.get("chunk_length_s"),
+            "model.chunk_length_s",
+        )
+        out["stride_length_s"] = self._as_int(
+            src.get("stride_length_s"),
+            "model.stride_length_s",
+        )
 
-        out["pipeline_task"] = self._as_nonempty_str(src.get("pipeline_task"), "model.pipeline_task")
+        out["pipeline_task"] = self._as_nonempty_str(
+            src.get("pipeline_task"),
+            "model.pipeline_task",
+        )
         out["ignore_warning"] = bool(src.get("ignore_warning", True))
         out["default_language"] = src.get("default_language", None)
 
@@ -209,35 +284,48 @@ class SettingsService:
         out["timestamps_output"] = bool(src.get("timestamps_output", False))
         out["keep_downloaded_files"] = bool(src.get("keep_downloaded_files", True))
         out["keep_wav_temp"] = bool(src.get("keep_wav_temp", False))
-        # New flag: download audio-only for URL transcriptions.
         out["download_audio_only"] = bool(src.get("download_audio_only", True))
+
+        raw_ext = src.get("output_ext", "txt")
+        ext = str(raw_ext).lower().strip()
+        if ext.startswith("."):
+            ext = ext[1:]
+        out["output_ext"] = ext or "txt"
+
         return out
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("downloader", src, schema)
         out: Dict[str, Any] = {}
-        out["min_video_height"] = self._as_int(src.get("min_video_height"), "downloader.min_video_height")
-        out["max_video_height"] = self._as_int(src.get("max_video_height"), "downloader.max_video_height")
+        out["min_video_height"] = self._as_int(
+            src.get("min_video_height"),
+            "downloader.min_video_height",
+        )
+        out["max_video_height"] = self._as_int(
+            src.get("max_video_height"),
+            "downloader.max_video_height",
+        )
         return out
 
     def _validate_network(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("network", src, schema)
         out: Dict[str, Any] = {}
-        # Allow None or int for bandwidth
         bw = src.get("max_bandwidth_kbps")
         if bw is not None and not isinstance(bw, int):
-            raise SettingsError("error.type_int", field="network.max_bandwidth_kbps")
+            raise SettingsError("error.type.int", field="network.max_bandwidth_kbps")
         out["max_bandwidth_kbps"] = bw
         out["retries"] = self._as_int(src.get("retries"), "network.retries")
         out["concurrent_fragments"] = self._as_int(
             src.get("concurrent_fragments"),
             "network.concurrent_fragments",
         )
-        out["http_timeout_s"] = self._as_int(src.get("http_timeout_s"), "network.http_timeout_s")
-        # proxy may be null or string
+        out["http_timeout_s"] = self._as_int(
+            src.get("http_timeout_s"),
+            "network.http_timeout_s",
+        )
         proxy = src.get("proxy", None)
         if proxy is not None and not isinstance(proxy, str):
-            raise SettingsError("error.type_string_nonempty", field="network.proxy")
+            raise SettingsError("error.type.string_nonempty", field="network.proxy")
         out["proxy"] = proxy
         out["throttle_startup_s"] = self._as_int(
             src.get("throttle_startup_s"),
@@ -249,31 +337,50 @@ class SettingsService:
 
     def load(self) -> SettingsSnapshot:
         if not self._defaults_path.exists():
-            raise SettingsError("error.defaults_missing", path=str(self._defaults_path))
+            raise SettingsError(
+                "error.settings.defaults_missing",
+                path=str(self._defaults_path),
+            )
         defaults = self._read_json(self._defaults_path)
 
-        schema_paths = self._ensure_dict(defaults.get("paths"), "paths")
-        schema_media = self._ensure_dict(defaults.get("media"), "media")
         schema_app = self._ensure_dict(defaults.get("app"), "app")
         schema_engine = self._ensure_dict(defaults.get("engine"), "engine")
         schema_model = self._ensure_dict(defaults.get("model"), "model")
-        schema_transcription = self._ensure_dict(defaults.get("transcription"), "transcription")
-        schema_downloader = self._ensure_dict(defaults.get("downloader"), "downloader")
+        schema_transcription = self._ensure_dict(
+            defaults.get("transcription"),
+            "transcription",
+        )
+        schema_downloader = self._ensure_dict(
+            defaults.get("downloader"),
+            "downloader",
+        )
         schema_network = self._ensure_dict(defaults.get("network"), "network")
 
         if not self._settings_path.exists():
-            raise SettingsError("error.settings_missing", path=str(self._settings_path))
+            raise SettingsError(
+                "error.settings.settings_missing",
+                path=str(self._settings_path),
+            )
 
         try:
             settings = self._read_json(self._settings_path)
 
-            src_paths = self._ensure_dict(settings.get("paths"), "paths")
-            src_media = self._ensure_dict(settings.get("media"), "media")
+            schema_paths = self._default_paths_dict()
+            schema_media = self._default_media_dict()
+            src_paths = self._default_paths_dict()
+            src_media = self._default_media_dict()
+
             src_app = self._ensure_dict(settings.get("app"), "app")
             src_engine = self._ensure_dict(settings.get("engine"), "engine")
             src_model = self._ensure_dict(settings.get("model"), "model")
-            src_transcription = self._ensure_dict(settings.get("transcription"), "transcription")
-            src_downloader = self._ensure_dict(settings.get("downloader"), "downloader")
+            src_transcription = self._ensure_dict(
+                settings.get("transcription"),
+                "transcription",
+            )
+            src_downloader = self._ensure_dict(
+                settings.get("downloader"),
+                "downloader",
+            )
             src_network = self._ensure_dict(settings.get("network"), "network")
 
             v_paths = self._validate_paths(src_paths, schema_paths)
@@ -281,13 +388,23 @@ class SettingsService:
             v_app = self._validate_app(src_app, schema_app)
             v_engine = self._validate_engine(src_engine, schema_engine)
             v_model = self._validate_model(src_model, schema_model)
-            v_transcription = self._validate_transcription(src_transcription, schema_transcription)
-            v_downloader = self._validate_downloader(src_downloader, schema_downloader)
+            v_transcription = self._validate_transcription(
+                src_transcription,
+                schema_transcription,
+            )
+            v_downloader = self._validate_downloader(
+                src_downloader,
+                schema_downloader,
+            )
             v_network = self._validate_network(src_network, schema_network)
         except SettingsError:
             raise
         except Exception as ex:
-            raise SettingsError("error.settings_invalid", path=str(self._settings_path), detail=str(ex))
+            raise SettingsError(
+                "error.settings.settings_invalid",
+                path=str(self._settings_path),
+                detail=str(ex),
+            )
 
         return SettingsSnapshot(
             paths=v_paths,
@@ -301,45 +418,56 @@ class SettingsService:
         )
 
     def restore_defaults(self, sections: Optional[List[str]] = None) -> None:
-        """Overwrite settings.json with defaults (all or selected sections)."""
+        """
+        Overwrite user-editable sections in settings.json with defaults.
+
+        Internal sections (paths, media) are never written to settings.json.
+        """
         if not self._defaults_path.exists():
-            raise SettingsError("error.defaults_missing", path=str(self._defaults_path))
+            raise SettingsError(
+                "error.settings.defaults_missing",
+                path=str(self._defaults_path),
+            )
         defaults = self._read_json(self._defaults_path)
 
+        user_sections = ("app", "engine", "model", "transcription", "downloader", "network")
+
         if sections is None:
-            data = defaults
+            sections = list(user_sections)
         else:
-            data: Dict[str, Any] = {}
-            if self._settings_path.exists():
-                try:
-                    data = self._read_json(self._settings_path)
-                except SettingsError:
-                    data = {}
-            for sec in sections:
-                if sec in defaults:
-                    data[sec] = defaults[sec]
+            sections = [sec for sec in sections if sec in user_sections]
+
+        data: Dict[str, Any] = {}
+        if self._settings_path.exists():
+            try:
+                data = self._read_json(self._settings_path)
+            except SettingsError:
+                data = {}
+
+        for sec in sections:
+            if sec in defaults:
+                data[sec] = defaults[sec]
+
         self._write_json(self._settings_path, data)
 
-    # ----- Convenience loader with auto-restore -----
-
     def load_or_restore(self) -> Tuple[SettingsSnapshot, bool, str]:
-        """Try load; if settings missing/invalid, restore from defaults and load again."""
         try:
             snap = self.load()
             return snap, False, ""
         except SettingsError as ex:
-            if ex.key == "error.defaults_missing":
+            if ex.key == "error.settings.defaults_missing":
                 raise
             reason = ex.key
-            if reason not in ("error.settings_missing", "error.settings_invalid"):
+            if reason not in (
+                "error.settings.settings_missing",
+                "error.settings.settings_invalid",
+            ):
                 raise
             if not self._defaults_path.exists():
                 raise
             self.restore_defaults(sections=None)
             snap = self.load()
             return snap, True, reason
-
-    # ----- Save selected sections (used by SettingsPanel) -----
 
     def save_sections(
         self,
@@ -353,28 +481,36 @@ class SettingsService:
     ) -> SettingsSnapshot:
         """
         Validate and write chosen sections back to settings.json.
+
+        Internal sections (paths, media) always come from code defaults.
         Any section set to None is loaded from current settings (or defaults).
         Returns a fresh validated snapshot.
         """
         if not self._defaults_path.exists():
-            raise SettingsError("error.defaults_missing", path=str(self._defaults_path))
+            raise SettingsError(
+                "error.settings.defaults_missing",
+                path=str(self._defaults_path),
+            )
         defaults = self._read_json(self._defaults_path)
 
-        schema_paths = self._ensure_dict(defaults.get("paths"), "paths")
-        schema_media = self._ensure_dict(defaults.get("media"), "media")
         schema_app = self._ensure_dict(defaults.get("app"), "app")
         schema_engine = self._ensure_dict(defaults.get("engine"), "engine")
         schema_model = self._ensure_dict(defaults.get("model"), "model")
-        schema_transcription = self._ensure_dict(defaults.get("transcription"), "transcription")
-        schema_downloader = self._ensure_dict(defaults.get("downloader"), "downloader")
+        schema_transcription = self._ensure_dict(
+            defaults.get("transcription"),
+            "transcription",
+        )
+        schema_downloader = self._ensure_dict(
+            defaults.get("downloader"),
+            "downloader",
+        )
         schema_network = self._ensure_dict(defaults.get("network"), "network")
 
         if self._settings_path.exists():
             current = self._read_json(self._settings_path)
         else:
-            current = defaults
+            current = {}
 
-        # Helper: get section from provided value, or current, or defaults.
         def _section(name: str, override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             if override is not None:
                 return self._ensure_dict(override, name)
@@ -382,8 +518,11 @@ class SettingsService:
                 return self._ensure_dict(current[name], name)
             return self._ensure_dict(defaults.get(name, {}), name)
 
-        src_paths = _section("paths", None)
-        src_media = _section("media", None)
+        schema_paths = self._default_paths_dict()
+        schema_media = self._default_media_dict()
+        src_paths = self._default_paths_dict()
+        src_media = self._default_media_dict()
+
         src_app = _section("app", app)
         src_engine = _section("engine", engine)
         src_model = _section("model", model)
@@ -396,13 +535,17 @@ class SettingsService:
         v_app = self._validate_app(src_app, schema_app)
         v_engine = self._validate_engine(src_engine, schema_engine)
         v_model = self._validate_model(src_model, schema_model)
-        v_transcription = self._validate_transcription(src_transcription, schema_transcription)
-        v_downloader = self._validate_downloader(src_downloader, schema_downloader)
+        v_transcription = self._validate_transcription(
+            src_transcription,
+            schema_transcription,
+        )
+        v_downloader = self._validate_downloader(
+            src_downloader,
+            schema_downloader,
+        )
         v_network = self._validate_network(src_network, schema_network)
 
         data: Dict[str, Any] = {
-            "paths": v_paths,
-            "media": v_media,
             "app": v_app,
             "engine": v_engine,
             "model": v_model,
