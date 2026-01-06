@@ -43,7 +43,16 @@ def info_settings_restored(parent: QtWidgets.QWidget | None = None) -> None:
     Single 'OK' continues into the app.
     """
     title = T.tr("app.title")
-    text = T.tr("dialog.settings_restored")  # e.g. "Settings file was missing. Defaults have been restored."
+    text = T.tr("dialog.settings_restored")
+    QtWidgets.QMessageBox.information(parent, title, text)
+
+
+# ----- Downloader info dialogs -----
+
+def info_playlist_not_supported(parent: QtWidgets.QWidget | None = None) -> None:
+    """Shown when a playlist URL (or video-in-playlist context) is detected."""
+    title = T.tr("app.title")
+    text = T.tr("down.dialog.playlist_not_supported.text")
     QtWidgets.QMessageBox.information(parent, title, text)
 
 
@@ -105,7 +114,7 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
     if rb_over.isChecked():
         return "overwrite", "", cb_all.isChecked()
     if rb_new.isChecked():
-        return "new", name_edit.text().strip(), False  # 'apply_all' disabled for new names
+        return "new", name_edit.text().strip(), False
     return "skip", "", cb_all.isChecked()
 
 

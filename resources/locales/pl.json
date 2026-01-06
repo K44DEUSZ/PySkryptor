@@ -57,6 +57,7 @@
 
     "probe": "Analizuj 🔍",
     "open_folder": "Otwórz folder pobranych plików 📂",
+    "open_in_browser": "Otwórz w przeglądarce 🌐",
 
     "meta": {
       "title": "Informacje o mediach",
@@ -86,6 +87,7 @@
       "downloading": "⬇️ Pobieranie...",
       "postprocess": "⚙️ Przetwarzanie pliku...",
       "downloaded_prefix": "✅ Pobrano plik:",
+      "playlist_not_supported": "Playlisty nie są obsługiwane w tej wersji programu.",
       "error": "⚠️ {msg}"
     },
 
@@ -95,6 +97,9 @@
         "skip": "Pomiń ⏭️",
         "overwrite": "Nadpisz ♻️",
         "rename": "Zapisz pod nową nazwą ✏️"
+      },
+      "playlist_not_supported": {
+        "text": "Ten link wskazuje na playlistę (lub film otwarty w kontekście playlisty).\nPlaylisty nie są obsługiwane w tej wersji programu."
       }
     }
   },
@@ -266,7 +271,7 @@
     },
 
     "license": {
-      "summary": "Ten program jest wolnym oprogramowaniem rozpowszechnianym na licencji GNU General Public License w wersji 3 (GPL-3.0) lub — według Twojego wyboru — nowszej.",
+      "summary": "Ten program jest wolnym oprogramowaniem rozpowszechnianym na licencji GNU General Public License w wersji 3 (GPL-3.0).",
       "full_link": "Pełny tekst licencji znajdziesz w pliku <a href=\"license\">LICENSE</a> dołączonym do aplikacji."
     }
   },

@@ -5,7 +5,7 @@
   },
   "engine": {
     "preferred_device": "auto",
-    "precision": "auto",
+    "precision": "float16",
     "allow_tf32": true
   },
   "model": {

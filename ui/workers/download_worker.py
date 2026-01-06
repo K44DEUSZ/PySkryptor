@@ -1,31 +1,29 @@
 # ui/workers/download_worker.py
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Optional
 
 from PyQt5 import QtCore
 
 from core.config.app_config import AppConfig as Config
-from core.services.download_service import DownloadService, DownloadError
+from core.services.download_service import DownloadService, DownloadError, DownloadCancelled
 from core.services.media_metadata import MediaMetadataService
-from core.io.text import sanitize_filename
 from ui.utils.translating import tr
 
 
 class DownloadWorker(QtCore.QObject):
-    """Background worker for probing and downloading media via DownloadService."""
+    """Background worker for probing and downloading URLs."""
 
+    meta_ready = QtCore.pyqtSignal(dict)
     progress_log = QtCore.pyqtSignal(str)
-    progress_pct = QtCore.pyqtSignal(int)
 
-    meta_ready = QtCore.pyqtSignal(object)
-    download_already_exists = QtCore.pyqtSignal(Path, str)  # (path, title)  [legacy]
+    progress_pct = QtCore.pyqtSignal(int)
     download_finished = QtCore.pyqtSignal(Path)
     download_error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
-    # Duplicate handling rendezvous with GUI
     duplicate_check = QtCore.pyqtSignal(str, str)  # (title, existing_path)
 
     def __init__(
@@ -39,6 +37,7 @@ class DownloadWorker(QtCore.QObject):
         audio_lang: Optional[str] = None,
     ) -> None:
         super().__init__()
+
         self._action = action
         self._url = url
         self._kind = kind
@@ -47,53 +46,54 @@ class DownloadWorker(QtCore.QObject):
         self._audio_lang = audio_lang
 
         self._svc = DownloadService()
-        self._meta = MediaMetadataService(self._svc)
+        self._meta = MediaMetadataService()
 
-        self._cancelled = False
+        self._cancel_event = threading.Event()
+        self._cancel_logged = False
 
-        # duplicate rendezvous state
         self._dup_decision_action: Optional[str] = None  # "skip" | "overwrite" | "rename"
         self._dup_decision_name: str = ""
         self._file_stem: Optional[str] = None
-
-    # ----- API -----
+        self._overwrite_existing: bool = False
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
-        """Entry point for the worker thread."""
         try:
             if self._action == "probe":
                 self._do_probe()
             elif self._action == "download":
                 self._do_download()
             else:
-                # Unknown action – just log a localized error instead of raising.
                 msg = tr("error.config.unknown_action", action=self._action)
                 self.download_error.emit(tr("down.log.error", msg=msg))
+
+        except DownloadCancelled:
+            if not self._cancel_logged:
+                self.progress_log.emit(tr("log.cancelled"))
+
         except DownloadError as de:
-            # Controlled errors from DownloadService – localize by key.
             self.download_error.emit(tr(de.key, **de.params))
+
         except Exception as e:
-            # Any unexpected error – keep app alive, show localized wrapper.
             self.download_error.emit(tr("down.log.error", msg=str(e)))
+
         finally:
             self.finished.emit()
 
-    @QtCore.pyqtSlot()
     def cancel(self) -> None:
-        """Mark current operation as cancelled (best-effort)."""
-        self._cancelled = True
+        self._cancel_event.set()
+        if not self._cancel_logged:
+            self._cancel_logged = True
+            try:
+                self.progress_log.emit(tr("log.cancelled"))
+            except Exception:
+                pass
 
-    @QtCore.pyqtSlot(str, str)
     def on_duplicate_decided(self, action: str, new_name: str) -> None:
-        """Callback from GUI with user decision on duplicate file."""
         self._dup_decision_action = action
         self._dup_decision_name = new_name
 
-    # ----- Steps -----
-
     def _do_probe(self) -> None:
-        """Probe URL metadata and emit meta_ready."""
         self.progress_log.emit(tr("down.log.analyze"))
 
         meta_obj = self._meta.from_url(self._url, log=lambda _m: None)
@@ -105,18 +105,28 @@ class DownloadWorker(QtCore.QObject):
             "extractor": meta_obj.service,
             "formats": meta_obj.formats or [],
         }
-        # If DownloadService.probe adds audio_langs in the future, we will pass it through.
         if meta_obj.audio_langs:
             payload["audio_langs"] = meta_obj.audio_langs
 
         self.meta_ready.emit(payload)
 
+    @staticmethod
+    def _ensure_dir(p: Path) -> None:
+        p.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _safe_unlink(p: Path) -> None:
+        try:
+            if p.exists():
+                p.unlink()
+        except Exception:
+            pass
+
     def _do_download(self) -> None:
-        """Run download with optional duplicate handling and progress callback."""
-        # Reset duplicate decision for this run
         self._dup_decision_action = None
         self._dup_decision_name = ""
         self._file_stem = None
+        self._overwrite_existing = False
 
         seen_stage_downloading = False
         seen_stage_post = False
@@ -124,17 +134,11 @@ class DownloadWorker(QtCore.QObject):
         def _on_progress(pct: int, stage: str) -> None:
             nonlocal seen_stage_downloading, seen_stage_post
 
-            if self._cancelled:
-                return
-
-            # progress bar
             try:
-                self.progress_pct.emit(max(0, min(100, int(pct))))
+                self.progress_pct.emit(int(pct))
             except Exception:
-                # Never let a UI issue kill the worker
                 pass
 
-            # stage logs (localized via JSON)
             try:
                 if stage == "downloading" and not seen_stage_downloading:
                     self.progress_log.emit(tr("down.log.downloading"))
@@ -148,89 +152,129 @@ class DownloadWorker(QtCore.QObject):
         kind = (self._kind or "video").lower()
         ext = (self._ext or "mp4").lower()
         if kind == "video" and ext in ("mp3", "m4a"):
-            # Extra safety: do not try to mux "video" into pure-audio container.
             ext = "mp4"
 
-        # ----- Duplicate pre-check -----
+        final_dir = Config.DOWNLOADS_DIR
+        tmp_dir = final_dir / "_tmp"
+        self._ensure_dir(final_dir)
+        self._ensure_dir(tmp_dir)
+
+        # ----- Duplicate pre-check (in final_dir) -----
         try:
-            meta_obj = self._meta.from_url(self._url, log=lambda _m: None)
-            title = str(meta_obj.title or "").strip()
-            if title:
-                safe = sanitize_filename(title)
-                candidate = Config.DOWNLOADS_DIR / f"{safe}.{ext}"
+            title, predicted = self._svc.predict_output_path(
+                url=self._url,
+                kind=kind,
+                quality=(self._quality or "auto"),
+                ext=ext,
+                out_dir=final_dir,
+                audio_lang=self._audio_lang,
+                file_stem=None,
+                log=lambda _m: None,
+            )
 
-                existing: Optional[Path] = None
-                if candidate.exists():
-                    existing = candidate
-                else:
-                    for p in Config.DOWNLOADS_DIR.glob(f"{safe}.*"):
-                        if p.is_file():
-                            existing = p
-                            break
+            existing: Optional[Path] = None
+            if predicted and predicted.exists():
+                existing = predicted
+            elif predicted:
+                candidates = list(final_dir.glob(f"{predicted.stem}.*"))
+                candidates = [p for p in candidates if p.is_file()]
+                if candidates:
+                    existing = max(candidates, key=lambda p: p.stat().st_mtime)
 
-                if existing:
-                    # Ask GUI what to do.
-                    self.duplicate_check.emit(title, str(existing))
+            if existing:
+                self.duplicate_check.emit(title or existing.stem or self._url, str(existing))
 
-                    # Wait for GUI response, but do not block forever.
-                    waited_ms = 0
-                    while (
-                        not self._cancelled
-                        and self._dup_decision_action is None
-                        and waited_ms < 30_000
-                    ):
-                        QtCore.QThread.msleep(10)
-                        waited_ms += 10
+                waited_ms = 0
+                timeout_ms = 15_000
+                while (
+                    not self._cancel_event.is_set()
+                    and self._dup_decision_action is None
+                    and waited_ms < timeout_ms
+                ):
+                    QtCore.QThread.msleep(10)
+                    waited_ms += 10
 
-                    if self._cancelled:
-                        # Treat as soft cancel – just return.
-                        return
+                if self._cancel_event.is_set():
+                    return
 
-                    if self._dup_decision_action is None:
-                        # No decision in time – fail gracefully.
-                        msg = tr("down.log.error", msg="duplicate decision timeout")
-                        self.download_error.emit(msg)
-                        return
+                if self._dup_decision_action is None:
+                    raise DownloadError("error.down.duplicate_timeout")
 
-                    if self._dup_decision_action == "skip":
-                        msg = tr("down.dialog.exists.skip")
-                        self.download_error.emit(tr("down.log.error", msg=msg))
-                        return
+                if self._dup_decision_action == "skip":
+                    self.progress_log.emit(tr("status.skipped"))
+                    return
 
-                    if self._dup_decision_action == "rename":
-                        safe = sanitize_filename(self._dup_decision_name or safe)
-                        # store for use as file_stem in DownloadService
-                        self._file_stem = safe
-                    # "overwrite" – zachowujemy domyślne nazewnictwo (%(title)s)
+                if self._dup_decision_action == "overwrite":
+                    self._overwrite_existing = True
+
+                if self._dup_decision_action == "rename":
+                    new_name = (self._dup_decision_name or "").strip()
+                    if new_name:
+                        self._file_stem = new_name
+
+        except DownloadError:
+            raise
         except Exception:
-            # If duplicate pre-check fails, ignore and proceed with standard download.
+            # Ignore pre-check errors and proceed with download.
             pass
 
-        if self._cancelled:
+        if self._cancel_event.is_set():
             return
 
-        # ----- Actual download -----
-        path = self._svc.download(
+        # Download into tmp_dir so partials never appear in final downloads view.
+        tmp_path = self._svc.download(
             url=self._url,
             kind=kind,
             quality=(self._quality or "auto"),
             ext=ext,
-            out_dir=Config.DOWNLOADS_DIR,
+            out_dir=tmp_dir,
             progress_cb=_on_progress,
             log=lambda _m: None,
             audio_lang=self._audio_lang,
             file_stem=self._file_stem,
+            cancel_check=self._cancel_event.is_set,
         )
 
-        if not path:
-            detail = tr("error.down.no_output_file")
-            self.download_error.emit(tr("error.down.download_failed", detail=detail))
+        if self._cancel_event.is_set():
             return
 
-        if not self._cancelled:
+        if not tmp_path:
+            raise DownloadError("error.down.no_output_file")
+
+        # Move to final_dir
+        final_path = final_dir / tmp_path.name
+
+        if final_path.exists():
+            if self._overwrite_existing:
+                self._safe_unlink(final_path)
+            else:
+                # Should not happen if dialog logic worked, but keep it safe.
+                raise DownloadError("error.down.duplicate_exists", path=str(final_path))
+
+        try:
+            tmp_path.replace(final_path)
+        except Exception:
+            # cross-device fallback
             try:
-                self.progress_pct.emit(100)
-                self.download_finished.emit(path)
-            except Exception:
-                # Even if emitting fails, do not crash worker.
-                pass
+                data = tmp_path.read_bytes()
+                final_path.write_bytes(data)
+                self._safe_unlink(tmp_path)
+            except Exception as e:
+                raise DownloadError("error.down.move_failed", detail=str(e))
+
+        # Best-effort cleanup: remove stray files for this stem in tmp_dir.
+        try:
+            for p in tmp_dir.glob(f"{tmp_path.stem}*"):
+                if p.is_file():
+                    self._safe_unlink(p)
+            # If empty, remove tmp_dir
+            if not any(tmp_dir.iterdir()):
+                tmp_dir.rmdir()
+        except Exception:
+            pass
+
+        try:
+            self.progress_pct.emit(100)
+            self.download_finished.emit(final_path)
+        except Exception:
+            pass
