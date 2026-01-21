@@ -116,25 +116,24 @@ class FileManager:
             shutil.rmtree(path, ignore_errors=True)
 
     @staticmethod
-    def ensure_tmp_wav(source: Path, log=print) -> Path:
+    def ensure_tmp_wav(
+        source: Path,
+        log=print,
+        *,
+        cancel_check=None,
+    ) -> Path:
         """
         Return a path suitable as ASR model input.
 
         - If 'source' is already a supported audio file (per settings) → return it as-is.
         - Otherwise create a 16 kHz mono WAV copy in INPUT_TMP_DIR and return that path.
         """
-        # Normalize audio extensions from config (".wav", ".mp3", ...)
-        audio_exts = {
-            e.lower() if e.startswith(".") else f".{e.lower()}"
-            for e in Config.audio_extensions()
-        }
-        if source.suffix.lower() in audio_exts:
-            # No need to transcode; model/ffmpeg can read compressed audio directly.
+        if source.suffix.lower() == ".wav":
             return source
 
         target = Config.INPUT_TMP_DIR / (source.stem + ".wav")
         target.parent.mkdir(parents=True, exist_ok=True)
-        AudioExtractor.ensure_mono_16k(source, target, log=log)
+        AudioExtractor.ensure_mono_16k(source, target, log=log, cancel_check=cancel_check)
         return target
 
     @staticmethod

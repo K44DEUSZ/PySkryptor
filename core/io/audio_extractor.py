@@ -1,7 +1,9 @@
 # core/io/audio_extractor.py
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional, Callable
 
@@ -24,22 +26,26 @@ class AudioExtractor:
     def _ffmpeg_exe() -> str:
         """Return absolute ffmpeg executable path or name on PATH."""
         base = Config.FFMPEG_BIN_DIR
-        exe = "ffmpeg.exe" if Path().anchor or (hasattr(Path, "home") and Path.home().drive) else "ffmpeg"
+        exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
         cand = base / exe
-        return str(cand) if cand.exists() else "ffmpeg"
-
+        return str(cand) if cand.exists() else exe
 
     @staticmethod
     def _ffprobe_exe() -> str:
         """Return absolute ffprobe executable path or name on PATH."""
         base = Config.FFMPEG_BIN_DIR
-        exe = "ffprobe.exe" if Path().anchor or (hasattr(Path, "home") and Path.home().drive) else "ffprobe"
+        exe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
         cand = base / exe
-        return str(cand) if cand.exists() else "ffprobe"
-
+        return str(cand) if cand.exists() else exe
 
     @staticmethod
-    def ensure_mono_16k(src: Path, dst: Path, log: Optional[Callable[[str], None]]) -> None:
+    def ensure_mono_16k(
+        src: Path,
+        dst: Path,
+        log: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> None:
         """
         Convert any media to WAV PCM 16kHz mono (overwrite if exists).
         Raises AudioError with i18n key on failure.
@@ -49,22 +55,46 @@ class AudioExtractor:
             "-y",
             "-i",
             str(src),
-            "-ar", "16000",
-            "-ac", "1",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
             "-vn",
-            "-f", "wav",
+            "-f",
+            "wav",
             str(dst),
         ]
+        proc: subprocess.Popen | None = None
         try:
-            subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except subprocess.CalledProcessError as e:
-            raise AudioError("error.audio.ffmpeg_failed", detail=str(e), src=str(src))
 
+            while True:
+                if cancel_check and bool(cancel_check()):
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    raise AudioError("log.cancelled")
+
+                rc = proc.poll()
+                if rc is not None:
+                    if rc != 0:
+                        raise AudioError(
+                            "error.audio.ffmpeg_failed",
+                            detail=f"ffmpeg exit={rc}",
+                            src=str(src),
+                        )
+                    return
+                time.sleep(0.05)
+
+        except AudioError:
+            raise
+        except Exception as e:
+            raise AudioError("error.audio.ffmpeg_failed", detail=str(e), src=str(src))
 
     @staticmethod
     def probe_duration(path: Path) -> Optional[float]:
@@ -74,9 +104,12 @@ class AudioExtractor:
         """
         cmd = [
             AudioExtractor._ffprobe_exe(),
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             str(path),
         ]
         try:

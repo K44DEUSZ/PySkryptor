@@ -49,8 +49,8 @@ class AppConfig:
 
     DATA_DIR: Path = ROOT_DIR / "data"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
-    INPUT_TMP_DIR: Path = DATA_DIR / ".input_tmp"
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
+    INPUT_TMP_DIR: Path = TRANSCRIPTIONS_DIR / ".input_tmp"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
     # ----- Media extensions -----
