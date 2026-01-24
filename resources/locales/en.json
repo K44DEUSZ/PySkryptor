@@ -92,6 +92,10 @@
     },
 
     "dialog": {
+      "restart_required": {
+        "title": "Restart required",
+        "text": "✅ Settings have been saved.\n\nTo apply all changes, restart PySkryptor."
+      },
       "exists": {
         "text": "File \"{title}\" already exists in the downloads folder.\nWhat do you want to do?",
         "skip": "Skip ⏭️",
@@ -181,7 +185,9 @@
 
   "action": {
     "cancel_now": "Cancel now ✖️",
-    "keep_working": "Keep working ✅"
+    "keep_working": "Keep working ✅",
+    "restart_now": "Restart now 🔄",
+    "later": "I will do it later 🕒"
   },
 
   "settings": {

@@ -22,19 +22,41 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         root = QtWidgets.QVBoxLayout(self)
 
-        url_row = QtWidgets.QHBoxLayout()
+        # Match Files tab density (QSS can override later)
+        base_h = 24
+
+        # --- URL row: 24-column grid like in Files (precise proportions) ---
+        url_grid = QtWidgets.QGridLayout()
+        url_grid.setHorizontalSpacing(8)
+        url_grid.setVerticalSpacing(6)
+
+        # 24 equal parts
+        for c in range(24):
+            url_grid.setColumnStretch(c, 1)
+
         self.ed_url = QtWidgets.QLineEdit()
         self.ed_url.setPlaceholderText(tr("down.url.placeholder"))
+        self.ed_url.setMinimumHeight(base_h)
 
         self.btn_probe = QtWidgets.QPushButton(tr("down.probe"))
         self.btn_open_in_browser = QtWidgets.QPushButton(tr("down.open_in_browser"))
         self.btn_open_downloads = QtWidgets.QPushButton(tr("down.open_folder"))
 
-        url_row.addWidget(self.ed_url, 1)
-        url_row.addWidget(self.btn_probe)
-        url_row.addWidget(self.btn_open_in_browser)
-        url_row.addWidget(self.btn_open_downloads)
-        root.addLayout(url_row)
+        for b in (self.btn_probe, self.btn_open_in_browser, self.btn_open_downloads):
+            b.setMinimumHeight(base_h)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+
+        # Layout math (24 parts):
+        # - URL input: 17/24
+        # - Analyze: 1/24
+        # - Open in browser: 3/24
+        # - Open downloads: 3/24
+        url_grid.addWidget(self.ed_url, 0, 0, 1, 17)
+        url_grid.addWidget(self.btn_probe, 0, 17, 1, 1)
+        url_grid.addWidget(self.btn_open_in_browser, 0, 18, 1, 3)
+        url_grid.addWidget(self.btn_open_downloads, 0, 21, 1, 3)
+
+        root.addLayout(url_grid)
 
         meta_group = QtWidgets.QGroupBox(tr("down.meta.title"))
         meta_form = QtWidgets.QFormLayout(meta_group)
@@ -90,19 +112,32 @@ class DownloaderPanel(QtWidgets.QWidget):
         sel_layout.addStretch(1)
         root.addWidget(sel_group)
 
+        # --- Bottom bar: progress + download/cancel (like Files) ---
         dl_row = QtWidgets.QHBoxLayout()
+        dl_row.setSpacing(8)
+
         self.pb_download = QtWidgets.QProgressBar()
         self.pb_download.setRange(0, 100)
         self.pb_download.setValue(0)
-        dl_row.addWidget(self.pb_download, 1)
+        self.pb_download.setMinimumHeight(base_h)
 
         self.btn_download = QtWidgets.QPushButton(tr("down.download"))
         self.btn_download.setEnabled(False)
-        dl_row.addWidget(self.btn_download)
+        self.btn_download.setMinimumHeight(base_h)
+        self.btn_download.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
         self.btn_cancel = QtWidgets.QPushButton(tr("ctrl.cancel"))
         self.btn_cancel.setEnabled(False)
-        dl_row.addWidget(self.btn_cancel)
+        self.btn_cancel.setMinimumHeight(base_h)
+        self.btn_cancel.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+
+        right_btn_box = QtWidgets.QHBoxLayout()
+        right_btn_box.setSpacing(6)
+        right_btn_box.addWidget(self.btn_download, 1)
+        right_btn_box.addWidget(self.btn_cancel, 1)
+
+        dl_row.addWidget(self.pb_download, 1)
+        dl_row.addLayout(right_btn_box, 0)
         root.addLayout(dl_row)
 
         self.down_log = QtWidgets.QTextBrowser()
@@ -296,6 +331,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         if self._down_running:
             self.log.info(tr("down.log.downloading"))
             return
+
+        # Like Files tab: clear logs when starting an action
+        self.log.clear()
 
         kind = "video" if tr("down.select.type.video").lower() in self.cb_kind.currentText().lower() else "audio"
         quality = self.cb_quality.currentText().lower()

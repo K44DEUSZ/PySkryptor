@@ -11,6 +11,7 @@ from ui.utils.translating import Translator
 from ui.views.dialogs import (
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,
+    critical_config_load_failed_and_exit,
     info_settings_restored,
 )
 
@@ -38,9 +39,7 @@ def run() -> int:
             critical_defaults_missing_and_exit(None)
             return 1
 
-        title = "Application Error"
-        body = f"Cannot load configuration.\n\nDetails: {getattr(ex, 'key', str(ex))}"
-        QtWidgets.QMessageBox.critical(None, title, body)
+        critical_config_load_failed_and_exit(None, str(getattr(ex, "key", str(ex))))
         return 1
 
     # Load i18n (after we know paths + language preference)

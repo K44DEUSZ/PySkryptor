@@ -17,13 +17,15 @@ from ui.workers.transcription_worker import TranscriptionWorker
 from ui.workers.model_loader_worker import ModelLoadWorker
 
 
-def _fmt_seconds(sec: float | None) -> str:
+def _fmt_seconds(sec: Optional[float]) -> str:
     if sec is None:
         return "-"
     try:
         sec = float(sec)
     except Exception:
         return "-"
+    if sec <= 0:
+        return "0.0s"
     if sec < 60:
         return f"{sec:.1f}s"
     m = int(sec // 60)
@@ -58,11 +60,7 @@ class DropTableWidget(QtWidgets.QTableWidget):
             super().dragMoveEvent(e)
 
     def dropEvent(self, e: QtGui.QDropEvent) -> None:
-        if not e.mimeData().hasUrls():
-            super().dropEvent(e)
-            return
-
-        paths = []
+        paths: List[str] = []
         for u in e.mimeData().urls():
             p = u.toLocalFile()
             if p:
@@ -70,12 +68,11 @@ class DropTableWidget(QtWidgets.QTableWidget):
         out = [str(p) for p in dict.fromkeys(paths)]
         if out:
             self.pathsDropped.emit(out)
-
         e.acceptProposedAction()
 
 
 class FilesPanel(QtWidgets.QWidget):
-    """Files tab: sources list + model + transcription control."""
+    """Files tab: sources list + transcription control."""
 
     COL_CHECK = 0
     COL_NO = 1
@@ -86,25 +83,73 @@ class FilesPanel(QtWidgets.QWidget):
     COL_STATUS = 6
     COL_PREVIEW = 7
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
+
+        self._transcribe_thread: Optional[QtCore.QThread] = None
+        self._transcribe_worker: Optional[TranscriptionWorker] = None
+
+        self._meta_thread: Optional[QtCore.QThread] = None
+        self._meta_worker: Optional[MetadataWorker] = None
+
+        self._model_thread: Optional[QtCore.QThread] = None
+        self._model_worker: Optional[ModelLoadWorker] = None
+
+        self._was_cancelled: bool = False
+        self._conflict_apply_all_action: Optional[str] = None
+        self._conflict_apply_all_new_base: Optional[str] = None
 
         root = QtWidgets.QVBoxLayout(self)
 
-        # Source input bar
-        src_bar = QtWidgets.QHBoxLayout()
+        # Requested: smaller buttons
+        base_h = 24
+
+        # --- TOP GRID (input + list operations) -> ABOVE sources table
+        top_grid = QtWidgets.QGridLayout()
+        top_grid.setHorizontalSpacing(8)
+        top_grid.setVerticalSpacing(6)
+        for c in range(4):
+            top_grid.setColumnStretch(c, 1)
+
         self.src_edit = QtWidgets.QLineEdit()
         self.src_edit.setPlaceholderText(tr("files.placeholder"))
+        self.src_edit.setMinimumHeight(base_h)
+
         self.btn_src_add = QtWidgets.QPushButton(tr("files.add"))
         self.btn_open_output = QtWidgets.QPushButton(tr("files.open_output"))
-        src_bar.addWidget(self.src_edit, 1)
-        src_bar.addWidget(self.btn_src_add)
-        src_bar.addWidget(self.btn_open_output)
-        root.addLayout(src_bar)
+        for b in (self.btn_src_add, self.btn_open_output):
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            b.setMinimumHeight(base_h)
 
-        # Table
+        # 25/75 ratio: Add vs Open output
+        top_btn_box = QtWidgets.QHBoxLayout()
+        top_btn_box.setSpacing(6)
+        top_btn_box.addWidget(self.btn_src_add, 1)
+        top_btn_box.addWidget(self.btn_open_output, 3)
+
+        top_grid.addWidget(self.src_edit, 0, 0, 1, 3)
+        top_grid.addLayout(top_btn_box, 0, 3, 1, 1)
+
+        self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
+        self.btn_add_folder = QtWidgets.QPushButton(tr("files.add_folder"))
+        self.btn_remove_selected = QtWidgets.QPushButton(tr("files.remove_selected"))
+        self.btn_clear_list = QtWidgets.QPushButton(tr("files.clear"))
+
+        for b in (self.btn_add_files, self.btn_add_folder, self.btn_remove_selected, self.btn_clear_list):
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            b.setMinimumHeight(base_h)
+
+        top_grid.addWidget(self.btn_add_files, 1, 0)
+        top_grid.addWidget(self.btn_add_folder, 1, 1)
+        top_grid.addWidget(self.btn_remove_selected, 1, 2)
+        top_grid.addWidget(self.btn_clear_list, 1, 3)
+
+        root.addLayout(top_grid)
+
+        # --- Sources table group
         details_group = QtWidgets.QGroupBox(tr("files.details.title"))
         details_layout = QtWidgets.QVBoxLayout(details_group)
+
         self.tbl = DropTableWidget()
         self.tbl.setColumnCount(8)
         self.tbl.setHorizontalHeaderLabels([
@@ -118,51 +163,47 @@ class FilesPanel(QtWidgets.QWidget):
             tr("files.details.col.preview"),
         ])
 
+        self.tbl.verticalHeader().setVisible(False)
+        self.tbl.setCornerButtonEnabled(False)
+
         self.tbl.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.tbl.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.tbl.setAlternatingRowColors(True)
-        self.tbl.verticalHeader().setVisible(False)
-        self.tbl.setSortingEnabled(False)
+        self.tbl.setTextElideMode(QtCore.Qt.ElideMiddle)
 
-        header = self.tbl.horizontalHeader()
-        header.setSectionResizeMode(self.COL_CHECK, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_NO, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_TITLE, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(self.COL_DUR, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_SRC, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_PATH, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(self.COL_STATUS, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_PREVIEW, QtWidgets.QHeaderView.ResizeToContents)
+        self.tbl.itemSelectionChanged.connect(self._update_buttons)
+        self.tbl.cellClicked.connect(self._on_table_cell_clicked)
+
+        self._apply_empty_header_mode()
 
         details_layout.addWidget(self.tbl, 2)
         root.addWidget(details_group, 2)
 
-        # Controls under table
-        ops_bar = QtWidgets.QHBoxLayout()
-        self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
-        self.btn_add_folder = QtWidgets.QPushButton(tr("files.add_folder"))
-        self.btn_remove_selected = QtWidgets.QPushButton(tr("files.remove_selected"))
-        self.btn_clear_list = QtWidgets.QPushButton(tr("files.clear"))
-        ops_bar.addWidget(self.btn_add_files)
-        ops_bar.addWidget(self.btn_add_folder)
-        ops_bar.addStretch(1)
-        ops_bar.addWidget(self.btn_remove_selected)
-        ops_bar.addWidget(self.btn_clear_list)
-        root.addLayout(ops_bar)
+        # --- BOTTOM BAR (ONLY progress + start/cancel) -> BELOW sources table
+        bottom_bar = QtWidgets.QHBoxLayout()
+        bottom_bar.setSpacing(8)
 
-        # Start/cancel
-        ctrl_bar = QtWidgets.QHBoxLayout()
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
+        self.progress.setMinimumHeight(base_h)
+
         self.btn_start = QtWidgets.QPushButton(tr("ctrl.start"))
         self.btn_cancel = QtWidgets.QPushButton(tr("ctrl.cancel"))
-        ctrl_bar.addWidget(self.progress, 1)
-        ctrl_bar.addWidget(self.btn_start)
-        ctrl_bar.addWidget(self.btn_cancel)
-        root.addLayout(ctrl_bar)
+        for b in (self.btn_start, self.btn_cancel):
+            b.setMinimumHeight(base_h)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
-        # Log
+        right_btn_box = QtWidgets.QHBoxLayout()
+        right_btn_box.setSpacing(6)
+        right_btn_box.addWidget(self.btn_start)
+        right_btn_box.addWidget(self.btn_cancel)
+
+        bottom_bar.addWidget(self.progress, 1)
+        bottom_bar.addLayout(right_btn_box, 0)
+
+        root.addLayout(bottom_bar)
+
+        # --- Log
         self.output = QtWidgets.QTextBrowser()
         self.output.setOpenExternalLinks(False)
         self.output.setOpenLinks(False)
@@ -175,19 +216,11 @@ class FilesPanel(QtWidgets.QWidget):
         self._keys: set[str] = set()
         self._row_by_key: Dict[str, int] = {}
         self._transcript_by_key: Dict[str, str] = {}
+        self._origin_src_by_key: Dict[str, str] = {}       # internal_key -> "URL"/"LOCAL"
+        self._display_path_by_key: Dict[str, str] = {}     # internal_key -> display text shown in table
 
-        self._model_thread: Optional[QtCore.QThread] = None
-        self._model_worker: Optional[ModelLoadWorker] = None
-
-        self._meta_thread: Optional[QtCore.QThread] = None
-        self._meta_worker: Optional[MetadataWorker] = None
-
-        self._transcribe_thread: Optional[QtCore.QThread] = None
-        self._transcribe_worker: Optional[TranscriptionWorker] = None
-
-        self._was_cancelled = False
-        self._conflict_apply_all_action: str | None = None
-        self._conflict_apply_all_new_base: str | None = None
+        # Model auto-load
+        self._start_model_load()
 
         # Signals
         self.btn_src_add.clicked.connect(self._on_add_clicked)
@@ -205,21 +238,186 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.pathsDropped.connect(self._on_paths_dropped)
         self.tbl.cellDoubleClicked.connect(lambda row, _col: self._open_transcript_for_row(row))
 
-        Config.initialize()
-        self._start_model_load()
         self._update_buttons()
 
-    def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
+    # ---- header modes ----
+
+    def _apply_empty_header_mode(self) -> None:
+        header = self.tbl.horizontalHeader()
+
+        check_w = self.style().pixelMetric(QtWidgets.QStyle.PM_IndicatorWidth) + 16
+        header.setSectionResizeMode(self.COL_CHECK, QtWidgets.QHeaderView.Fixed)
+        self.tbl.setColumnWidth(self.COL_CHECK, max(26, check_w))
+
+        header.setSectionResizeMode(self.COL_NO, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_PREVIEW, QtWidgets.QHeaderView.ResizeToContents)
+
+        for c in (self.COL_TITLE, self.COL_DUR, self.COL_SRC, self.COL_PATH, self.COL_STATUS):
+            header.setSectionResizeMode(c, QtWidgets.QHeaderView.Stretch)
+
+    def _apply_populated_header_mode(self) -> None:
+        header = self.tbl.horizontalHeader()
+
+        check_w = self.style().pixelMetric(QtWidgets.QStyle.PM_IndicatorWidth) + 16
+        header.setSectionResizeMode(self.COL_CHECK, QtWidgets.QHeaderView.Fixed)
+        self.tbl.setColumnWidth(self.COL_CHECK, max(26, check_w))
+
+        header.setSectionResizeMode(self.COL_NO, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_TITLE, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_DUR, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_SRC, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_PATH, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_STATUS, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_PREVIEW, QtWidgets.QHeaderView.ResizeToContents)
+
+    # ---- checkbox widget helpers ----
+
+    def _checkbox_at_row(self, row: int) -> Optional[QtWidgets.QCheckBox]:
+        w = self.tbl.cellWidget(row, self.COL_CHECK)
+        if not w:
+            return None
+        return w.findChild(QtWidgets.QCheckBox)
+
+    def _make_checkbox_cell(self) -> QtWidgets.QWidget:
+        host = QtWidgets.QWidget()
+        host.setContentsMargins(0, 0, 0, 0)
+        lay = QtWidgets.QHBoxLayout(host)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setAlignment(QtCore.Qt.AlignCenter)
+        cb = QtWidgets.QCheckBox()
+        cb.setTristate(False)
+        lay.addWidget(cb)
+        cb.stateChanged.connect(lambda _v: self._update_buttons())
+        return host
+
+    # ---- keys / mapping helpers ----
+
+    def _internal_key_at_row(self, row: int) -> str:
+        it = self.tbl.item(row, self.COL_PATH)
+        if not it:
+            return ""
+        v = it.data(QtCore.Qt.UserRole)
+        if v:
+            return str(v).strip()
+        return (it.text() or "").strip()
+
+    def _display_path_at_row(self, row: int) -> str:
+        it = self.tbl.item(row, self.COL_PATH)
+        return (it.text() or "").strip() if it else ""
+
+    def _src_label_at_row(self, row: int) -> str:
+        it = self.tbl.item(row, self.COL_SRC)
+        return (it.text() or "").strip() if it else ""
+
+    def _reset_url_rows_to_original_keys(self) -> None:
+        """
+        Ensures that URL-origin items can be started again from scratch.
+        After download we may temporarily map URL -> tmp local file.
+        Here we revert internal keys back to URL before a new run.
+        """
+        for r in range(self.tbl.rowCount()):
+            if self._src_label_at_row(r) != "URL":
+                continue
+
+            it_path = self.tbl.item(r, self.COL_PATH)
+            if not it_path:
+                continue
+
+            display_url = (it_path.text() or "").strip()
+            if not display_url:
+                continue
+
+            current_internal = self._internal_key_at_row(r)
+            if current_internal == display_url:
+                # already clean
+                it_path.setData(QtCore.Qt.UserRole, display_url)
+                self._display_path_by_key[display_url] = display_url
+                self._origin_src_by_key[display_url] = "URL"
+                self._row_by_key[display_url] = r
+                continue
+
+            # Remap all internal structures from tmp/local key -> original URL
+            old_key = current_internal
+            new_key = display_url
+
+            if old_key in self._keys:
+                self._keys.discard(old_key)
+            self._keys.add(new_key)
+
+            old_row = self._row_by_key.pop(old_key, None)
+            self._row_by_key[new_key] = old_row if old_row is not None else r
+
+            if old_key in self._origin_src_by_key:
+                self._origin_src_by_key.pop(old_key, None)
+            self._origin_src_by_key[new_key] = "URL"
+
+            if old_key in self._display_path_by_key:
+                self._display_path_by_key.pop(old_key, None)
+            self._display_path_by_key[new_key] = new_key
+
+            self._transcript_by_key.pop(old_key, None)
+
+            # Update internal key stored in the table item
+            it_path.setData(QtCore.Qt.UserRole, new_key)
+            it_path.setToolTip(new_key)
+            it_path.setText(new_key)
+
+    # ---- progress helper ----
+
+    @QtCore.pyqtSlot(int)
+    def _on_global_progress(self, value: int) -> None:
+        if self._was_cancelled:
+            return
+        self.progress.setValue(int(value))
+
+    # ---- table interactions ----
+
+    @QtCore.pyqtSlot(int, int)
+    def _on_table_cell_clicked(self, row: int, col: int) -> None:
+        if row < 0:
+            return
+
+        mods = QtWidgets.QApplication.keyboardModifiers()
+        if not (mods & QtCore.Qt.ControlModifier):
+            return
+
+        if col not in (self.COL_SRC, self.COL_PATH):
+            return
+
+        target = self._display_path_at_row(row)
+        if not target:
+            return
+
         try:
-            if url.isLocalFile():
-                QtGui.QDesktopServices.openUrl(url)
+            if is_url(target):
+                if "://" not in target:
+                    target = "https://" + target
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl(target))
+                return
+
+            p = Path(target)
+            if not p.exists():
+                return
+
+            if os.name == "nt":
+                import subprocess
+                if p.is_file():
+                    subprocess.Popen(["explorer", "/select,", str(p)])
+                else:
+                    os.startfile(str(p))  # type: ignore[attr-defined]
+            else:
+                QtGui.QDesktopServices.openUrl(
+                    QtCore.QUrl.fromLocalFile(str(p.parent if p.is_file() else p))
+                )
         except Exception:
             pass
+
+    # ---- entries ----
 
     def get_entries(self) -> List[Dict[str, Any]]:
         entries: List[Dict[str, Any]] = []
         for r in range(self.tbl.rowCount()):
-            key = self._key_at_row(r)
+            key = self._internal_key_at_row(r)
             if not key:
                 continue
             if is_url(key):
@@ -244,13 +442,13 @@ class FilesPanel(QtWidgets.QWidget):
         return True
 
     def _insert_placeholder_row(self, key: str, *, src_label: str) -> None:
+        if self.tbl.rowCount() == 0:
+            self._apply_populated_header_mode()
+
         row = self.tbl.rowCount()
         self.tbl.insertRow(row)
 
-        it_check = QtWidgets.QTableWidgetItem("")
-        it_check.setFlags(it_check.flags() | QtCore.Qt.ItemIsUserCheckable)
-        it_check.setCheckState(QtCore.Qt.Unchecked)
-        self.tbl.setItem(row, self.COL_CHECK, it_check)
+        self.tbl.setCellWidget(row, self.COL_CHECK, self._make_checkbox_cell())
 
         it_no = QtWidgets.QTableWidgetItem(str(row + 1))
         it_no.setTextAlignment(QtCore.Qt.AlignCenter)
@@ -266,8 +464,11 @@ class FilesPanel(QtWidgets.QWidget):
         it_src = QtWidgets.QTableWidgetItem(src_label)
         it_src.setTextAlignment(QtCore.Qt.AlignCenter)
         self.tbl.setItem(row, self.COL_SRC, it_src)
+        it_src.setToolTip(src_label)
 
         it_path = QtWidgets.QTableWidgetItem(key)
+        it_path.setToolTip(key)
+        it_path.setData(QtCore.Qt.UserRole, key)  # internal key
         self.tbl.setItem(row, self.COL_PATH, it_path)
 
         it_status = QtWidgets.QTableWidgetItem("-")
@@ -277,10 +478,11 @@ class FilesPanel(QtWidgets.QWidget):
         btn = QtWidgets.QToolButton()
         btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
         btn.setEnabled(False)
-        btn.clicked.connect(lambda: self._open_transcript_for_row(row))
         self.tbl.setCellWidget(row, self.COL_PREVIEW, btn)
 
         self._row_by_key[key] = row
+        self._origin_src_by_key[key] = src_label
+        self._display_path_by_key[key] = key
 
     def _update_row_from_meta(self, row: int, meta: Dict[str, Any]) -> None:
         if row < 0 or row >= self.tbl.rowCount():
@@ -288,13 +490,9 @@ class FilesPanel(QtWidgets.QWidget):
 
         title = str(meta.get("name") or meta.get("title") or "-")
         duration = meta.get("duration")
-        source = str(meta.get("source") or "-")
-        path = str(meta.get("path") or "-")
 
         self.tbl.item(row, self.COL_TITLE).setText(title)
         self.tbl.item(row, self.COL_DUR).setText(_fmt_seconds(duration))
-        self.tbl.item(row, self.COL_SRC).setText(source)
-        self.tbl.item(row, self.COL_PATH).setText(path)
 
     def _start_metadata_for(self, keys: List[str]) -> None:
         if not keys:
@@ -342,12 +540,10 @@ class FilesPanel(QtWidgets.QWidget):
     # ---- actions ----
 
     def _on_add_clicked(self) -> None:
-        raw = (self.src_edit.text() or "").strip()
-        if not raw:
-            self.log.warn(tr("log.add.empty"))
+        key = self._normalize_key(self.src_edit.text())
+        if not key:
             return
 
-        key = raw
         if is_url(key):
             if not self._try_add_key(key):
                 return
@@ -368,68 +564,20 @@ class FilesPanel(QtWidgets.QWidget):
         self._refresh_order_numbers()
         self._update_buttons()
 
-    def _on_add_files_clicked(self) -> None:
-        paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self,
-            tr("files.add_files"),
-            str(Path.home()),
-            "Media files (*.wav *.mp3 *.flac *.m4a *.ogg *.aac *.mp4 *.webm *.mkv *.mov *.avi);;All files (*)",
-        )
-        added: List[str] = []
-        for p in paths:
-            key = str(Path(p))
-            if self._try_add_key(key):
-                self._insert_placeholder_row(key, src_label="LOCAL")
-                added.append(key)
-        if added:
-            self._start_metadata_for(added)
-        self._refresh_order_numbers()
-        self._update_buttons()
-
-    def _on_add_folder_clicked(self) -> None:
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, tr("files.add_folder"), str(Path.home()))
-        if not folder:
-            return
-        base = Path(folder)
-        allowed = set(Config.audio_extensions()) | set(Config.video_extensions())
-        allowed = {a.lower() if a.startswith(".") else f".{a.lower()}" for a in allowed}
-
-        added: List[str] = []
-        for p in base.rglob("*"):
-            if not p.is_file():
-                continue
-            if p.suffix.lower() not in allowed:
-                continue
-            key = str(p)
-            if self._try_add_key(key):
-                self._insert_placeholder_row(key, src_label="LOCAL")
-                added.append(key)
-
-        if added:
-            self._start_metadata_for(added[:30])
-        self._refresh_order_numbers()
-        self._update_buttons()
-
-    @QtCore.pyqtSlot(list)
     def _on_paths_dropped(self, paths: List[str]) -> None:
         added: List[str] = []
-        allowed = set(Config.audio_extensions()) | set(Config.video_extensions())
-        allowed = {a.lower() if a.startswith(".") else f".{a.lower()}" for a in allowed}
-        for raw in paths:
-            p = Path(str(raw))
-            if p.is_dir():
-                for x in p.rglob("*"):
-                    if x.is_file() and x.suffix.lower() in allowed:
-                        key = str(x)
-                        if self._try_add_key(key):
-                            self._insert_placeholder_row(key, src_label="LOCAL")
-                            added.append(key)
-            else:
-                if p.exists() and p.is_file() and p.suffix.lower() in allowed:
-                    key = str(p)
-                    if self._try_add_key(key):
-                        self._insert_placeholder_row(key, src_label="LOCAL")
-                        added.append(key)
+        for p in paths:
+            p = self._normalize_key(p)
+            if not p:
+                continue
+            pp = Path(p)
+            if not pp.exists() or not pp.is_file():
+                continue
+            key = str(pp)
+            if not self._try_add_key(key):
+                continue
+            self._insert_placeholder_row(key, src_label="LOCAL")
+            added.append(key)
 
         if added:
             self._start_metadata_for(added[:30])
@@ -439,40 +587,97 @@ class FilesPanel(QtWidgets.QWidget):
     def _checked_rows(self) -> List[int]:
         rows: List[int] = []
         for r in range(self.tbl.rowCount()):
-            it = self.tbl.item(r, self.COL_CHECK)
-            if it and it.checkState() == QtCore.Qt.Checked:
+            cb = self._checkbox_at_row(r)
+            if cb and cb.isChecked():
                 rows.append(r)
         return rows
 
     def _selected_rows(self) -> List[int]:
-        return sorted({idx.row() for idx in self.tbl.selectionModel().selectedRows()})
+        rows: List[int] = []
+        sel = self.tbl.selectionModel()
+        if not sel:
+            return rows
+        for idx in sel.selectedRows():
+            rows.append(idx.row())
+        return rows
 
-    def _on_remove_selected(self) -> None:
-        rows = self._checked_rows() or self._selected_rows()
+    def _remove_rows(self, rows: List[int]) -> None:
         if not rows:
             return
-        rows = sorted(rows, reverse=True)
-        for r in rows:
-            key = self._key_at_row(r)
+        for r in sorted(set(rows), reverse=True):
+            key = self._internal_key_at_row(r)
             if key:
                 self._keys.discard(key)
                 self._row_by_key.pop(key, None)
                 self._transcript_by_key.pop(key, None)
+                self._origin_src_by_key.pop(key, None)
+                self._display_path_by_key.pop(key, None)
             self.tbl.removeRow(r)
 
-        self._rebuild_row_map()
+        if self.tbl.rowCount() == 0:
+            self._apply_empty_header_mode()
+
         self._refresh_order_numbers()
         self._update_buttons()
 
+    def _refresh_order_numbers(self) -> None:
+        for r in range(self.tbl.rowCount()):
+            it = self.tbl.item(r, self.COL_NO)
+            if it:
+                it.setText(str(r + 1))
+
+    def _open_transcript_for_row(self, row: int) -> None:
+        key = self._internal_key_at_row(row)
+        if not key:
+            return
+        path = self._transcript_by_key.get(key)
+        if not path:
+            return
+        try:
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(path))))
+        except Exception:
+            pass
+
+    def _on_add_files_clicked(self) -> None:
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(
+            self,
+            tr("files.add_files"),
+            "",
+            tr("files.details.filters.audio_video"),
+        )
+        if not files:
+            return
+        self._on_paths_dropped(files)
+
+    def _on_add_folder_clicked(self) -> None:
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, tr("files.add_folder"))
+        if not folder:
+            return
+        p = Path(folder)
+        if not p.exists() or not p.is_dir():
+            return
+
+        exts = {e.lower() for e in Config.SUPPORTED_MEDIA_EXTS}
+        files: List[str] = []
+        for fp in p.rglob("*"):
+            if fp.is_file() and fp.suffix.lower() in exts:
+                files.append(str(fp))
+        self._on_paths_dropped(files)
+
+    def _on_remove_selected(self) -> None:
+        rows = self._checked_rows() or self._selected_rows()
+        self._remove_rows(rows)
+
     def _on_clear_clicked(self) -> None:
-        self.tbl.setRowCount(0)
         self._keys.clear()
         self._row_by_key.clear()
         self._transcript_by_key.clear()
+        self._origin_src_by_key.clear()
+        self._display_path_by_key.clear()
+        self.tbl.setRowCount(0)
         self.progress.setValue(0)
+        self._apply_empty_header_mode()
         self._update_buttons()
-
-    # ---- output ----
 
     def _open_output_folder(self) -> None:
         try:
@@ -492,12 +697,17 @@ class FilesPanel(QtWidgets.QWidget):
             self.log.info(tr("log.pipe_not_ready"))
             return
 
+        # IMPORTANT: if some URL items were mapped to TMP paths previously, revert them now
+        self._reset_url_rows_to_original_keys()
+
         entries = self.get_entries()
         if not entries:
             self.log.info(tr("log.no_items"))
             return
 
+        self.log.clear()
         self.progress.setValue(0)
+
         self._was_cancelled = False
         self._conflict_apply_all_action = None
         self._conflict_apply_all_new_base = None
@@ -509,49 +719,137 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcribe_thread.started.connect(self._transcribe_worker.run)
 
         self._transcribe_worker.log.connect(self.log.plain)
-        self._transcribe_worker.progress.connect(self.progress.setValue)
+        self._transcribe_worker.progress.connect(self._on_global_progress)
         self._transcribe_worker.item_status.connect(self._on_item_status)
         self._transcribe_worker.item_progress.connect(self._on_item_progress)
         self._transcribe_worker.item_path_update.connect(self._on_item_path_update)
         self._transcribe_worker.transcript_ready.connect(self._on_transcript_ready)
-        self._transcribe_worker.conflict_check.connect(self._on_conflict)
+        self._transcribe_worker.conflict_check.connect(self._on_conflict_check)
 
         self._transcribe_worker.finished.connect(self._transcribe_thread.quit)
         self._transcribe_worker.finished.connect(self._transcribe_worker.deleteLater)
-        self._transcribe_thread.finished.connect(self._on_transcribe_finished)
         self._transcribe_thread.finished.connect(self._transcribe_thread.deleteLater)
+        self._transcribe_thread.finished.connect(self._on_transcribe_finished)
 
-        self._transcribe_thread.start()
         self._update_buttons()
+        self._transcribe_thread.start()
 
     def _on_cancel_clicked(self) -> None:
         if not self._transcribe_worker:
             return
         if not ask_cancel(self):
             return
+
         self._was_cancelled = True
+        self.progress.setValue(0)
+
         try:
             if self._transcribe_thread is not None:
                 self._transcribe_thread.requestInterruption()
             self._transcribe_worker.cancel()
         except Exception:
             pass
+
+        # Reset visible statuses immediately
+        for r in range(self.tbl.rowCount()):
+            preview = self.tbl.cellWidget(r, self.COL_PREVIEW)
+            finished = isinstance(preview, QtWidgets.QToolButton) and preview.isEnabled()
+            if not finished:
+                it = self.tbl.item(r, self.COL_STATUS)
+                if it:
+                    it.setText("-")
+
+        # IMPORTANT: revert URL->TMP remaps so the next Start downloads again
+        self._reset_url_rows_to_original_keys()
+
         self.log.warn(tr("log.cancelled"))
 
     def _on_transcribe_finished(self) -> None:
-        self._transcribe_thread = None
-        self._transcribe_worker = None
-
         if self._was_cancelled:
             self.progress.setValue(0)
-        else:
-            self.progress.setValue(100)
-            self.log.ok(tr("log.done"))
-
+        self._transcribe_thread = None
+        self._transcribe_worker = None
         self._update_buttons()
 
     @QtCore.pyqtSlot(str, str)
-    def _on_conflict(self, stem: str, _existing_dir: str) -> None:
+    def _on_item_status(self, key: str, status: str) -> None:
+        if self._was_cancelled:
+            return
+        row = self._row_by_key.get(key)
+        if row is None:
+            return
+        it = self.tbl.item(row, self.COL_STATUS)
+        if it:
+            it.setText(status)
+
+    @QtCore.pyqtSlot(str, int)
+    def _on_item_progress(self, key: str, pct: int) -> None:
+        if self._was_cancelled:
+            return
+        row = self._row_by_key.get(key)
+        if row is None:
+            return
+        it = self.tbl.item(row, self.COL_STATUS)
+        if not it:
+            return
+        it.setText(tr("status.proc"))
+
+    @QtCore.pyqtSlot(str, str)
+    def _on_item_path_update(self, old_key: str, new_key: str) -> None:
+        """
+        URL download may replace internal key/path to a local file.
+        UI should keep displaying original URL.
+        """
+        row = self._row_by_key.pop(old_key, None)
+        if row is None:
+            return
+
+        # Keep original URL for display
+        display = self._display_path_by_key.get(old_key, old_key)
+
+        src_label = self._origin_src_by_key.get(old_key)
+
+        self._keys.discard(old_key)
+        self._keys.add(new_key)
+        self._row_by_key[new_key] = row
+
+        if src_label:
+            self._origin_src_by_key[new_key] = src_label
+        self._origin_src_by_key.pop(old_key, None)
+
+        self._display_path_by_key[new_key] = display
+        self._display_path_by_key.pop(old_key, None)
+
+        it_path = self.tbl.item(row, self.COL_PATH)
+        if it_path:
+            it_path.setData(QtCore.Qt.UserRole, new_key)
+            it_path.setText(display)
+            it_path.setToolTip(display)
+
+        self._start_metadata_for([new_key])
+
+    @QtCore.pyqtSlot(str, str)
+    def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
+        self._transcript_by_key[key] = transcript_path
+        row = self._row_by_key.get(key)
+        if row is None:
+            return
+        w = self.tbl.cellWidget(row, self.COL_PREVIEW)
+        if isinstance(w, QtWidgets.QToolButton):
+            w.setEnabled(True)
+        self.log.line_with_link(
+            tr("log.transcript.saved_prefix"),
+            Path(transcript_path),
+            title=Path(transcript_path).name,
+        )
+
+    @QtCore.pyqtSlot(str, str)
+    def _on_conflict_check(self, stem: str, existing_dir: str) -> None:
+        if self._was_cancelled:
+            if self._transcribe_worker is not None:
+                self._transcribe_worker.on_conflict_decided("skip", "")
+            return
+
         try:
             if self._conflict_apply_all_action:
                 action = self._conflict_apply_all_action
@@ -571,82 +869,18 @@ class FilesPanel(QtWidgets.QWidget):
             if self._transcribe_worker is not None:
                 self._transcribe_worker.on_conflict_decided("skip", "")
 
-    # ---- worker updates ----
+    # ---- links ----
 
-    def _key_at_row(self, row: int) -> str:
-        it = self.tbl.item(row, self.COL_PATH)
-        return str(it.text()).strip() if it else ""
-
-    def _rebuild_row_map(self) -> None:
-        self._row_by_key.clear()
-        for r in range(self.tbl.rowCount()):
-            key = self._key_at_row(r)
-            if key:
-                self._row_by_key[key] = r
-
-    def _refresh_order_numbers(self) -> None:
-        for r in range(self.tbl.rowCount()):
-            it = self.tbl.item(r, self.COL_NO)
-            if it:
-                it.setText(str(r + 1))
-
-    @QtCore.pyqtSlot(str, str)
-    def _on_item_status(self, key: str, status: str) -> None:
-        row = self._row_by_key.get(key)
-        if row is None:
-            return
-        it = self.tbl.item(row, self.COL_STATUS)
-        if it:
-            it.setText(status)
-
-    @QtCore.pyqtSlot(str, int)
-    def _on_item_progress(self, key: str, pct: int) -> None:
-        row = self._row_by_key.get(key)
-        if row is None:
-            return
-        it = self.tbl.item(row, self.COL_STATUS)
-        if not it:
-            return
-        # Keep it simple & language-safe without adding new translation keys
-        it.setText(f"{tr('status.proc')} {int(pct)}%")
-
-    @QtCore.pyqtSlot(str, str)
-    def _on_item_path_update(self, old_key: str, new_key: str) -> None:
-        row = self._row_by_key.pop(old_key, None)
-        if row is None:
-            return
-
-        self._keys.discard(old_key)
-        self._keys.add(new_key)
-        self._row_by_key[new_key] = row
-
-        self.tbl.item(row, self.COL_PATH).setText(new_key)
-        self.tbl.item(row, self.COL_SRC).setText("LOCAL")
-
-        self._start_metadata_for([new_key])
-
-    @QtCore.pyqtSlot(str, str)
-    def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
-        self._transcript_by_key[key] = transcript_path
-        row = self._row_by_key.get(key)
-        if row is None:
-            return
-        w = self.tbl.cellWidget(row, self.COL_PREVIEW)
-        if isinstance(w, QtWidgets.QToolButton):
-            w.setEnabled(True)
-        self.log.line_with_link(
-            tr("log.transcript.saved_prefix"),
-            Path(transcript_path),
-            title=Path(transcript_path).name,
-        )
-
-    def _open_transcript_for_row(self, row: int) -> None:
+    def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
         try:
-            key = self._key_at_row(row)
-            p = self._transcript_by_key.get(key)
-            if not p:
+            u = url.toString()
+            if not u:
                 return
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(p))))
+            if u.startswith("file://"):
+                p = u.replace("file://", "", 1)
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(p))))
+                return
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl(u))
         except Exception:
             pass
 
@@ -667,6 +901,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._model_worker.finished.connect(self._model_thread.quit)
         self._model_worker.finished.connect(self._model_worker.deleteLater)
         self._model_thread.finished.connect(self._model_thread.deleteLater)
+        self._model_thread.finished.connect(self._on_model_thread_finished)
 
         self._model_thread.start()
 
@@ -678,6 +913,11 @@ class FilesPanel(QtWidgets.QWidget):
     def _on_model_error(self, msg: str) -> None:
         self.pipe = None
         self.log.err(tr("log.model.error", msg=msg))
+        self._update_buttons()
+
+    def _on_model_thread_finished(self) -> None:
+        self._model_thread = None
+        self._model_worker = None
         self._update_buttons()
 
     # ---- ui state ----
@@ -693,5 +933,6 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_clear_list.setEnabled(has_items and not running)
         self.btn_remove_selected.setEnabled(has_sel and not running)
         self.btn_src_add.setEnabled(not running)
+        self.btn_open_output.setEnabled(not running)
         self.btn_add_files.setEnabled(not running)
         self.btn_add_folder.setEnabled(not running)

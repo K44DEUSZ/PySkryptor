@@ -98,6 +98,10 @@
         "overwrite": "Nadpisz ♻️",
         "rename": "Zapisz pod nową nazwą ✏️"
       },
+      "restart_required": {
+        "title": "Wymagane ponowne uruchomienie",
+        "text": "✅ Ustawienia zostały zapisane.\n\nAby zastosować wszystkie zmiany, uruchom ponownie PySkryptor."
+      },
       "playlist_not_supported": {
         "text": "Ten link wskazuje na playlistę (lub film otwarty w kontekście playlisty).\nPlaylisty nie są obsługiwane w tej wersji programu."
       }
@@ -181,7 +185,9 @@
 
   "action": {
     "cancel_now": "Anuluj teraz ✖️",
-    "keep_working": "Kontynuuj pracę ✅"
+    "keep_working": "Kontynuuj pracę ✅",
+    "restart_now": "Uruchom ponownie 🔄",
+    "later": "Zrobię to później 🕒"
   },
 
   "settings": {
