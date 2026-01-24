@@ -1,6 +1,7 @@
 # ui/workers/transcription_worker.py
 from __future__ import annotations
 
+import math
 import shutil
 import wave
 import threading
@@ -13,6 +14,7 @@ import numpy as np
 
 from core.config.app_config import AppConfig as Config
 from core.io.file_manager import FileManager
+from core.io.audio_extractor import AudioExtractor
 from core.services.download_service import DownloadService, DownloadError, DownloadCancelled
 from core.io.text import is_url, sanitize_filename, TextPostprocessor
 from ui.utils.translating import tr
@@ -38,6 +40,7 @@ class TranscriptionWorker(QtCore.QObject):
     conflict_check = QtCore.pyqtSignal(str, str)      # stem, existing_dir
 
     item_status = QtCore.pyqtSignal(str, str)         # key, status label
+    item_progress = QtCore.pyqtSignal(str, int)       # key, percent
     item_path_update = QtCore.pyqtSignal(str, str)    # old_key, new_local_path
     transcript_ready = QtCore.pyqtSignal(str, str)    # key, transcript_path
 
@@ -53,6 +56,10 @@ class TranscriptionWorker(QtCore.QObject):
         self._conflict_event = threading.Event()
         self._conflict_action: Optional[str] = None  # "skip" | "overwrite" | "new"
         self._conflict_new_stem: str = ""
+
+        # Chunk-based progress tracking
+        self._total_chunks: int = 0
+        self._done_chunks: int = 0
 
     def cancel(self) -> None:
         """Request best-effort cancellation of the current run."""
@@ -70,6 +77,32 @@ class TranscriptionWorker(QtCore.QObject):
             return bool(QtCore.QThread.currentThread().isInterruptionRequested())
         except Exception:
             return False
+
+    @staticmethod
+    def _estimate_chunks(duration_s: float | None, chunk_len_s: int, stride_len_s: int) -> int:
+        """
+        Estimate number of chunks based on duration.
+        This is used ONLY for global progress calibration.
+        """
+        if duration_s is None or duration_s <= 0:
+            return 1
+
+        chunk_len_s = max(1, int(chunk_len_s))
+        stride_len_s = max(0, int(stride_len_s))
+        step_s = max(1, chunk_len_s - stride_len_s)
+
+        if duration_s <= chunk_len_s:
+            return 1
+
+        remaining = max(0.0, duration_s - chunk_len_s)
+        return int(math.ceil(remaining / step_s)) + 1
+
+    def _bump_global_progress(self) -> None:
+        if self._total_chunks <= 0:
+            return
+        pct = int(self._done_chunks * 100 / self._total_chunks)
+        pct = max(0, min(100, pct))
+        self.progress.emit(pct)
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
@@ -116,8 +149,6 @@ class TranscriptionWorker(QtCore.QObject):
                 self.progress.emit(0)
                 return
 
-            total = len(work_items)
-
             model_cfg = Config.model_settings()
             chunk_len = int(model_cfg.get("chunk_length_s", 30))
             stride_len = int(model_cfg.get("stride_length_s", 5))
@@ -127,11 +158,28 @@ class TranscriptionWorker(QtCore.QObject):
             default_lang = model_cfg.get("default_language")
 
             # Prevent long-form requirements when user disabled timestamps:
-            # Whisper long-form triggers at > ~30s, then requires return_timestamps=True.
+            # Whisper long-form triggers at > ~30s and requires return_timestamps=True.
             if not return_ts and chunk_len > 29:
                 chunk_len = 29
 
-            for idx, (key, path, forced_stem) in enumerate(work_items, start=1):
+            total_files = len(work_items)
+
+            # ----- Calibrate global progress by estimating chunk count -----
+            # We estimate based on ffprobe duration, before WAV conversion.
+            self._done_chunks = 0
+            self._total_chunks = 0
+            for key, path, _forced_stem in work_items:
+                try:
+                    dur = AudioExtractor.probe_duration(path)
+                except Exception:
+                    dur = None
+                self._total_chunks += self._estimate_chunks(dur, chunk_len, stride_len)
+
+            # Fallback: never let it be zero
+            self._total_chunks = max(1, int(self._total_chunks))
+            self._bump_global_progress()
+
+            for file_idx, (key, path, forced_stem) in enumerate(work_items, start=1):
                 if self._is_cancelled():
                     break
 
@@ -160,7 +208,10 @@ class TranscriptionWorker(QtCore.QObject):
 
                     if self._conflict_action == "skip":
                         self.item_status.emit(key, tr("status.skipped"))
-                        self.progress.emit(int(idx * 100 / total))
+                        self.item_progress.emit(key, 0)
+                        # Move progress at least slightly for skipped items
+                        self._done_chunks += 1
+                        self._bump_global_progress()
                         continue
                     elif self._conflict_action == "new":
                         if self._conflict_new_stem:
@@ -175,6 +226,8 @@ class TranscriptionWorker(QtCore.QObject):
                     if self._is_cancelled():
                         break
                     self.item_status.emit(key, tr("status.prep"))
+                    self.item_progress.emit(key, 0)
+
                     model_input = FileManager.ensure_tmp_wav(
                         path,
                         cancel_check=self._is_cancelled,
@@ -183,8 +236,8 @@ class TranscriptionWorker(QtCore.QObject):
                     if self._is_cancelled():
                         raise _Cancelled()
                     self.item_status.emit(key, tr("status.error"))
+                    self.item_progress.emit(key, 0)
                     self.log.emit(tr("log.audio_prep_failed", name=path.name, detail=str(e)))
-                    self.progress.emit(int(idx * 100 / total))
                     continue
 
                 if self._is_cancelled():
@@ -198,7 +251,8 @@ class TranscriptionWorker(QtCore.QObject):
                         generate_kwargs["language"] = default_lang
 
                     text = self._transcribe_wav_chunked(
-                        model_input,
+                        item_key=key,
+                        wav_path=model_input,
                         chunk_length_s=chunk_len,
                         stride_length_s=stride_len,
                         return_timestamps=return_ts,
@@ -210,8 +264,8 @@ class TranscriptionWorker(QtCore.QObject):
                     raise
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
+                    self.item_progress.emit(key, 0)
                     self.log.emit(tr("log.transcription_failed", name=path.name, detail=str(e)))
-                    self.progress.emit(int(idx * 100 / total))
                     continue
 
                 # ----- Ensure session directory exists -----
@@ -220,8 +274,8 @@ class TranscriptionWorker(QtCore.QObject):
                         FileManager.ensure_session()
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
+                    self.item_progress.emit(key, 0)
                     self.log.emit(tr("log.session_dir_failed", detail=str(e)))
-                    self.progress.emit(int(idx * 100 / total))
                     continue
 
                 # ----- Save transcript -----
@@ -236,11 +290,13 @@ class TranscriptionWorker(QtCore.QObject):
                     out_txt.write_text(text, encoding="utf-8")
 
                     self.item_status.emit(key, tr("status.done"))
+                    self.item_progress.emit(key, 100)
                     self.transcript_ready.emit(key, str(out_txt))
                     processed_any = True
 
                 except Exception as e:
                     self.item_status.emit(key, tr("status.error"))
+                    self.item_progress.emit(key, 0)
                     self.log.emit(tr("log.transcript.save_failed", name=path.name, detail=str(e)))
                     if created_dir:
                         FileManager.remove_dir_if_empty(out_dir)
@@ -252,7 +308,9 @@ class TranscriptionWorker(QtCore.QObject):
                 except Exception:
                     pass
 
-                self.progress.emit(int(idx * 100 / total))
+                # In case the file was tiny (1 chunk), ensure global progress moves
+                if file_idx == total_files:
+                    self.progress.emit(100)
 
         except _Cancelled:
             pass
@@ -344,7 +402,6 @@ class TranscriptionWorker(QtCore.QObject):
                     ignore_warning=ignore_warning,
                 )
             except TypeError:
-                # Some pipeline versions don't accept ignore_warning
                 result = self._pipe(
                     payload,
                     return_timestamps=return_timestamps,
@@ -360,7 +417,6 @@ class TranscriptionWorker(QtCore.QObject):
                 or "long-form generation" in msg
             )
             if needs_ts and not return_timestamps:
-                # Retry with timestamps enabled (doesn't harm; we still read only "text")
                 try:
                     try:
                         result = self._pipe(
@@ -382,8 +438,9 @@ class TranscriptionWorker(QtCore.QObject):
 
     def _transcribe_wav_chunked(
         self,
-        wav_path: Path,
         *,
+        item_key: str,
+        wav_path: Path,
         chunk_length_s: int,
         stride_length_s: int,
         return_timestamps: bool,
@@ -402,7 +459,16 @@ class TranscriptionWorker(QtCore.QObject):
             stride_frames = max(0, int(stride_length_s) * sr)
             step = max(1, chunk_frames - stride_frames)
 
+            # Exact chunk count for this file (for item_progress)
+            if n_frames <= chunk_frames:
+                chunks_in_file = 1
+            else:
+                chunks_in_file = int(math.ceil((n_frames - chunk_frames) / step)) + 1
+            chunks_in_file = max(1, chunks_in_file)
+
             pos = 0
+            chunk_idx = 0
+
             while pos < n_frames:
                 self._ensure_not_cancelled()
 
@@ -436,6 +502,15 @@ class TranscriptionWorker(QtCore.QObject):
                 txt = TextPostprocessor.clean(str(txt))
                 out_text = self._merge_text(out_text, txt)
 
+                # ----- Update progress -----
+                chunk_idx += 1
+                local_pct = int(chunk_idx * 100 / chunks_in_file)
+                local_pct = max(0, min(100, local_pct))
+                self.item_progress.emit(item_key, local_pct)
+
+                self._done_chunks += 1
+                self._bump_global_progress()
+
                 pos += step
 
         return out_text
@@ -459,6 +534,7 @@ class TranscriptionWorker(QtCore.QObject):
         if t == "url" or is_url(s):
             key = s
             self.item_status.emit(key, tr("status.prep"))
+            self.item_progress.emit(key, 0)
 
             trans_cfg = Config.transcription_settings()
             download_audio_only: bool = bool(trans_cfg.get("download_audio_only", True))
@@ -496,6 +572,7 @@ class TranscriptionWorker(QtCore.QObject):
 
                 if self._conflict_action == "skip":
                     self.item_status.emit(key, tr("status.skipped"))
+                    self.item_progress.emit(key, 0)
                     return []
                 elif self._conflict_action == "new":
                     if self._conflict_new_stem:

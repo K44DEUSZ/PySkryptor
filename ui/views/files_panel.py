@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -15,24 +15,6 @@ from ui.views.dialogs import ask_cancel, ask_conflict
 from ui.workers.metadata_worker import MetadataWorker
 from ui.workers.transcription_worker import TranscriptionWorker
 from ui.workers.model_loader_worker import ModelLoadWorker
-
-
-def _fmt_bytes(n: int | None) -> str:
-    if n is None:
-        return "-"
-    try:
-        n = int(n)
-    except Exception:
-        return "-"
-    if n < 1024:
-        return f"{n} B"
-    units = ["KB", "MB", "GB", "TB"]
-    v = float(n)
-    u = 0
-    while v >= 1024 and u < len(units) - 1:
-        v /= 1024.0
-        u += 1
-    return f"{v:.2f} {units[u]}"
 
 
 def _fmt_seconds(sec: float | None) -> str:
@@ -190,7 +172,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         # State
         self.pipe = None
-        self._keys: set[str] = set()  # path/url unique keys
+        self._keys: set[str] = set()
         self._row_by_key: Dict[str, int] = {}
         self._transcript_by_key: Dict[str, str] = {}
 
@@ -223,12 +205,9 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.pathsDropped.connect(self._on_paths_dropped)
         self.tbl.cellDoubleClicked.connect(lambda row, _col: self._open_transcript_for_row(row))
 
-        # Load model in background
         Config.initialize()
         self._start_model_load()
         self._update_buttons()
-
-    # ----- Link opener -----
 
     def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
         try:
@@ -237,10 +216,7 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception:
             pass
 
-    # ----- Entries API -----
-
     def get_entries(self) -> List[Dict[str, Any]]:
-        """Return list entries in the shape expected by TranscriptionWorker."""
         entries: List[Dict[str, Any]] = []
         for r in range(self.tbl.rowCount()):
             key = self._key_at_row(r)
@@ -252,7 +228,7 @@ class FilesPanel(QtWidgets.QWidget):
                 entries.append({"type": "file", "value": key})
         return entries
 
-    # ----- Add helpers -----
+    # ---- list management ----
 
     def _normalize_key(self, raw: str) -> str:
         return (raw or "").strip()
@@ -271,7 +247,6 @@ class FilesPanel(QtWidgets.QWidget):
         row = self.tbl.rowCount()
         self.tbl.insertRow(row)
 
-        # checkbox
         it_check = QtWidgets.QTableWidgetItem("")
         it_check.setFlags(it_check.flags() | QtCore.Qt.ItemIsUserCheckable)
         it_check.setCheckState(QtCore.Qt.Unchecked)
@@ -325,7 +300,6 @@ class FilesPanel(QtWidgets.QWidget):
         if not keys:
             return
         if self._meta_thread is not None:
-            # best-effort cancel previous
             try:
                 self._meta_thread.requestInterruption()
             except Exception:
@@ -333,10 +307,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         entries = []
         for k in keys:
-            if is_url(k):
-                entries.append({"type": "url", "value": k})
-            else:
-                entries.append({"type": "file", "value": k})
+            entries.append({"type": ("url" if is_url(k) else "file"), "value": k})
 
         self._meta_thread = QtCore.QThread(self)
         self._meta_worker = MetadataWorker(entries)
@@ -368,7 +339,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._meta_thread = None
         self._meta_worker = None
 
-    # ----- Actions -----
+    # ---- actions ----
 
     def _on_add_clicked(self) -> None:
         raw = (self.src_edit.text() or "").strip()
@@ -501,7 +472,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.progress.setValue(0)
         self._update_buttons()
 
-    # ----- Output folder -----
+    # ---- output ----
 
     def _open_output_folder(self) -> None:
         try:
@@ -514,7 +485,7 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception as e:
             self.log.err(tr("log.unexpected", msg=str(e)))
 
-    # ----- Start / cancel transcription -----
+    # ---- transcription ----
 
     def _on_start_clicked(self) -> None:
         if not self.pipe:
@@ -540,6 +511,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcribe_worker.log.connect(self.log.plain)
         self._transcribe_worker.progress.connect(self.progress.setValue)
         self._transcribe_worker.item_status.connect(self._on_item_status)
+        self._transcribe_worker.item_progress.connect(self._on_item_progress)
         self._transcribe_worker.item_path_update.connect(self._on_item_path_update)
         self._transcribe_worker.transcript_ready.connect(self._on_transcript_ready)
         self._transcribe_worker.conflict_check.connect(self._on_conflict)
@@ -578,8 +550,6 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._update_buttons()
 
-    # ----- Conflict decisions -----
-
     @QtCore.pyqtSlot(str, str)
     def _on_conflict(self, stem: str, _existing_dir: str) -> None:
         try:
@@ -601,7 +571,7 @@ class FilesPanel(QtWidgets.QWidget):
             if self._transcribe_worker is not None:
                 self._transcribe_worker.on_conflict_decided("skip", "")
 
-    # ----- Item updates from TranscriptionWorker -----
+    # ---- worker updates ----
 
     def _key_at_row(self, row: int) -> str:
         it = self.tbl.item(row, self.COL_PATH)
@@ -629,22 +599,30 @@ class FilesPanel(QtWidgets.QWidget):
         if it:
             it.setText(status)
 
+    @QtCore.pyqtSlot(str, int)
+    def _on_item_progress(self, key: str, pct: int) -> None:
+        row = self._row_by_key.get(key)
+        if row is None:
+            return
+        it = self.tbl.item(row, self.COL_STATUS)
+        if not it:
+            return
+        # Keep it simple & language-safe without adding new translation keys
+        it.setText(f"{tr('status.proc')} {int(pct)}%")
+
     @QtCore.pyqtSlot(str, str)
     def _on_item_path_update(self, old_key: str, new_key: str) -> None:
         row = self._row_by_key.pop(old_key, None)
         if row is None:
             return
 
-        # Update internal sets
         self._keys.discard(old_key)
         self._keys.add(new_key)
         self._row_by_key[new_key] = row
 
-        # Update table
         self.tbl.item(row, self.COL_PATH).setText(new_key)
         self.tbl.item(row, self.COL_SRC).setText("LOCAL")
 
-        # kick metadata refresh for the new local file path
         self._start_metadata_for([new_key])
 
     @QtCore.pyqtSlot(str, str)
@@ -672,7 +650,7 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception:
             pass
 
-    # ----- Model loading -----
+    # ---- model ----
 
     def _start_model_load(self) -> None:
         if self._model_thread is not None:
@@ -702,7 +680,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.log.err(tr("log.model.error", msg=msg))
         self._update_buttons()
 
-    # ----- UI state -----
+    # ---- ui state ----
 
     def _update_buttons(self) -> None:
         has_items = self.tbl.rowCount() > 0
