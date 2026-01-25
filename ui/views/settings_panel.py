@@ -19,6 +19,7 @@ class _InfoButton(QtWidgets.QToolButton):
 
     def __init__(self, tooltip: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
+        self.setObjectName("SettingsPanel")
         self.setText("ⓘ")
         self.setCursor(QtCore.Qt.PointingHandCursor)
         self.setToolTip(tooltip)

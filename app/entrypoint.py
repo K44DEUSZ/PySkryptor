@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtGui, QtWidgets
 
 from core.config.app_config import AppConfig as Config
 from core.services.settings_service import SettingsService, SettingsError
@@ -21,6 +21,42 @@ def _resolve(root: Path, p: str) -> Path:
     """Resolve 'p' against project root if it's relative."""
     path = Path(p)
     return path if path.is_absolute() else (root / path)
+
+
+def _guess_theme(app: QtWidgets.QApplication) -> str:
+    try:
+        col = app.palette().color(QtGui.QPalette.Window)
+        return "dark" if col.value() < 128 else "light"
+    except Exception:
+        return "light"
+
+
+def _apply_stylesheet(app: QtWidgets.QApplication, project_root: Path, theme_pref: str) -> str:
+    """Load and apply QSS from resources/styles (if present)."""
+    pref = (theme_pref or "auto").strip().lower()
+    theme = pref if pref in ("light", "dark") else _guess_theme(app)
+
+    styles_dir = project_root / "resources" / "styles"
+    parts: list[str] = []
+
+    for name in ("base.qss", f"{theme}.qss"):
+        f = styles_dir / name
+        if f.exists() and f.is_file():
+            try:
+                parts.append(f.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+    qss = "\n\n".join([p.strip() for p in parts if p.strip()])
+    if qss:
+        app.setStyleSheet(qss)
+
+    try:
+        app.setProperty("theme", theme)
+    except Exception:
+        pass
+
+    return theme
 
 
 def run() -> int:
@@ -62,6 +98,8 @@ def run() -> int:
 
     # Apply runtime config (paths, device/dtype, etc.)
     Config.initialize(svc)
+
+    _apply_stylesheet(app, project_root, str(snap.app.get("theme", "auto")))
 
     # Create & show main window
     from ui.views.main_window import MainWindow

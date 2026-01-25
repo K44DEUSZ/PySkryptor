@@ -19,6 +19,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
+        self.setObjectName("DownloaderPanel")
 
         root = QtWidgets.QVBoxLayout(self)
 

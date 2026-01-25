@@ -7,60 +7,6 @@ from typing import Callable, Iterable, Optional
 from PyQt5 import QtCore, QtGui
 
 
-# ----- Noise filtering (shared) -----
-
-_NOISE_PATTERNS: tuple[str, ...] = (
-    "UNPLAYABLE formats",
-    "developer option intended for debugging",
-    "impersonation",
-    "SABR streaming",
-    "SABR-only",
-    "[debug]",
-)
-
-
-def _is_noisy(msg: str, extra_noise: Iterable[str] | None = None) -> bool:
-    text = str(msg)
-    for k in _NOISE_PATTERNS:
-        if k in text:
-            return True
-    if extra_noise:
-        for k in extra_noise:
-            if k and str(k) in text:
-                return True
-    return False
-
-
-# ----- yt-dlp adapter -----
-
-class YtdlpQtLogger:
-    """
-    Logger adapter for yt_dlp that routes messages to GUI with basic filtering.
-    Use in YoutubeDL opts: {"logger": YtdlpQtLogger(gui_log_fn)}.
-
-    NOTE: This class does not import Qt widgets; it only calls a provided callable.
-    """
-
-    def __init__(self, log_fn: Callable[[str], None], *, extra_noise: Iterable[str] | None = None) -> None:
-        self._log = log_fn
-        self._extra_noise = tuple(extra_noise or ())
-
-    def debug(self, msg):  # very chatty; ignore entirely
-        pass
-
-    def info(self, msg):
-        if not _is_noisy(str(msg), self._extra_noise):
-            self._log(str(msg))
-
-    def warning(self, msg):
-        if not _is_noisy(str(msg), self._extra_noise):
-            self._log(str(msg))
-
-    def error(self, msg):
-        if not _is_noisy(str(msg), self._extra_noise):
-            self._log(str(msg))
-
-
 # ----- Qt HTML appender -----
 
 class _QtHtmlAppender(QtCore.QObject):

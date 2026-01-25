@@ -1,4 +1,4 @@
-# core/transcription/model_loader.py
+# core/services/model_loader.py
 from __future__ import annotations
 
 from typing import Callable, Any

@@ -1,17 +1,11 @@
 # core/services/conflict_service.py
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from core.io.file_manager import FileManager
 from core.io.text import sanitize_filename
-
-
-@dataclass
-class ConflictResult:
-    action: str  # "skip" | "overwrite" | "new"
-    stem: str
 
 
 class ConflictService:
@@ -21,7 +15,6 @@ class ConflictService:
     def exists(stem: str) -> bool:
         safe = sanitize_filename(stem)
         return FileManager.find_existing_output(safe) is not None
-
 
     @staticmethod
     def next_free(stem: str) -> str:
@@ -36,13 +29,11 @@ class ConflictService:
                 return candidate
             i += 1
 
-
     @staticmethod
-    def ensure(stem: str):
-        """Create (if needed) and return output directory for stem in the current session."""
+    def ensure(stem: str) -> Path:
+        """Create (if needed) and return output directory for stem in current session."""
         safe = sanitize_filename(stem)
         return FileManager.ensure_output(safe)
-
 
     @staticmethod
     def existing_dir(stem: str) -> Optional[str]:

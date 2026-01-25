@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional, Any
 
-from core.transcription.model_loader import ModelLoader
+from core.services.model_loader import ModelLoader
 
 
 class TranscriptionService:

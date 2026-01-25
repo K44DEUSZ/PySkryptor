@@ -16,6 +16,7 @@ from core.config.app_config import AppConfig as Config
 from core.io.file_manager import FileManager
 from core.io.audio_extractor import AudioExtractor
 from core.services.download_service import DownloadService, DownloadError, DownloadCancelled
+from core.services.conflict_service import ConflictService
 from core.io.text import is_url, sanitize_filename, TextPostprocessor
 from ui.utils.translating import tr
 
@@ -187,9 +188,11 @@ class TranscriptionWorker(QtCore.QObject):
                 write_into_existing = False
 
                 stem = sanitize_filename(forced_stem) if forced_stem else sanitize_filename(path.stem)
-                existing = FileManager.find_existing_output(stem)
+
+                existing_str = ConflictService.existing_dir(stem)
+                existing = Path(existing_str) if existing_str else None
                 if existing is not None:
-                    out_dir = Path(existing)
+                    out_dir = existing
                     write_into_existing = True
 
                 if out_dir is None:
@@ -218,7 +221,7 @@ class TranscriptionWorker(QtCore.QObject):
                             stem = sanitize_filename(self._conflict_new_stem)
                             out_dir = FileManager.output_dir_for(stem)
                     elif self._conflict_action == "overwrite":
-                        out_dir = Path(existing)
+                        out_dir = existing
                         write_into_existing = True
 
                 # ----- Prepare model input (force WAV for cancellable chunking) -----
@@ -556,7 +559,8 @@ class TranscriptionWorker(QtCore.QObject):
 
             title = meta.get("title") or "file"
             predicted_stem = sanitize_filename(Path(title).stem)
-            existing = FileManager.find_existing_output(predicted_stem)
+            existing_str = ConflictService.existing_dir(predicted_stem)
+            existing = Path(existing_str) if existing_str else None
             forced_stem: Optional[str] = None
 
             if existing is not None:

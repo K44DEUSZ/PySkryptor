@@ -15,6 +15,7 @@ class AboutPanel(QtWidgets.QWidget):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
+        self.setObjectName("AboutPanel")
         self._init_ui()
 
     # ----- UI -----

@@ -66,6 +66,24 @@ class SettingsWorker(QtCore.QObject):
         except Exception as ex:
             self.error.emit(tr("error.config.generic", detail=str(ex)))
 
+def _do_restore_defaults(self) -> None:
+    """Restore default settings sections from defaults.json and reload."""
+    try:
+        svc = SettingsService(Config.ROOT_DIR)
+        svc.restore_defaults()
+
+        snap = svc.load()
+        data = self._snapshot_to_dict(snap)
+        self.saved.emit(data)
+    except SettingsError as ex:
+        try:
+            msg = tr(ex.key, **ex.params)
+        except Exception:
+            msg = f"{ex.key}: {ex}"
+        self.error.emit(msg)
+    except Exception as ex:
+        self.error.emit(tr("error.config.generic", detail=str(ex)))
+
     def _do_save(self) -> None:
         """
         Save selected sections to settings.json.

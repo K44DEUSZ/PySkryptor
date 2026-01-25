@@ -44,6 +44,7 @@ class DropTableWidget(QtWidgets.QTableWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("FilesPanel")
         self.setAcceptDrops(True)
         self.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
 
@@ -85,6 +86,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("FilesPanel")
 
         self._transcribe_thread: Optional[QtCore.QThread] = None
         self._transcribe_worker: Optional[TranscriptionWorker] = None
@@ -151,6 +153,7 @@ class FilesPanel(QtWidgets.QWidget):
         details_layout = QtWidgets.QVBoxLayout(details_group)
 
         self.tbl = DropTableWidget()
+        self.tbl.setObjectName("SourcesTable")
         self.tbl.setColumnCount(8)
         self.tbl.setHorizontalHeaderLabels([
             "",
@@ -183,6 +186,7 @@ class FilesPanel(QtWidgets.QWidget):
         bottom_bar.setSpacing(8)
 
         self.progress = QtWidgets.QProgressBar()
+        self.progress.setObjectName("TranscriptionProgress")
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setMinimumHeight(base_h)
@@ -205,6 +209,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         # --- Log
         self.output = QtWidgets.QTextBrowser()
+        self.output.setObjectName("LogOutput")
         self.output.setOpenExternalLinks(False)
         self.output.setOpenLinks(False)
         self.output.anchorClicked.connect(self._on_anchor_clicked)
@@ -216,8 +221,8 @@ class FilesPanel(QtWidgets.QWidget):
         self._keys: set[str] = set()
         self._row_by_key: Dict[str, int] = {}
         self._transcript_by_key: Dict[str, str] = {}
-        self._origin_src_by_key: Dict[str, str] = {}       # internal_key -> "URL"/"LOCAL"
-        self._display_path_by_key: Dict[str, str] = {}     # internal_key -> display text shown in table
+        self._origin_src_by_key: Dict[str, str] = {}  # internal_key -> "URL"/"LOCAL"
+        self._display_path_by_key: Dict[str, str] = {}  # internal_key -> display text shown in table
 
         # Model auto-load
         self._start_model_load()
@@ -789,6 +794,11 @@ class FilesPanel(QtWidgets.QWidget):
         row = self._row_by_key.get(key)
         if row is None:
             return
+
+        # Do not overwrite terminal statuses (Done/Error/Skipped) with "Processing..."
+        if pct <= 0 or pct >= 100:
+            return
+
         it = self.tbl.item(row, self.COL_STATUS)
         if not it:
             return
@@ -936,3 +946,19 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_open_output.setEnabled(not running)
         self.btn_add_files.setEnabled(not running)
         self.btn_add_folder.setEnabled(not running)
+
+    def on_parent_close(self) -> None:
+        """Best-effort shutdown for active background threads."""
+        try:
+            if self._transcribe_thread and self._transcribe_worker:
+                self._transcribe_worker.cancel()
+                self._transcribe_thread.requestInterruption()
+        except Exception:
+            pass
+
+        try:
+            if self._meta_thread and self._meta_worker:
+                self._meta_thread.requestInterruption()
+        except Exception:
+            pass
+

@@ -168,13 +168,12 @@
       "network": "Network 🌐"
     },
     "app": {
-      "language": {
-        "auto": "System (auto)"
-      },
+      "language": "Language",
       "theme": "Theme",
       "theme.auto": "System",
       "theme.light": "Light",
-      "theme.dark": "Dark"
+      "theme.dark": "Dark",
+      "language.auto": "System (auto)"
     },
     "engine": {
       "device": "Preferred device",

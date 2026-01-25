@@ -8,7 +8,57 @@ import yt_dlp
 
 from core.config.app_config import AppConfig as Config
 from core.io.text import sanitize_filename
-from ui.utils.logging import YtdlpQtLogger
+
+
+# ----- yt-dlp logger adapter -----
+
+_NOISE_PATTERNS: tuple[str, ...] = (
+    "UNPLAYABLE formats",
+    "developer option intended for debugging",
+    "impersonation",
+    "SABR streaming",
+    "SABR-only",
+    "[debug]",
+)
+
+
+def _is_noisy(msg: str, extra_noise: tuple[str, ...] = ()) -> bool:
+    text = str(msg)
+    for k in _NOISE_PATTERNS:
+        if k in text:
+            return True
+    for k in extra_noise:
+        if k and str(k) in text:
+            return True
+    return False
+
+
+class YtdlpLogger:
+    """Minimal logger adapter for yt_dlp.
+
+    yt_dlp expects methods: debug/info/warning/error.
+    We forward messages into a provided callable with simple noise filtering.
+    """
+
+    def __init__(self, log_fn, *, extra_noise: tuple[str, ...] = ()) -> None:
+        self._log = log_fn
+        self._extra_noise = tuple(extra_noise or ())
+
+    def debug(self, msg) -> None:
+        # yt_dlp debug is extremely verbose; ignore.
+        return
+
+    def info(self, msg) -> None:
+        if not _is_noisy(str(msg), self._extra_noise):
+            self._log(str(msg))
+
+    def warning(self, msg) -> None:
+        if not _is_noisy(str(msg), self._extra_noise):
+            self._log(str(msg))
+
+    def error(self, msg) -> None:
+        if not _is_noisy(str(msg), self._extra_noise):
+            self._log(str(msg))
 
 
 class DownloadError(RuntimeError):
@@ -104,7 +154,7 @@ class DownloadService:
             "skip_download": True,
             "nocheckcertificate": True,
             "extractor_args": {"youtube": {"player_client": ["default"]}},
-            "logger": YtdlpQtLogger(log),
+            "logger": YtdlpLogger(log),
             "retries": Config.net_retries(),
             "socket_timeout": Config.net_timeout_s(),
         }
@@ -251,7 +301,7 @@ class DownloadService:
             "postprocessors": postprocessors,
             "progress_hooks": [lambda d: self._on_progress(d, progress_cb, cancel_check)],
             "extractor_args": {"youtube": {"player_client": ["default"]}},
-            "logger": YtdlpQtLogger(log),
+            "logger": YtdlpLogger(log),
         }
         if Config.net_proxy():
             ydl_opts["proxy"] = Config.net_proxy()

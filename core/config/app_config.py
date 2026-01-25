@@ -10,7 +10,6 @@ from typing import Any, Dict, Tuple
 import torch
 
 from core.services.settings_service import SettingsService, SettingsSnapshot, SettingsError
-from core.io.time_utils import get_current_year
 
 
 class ConfigError(RuntimeError):
@@ -27,13 +26,8 @@ class AppConfig:
     APP_VERSION: str = "0.1.0"
     APP_AUTHOR: str = "Bartosz Golat"
 
-    APP_COPYRIGHT_YEAR: int = get_current_year()
     APP_COPYRIGHT_START_YEAR: int = 2025
-    APP_COPYRIGHT_RANGE: str = (
-        f"{APP_COPYRIGHT_START_YEAR}"
-        if APP_COPYRIGHT_START_YEAR == APP_COPYRIGHT_YEAR
-        else f"{APP_COPYRIGHT_START_YEAR}–{APP_COPYRIGHT_YEAR}"
-    )
+    APP_COPYRIGHT_RANGE: str = str(APP_COPYRIGHT_START_YEAR)
 
     APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"
 
@@ -46,6 +40,7 @@ class AppConfig:
     MODELS_DIR: Path = RESOURCES_DIR / "models"
     AI_ENGINE_DIR: Path = MODELS_DIR / "whisper-turbo"
     LOCALES_DIR: Path = RESOURCES_DIR / "locales"
+    STYLES_DIR: Path = RESOURCES_DIR / "styles"
 
     DATA_DIR: Path = ROOT_DIR / "data"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
@@ -196,6 +191,7 @@ class AppConfig:
             cls.RESOURCES_DIR,
             cls.FFMPEG_DIR,
             cls.LOCALES_DIR,
+            cls.STYLES_DIR,
             cls.MODELS_DIR,
             cls.DATA_DIR,
             cls.DOWNLOADS_DIR,

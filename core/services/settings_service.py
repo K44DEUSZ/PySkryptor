@@ -63,7 +63,7 @@ class SettingsService:
             "locales_dir": "resources/locales",
             "data_dir": "data",
             "downloads_dir": "data/downloads",
-            "input_tmp_dir": "data/.input_tmp",
+            "input_tmp_dir": "data/transcriptions/.input_tmp",
             "transcriptions_dir": "data/transcriptions",
         }
 

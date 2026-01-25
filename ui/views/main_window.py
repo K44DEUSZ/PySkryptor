@@ -20,6 +20,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
+        self.setObjectName("MainWindow")
         self.setWindowTitle(tr("app.title"))
         self.resize(1280, 820)
 
@@ -28,6 +29,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(central)
 
         self.tabs = QtWidgets.QTabWidget()
+        self.tabs.setObjectName("MainTabs")
         layout.addWidget(self.tabs, 1)
 
         # Files panel
