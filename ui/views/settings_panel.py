@@ -29,7 +29,7 @@ class _InfoButton(QtWidgets.QToolButton):
 
 class SettingsPanel(QtWidgets.QWidget):
     """
-    Settings tab: scrollable form bound to settings.json via SettingsWorker.
+    Settings tab: form bound to settings.json via SettingsWorker.
 
     This panel intentionally exposes only user-relevant options.
     Technical/internal flags (e.g. proxy, pipeline task) are hidden by design.
@@ -40,25 +40,21 @@ class SettingsPanel(QtWidgets.QWidget):
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
 
+        self.setObjectName("SettingsPanel")
+
         self._data: Dict[str, Any] = {}
         self._thread: Optional[QtCore.QThread] = None
         self._worker: Optional[SettingsWorker] = None
 
-        # Scroll container (so settings never force the main window height)
+        self._dirty = False
+        self._blocking_updates = False
+
+        # Root layout (no scroll area per current project preference)
         outer = QtWidgets.QVBoxLayout(self)
-        self._scroll = QtWidgets.QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(10)
 
-        self._content = QtWidgets.QWidget()
-        self._content_lay = QtWidgets.QVBoxLayout(self._content)
-        self._content_lay.setContentsMargins(0, 0, 0, 0)
-        self._content_lay.setSpacing(10)
-
-        self._scroll.setWidget(self._content)
-        outer.addWidget(self._scroll)
-
-        # ---- App section ----
+        # ---- Sections ----
         grp_app = QtWidgets.QGroupBox(tr("settings.section.app"))
         lay_app = QtWidgets.QFormLayout(grp_app)
 
@@ -67,7 +63,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_app_theme = QtWidgets.QComboBox()
         self.cb_app_theme.setFixedHeight(self.CONTROL_HEIGHT)
-        self._theme_values = ["auto", "light", "dark"]
         self.cb_app_theme.addItem(tr("settings.app.theme.auto"), "auto")
         self.cb_app_theme.addItem(tr("settings.app.theme.light"), "light")
         self.cb_app_theme.addItem(tr("settings.app.theme.dark"), "dark")
@@ -84,29 +79,23 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_app.addRow(tr("settings.app.language"), lang_row)
         lay_app.addRow(tr("settings.app.theme"), theme_row)
 
-        self._content_lay.addWidget(grp_app)
-
         # ---- Engine section ----
         grp_eng = QtWidgets.QGroupBox(tr("settings.section.engine"))
         lay_eng = QtWidgets.QFormLayout(grp_eng)
 
         self.cb_engine_device = QtWidgets.QComboBox()
         self.cb_engine_device.setFixedHeight(self.CONTROL_HEIGHT)
-        self._device_values = ["auto", "cpu", "gpu"]
         self.cb_engine_device.addItem(tr("settings.engine.device.auto"), "auto")
         self.cb_engine_device.addItem(tr("settings.engine.device.cpu"), "cpu")
         self.cb_engine_device.addItem(tr("settings.engine.device.gpu"), "gpu")
 
         self.cb_engine_precision = QtWidgets.QComboBox()
         self.cb_engine_precision.setFixedHeight(self.CONTROL_HEIGHT)
-        self._precision_values = ["auto", "float32", "float16", "bfloat16"]
-
         self.cb_engine_precision.addItem(tr("settings.engine.precision.auto"), "auto")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.float32"), "float32")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.float16"), "float16")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.bfloat16"), "bfloat16")
 
-        # Per-option tooltips (detailed explanations)
         self._set_combo_tooltip(self.cb_engine_precision, 0, tr("settings.help.precision.auto"))
         self._set_combo_tooltip(self.cb_engine_precision, 1, tr("settings.help.precision.float32"))
         self._set_combo_tooltip(self.cb_engine_precision, 2, tr("settings.help.precision.float16"))
@@ -122,14 +111,12 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         prec_row = self._hrow(
             self.cb_engine_precision,
-            _InfoButton(tr("settings.help.precision")),
+            _InfoButton(tr("settings.help.precision_hint")),
         )
 
         lay_eng.addRow(tr("settings.engine.device"), dev_row)
         lay_eng.addRow(tr("settings.engine.precision"), prec_row)
         lay_eng.addRow("", self.chk_engine_tf32)
-
-        self._content_lay.addWidget(grp_eng)
 
         # ---- Model section ----
         grp_model = QtWidgets.QGroupBox(tr("settings.section.model"))
@@ -177,8 +164,6 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_model.addRow(tr("settings.model.stride_length_s"), stride_row)
         lay_model.addRow("", self.chk_model_low_cpu_mem)
 
-        self._content_lay.addWidget(grp_model)
-
         # ---- Transcription section ----
         grp_tr = QtWidgets.QGroupBox(tr("settings.section.transcription"))
         lay_tr = QtWidgets.QFormLayout(grp_tr)
@@ -217,8 +202,6 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_tr.addRow("", self.chk_tr_keep_wav)
         lay_tr.addRow("", self.chk_tr_audio_only)
 
-        self._content_lay.addWidget(grp_tr)
-
         # ---- Downloader section ----
         grp_down = QtWidgets.QGroupBox(tr("settings.section.downloader"))
         lay_down = QtWidgets.QFormLayout(grp_down)
@@ -242,8 +225,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
         lay_down.addRow(tr("settings.downloader.min_video_height"), min_row)
         lay_down.addRow(tr("settings.downloader.max_video_height"), max_row)
-
-        self._content_lay.addWidget(grp_down)
 
         # ---- Network section ----
         grp_net = QtWidgets.QGroupBox(tr("settings.section.network"))
@@ -287,37 +268,64 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_net.addRow(tr("settings.network.concurrent_fragments"), frag_row)
         lay_net.addRow(tr("settings.network.http_timeout_s"), timeout_row)
 
-        self._content_lay.addWidget(grp_net)
+        # Layout: two-column grid
+        grid_wrap = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(grid_wrap)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
 
-        # ---- Bottom: info + buttons ----
+        grid.addWidget(grp_app, 0, 0)
+        grid.addWidget(grp_eng, 0, 1)
+        grid.addWidget(grp_model, 1, 0)
+        grid.addWidget(grp_tr, 1, 1)
+        grid.addWidget(grp_down, 2, 0)
+        grid.addWidget(grp_net, 2, 1)
+
+        outer.addWidget(grid_wrap)
+
+        # Bottom info + buttons
         info_lbl = QtWidgets.QLabel(tr("settings.info.restart_required"))
         info_lbl.setWordWrap(True)
-        self._content_lay.addWidget(info_lbl)
+        outer.addWidget(info_lbl)
 
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.addStretch(1)
+        bottom_bar = QtWidgets.QHBoxLayout()
+        bottom_bar.setSpacing(8)
+        bottom_bar.addStretch(1)
 
         self.btn_restore = QtWidgets.QPushButton(tr("settings.buttons.restore_defaults"))
-        self.btn_restore.setFixedHeight(self.CONTROL_HEIGHT)
-
         self.btn_save = QtWidgets.QPushButton(tr("settings.buttons.save"))
-        self.btn_save.setFixedHeight(self.CONTROL_HEIGHT)
 
-        btn_row.addWidget(self.btn_restore)
-        btn_row.addWidget(self.btn_save)
-        self._content_lay.addLayout(btn_row)
+        for b in (self.btn_restore, self.btn_save):
+            b.setMinimumHeight(self.CONTROL_HEIGHT)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
-        self._content_lay.addStretch(1)
+        right_btn_box = QtWidgets.QHBoxLayout()
+        right_btn_box.setSpacing(6)
+        right_btn_box.addWidget(self.btn_restore, 1)
+        right_btn_box.addWidget(self.btn_save, 1)
+
+        bottom_bar.addLayout(right_btn_box, 0)
+        outer.addLayout(bottom_bar)
+
+        outer.addStretch(1)
 
         self._groups = [grp_app, grp_eng, grp_model, grp_tr, grp_down, grp_net]
 
         # Signals
         self.btn_restore.clicked.connect(self._on_restore_clicked)
         self.btn_save.clicked.connect(self._on_save_clicked)
+
         self.cb_engine_device.currentIndexChanged.connect(self._refresh_runtime_capabilities)
+
+        self._install_dirty_signals()
 
         # Initial state
         self._set_enabled(False)
+        self._set_dirty(False)
+
         self._rebuild_language_list()
         self._rebuild_model_list()
         self._refresh_runtime_capabilities()
@@ -343,6 +351,57 @@ class SettingsPanel(QtWidgets.QWidget):
     @staticmethod
     def _set_combo_tooltip(cb: QtWidgets.QComboBox, idx: int, tooltip: str) -> None:
         cb.setItemData(idx, tooltip, QtCore.Qt.ToolTipRole)
+
+    # ----- Dirty state -----
+
+    def _install_dirty_signals(self) -> None:
+        def mark() -> None:
+            self._on_any_changed()
+
+        # combos
+        self.cb_app_language.currentIndexChanged.connect(mark)
+        self.cb_app_theme.currentIndexChanged.connect(mark)
+        self.cb_engine_device.currentIndexChanged.connect(mark)
+        self.cb_engine_precision.currentIndexChanged.connect(mark)
+        self.cb_model_name.currentIndexChanged.connect(mark)
+        self.cb_tr_output_format.currentIndexChanged.connect(mark)
+
+        # line edit
+        self.ed_model_default_lang.textChanged.connect(mark)
+
+        # spins
+        self.spin_model_chunk.valueChanged.connect(mark)
+        self.spin_model_stride.valueChanged.connect(mark)
+        self.spin_down_min_h.valueChanged.connect(mark)
+        self.spin_down_max_h.valueChanged.connect(mark)
+        self.spin_net_bw.valueChanged.connect(mark)
+        self.spin_net_retries.valueChanged.connect(mark)
+        self.spin_net_frag.valueChanged.connect(mark)
+        self.spin_net_timeout.valueChanged.connect(mark)
+
+        # checks
+        self.chk_engine_tf32.toggled.connect(mark)
+        self.chk_model_low_cpu_mem.toggled.connect(mark)
+        self.chk_tr_keep_downloaded.toggled.connect(mark)
+        self.chk_tr_keep_wav.toggled.connect(mark)
+        self.chk_tr_audio_only.toggled.connect(mark)
+
+    def _set_dirty(self, dirty: bool) -> None:
+        self._dirty = dirty
+        self._refresh_save_button()
+
+    def _on_any_changed(self) -> None:
+        if self._blocking_updates:
+            return
+        self._set_dirty(True)
+
+    def _refresh_save_button(self) -> None:
+        enabled = self._thread is None
+        self.btn_save.setEnabled(enabled and self._dirty and self._all_groups_enabled())
+        self.btn_restore.setEnabled(enabled and self._all_groups_enabled())
+
+    def _all_groups_enabled(self) -> bool:
+        return all(g.isEnabled() for g in self._groups)
 
     # ----- Locale + model discovery -----
 
@@ -381,7 +440,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 continue
             items.append((code, display))
 
-        # stable ordering by display name
         for code, display in sorted(items, key=lambda x: x[1].lower()):
             self.cb_app_language.addItem(display, code)
 
@@ -392,7 +450,7 @@ class SettingsPanel(QtWidgets.QWidget):
             return
 
         dirs = [p for p in models_dir.iterdir() if p.is_dir()]
-        dirs = [p for p in dirs if any(p.iterdir())]  # ignore empty folders
+        dirs = [p for p in dirs if any(p.iterdir())]
         for d in sorted(dirs, key=lambda p: p.name.lower()):
             self.cb_model_name.addItem(d.name, d.name)
 
@@ -402,12 +460,10 @@ class SettingsPanel(QtWidgets.QWidget):
         has_cuda = bool(torch.cuda.is_available())
         self._set_combo_item_enabled(self.cb_engine_device, 2, has_cuda)
 
-        # If user picked GPU but CUDA is not available, fall back to auto
         current_val = str(self.cb_engine_device.currentData() or "auto")
         if current_val == "gpu" and not has_cuda:
             self.cb_engine_device.setCurrentIndex(0)
 
-        # TF32 only makes sense on CUDA + Ampere+ GPUs
         tf32_supported = False
         if has_cuda:
             try:
@@ -457,6 +513,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self._thread = None
         self._worker = None
         self._set_enabled(True)
+        self._refresh_save_button()
 
     # ----- Slots from worker -----
 
@@ -466,6 +523,7 @@ class SettingsPanel(QtWidgets.QWidget):
             return
         self._data = data
         self._populate_from_data()
+        self._set_dirty(False)
 
     @QtCore.pyqtSlot(object)
     def _on_saved(self, data: object) -> None:
@@ -473,7 +531,8 @@ class SettingsPanel(QtWidgets.QWidget):
             self._data = data
             self._populate_from_data()
 
-        # Restart prompt (the user decision is explicit)
+        self._set_dirty(False)
+
         restart_now = dialogs.ask_restart_required(self)
         if restart_now:
             self._restart_application()
@@ -487,72 +546,77 @@ class SettingsPanel(QtWidgets.QWidget):
     def _set_enabled(self, enabled: bool) -> None:
         for g in self._groups:
             g.setEnabled(enabled)
-        self.btn_save.setEnabled(enabled)
+
+        # buttons depend on enabled + dirty state
         self.btn_restore.setEnabled(enabled)
+        self.btn_save.setEnabled(enabled and self._dirty)
 
     def _populate_from_data(self) -> None:
-        app = self._data.get("app", {})
-        eng = self._data.get("engine", {})
-        model = self._data.get("model", {})
-        trc = self._data.get("transcription", {})
-        down = self._data.get("downloader", {})
-        net = self._data.get("network", {})
+        self._blocking_updates = True
+        try:
+            app = self._data.get("app", {})
+            eng = self._data.get("engine", {})
+            model = self._data.get("model", {})
+            trc = self._data.get("transcription", {})
+            down = self._data.get("downloader", {})
+            net = self._data.get("network", {})
 
-        # app
-        lang_val = str(app.get("language", "auto")).strip() or "auto"
-        self._select_combo_by_data(self.cb_app_language, lang_val, fallback="auto")
+            # app
+            lang_val = str(app.get("language", "auto")).strip() or "auto"
+            self._select_combo_by_data(self.cb_app_language, lang_val, fallback="auto")
 
-        theme_val = str(app.get("theme", "auto")).strip() or "auto"
-        self._select_combo_by_data(self.cb_app_theme, theme_val, fallback="auto")
+            theme_val = str(app.get("theme", "auto")).strip() or "auto"
+            self._select_combo_by_data(self.cb_app_theme, theme_val, fallback="auto")
 
-        # engine
-        dev_val = str(eng.get("preferred_device", "auto")).strip() or "auto"
-        self._select_combo_by_data(self.cb_engine_device, dev_val, fallback="auto")
+            # engine
+            dev_val = str(eng.get("preferred_device", "auto")).strip() or "auto"
+            self._select_combo_by_data(self.cb_engine_device, dev_val, fallback="auto")
 
-        prec_val = str(eng.get("precision", "auto")).strip() or "auto"
-        self._select_combo_by_data(self.cb_engine_precision, prec_val, fallback="auto")
+            prec_val = str(eng.get("precision", "auto")).strip() or "auto"
+            self._select_combo_by_data(self.cb_engine_precision, prec_val, fallback="auto")
 
-        self.chk_engine_tf32.setChecked(bool(eng.get("allow_tf32", True)))
+            self.chk_engine_tf32.setChecked(bool(eng.get("allow_tf32", True)))
 
-        # model
-        model_name = str(model.get("ai_engine_name", "whisper-turbo")).strip() or "whisper-turbo"
-        self._select_combo_by_data(self.cb_model_name, model_name, fallback=model_name)
-        self.ed_model_default_lang.setText(
-            "" if model.get("default_language") is None else str(model.get("default_language"))
-        )
-        self.spin_model_chunk.setValue(int(model.get("chunk_length_s", 60)))
-        self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
-        self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
+            # model
+            model_name = str(model.get("ai_engine_name", "whisper-turbo")).strip() or "whisper-turbo"
+            self._select_combo_by_data(self.cb_model_name, model_name, fallback=model_name)
+            self.ed_model_default_lang.setText(
+                "" if model.get("default_language") is None else str(model.get("default_language"))
+            )
+            self.spin_model_chunk.setValue(int(model.get("chunk_length_s", 60)))
+            self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
+            self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
 
-        # transcription
-        timestamps_output = bool(trc.get("timestamps_output", False))
-        out_ext = str(trc.get("output_ext", "txt")).lower().strip().lstrip(".") or "txt"
+            # transcription
+            timestamps_output = bool(trc.get("timestamps_output", False))
+            out_ext = str(trc.get("output_ext", "txt")).lower().strip().lstrip(".") or "txt"
 
-        # Derive output format key from ext + timestamps flag
-        fmt_key = "plain_txt"
-        if out_ext == "srt":
-            fmt_key = "srt"
-        elif out_ext == "txt" and timestamps_output:
-            fmt_key = "txt_timestamps"
+            fmt_key = "plain_txt"
+            if out_ext == "srt":
+                fmt_key = "srt"
+            elif out_ext == "txt" and timestamps_output:
+                fmt_key = "txt_timestamps"
 
-        self._select_combo_by_data(self.cb_tr_output_format, fmt_key, fallback="plain_txt")
+            self._select_combo_by_data(self.cb_tr_output_format, fmt_key, fallback="plain_txt")
 
-        self.chk_tr_keep_downloaded.setChecked(bool(trc.get("keep_downloaded_files", False)))
-        self.chk_tr_keep_wav.setChecked(bool(trc.get("keep_wav_temp", False)))
-        self.chk_tr_audio_only.setChecked(bool(trc.get("download_audio_only", True)))
+            self.chk_tr_keep_downloaded.setChecked(bool(trc.get("keep_downloaded_files", False)))
+            self.chk_tr_keep_wav.setChecked(bool(trc.get("keep_wav_temp", False)))
+            self.chk_tr_audio_only.setChecked(bool(trc.get("download_audio_only", True)))
 
-        # downloader
-        self.spin_down_min_h.setValue(int(down.get("min_video_height", 144)))
-        self.spin_down_max_h.setValue(int(down.get("max_video_height", 4320)))
+            # downloader
+            self.spin_down_min_h.setValue(int(down.get("min_video_height", 144)))
+            self.spin_down_max_h.setValue(int(down.get("max_video_height", 4320)))
 
-        # network
-        bw = net.get("max_bandwidth_kbps")
-        self.spin_net_bw.setValue(int(bw) if isinstance(bw, int) and bw >= 0 else 0)
-        self.spin_net_retries.setValue(int(net.get("retries", 3)))
-        self.spin_net_frag.setValue(int(net.get("concurrent_fragments", 4)))
-        self.spin_net_timeout.setValue(int(net.get("http_timeout_s", 30)))
+            # network
+            bw = net.get("max_bandwidth_kbps")
+            self.spin_net_bw.setValue(int(bw) if isinstance(bw, int) and bw >= 0 else 0)
+            self.spin_net_retries.setValue(int(net.get("retries", 3)))
+            self.spin_net_frag.setValue(int(net.get("concurrent_fragments", 4)))
+            self.spin_net_timeout.setValue(int(net.get("http_timeout_s", 30)))
 
-        self._refresh_runtime_capabilities()
+            self._refresh_runtime_capabilities()
+        finally:
+            self._blocking_updates = False
 
     @staticmethod
     def _select_combo_by_data(cb: QtWidgets.QComboBox, value: str, *, fallback: str) -> None:
@@ -560,7 +624,6 @@ class SettingsPanel(QtWidgets.QWidget):
             if str(cb.itemData(i)) == value:
                 cb.setCurrentIndex(i)
                 return
-        # fallback
         for i in range(cb.count()):
             if str(cb.itemData(i)) == fallback:
                 cb.setCurrentIndex(i)
@@ -645,6 +708,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _restart_application(self) -> None:
         try:
             import sys
+
             QtCore.QProcess.startDetached(sys.executable, sys.argv)
             QtWidgets.QApplication.quit()
         except Exception as ex:

@@ -12,10 +12,7 @@ from ui.utils.translating import tr
 
 
 class SettingsWorker(QtCore.QObject):
-    """
-    Worker for loading and saving settings.json via SettingsService.
-    Uses existing validation logic (load()) to avoid duplication.
-    """
+    """Background worker for loading/saving application settings."""
 
     settings_loaded = QtCore.pyqtSignal(object)
     saved = QtCore.pyqtSignal(object)
@@ -34,6 +31,8 @@ class SettingsWorker(QtCore.QObject):
                 self._do_load()
             elif self._action == "save":
                 self._do_save()
+            elif self._action == "restore_defaults":
+                self._do_restore_defaults()
             else:
                 msg = tr("error.config.unknown_action", action=self._action)
                 self.error.emit(tr("error.config.generic", detail=msg))
@@ -51,46 +50,39 @@ class SettingsWorker(QtCore.QObject):
             "network": dict(snap.network),
         }
 
-    def _do_load(self) -> None:
-        try:
-            svc = SettingsService(Config.ROOT_DIR)
-            snap = svc.load()
-            data = self._snapshot_to_dict(snap)
-            self.settings_loaded.emit(data)
-        except SettingsError as ex:
-            try:
-                msg = tr(ex.key, **ex.params)
-            except Exception:
-                msg = f"{ex.key}: {ex}"
-            self.error.emit(msg)
-        except Exception as ex:
-            self.error.emit(tr("error.config.generic", detail=str(ex)))
-
-def _do_restore_defaults(self) -> None:
-    """Restore default settings sections from defaults.json and reload."""
-    try:
-        svc = SettingsService(Config.ROOT_DIR)
-        svc.restore_defaults()
-
-        snap = svc.load()
-        data = self._snapshot_to_dict(snap)
-        self.saved.emit(data)
-    except SettingsError as ex:
+    def _emit_settings_error(self, ex: SettingsError) -> None:
         try:
             msg = tr(ex.key, **ex.params)
         except Exception:
             msg = f"{ex.key}: {ex}"
         self.error.emit(msg)
-    except Exception as ex:
-        self.error.emit(tr("error.config.generic", detail=str(ex)))
+
+    def _do_load(self) -> None:
+        try:
+            svc = SettingsService(Config.ROOT_DIR)
+            snap = svc.load()
+            self.settings_loaded.emit(self._snapshot_to_dict(snap))
+        except SettingsError as ex:
+            self._emit_settings_error(ex)
+        except Exception as ex:
+            self.error.emit(tr("error.config.generic", detail=str(ex)))
+
+    def _do_restore_defaults(self) -> None:
+        """Restore user-editable sections from defaults.json and reload."""
+        try:
+            svc = SettingsService(Config.ROOT_DIR)
+            svc.restore_defaults()
+
+            snap = svc.load()
+            self.saved.emit(self._snapshot_to_dict(snap))
+        except SettingsError as ex:
+            self._emit_settings_error(ex)
+        except Exception as ex:
+            self.error.emit(tr("error.config.generic", detail=str(ex)))
 
     def _do_save(self) -> None:
-        """
-        Save selected sections to settings.json.
+        """Save selected settings sections back to settings.json."""
 
-        Sections from payload are merged with existing ones,
-        so we do not drop unknown or non-editable keys.
-        """
         try:
             svc = SettingsService(Config.ROOT_DIR)
             defaults_path: Path = svc._defaults_path  # type: ignore[attr-defined]
@@ -107,21 +99,32 @@ def _do_restore_defaults(self) -> None:
                 raise SettingsError(
                     "error.settings.settings_invalid",
                     path=str(settings_path),
+                    detail="root-not-object",
                 )
 
             updated = dict(raw)
 
-            for section in ("app", "engine", "model", "transcription", "downloader", "network"):
-                if section in self._payload:
-                    base = updated.get(section, {})
-                    patch = self._payload[section]
-                    if isinstance(base, dict) and isinstance(patch, dict):
-                        merged = dict(base)
-                        merged.update(patch)
-                        updated[section] = merged
-                    else:
-                        updated[section] = patch
+            # Merge only known user sections to avoid dropping extra keys.
+            for section in (
+                "app",
+                "engine",
+                "model",
+                "transcription",
+                "downloader",
+                "network",
+            ):
+                if section not in self._payload:
+                    continue
+                base = updated.get(section, {})
+                patch = self._payload[section]
+                if isinstance(base, dict) and isinstance(patch, dict):
+                    merged = dict(base)
+                    merged.update(patch)
+                    updated[section] = merged
+                else:
+                    updated[section] = patch
 
+            # Write to a tmp file first and validate against defaults before overwriting.
             tmp_path = settings_path.with_suffix(settings_path.suffix + ".tmp")
             try:
                 svc._write_json(tmp_path, updated)  # type: ignore[attr-defined]
@@ -131,12 +134,11 @@ def _do_restore_defaults(self) -> None:
                     defaults_path=defaults_path,
                     settings_path=tmp_path,
                 )
-                snap = tmp_svc.load()
+                _ = tmp_svc.load()  # validate
 
                 svc._write_json(settings_path, updated)  # type: ignore[attr-defined]
                 final_snap = svc.load()
-                data = self._snapshot_to_dict(final_snap)
-                self.saved.emit(data)
+                self.saved.emit(self._snapshot_to_dict(final_snap))
             finally:
                 try:
                     tmp_path.unlink(missing_ok=True)  # type: ignore[call-arg]
@@ -144,10 +146,6 @@ def _do_restore_defaults(self) -> None:
                     pass
 
         except SettingsError as ex:
-            try:
-                msg = tr(ex.key, **ex.params)
-            except Exception:
-                msg = f"{ex.key}: {ex}"
-            self.error.emit(msg)
+            self._emit_settings_error(ex)
         except Exception as ex:
             self.error.emit(tr("error.config.generic", detail=str(ex)))

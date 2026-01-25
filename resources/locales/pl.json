@@ -237,6 +237,7 @@
       "ui_language": "Wybierz język interfejsu aplikacji. Nowe języki będą wykrywane automatycznie z folderu 'resources/locales'.",
       "theme": "Zmienia motyw interfejsu. Docelowo wygląd będzie sterowany przez QSS.",
       "device": "Wybierz urządzenie do działania modelu ASR. 'GPU' używa CUDA, gdy jest dostępne (tylko NVIDIA).",
+      "precision_hint": "Precyzja wpływa na wydajność i użycie pamięci.",
       "precision": {
         "auto": "Pozwól aplikacji dobrać najlepszą precyzję dla Twojego urządzenia.",
         "float32": "Najwyższa jakość i kompatybilność. Zalecane na CPU.",
@@ -300,6 +301,20 @@
     "config": {
       "unknown_action": "⚠️ Nieznana akcja \"{action}\".",
       "generic": "⚠️ Błąd konfiguracji. Szczegóły: {detail}"
+    },
+    "settings": {
+      "json_invalid": "⚠️ Plik konfiguracji \"{path}\" zawiera niepoprawny JSON. Szczegóły: {detail}",
+      "section_invalid": "⚠️ Sekcja ustawień \"{section}\" jest nieprawidłowa.",
+      "missing_keys": "⚠️ Sekcja ustawień \"{section}\" nie zawiera wszystkich wymaganych kluczy: {keys}",
+      "defaults_missing": "⚠️ Brakuje pliku wartości domyślnych: {path}",
+      "settings_missing": "⚠️ Brakuje pliku ustawień: {path}",
+      "settings_invalid": "⚠️ Plik ustawień \"{path}\" jest nieprawidłowy. Szczegóły: {detail}"
+    },
+    "type": {
+      "list_strings": "⚠️ Pole \"{field}\" musi być listą napisów.",
+      "string_nonempty": "⚠️ Pole \"{field}\" musi być niepustym napisem.",
+      "int": "⚠️ Pole \"{field}\" musi być liczbą całkowitą.",
+      "enum_invalid": "⚠️ Pole \"{field}\" ma nieprawidłową wartość \"{value}\". Dozwolone wartości: {allowed}"
     }
   },
   "meta": {
