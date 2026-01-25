@@ -154,7 +154,7 @@ class TranscriptionWorker(QtCore.QObject):
             stride_len = int(model_cfg.get("stride_length_s", 5))
             return_ts = bool(model_cfg.get("return_timestamps", True))
             ignore_warn = bool(model_cfg.get("ignore_warning", True))
-            task = str(model_cfg.get("pipeline_task", "transcribe"))
+            task = "transcribe"
             default_lang = model_cfg.get("default_language")
 
             # Prevent long-form requirements when user disabled timestamps:

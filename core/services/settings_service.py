@@ -255,7 +255,6 @@ class SettingsService:
             src.get("ai_engine_name"),
             "model.ai_engine_name",
         )
-        out["local_models_only"] = bool(src.get("local_models_only", True))
 
         out["chunk_length_s"] = self._as_int(
             src.get("chunk_length_s"),
@@ -265,16 +264,10 @@ class SettingsService:
             src.get("stride_length_s"),
             "model.stride_length_s",
         )
-
-        out["pipeline_task"] = self._as_nonempty_str(
-            src.get("pipeline_task"),
-            "model.pipeline_task",
-        )
         out["ignore_warning"] = bool(src.get("ignore_warning", True))
         out["default_language"] = src.get("default_language", None)
 
         out["return_timestamps"] = bool(src.get("return_timestamps", False))
-        out["use_safetensors"] = bool(src.get("use_safetensors", True))
         out["low_cpu_mem_usage"] = bool(src.get("low_cpu_mem_usage", True))
         return out
 
@@ -322,14 +315,6 @@ class SettingsService:
         out["http_timeout_s"] = self._as_int(
             src.get("http_timeout_s"),
             "network.http_timeout_s",
-        )
-        proxy = src.get("proxy", None)
-        if proxy is not None and not isinstance(proxy, str):
-            raise SettingsError("error.type.string_nonempty", field="network.proxy")
-        out["proxy"] = proxy
-        out["throttle_startup_s"] = self._as_int(
-            src.get("throttle_startup_s"),
-            "network.throttle_startup_s",
         )
         return out
 

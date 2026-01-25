@@ -2,7 +2,6 @@
   "app": {
     "title": "PySkryptor: Transcription Assistant 🎧"
   },
-
   "tabs": {
     "group": "Mode",
     "files": "Files",
@@ -11,18 +10,15 @@
     "settings": "Settings",
     "about": "About"
   },
-
   "ui": {
     "placeholder": {
       "soon": "Coming soon... 🚧"
     }
   },
-
   "ctrl": {
     "start": "Start ▶️",
     "cancel": "Cancel ✖️"
   },
-
   "files": {
     "placeholder": "Paste file path or URL here...",
     "add": "Add",
@@ -31,7 +27,6 @@
     "open_output": "Open transcripts folder 📂",
     "remove_selected": "Remove selected 🗑️",
     "clear": "Clear list 🧹",
-
     "details": {
       "title": "Sources",
       "col": {
@@ -44,21 +39,17 @@
         "preview": "Preview"
       }
     },
-
     "transcript": {
       "default_name": "Transcript"
     }
   },
-
   "down": {
     "url": {
       "placeholder": "Paste media URL here..."
     },
-
     "probe": "Analyze 🔍",
     "open_folder": "Open downloads folder 📂",
     "open_in_browser": "Open in browser 🌐",
-
     "meta": {
       "title": "Media info",
       "service": "Service",
@@ -66,7 +57,6 @@
       "duration": "Duration",
       "size": "Estimated size"
     },
-
     "select": {
       "title": "Download options",
       "type": "Type",
@@ -78,9 +68,7 @@
       "audio_track": "Audio track",
       "audio_track.default": "Default track"
     },
-
     "download": "Download ⬇️",
-
     "log": {
       "analyze": "🔍 Analyzing media...",
       "meta_ready": "✅ Metadata loaded.",
@@ -90,12 +78,7 @@
       "playlist_not_supported": "Playlists are not supported in this version.",
       "error": "⚠️ {msg}"
     },
-
     "dialog": {
-      "restart_required": {
-        "title": "Restart required",
-        "text": "✅ Settings have been saved.\n\nTo apply all changes, restart PySkryptor."
-      },
       "exists": {
         "text": "File \"{title}\" already exists in the downloads folder.\nWhat do you want to do?",
         "skip": "Skip ⏭️",
@@ -107,60 +90,45 @@
       }
     }
   },
-
   "log": {
     "add": {
       "empty": "✏️ Please enter a file path or URL.",
       "missing": "⚠️ The specified file does not exist.",
       "ok": "✅ Added: {text}"
     },
-
     "model": {
       "ready": "✅ ASR model ready on {device}.",
       "error": "❌ Could not initialize ASR model. Details: {msg}"
     },
-
     "pipe_not_ready": "⏳ The model is not ready yet.",
     "no_items": "ℹ️ No items to process.",
     "start": "📝 Starting transcription...",
     "done": "✅ All items have been processed.",
     "cancelled": "✖️ Operation cancelled.",
-
     "temp_init_failed": "❌ Could not initialize temporary directory. Details: {detail}",
-
     "session": {
       "plan": "📁 Planned session directory at: {path}"
     },
-
     "session_plan_failed": "❌ Could not plan session directory. Details: {detail}",
     "session_dir_failed": "❌ Could not create session directory. Details: {detail}",
-
     "entry_prep_error": "⚠️ Could not prepare entry \"{entry}\". Details: {detail}",
     "audio_prep_failed": "⚠️ Could not prepare audio for \"{name}\". Details: {detail}",
     "transcription_failed": "❌ Transcription failed for \"{name}\". Details: {detail}",
-
     "transcript": {
       "saved_prefix": "✅ Transcript saved:",
       "saved": "✅ Transcript saved to: {path}",
       "save_failed": "❌ Could not save transcript for \"{name}\". Details: {detail}"
     },
-
     "worker_error": "❌ Internal worker error. Details: {detail}",
-
     "tmp": {
       "cleaned": "🧹 Temporary files cleaned."
     },
-
     "temp_cleanup_issue": "⚠️ Could not clean temporary directory. Details: {detail}",
-
     "no_supported_files_in_folder": "ℹ️ Folder \"{path}\" does not contain supported media files.",
     "path_not_found": "⚠️ Path not found: {path}",
-
     "conflict_dialog_error": "❌ Conflict dialog error. Details: {detail}",
-
     "unexpected": "⚠️ Unexpected error: {msg}"
   },
-
   "status": {
     "prep": "⏳ Preparing...",
     "proc": "🔄 Processing...",
@@ -168,11 +136,9 @@
     "skipped": "⏭️ Skipped",
     "error": "❌ Error"
   },
-
   "dialog": {
     "settings_restored": "✅ Settings file was missing. Defaults have been restored.",
     "cancel_confirm": "❓ Do you really want to cancel the current operation?",
-
     "conflict": {
       "title": "⚠️ Transcript already exists",
       "text": "A transcript named \"{name}\" already exists.\nWhat do you want to do?",
@@ -180,16 +146,18 @@
       "overwrite": "Overwrite existing transcript ♻️",
       "new_name": "Save under a new name:",
       "apply_all": "Apply this decision to all conflicts"
+    },
+    "restart_required": {
+      "title": "Restart required",
+      "text": "Some settings changes require restarting the application to take effect.\n\nDo you want to restart now?",
+      "restart": "Restart now 🔁",
+      "later": "I'll do it later"
     }
   },
-
   "action": {
     "cancel_now": "Cancel now ✖️",
-    "keep_working": "Keep working ✅",
-    "restart_now": "Restart now 🔄",
-    "later": "I will do it later 🕒"
+    "keep_working": "Keep working ✅"
   },
-
   "settings": {
     "section": {
       "app": "Application ⚙️",
@@ -199,15 +167,15 @@
       "downloader": "Downloader ⬇️",
       "network": "Network 🌐"
     },
-
     "app": {
-      "language": "UI language",
+      "language": {
+        "auto": "System (auto)"
+      },
       "theme": "Theme",
       "theme.auto": "System",
       "theme.light": "Light",
       "theme.dark": "Dark"
     },
-
     "engine": {
       "device": "Preferred device",
       "device.auto": "Automatic",
@@ -220,7 +188,6 @@
       "precision.bfloat16": "bfloat16 (GPU with BF16 support)",
       "allow_tf32": "Allow TF32 on GPU (if available)"
     },
-
     "model": {
       "ai_engine_name": "Model name / path",
       "local_models_only": "Use local models only",
@@ -231,18 +198,22 @@
       "ignore_warning": "Ignore non-critical warnings",
       "low_cpu_mem_usage": "Optimize for low CPU memory usage"
     },
-
     "transcription": {
       "timestamps_output": "Include timestamps in output",
       "keep_downloaded_files": "Keep downloaded files",
-      "keep_wav_temp": "Keep temporary WAV files"
+      "keep_wav_temp": "Keep temporary WAV files",
+      "download_audio_only": "Download audio only (URL sources)",
+      "output_format": "Output format",
+      "output": {
+        "plain_txt": "Text (.txt)",
+        "txt_timestamps": "Text + timestamps (.txt)",
+        "srt": "SubRip subtitles (.srt)"
+      }
     },
-
     "downloader": {
       "min_video_height": "Minimum video height (px)",
       "max_video_height": "Maximum video height (px)"
     },
-
     "network": {
       "max_bandwidth_kbps": "Max bandwidth (kbps; 0 = unlimited)",
       "retries": "HTTP retries",
@@ -251,68 +222,90 @@
       "proxy": "HTTP proxy",
       "throttle_startup_s": "Startup throttle (s)"
     },
-
     "info": {
       "restart_required": "Some changes may require restarting the application. 🔁"
     },
-
     "buttons": {
       "reload": "Reload 🔄",
-      "save": "Save 💾"
+      "save": "Save 💾",
+      "restore_defaults": "Restore defaults ♻️"
     },
-
     "msg": {
-      "saved": "✅ Settings have been saved."
+      "saved": "✅ Settings have been saved.",
+      "restart_failed": "❌ Restart failed. Details: {detail}"
+    },
+    "help": {
+      "ui_language": "Select the language used by the application UI. New languages are detected automatically from the 'resources/locales' folder.",
+      "theme": "Changes the UI theme. Actual styling will be applied later via QSS.",
+      "device": "Select where the ASR model runs. 'GPU' uses CUDA when available (NVIDIA only).",
+      "precision": {
+        "auto": "Let the app choose the best precision for your device.",
+        "float32": "Highest quality and compatibility. Recommended for CPU.",
+        "float16": "Faster and lower VRAM usage on CUDA GPUs. Might reduce accuracy slightly.",
+        "bfloat16": "Similar to FP16, but supported only on some GPUs. More stable than FP16 when available."
+      },
+      "tf32": "TF32 is a fast matmul mode on modern NVIDIA GPUs (Ampere+). It can speed up inference with minimal quality impact.",
+      "model_name": "Select a local model folder from 'resources/models'. Requires restart to fully reload the pipeline.",
+      "default_language": "Optional language hint for transcription (e.g. 'en', 'pl'). Leave empty for automatic detection.",
+      "chunk_length": "Audio chunk length used by the pipeline (seconds). Larger chunks may be faster, but increase memory usage.",
+      "stride_length": "Overlap between chunks (seconds). Higher stride improves continuity, but adds extra work.",
+      "low_cpu_mem_usage": "Reduces RAM usage during model loading (recommended).",
+      "output_format": "Controls both the file extension and whether timestamps are included.",
+      "keep_downloaded_files": "Keep temporary downloads for URL sources. Disable to save disk space.",
+      "keep_wav_temp": "Keep intermediate WAV files created during preprocessing (for debugging).",
+      "download_audio_only": "When transcribing URLs, download only audio instead of full video when possible.",
+      "min_video_height": "Downloader: lower resolution limit for selected formats.",
+      "max_video_height": "Downloader: upper resolution limit for selected formats.",
+      "max_bandwidth_kbps": "Limit download speed. 0 means unlimited.",
+      "retries": "How many times to retry failed HTTP requests.",
+      "concurrent_fragments": "Parallel fragment downloads. Higher values can be faster, but may stress the connection.",
+      "http_timeout_s": "Network timeout for downloader operations (seconds)."
     }
   },
-
   "about": {
     "section": {
       "app": "Application info ℹ️",
       "license": "License 📄"
     },
-
     "app": {
       "description": "<b>{name_lower}</b> ({years})<br/>Version: {version}<br/>Author: {author}"
     },
-
     "license": {
       "summary": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License version 3 (GPL-3.0).",
       "full_link": "The full license text is available in the <a href=\"license\">LICENSE</a> file distributed with this application."
     }
   },
-
   "error": {
     "audio": {
       "ffmpeg_failed": "❌ Audio conversion failed for \"{src}\". Details: {detail}"
     },
-
     "json_invalid": "⚠️ Configuration file \"{path}\" contains invalid JSON. Details: {detail}",
     "settings_section_invalid": "⚠️ Settings section \"{section}\" is invalid.",
     "settings_missing_keys": "⚠️ Settings section \"{section}\" is missing required keys: {keys}",
     "defaults_missing": "⚠️ Defaults file is missing: {path}",
     "settings_missing": "⚠️ Settings file is missing: {path}",
     "settings_invalid": "⚠️ Settings file \"{path}\" is invalid. Details: {detail}",
-
     "type_list_strings": "⚠️ Field \"{field}\" must be a list of strings.",
     "type_string_nonempty": "⚠️ Field \"{field}\" must be a non-empty string.",
     "type_int": "⚠️ Field \"{field}\" must be an integer.",
     "enum_invalid": "⚠️ Field \"{field}\" has invalid value \"{value}\". Allowed values: {allowed}",
-
     "down": {
       "probe_failed": "❌ Could not analyze media. Details: {detail}",
       "download_failed": "❌ Download failed. Details: {detail}",
       "no_output_file": "⚠️ Downloader did not produce any output file.",
       "duplicate_timeout": "⏱️ No decision was made in time for the existing download file."
     },
-
     "transcription": {
       "incomplete_file": "⚠️ Input file \"{name}\" appears to be incomplete or still downloading."
     },
-
     "config": {
       "unknown_action": "⚠️ Unknown action \"{action}\".",
       "generic": "⚠️ Configuration error. Details: {detail}"
     }
+  },
+  "meta": {
+    "language_code": "en",
+    "language_name": "English",
+    "native_name": "English"
   }
 }

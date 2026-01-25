@@ -107,6 +107,8 @@ class AppConfig:
 
         cls.SETTINGS = snap
 
+        cls._apply_model_dir(snap.model)
+
         cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
 
@@ -160,12 +162,6 @@ class AppConfig:
             1,
             _to_int(network.get("http_timeout_s", cls.NET_TIMEOUT_S), cls.NET_TIMEOUT_S),
         )
-        proxy_raw = network.get("proxy")
-        cls.NET_PROXY = (str(proxy_raw).strip() or None) if proxy_raw is not None else None
-        cls.NET_THROTTLE_S = max(
-            0,
-            _to_int(network.get("throttle_startup_s", cls.NET_THROTTLE_S), cls.NET_THROTTLE_S),
-        )
 
     @classmethod
     def _apply_transcription(cls, transcription: Dict[str, Any]) -> None:
@@ -182,6 +178,15 @@ class AppConfig:
         if ext and ext in cls.TRANSCRIPT_EXT:
             cls.TRANSCRIPT_DEFAULT_EXT = ext
 
+
+    @classmethod
+    def _apply_model_dir(cls, model: Dict[str, Any]) -> None:
+        """Set AI_ENGINE_DIR from selected model folder name in settings."""
+        name = str(model.get("ai_engine_name", "") or "").strip()
+        if not name:
+            name = "whisper-turbo"
+        cls.AI_ENGINE_DIR = cls.MODELS_DIR / name
+
     # ----- Filesystem / ffmpeg -----
 
     @classmethod
@@ -190,8 +195,8 @@ class AppConfig:
         for p in (
             cls.RESOURCES_DIR,
             cls.FFMPEG_DIR,
+            cls.LOCALES_DIR,
             cls.MODELS_DIR,
-            cls.AI_ENGINE_DIR,
             cls.DATA_DIR,
             cls.DOWNLOADS_DIR,
             cls.TRANSCRIPTIONS_DIR,

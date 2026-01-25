@@ -1,23 +1,20 @@
 {
   "app": {
-    "language": "pl",
+    "language": "auto",
     "theme": "auto"
   },
   "engine": {
     "preferred_device": "auto",
-    "precision": "float16",
-    "allow_tf32": true
+    "precision": "auto",
+    "allow_tf32": false
   },
   "model": {
     "ai_engine_name": "whisper-turbo",
-    "local_models_only": true,
     "chunk_length_s": 60,
     "stride_length_s": 5,
-    "pipeline_task": "transcribe",
     "ignore_warning": true,
     "default_language": null,
     "return_timestamps": false,
-    "use_safetensors": true,
     "low_cpu_mem_usage": true
   },
   "transcription": {
@@ -35,8 +32,6 @@
     "max_bandwidth_kbps": null,
     "retries": 3,
     "concurrent_fragments": 4,
-    "http_timeout_s": 30,
-    "proxy": null,
-    "throttle_startup_s": 0
+    "http_timeout_s": 30
   }
 }
