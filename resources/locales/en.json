@@ -139,6 +139,8 @@
   "dialog": {
     "settings_restored": "✅ Settings file was not found. Defaults were restored.",
     "cancel_confirm": "❓ Are you sure you want to cancel the current operation?",
+    "settings_save_confirm": "💾 Do you want to save changes to settings?",
+    "settings_restore_confirm": "♻️ Do you want to restore default settings?\n\nThis will overwrite your current settings.",
     "conflict": {
       "title": "⚠️ Transcript already exists",
       "text": "Transcript named \"{name}\" already exists.\nWhat do you want to do?",

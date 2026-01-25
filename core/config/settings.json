@@ -1,12 +1,12 @@
 {
   "app": {
-    "language": "auto",
+    "language": "pl",
     "theme": "auto"
   },
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
-    "allow_tf32": true
+    "allow_tf32": false
   },
   "model": {
     "ai_engine_name": "whisper-turbo",
@@ -15,7 +15,8 @@
     "ignore_warning": true,
     "default_language": null,
     "return_timestamps": false,
-    "low_cpu_mem_usage": true
+    "low_cpu_mem_usage": true,
+    "local_models_only": true
   },
   "transcription": {
     "timestamps_output": true,

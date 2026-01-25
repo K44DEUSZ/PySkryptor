@@ -139,6 +139,8 @@
   "dialog": {
     "settings_restored": "✅ Plik ustawień nie został znaleziony. Przywrócono wartości domyślne.",
     "cancel_confirm": "❓ Czy na pewno chcesz anulować bieżącą operację?",
+    "settings_save_confirm": "💾 Czy na pewno chcesz zapisać zmiany w ustawieniach?",
+    "settings_restore_confirm": "♻️ Czy na pewno chcesz przywrócić ustawienia domyślne?\n\nTa operacja nadpisze Twoje aktualne ustawienia.",
     "conflict": {
       "title": "⚠️ Transkrypt już istnieje",
       "text": "Transkrypt o nazwie \"{name}\" już istnieje.\nCo chcesz zrobić?",

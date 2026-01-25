@@ -37,6 +37,17 @@ class SettingsPanel(QtWidgets.QWidget):
 
     CONTROL_HEIGHT = 24
 
+    # Settings that should trigger a restart prompt when changed.
+    _RESTART_SENSITIVE_KEYS = {
+        ("app", "language"),
+        ("app", "theme"),
+        ("engine", "preferred_device"),
+        ("engine", "precision"),
+        ("engine", "allow_tf32"),
+        ("model", "ai_engine_name"),
+        ("model", "local_models_only"),
+    }
+
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
 
@@ -49,20 +60,25 @@ class SettingsPanel(QtWidgets.QWidget):
         self._dirty = False
         self._blocking_updates = False
 
-        # Root layout (no scroll area per current project preference)
-        outer = QtWidgets.QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(10)
+        self._pending_restart_prompt = False
+        self._restore_base_snapshot: Optional[Dict[str, Any]] = None
+
+        # Root layout (no scroll area per current preference)
+        root = QtWidgets.QVBoxLayout(self)
+        root.setSpacing(8)
+
+        base_h = self.CONTROL_HEIGHT
 
         # ---- Sections ----
         grp_app = QtWidgets.QGroupBox(tr("settings.section.app"))
         lay_app = QtWidgets.QFormLayout(grp_app)
+        self._tune_form_layout(lay_app)
 
         self.cb_app_language = QtWidgets.QComboBox()
-        self.cb_app_language.setFixedHeight(self.CONTROL_HEIGHT)
+        self.cb_app_language.setMinimumHeight(base_h)
 
         self.cb_app_theme = QtWidgets.QComboBox()
-        self.cb_app_theme.setFixedHeight(self.CONTROL_HEIGHT)
+        self.cb_app_theme.setMinimumHeight(base_h)
         self.cb_app_theme.addItem(tr("settings.app.theme.auto"), "auto")
         self.cb_app_theme.addItem(tr("settings.app.theme.light"), "light")
         self.cb_app_theme.addItem(tr("settings.app.theme.dark"), "dark")
@@ -82,20 +98,22 @@ class SettingsPanel(QtWidgets.QWidget):
         # ---- Engine section ----
         grp_eng = QtWidgets.QGroupBox(tr("settings.section.engine"))
         lay_eng = QtWidgets.QFormLayout(grp_eng)
+        self._tune_form_layout(lay_eng)
 
         self.cb_engine_device = QtWidgets.QComboBox()
-        self.cb_engine_device.setFixedHeight(self.CONTROL_HEIGHT)
+        self.cb_engine_device.setMinimumHeight(base_h)
         self.cb_engine_device.addItem(tr("settings.engine.device.auto"), "auto")
         self.cb_engine_device.addItem(tr("settings.engine.device.cpu"), "cpu")
         self.cb_engine_device.addItem(tr("settings.engine.device.gpu"), "gpu")
 
         self.cb_engine_precision = QtWidgets.QComboBox()
-        self.cb_engine_precision.setFixedHeight(self.CONTROL_HEIGHT)
+        self.cb_engine_precision.setMinimumHeight(base_h)
         self.cb_engine_precision.addItem(tr("settings.engine.precision.auto"), "auto")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.float32"), "float32")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.float16"), "float16")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.bfloat16"), "bfloat16")
 
+        # per-option tooltips
         self._set_combo_tooltip(self.cb_engine_precision, 0, tr("settings.help.precision.auto"))
         self._set_combo_tooltip(self.cb_engine_precision, 1, tr("settings.help.precision.float32"))
         self._set_combo_tooltip(self.cb_engine_precision, 2, tr("settings.help.precision.float16"))
@@ -103,12 +121,14 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.chk_engine_tf32 = QtWidgets.QCheckBox(tr("settings.engine.allow_tf32"))
         self.chk_engine_tf32.setToolTip(tr("settings.help.tf32"))
-        self._set_checkbox_height(self.chk_engine_tf32)
+        self.chk_engine_tf32.setMinimumHeight(base_h)
 
         dev_row = self._hrow(
             self.cb_engine_device,
             _InfoButton(tr("settings.help.device")),
         )
+
+        # IMPORTANT: precision has a nested object in locales, so use precision_hint for general tooltip.
         prec_row = self._hrow(
             self.cb_engine_precision,
             _InfoButton(tr("settings.help.precision_hint")),
@@ -121,16 +141,17 @@ class SettingsPanel(QtWidgets.QWidget):
         # ---- Model section ----
         grp_model = QtWidgets.QGroupBox(tr("settings.section.model"))
         lay_model = QtWidgets.QFormLayout(grp_model)
+        self._tune_form_layout(lay_model)
 
         self.cb_model_name = QtWidgets.QComboBox()
-        self.cb_model_name.setFixedHeight(self.CONTROL_HEIGHT)
+        self.cb_model_name.setMinimumHeight(base_h)
         model_row = self._hrow(
             self.cb_model_name,
             _InfoButton(tr("settings.help.model_name")),
         )
 
         self.ed_model_default_lang = QtWidgets.QLineEdit()
-        self.ed_model_default_lang.setFixedHeight(self.CONTROL_HEIGHT)
+        self.ed_model_default_lang.setMinimumHeight(base_h)
         self.ed_model_default_lang.setPlaceholderText("auto")
         default_lang_row = self._hrow(
             self.ed_model_default_lang,
@@ -139,11 +160,11 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.spin_model_chunk = QtWidgets.QSpinBox()
         self.spin_model_chunk.setRange(5, 600)
-        self.spin_model_chunk.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_model_chunk.setMinimumHeight(base_h)
 
         self.spin_model_stride = QtWidgets.QSpinBox()
         self.spin_model_stride.setRange(0, 120)
-        self.spin_model_stride.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_model_stride.setMinimumHeight(base_h)
 
         chunk_row = self._hrow(
             self.spin_model_chunk,
@@ -156,7 +177,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.chk_model_low_cpu_mem = QtWidgets.QCheckBox(tr("settings.model.low_cpu_mem_usage"))
         self.chk_model_low_cpu_mem.setToolTip(tr("settings.help.low_cpu_mem_usage"))
-        self._set_checkbox_height(self.chk_model_low_cpu_mem)
+        self.chk_model_low_cpu_mem.setMinimumHeight(base_h)
 
         lay_model.addRow(tr("settings.model.ai_engine_name"), model_row)
         lay_model.addRow(tr("settings.model.default_language"), default_lang_row)
@@ -167,9 +188,10 @@ class SettingsPanel(QtWidgets.QWidget):
         # ---- Transcription section ----
         grp_tr = QtWidgets.QGroupBox(tr("settings.section.transcription"))
         lay_tr = QtWidgets.QFormLayout(grp_tr)
+        self._tune_form_layout(lay_tr)
 
         self.cb_tr_output_format = QtWidgets.QComboBox()
-        self.cb_tr_output_format.setFixedHeight(self.CONTROL_HEIGHT)
+        self.cb_tr_output_format.setMinimumHeight(base_h)
         self._output_formats = [
             ("plain_txt", tr("settings.transcription.output.plain_txt")),
             ("txt_timestamps", tr("settings.transcription.output.txt_timestamps")),
@@ -183,19 +205,17 @@ class SettingsPanel(QtWidgets.QWidget):
             _InfoButton(tr("settings.help.output_format")),
         )
 
-        self.chk_tr_keep_downloaded = QtWidgets.QCheckBox(
-            tr("settings.transcription.keep_downloaded_files")
-        )
-        self._set_checkbox_height(self.chk_tr_keep_downloaded)
+        self.chk_tr_keep_downloaded = QtWidgets.QCheckBox(tr("settings.transcription.keep_downloaded_files"))
         self.chk_tr_keep_downloaded.setToolTip(tr("settings.help.keep_downloaded_files"))
+        self.chk_tr_keep_downloaded.setMinimumHeight(base_h)
 
         self.chk_tr_keep_wav = QtWidgets.QCheckBox(tr("settings.transcription.keep_wav_temp"))
-        self._set_checkbox_height(self.chk_tr_keep_wav)
         self.chk_tr_keep_wav.setToolTip(tr("settings.help.keep_wav_temp"))
+        self.chk_tr_keep_wav.setMinimumHeight(base_h)
 
         self.chk_tr_audio_only = QtWidgets.QCheckBox(tr("settings.transcription.download_audio_only"))
-        self._set_checkbox_height(self.chk_tr_audio_only)
         self.chk_tr_audio_only.setToolTip(tr("settings.help.download_audio_only"))
+        self.chk_tr_audio_only.setMinimumHeight(base_h)
 
         lay_tr.addRow(tr("settings.transcription.output_format"), out_row)
         lay_tr.addRow("", self.chk_tr_keep_downloaded)
@@ -205,14 +225,15 @@ class SettingsPanel(QtWidgets.QWidget):
         # ---- Downloader section ----
         grp_down = QtWidgets.QGroupBox(tr("settings.section.downloader"))
         lay_down = QtWidgets.QFormLayout(grp_down)
+        self._tune_form_layout(lay_down)
 
         self.spin_down_min_h = QtWidgets.QSpinBox()
         self.spin_down_min_h.setRange(1, 4320)
-        self.spin_down_min_h.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_down_min_h.setMinimumHeight(base_h)
 
         self.spin_down_max_h = QtWidgets.QSpinBox()
         self.spin_down_max_h.setRange(1, 4320)
-        self.spin_down_max_h.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_down_max_h.setMinimumHeight(base_h)
 
         min_row = self._hrow(
             self.spin_down_min_h,
@@ -229,22 +250,23 @@ class SettingsPanel(QtWidgets.QWidget):
         # ---- Network section ----
         grp_net = QtWidgets.QGroupBox(tr("settings.section.network"))
         lay_net = QtWidgets.QFormLayout(grp_net)
+        self._tune_form_layout(lay_net)
 
         self.spin_net_bw = QtWidgets.QSpinBox()
         self.spin_net_bw.setRange(0, 10_000_000)
-        self.spin_net_bw.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_net_bw.setMinimumHeight(base_h)
 
         self.spin_net_retries = QtWidgets.QSpinBox()
         self.spin_net_retries.setRange(0, 50)
-        self.spin_net_retries.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_net_retries.setMinimumHeight(base_h)
 
         self.spin_net_frag = QtWidgets.QSpinBox()
         self.spin_net_frag.setRange(1, 32)
-        self.spin_net_frag.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_net_frag.setMinimumHeight(base_h)
 
         self.spin_net_timeout = QtWidgets.QSpinBox()
         self.spin_net_timeout.setRange(1, 600)
-        self.spin_net_timeout.setFixedHeight(self.CONTROL_HEIGHT)
+        self.spin_net_timeout.setMinimumHeight(base_h)
 
         bw_row = self._hrow(
             self.spin_net_bw,
@@ -268,12 +290,12 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_net.addRow(tr("settings.network.concurrent_fragments"), frag_row)
         lay_net.addRow(tr("settings.network.http_timeout_s"), timeout_row)
 
-        # Layout: two-column grid
+        # ---- Two-column grid (match Files/Downloader spacing) ----
         grid_wrap = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(grid_wrap)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
@@ -284,13 +306,9 @@ class SettingsPanel(QtWidgets.QWidget):
         grid.addWidget(grp_down, 2, 0)
         grid.addWidget(grp_net, 2, 1)
 
-        outer.addWidget(grid_wrap)
+        root.addWidget(grid_wrap, 0)
 
-        # Bottom info + buttons
-        info_lbl = QtWidgets.QLabel(tr("settings.info.restart_required"))
-        info_lbl.setWordWrap(True)
-        outer.addWidget(info_lbl)
-
+        # ---- Bottom buttons (spójne z Files/Downloader) ----
         bottom_bar = QtWidgets.QHBoxLayout()
         bottom_bar.setSpacing(8)
         bottom_bar.addStretch(1)
@@ -299,7 +317,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.btn_save = QtWidgets.QPushButton(tr("settings.buttons.save"))
 
         for b in (self.btn_restore, self.btn_save):
-            b.setMinimumHeight(self.CONTROL_HEIGHT)
+            b.setMinimumHeight(base_h)
             b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
         right_btn_box = QtWidgets.QHBoxLayout()
@@ -308,9 +326,9 @@ class SettingsPanel(QtWidgets.QWidget):
         right_btn_box.addWidget(self.btn_save, 1)
 
         bottom_bar.addLayout(right_btn_box, 0)
-        outer.addLayout(bottom_bar)
+        root.addLayout(bottom_bar)
 
-        outer.addStretch(1)
+        root.addStretch(1)
 
         self._groups = [grp_app, grp_eng, grp_model, grp_tr, grp_down, grp_net]
 
@@ -334,6 +352,11 @@ class SettingsPanel(QtWidgets.QWidget):
     # ----- Layout helpers -----
 
     @staticmethod
+    def _tune_form_layout(f: QtWidgets.QFormLayout) -> None:
+        f.setHorizontalSpacing(8)
+        f.setVerticalSpacing(6)
+
+    @staticmethod
     def _hrow(*widgets: QtWidgets.QWidget) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         lay = QtWidgets.QHBoxLayout(w)
@@ -345,10 +368,6 @@ class SettingsPanel(QtWidgets.QWidget):
         return w
 
     @staticmethod
-    def _set_checkbox_height(chk: QtWidgets.QCheckBox) -> None:
-        chk.setMinimumHeight(SettingsPanel.CONTROL_HEIGHT)
-
-    @staticmethod
     def _set_combo_tooltip(cb: QtWidgets.QComboBox, idx: int, tooltip: str) -> None:
         cb.setItemData(idx, tooltip, QtCore.Qt.ToolTipRole)
 
@@ -358,7 +377,6 @@ class SettingsPanel(QtWidgets.QWidget):
         def mark() -> None:
             self._on_any_changed()
 
-        # combos
         self.cb_app_language.currentIndexChanged.connect(mark)
         self.cb_app_theme.currentIndexChanged.connect(mark)
         self.cb_engine_device.currentIndexChanged.connect(mark)
@@ -366,10 +384,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_model_name.currentIndexChanged.connect(mark)
         self.cb_tr_output_format.currentIndexChanged.connect(mark)
 
-        # line edit
         self.ed_model_default_lang.textChanged.connect(mark)
 
-        # spins
         self.spin_model_chunk.valueChanged.connect(mark)
         self.spin_model_stride.valueChanged.connect(mark)
         self.spin_down_min_h.valueChanged.connect(mark)
@@ -379,7 +395,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_net_frag.valueChanged.connect(mark)
         self.spin_net_timeout.valueChanged.connect(mark)
 
-        # checks
         self.chk_engine_tf32.toggled.connect(mark)
         self.chk_model_low_cpu_mem.toggled.connect(mark)
         self.chk_tr_keep_downloaded.toggled.connect(mark)
@@ -406,10 +421,6 @@ class SettingsPanel(QtWidgets.QWidget):
     # ----- Locale + model discovery -----
 
     def _load_locale_meta(self, path: Path) -> Tuple[str, str]:
-        """
-        Returns (code, display_name) for the locale file.
-        Falls back to filename stem if meta is missing.
-        """
         code = path.stem
         display = code
         try:
@@ -417,10 +428,7 @@ class SettingsPanel(QtWidgets.QWidget):
             meta = data.get("meta", {}) if isinstance(data, dict) else {}
             code = str(meta.get("language_code") or code).strip() or code
             name = str(meta.get("native_name") or meta.get("language_name") or "").strip()
-            if name:
-                display = f"{name} ({code})"
-            else:
-                display = code
+            display = f"{name} ({code})" if name else code
         except Exception:
             display = code
         return code, display
@@ -454,7 +462,7 @@ class SettingsPanel(QtWidgets.QWidget):
         for d in sorted(dirs, key=lambda p: p.name.lower()):
             self.cb_model_name.addItem(d.name, d.name)
 
-    # ----- Runtime capability / enabling -----
+    # ----- Runtime capability -----
 
     def _refresh_runtime_capabilities(self) -> None:
         has_cuda = bool(torch.cuda.is_available())
@@ -515,6 +523,32 @@ class SettingsPanel(QtWidgets.QWidget):
         self._set_enabled(True)
         self._refresh_save_button()
 
+    # ----- Restart prompt decision -----
+
+    def _compute_restart_needed_for_save(self, payload: Dict[str, Any]) -> bool:
+        before = self._data or {}
+        for (sec, key) in self._RESTART_SENSITIVE_KEYS:
+            if sec not in payload:
+                continue
+            new_sec = payload.get(sec, {})
+            old_sec = before.get(sec, {})
+            if isinstance(new_sec, dict) and isinstance(old_sec, dict):
+                new_val = new_sec.get(key)
+                old_val = old_sec.get(key)
+                if new_val != old_val:
+                    return True
+        return False
+
+    def _compute_restart_needed_for_restore(self, after: Dict[str, Any]) -> bool:
+        before = self._restore_base_snapshot or {}
+        for (sec, key) in self._RESTART_SENSITIVE_KEYS:
+            new_sec = after.get(sec, {})
+            old_sec = before.get(sec, {})
+            if isinstance(new_sec, dict) and isinstance(old_sec, dict):
+                if new_sec.get(key) != old_sec.get(key):
+                    return True
+        return False
+
     # ----- Slots from worker -----
 
     @QtCore.pyqtSlot(object)
@@ -533,9 +567,22 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._set_dirty(False)
 
-        restart_now = dialogs.ask_restart_required(self)
-        if restart_now:
-            self._restart_application()
+        # Restart prompt only if needed.
+        need_restart = False
+        if self._restore_base_snapshot is not None and isinstance(data, dict):
+            need_restart = self._compute_restart_needed_for_restore(data)
+        else:
+            need_restart = self._pending_restart_prompt
+
+        self._restore_base_snapshot = None
+        self._pending_restart_prompt = False
+
+        if need_restart:
+            restart_now = dialogs.ask_restart_required(self)
+            if restart_now:
+                self._restart_application()
+        else:
+            QtWidgets.QMessageBox.information(self, tr("app.title"), tr("settings.msg.saved"))
 
     @QtCore.pyqtSlot(str)
     def _on_error(self, msg: str) -> None:
@@ -546,8 +593,6 @@ class SettingsPanel(QtWidgets.QWidget):
     def _set_enabled(self, enabled: bool) -> None:
         for g in self._groups:
             g.setEnabled(enabled)
-
-        # buttons depend on enabled + dirty state
         self.btn_restore.setEnabled(enabled)
         self.btn_save.setEnabled(enabled and self._dirty)
 
@@ -562,27 +607,18 @@ class SettingsPanel(QtWidgets.QWidget):
             net = self._data.get("network", {})
 
             # app
-            lang_val = str(app.get("language", "auto")).strip() or "auto"
-            self._select_combo_by_data(self.cb_app_language, lang_val, fallback="auto")
-
-            theme_val = str(app.get("theme", "auto")).strip() or "auto"
-            self._select_combo_by_data(self.cb_app_theme, theme_val, fallback="auto")
+            self._select_combo_by_data(self.cb_app_language, str(app.get("language", "auto")), fallback="auto")
+            self._select_combo_by_data(self.cb_app_theme, str(app.get("theme", "auto")), fallback="auto")
 
             # engine
-            dev_val = str(eng.get("preferred_device", "auto")).strip() or "auto"
-            self._select_combo_by_data(self.cb_engine_device, dev_val, fallback="auto")
-
-            prec_val = str(eng.get("precision", "auto")).strip() or "auto"
-            self._select_combo_by_data(self.cb_engine_precision, prec_val, fallback="auto")
-
+            self._select_combo_by_data(self.cb_engine_device, str(eng.get("preferred_device", "auto")), fallback="auto")
+            self._select_combo_by_data(self.cb_engine_precision, str(eng.get("precision", "auto")), fallback="auto")
             self.chk_engine_tf32.setChecked(bool(eng.get("allow_tf32", True)))
 
             # model
             model_name = str(model.get("ai_engine_name", "whisper-turbo")).strip() or "whisper-turbo"
             self._select_combo_by_data(self.cb_model_name, model_name, fallback=model_name)
-            self.ed_model_default_lang.setText(
-                "" if model.get("default_language") is None else str(model.get("default_language"))
-            )
+            self.ed_model_default_lang.setText("" if model.get("default_language") is None else str(model.get("default_language")))
             self.spin_model_chunk.setValue(int(model.get("chunk_length_s", 60)))
             self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
             self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
@@ -598,7 +634,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 fmt_key = "txt_timestamps"
 
             self._select_combo_by_data(self.cb_tr_output_format, fmt_key, fallback="plain_txt")
-
             self.chk_tr_keep_downloaded.setChecked(bool(trc.get("keep_downloaded_files", False)))
             self.chk_tr_keep_wav.setChecked(bool(trc.get("keep_wav_temp", False)))
             self.chk_tr_audio_only.setChecked(bool(trc.get("download_audio_only", True)))
@@ -620,6 +655,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _select_combo_by_data(cb: QtWidgets.QComboBox, value: str, *, fallback: str) -> None:
+        value = (value or "").strip() or fallback
         for i in range(cb.count()):
             if str(cb.itemData(i)) == value:
                 cb.setCurrentIndex(i)
@@ -652,6 +688,7 @@ class SettingsPanel(QtWidgets.QWidget):
             "default_language": (self.ed_model_default_lang.text().strip() or None),
             "return_timestamps": bool(self._data.get("model", {}).get("return_timestamps", False)),
             "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
+            "local_models_only": bool(self._data.get("model", {}).get("local_models_only", True)),
         }
 
         fmt_key = str(self.cb_tr_output_format.currentData() or "plain_txt")
@@ -696,11 +733,19 @@ class SettingsPanel(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot()
     def _on_restore_clicked(self) -> None:
+        if not dialogs.ask_restore_defaults(self):
+            return
+
+        self._restore_base_snapshot = dict(self._data) if isinstance(self._data, dict) else {}
         self._start_worker(action="restore_defaults")
 
     @QtCore.pyqtSlot()
     def _on_save_clicked(self) -> None:
+        if not dialogs.ask_save_settings(self):
+            return
+
         payload = self._collect_payload()
+        self._pending_restart_prompt = self._compute_restart_needed_for_save(payload)
         self._start_worker(action="save", payload=payload)
 
     # ----- Restart -----
@@ -715,8 +760,6 @@ class SettingsPanel(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(
                 self, tr("app.title"), tr("settings.msg.restart_failed", detail=str(ex))
             )
-
-    # ----- Cleanup API for MainWindow -----
 
     def on_parent_close(self) -> None:
         pass
