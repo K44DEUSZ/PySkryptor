@@ -146,9 +146,9 @@ class TextPostprocessor:
             if not text:
                 continue
 
-            # Try 'timestamp': (start, end) first.
             start = None
             end = None
+
             ts = ch.get("timestamp")
             if isinstance(ts, (list, tuple)) and len(ts) == 2:
                 start, end = ts
@@ -202,6 +202,7 @@ class TextPostprocessor:
         """Render segments as SRT subtitles."""
         lines: List[str] = []
         idx = 1
+
         for seg in segments:
             text = clean_text(str(seg.get("text", "")))
             if not text:

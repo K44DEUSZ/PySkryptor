@@ -113,6 +113,10 @@ class TranscriptionWorker(QtCore.QObject):
         keep_downloaded_files: bool = bool(trans_cfg.get("keep_downloaded_files", True))
         keep_wav_temp: bool = bool(trans_cfg.get("keep_wav_temp", False))
 
+        out_ext = str(trans_cfg.get("output_ext", "txt")).lower().strip().lstrip(".") or "txt"
+        timestamps_output: bool = bool(trans_cfg.get("timestamps_output", False))
+        want_timestamped_output = bool(timestamps_output or out_ext == "srt")
+
         try:
             # ----- Prepare temp area -----
             try:
@@ -153,7 +157,9 @@ class TranscriptionWorker(QtCore.QObject):
             model_cfg = Config.model_settings()
             chunk_len = int(model_cfg.get("chunk_length_s", 30))
             stride_len = int(model_cfg.get("stride_length_s", 5))
-            return_ts = bool(model_cfg.get("return_timestamps", True))
+            return_ts_model = bool(model_cfg.get("return_timestamps", True))
+            # Output format may require timestamps even if the model setting disables them.
+            return_ts = bool(return_ts_model or want_timestamped_output)
             ignore_warn = bool(model_cfg.get("ignore_warning", True))
             task = "transcribe"
             default_lang = model_cfg.get("default_language")
@@ -253,14 +259,22 @@ class TranscriptionWorker(QtCore.QObject):
                     if default_lang:
                         generate_kwargs["language"] = default_lang
 
-                    text = self._transcribe_wav_chunked(
+                    merged_text, segments = self._transcribe_wav_chunked(
                         item_key=key,
                         wav_path=model_input,
                         chunk_length_s=chunk_len,
                         stride_length_s=stride_len,
                         return_timestamps=return_ts,
+                        collect_segments=want_timestamped_output,
                         generate_kwargs=generate_kwargs,
                         ignore_warning=ignore_warn,
+                    )
+
+                    text = self._render_transcript(
+                        merged_text=merged_text,
+                        segments=segments,
+                        out_ext=out_ext,
+                        timestamps_output=timestamps_output,
                     )
 
                 except _Cancelled:
@@ -379,6 +393,45 @@ class TranscriptionWorker(QtCore.QObject):
             return prev
         return (prev + " " + " ".join(cur_words)).strip()
 
+    @staticmethod
+    def _shift_segments(segments: List[Dict[str, Any]], offset_s: float) -> List[Dict[str, Any]]:
+        if not segments:
+            return []
+        out: List[Dict[str, Any]] = []
+        for seg in segments:
+            try:
+                start = float(seg.get("start", 0.0) or 0.0) + float(offset_s)
+            except Exception:
+                start = float(offset_s)
+            try:
+                end = float(seg.get("end", start) or start) + float(offset_s)
+            except Exception:
+                end = start
+
+            out.append({"start": start, "end": end, "text": seg.get("text", "")})
+        return out
+
+    @staticmethod
+    def _render_transcript(
+        *,
+        merged_text: str,
+        segments: List[Dict[str, Any]],
+        out_ext: str,
+        timestamps_output: bool,
+    ) -> str:
+        out_ext = (out_ext or "txt").lower().strip().lstrip(".") or "txt"
+
+        if out_ext == "srt":
+            return TextPostprocessor.to_srt(segments)
+        if out_ext == "txt" and timestamps_output:
+            return TextPostprocessor.to_timestamped_plain(segments)
+
+        # Keep the legacy continuous output for plain TXT.
+        merged = TextPostprocessor.clean(merged_text)
+        if merged:
+            return merged
+        return TextPostprocessor.to_plain(segments)
+
     def _call_pipe_safe(
         self,
         audio: np.ndarray,
@@ -447,10 +500,14 @@ class TranscriptionWorker(QtCore.QObject):
         chunk_length_s: int,
         stride_length_s: int,
         return_timestamps: bool,
+        collect_segments: bool,
         generate_kwargs: Dict[str, Any],
         ignore_warning: bool,
-    ) -> str:
+    ) -> Tuple[str, List[Dict[str, Any]]]:
         out_text = ""
+        all_segments: List[Dict[str, Any]] = []
+        last_end_s = -1e9
+        eps_s = 0.25
 
         with wave.open(str(wav_path), "rb") as wf:
             sr = int(wf.getframerate())
@@ -491,10 +548,10 @@ class TranscriptionWorker(QtCore.QObject):
                 if n_channels > 1 and arr.size:
                     arr = arr.reshape(-1, n_channels).mean(axis=1)
 
-                seg = arr.astype(np.float32) / float(scale)
+                audio = arr.astype(np.float32) / float(scale)
 
                 result = self._call_pipe_safe(
-                    seg,
+                    audio,
                     sr,
                     return_timestamps=return_timestamps,
                     generate_kwargs=generate_kwargs,
@@ -504,6 +561,32 @@ class TranscriptionWorker(QtCore.QObject):
                 txt = result.get("text", "")
                 txt = TextPostprocessor.clean(str(txt))
                 out_text = self._merge_text(out_text, txt)
+
+                if collect_segments:
+                    # Collect segments for timestamped outputs.
+                    chunk_offset_s = float(pos) / float(sr)
+                    segments = TextPostprocessor.segments_from_result(result)
+                    segments = self._shift_segments(segments, chunk_offset_s)
+
+                    for seg in segments:
+                        text = TextPostprocessor.clean(str(seg.get("text", "")))
+                        if not text:
+                            continue
+
+                        try:
+                            start = float(seg.get("start", 0.0) or 0.0)
+                        except Exception:
+                            start = 0.0
+                        try:
+                            end = float(seg.get("end", start) or start)
+                        except Exception:
+                            end = start
+
+                        if start < (last_end_s - eps_s):
+                            continue
+
+                        all_segments.append({"start": start, "end": end, "text": text})
+                        last_end_s = max(last_end_s, end)
 
                 # ----- Update progress -----
                 chunk_idx += 1
@@ -516,7 +599,7 @@ class TranscriptionWorker(QtCore.QObject):
 
                 pos += step
 
-        return out_text
+        return out_text, all_segments
 
     # ----- Entry helpers -----
 
