@@ -158,8 +158,6 @@ class DownloadService:
             "retries": Config.net_retries(),
             "socket_timeout": Config.net_timeout_s(),
         }
-        if Config.net_proxy():
-            ydl_opts["proxy"] = Config.net_proxy()
         if Config.net_max_kbps():
             ydl_opts["ratelimit"] = int(Config.net_max_kbps()) * 1024
 
@@ -260,6 +258,7 @@ class DownloadService:
             else:
                 v_main = (
                     f"bestvideo[height>={min_h}][height<={upper}][ext=mp4]"
+                    f"/bestvideo[height>={min_h}][height<={upper}]"
                 )
                 if audio_lang:
                     a_main = (
@@ -272,103 +271,62 @@ class DownloadService:
                     )
                 else:
                     a_main = "bestaudio[ext=m4a]/bestaudio"
-                format_sort = [f"res:{upper}", "vcodec:avc", "acodec:m4a", "fps", "size"]
+                format_sort = [f"res:{upper}", "vcodec:h264", "acodec:aac", "fps", "size"]
 
-            filt_main = f"{v_main}+{a_main}"
-            alt_same = f"bestvideo[height>={min_h}][height<={upper}]+bestaudio"
-            fallback = f"bestvideo[height>={min_h}]+bestaudio"
-            ytdlp_format = "/".join([filt_main, alt_same, fallback])
+            ytdlp_format = f"{v_main}+{a_main}/{v_main}/{a_main}/best"
 
-        if file_stem:
-            safe = sanitize_filename(file_stem)
-            outtmpl = str(out_dir / f"{safe}.%(ext)s")
-        else:
-            outtmpl = str(out_dir / "%(title)s.%(ext)s")
+        safe_title = sanitize_filename(file_stem or "download")
+        out_tpl = str(out_dir / f"{safe_title}.%(ext)s")
 
         ydl_opts: Dict[str, Any] = {
-            "format": ytdlp_format,
-            "format_sort": format_sort,
-            "format_sort_force": True,
-            "outtmpl": outtmpl,
+            "outtmpl": out_tpl,
+            "noplaylist": True,
             "quiet": True,
             "nocheckcertificate": True,
-            "noprogress": False,
             "retries": Config.net_retries(),
-            "concurrent_fragment_downloads": Config.net_concurrent_fragments(),
             "socket_timeout": Config.net_timeout_s(),
-            "nopart": True,
-            "continuedl": False,
-            "postprocessors": postprocessors,
-            "progress_hooks": [lambda d: self._on_progress(d, progress_cb, cancel_check)],
-            "extractor_args": {"youtube": {"player_client": ["default"]}},
+            "concurrent_fragment_downloads": Config.net_concurrent_fragments(),
             "logger": YtdlpLogger(log),
+            "progress_hooks": [progress_cb] if progress_cb else [],
+            "format": ytdlp_format,
         }
-        if Config.net_proxy():
-            ydl_opts["proxy"] = Config.net_proxy()
+
+        if format_sort:
+            ydl_opts["format_sort"] = format_sort
+
         if Config.net_max_kbps():
             ydl_opts["ratelimit"] = int(Config.net_max_kbps()) * 1024
 
-        ydl_opts = {k: v for k, v in ydl_opts.items() if v is not None}
-
-        if Config.FFMPEG_BIN_DIR.exists():
-            ydl_opts["ffmpeg_location"] = str(Config.FFMPEG_BIN_DIR)
+        if postprocessors:
+            ydl_opts["postprocessors"] = postprocessors
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                if cancel_check and bool(cancel_check()):
+                    raise DownloadCancelled()
+
                 info = ydl.extract_info(url, download=True)
-                out_path: Optional[Path] = None
+                if cancel_check and bool(cancel_check()):
+                    raise DownloadCancelled()
 
-                if isinstance(info, dict):
-                    req = info.get("requested_downloads")
-                    if isinstance(req, list) and req:
-                        fp = req[-1].get("filepath")
-                        if fp and not str(fp).endswith(".part"):
-                            out_path = Path(fp)
-                    if out_path is None:
-                        fn = info.get("_filename")
-                        if fn and not str(fn).endswith(".part"):
-                            out_path = Path(fn)
+                if not info:
+                    return None
 
-                if out_path is None:
-                    candidates = [p for p in out_dir.glob("*.*") if not p.name.endswith(".part")]
-                    if not candidates:
-                        raise DownloadError("error.down.no_output_file")
-                    out_path = max(candidates, key=lambda p: p.stat().st_mtime)
+                # Determine the final output file path
+                # Prefer _filename but fall back to requested stem.
+                out = info.get("_filename") or info.get("requested_downloads", [{}])[0].get("_filename")
+                if out:
+                    p = Path(out)
+                    return p if p.exists() else None
 
-                return out_path
+                # Try to find a file that matches the stem in out_dir
+                for p in out_dir.glob(f"{safe_title}.*"):
+                    if p.is_file():
+                        return p
 
-        except DownloadError:
-            raise
+                return None
 
         except DownloadCancelled:
             raise
-
         except Exception as ex:
             raise DownloadError("error.down.download_failed", detail=str(ex))
-
-    # ----- Internal -----
-
-    @staticmethod
-    def _on_progress(d: Dict[str, Any], cb, cancel_check=None) -> None:
-        if cancel_check:
-            try:
-                if bool(cancel_check()):
-                    raise DownloadCancelled()
-            except DownloadCancelled:
-                raise
-            except Exception:
-                pass
-
-        if not cb:
-            return
-        try:
-            status = d.get("status")
-            if status == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                done = d.get("downloaded_bytes") or 0
-                pct = int(done * 100 / total) if total else 0
-                cb(pct, "downloading")
-            elif status == "finished":
-                cb(100, "finished")
-        except Exception:
-            pass

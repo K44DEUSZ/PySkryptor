@@ -17,12 +17,6 @@ from ui.views.dialogs import (
 )
 
 
-def _resolve(root: Path, p: str) -> Path:
-    """Resolve 'p' against project root if it's relative."""
-    path = Path(p)
-    return path if path.is_absolute() else (root / path)
-
-
 def _guess_theme(app: QtWidgets.QApplication) -> str:
     try:
         col = app.palette().color(QtGui.QPalette.Window)
@@ -31,14 +25,12 @@ def _guess_theme(app: QtWidgets.QApplication) -> str:
         return "light"
 
 
-def _apply_stylesheet(app: QtWidgets.QApplication, project_root: Path, theme_pref: str) -> str:
+def _apply_stylesheet(app: QtWidgets.QApplication, styles_dir: Path, theme_pref: str) -> str:
     """Load and apply QSS from resources/styles (if present)."""
     pref = (theme_pref or "auto").strip().lower()
     theme = pref if pref in ("light", "dark") else _guess_theme(app)
 
-    styles_dir = project_root / "resources" / "styles"
     parts: list[str] = []
-
     for name in ("base.qss", f"{theme}.qss"):
         f = styles_dir / name
         if f.exists() and f.is_file():
@@ -64,8 +56,9 @@ def run() -> int:
 
     # Resolve project root & prepare services
     project_root = Path(__file__).resolve().parent.parent
-    Config.ROOT_DIR = project_root
-    svc = SettingsService(project_root)
+    Config.set_root_dir(project_root)
+
+    svc = SettingsService(Config.ROOT_DIR)
 
     # Load or restore settings snapshot (do not localize errors yet)
     try:
@@ -79,8 +72,8 @@ def run() -> int:
         critical_config_load_failed_and_exit(None, str(getattr(ex, "key", str(ex))))
         return 1
 
-    # Load i18n (after we know paths + language preference)
-    locales_dir = _resolve(project_root, snap.paths["locales_dir"])
+    # Load i18n (after we know language preference)
+    locales_dir = Config.LOCALES_DIR
     lang_pref = str(snap.app.get("language", "auto"))
 
     try:
@@ -97,9 +90,9 @@ def run() -> int:
         info_settings_restored(None)
 
     # Apply runtime config (paths, device/dtype, etc.)
-    Config.initialize(svc)
+    Config.initialize_from_snapshot(snap)
 
-    _apply_stylesheet(app, project_root, str(snap.app.get("theme", "auto")))
+    _apply_stylesheet(app, Config.STYLES_DIR, str(snap.app.get("theme", "auto")))
 
     # Create & show main window
     from ui.views.main_window import MainWindow

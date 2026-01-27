@@ -23,7 +23,6 @@ class ModelLoader:
         Respects model settings:
           - ai_engine_name
           - local_models_only
-          - use_safetensors
           - low_cpu_mem_usage
         """
         logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -31,7 +30,7 @@ class ModelLoader:
         model_cfg = Config.model_settings()
         ai_name = str(model_cfg.get("ai_engine_name", "") or "").strip() or "unknown"
         low_cpu_mem_usage = bool(model_cfg.get("low_cpu_mem_usage", True))
-        use_safetensors = bool(model_cfg.get("use_safetensors", True))
+        use_safetensors = bool(Config.USE_SAFETENSORS)
         local_models_only = bool(model_cfg.get("local_models_only", True))
 
         if log is not None:

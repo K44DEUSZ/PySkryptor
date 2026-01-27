@@ -1,9 +1,9 @@
 # core/io/file_manager.py
 from __future__ import annotations
 
-from datetime import datetime
-from pathlib import Path
 import shutil
+from pathlib import Path
+from typing import Optional, Dict, Any, List
 
 from core.config.app_config import AppConfig as Config
 from core.io.audio_extractor import AudioExtractor
@@ -11,105 +11,58 @@ from core.io.text import sanitize_filename
 
 
 class FileManager:
-    """Centralized file operations for transcription I/O and naming."""
+    """Filesystem helpers for inputs, downloads, session outputs and transcripts."""
 
-    _session_dir: Path | None = None
-    _session_created: bool = False
+    @staticmethod
+    def project_root() -> Path:
+        return Config.ROOT_DIR
 
-    # ----- Session (group output by datetime folder) -----
+    @staticmethod
+    def downloads_dir() -> Path:
+        return Config.DOWNLOADS_DIR
+
+    @staticmethod
+    def transcriptions_dir() -> Path:
+        return Config.TRANSCRIPTIONS_DIR
+
+    @staticmethod
+    def output_dir_for(stem: str) -> Path:
+        safe = sanitize_filename(stem) or "item"
+        return Config.TRANSCRIPTIONS_DIR / safe
+
+    @staticmethod
+    def ensure_output(stem: str) -> Path:
+        p = FileManager.output_dir_for(stem)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @staticmethod
+    def find_existing_output(stem: str) -> Optional[Path]:
+        p = FileManager.output_dir_for(stem)
+        return p if p.exists() else None
 
     @staticmethod
     def plan_session() -> Path:
         """
-        Compute a timestamped session path inside TRANSCRIPTIONS_DIR but do NOT create it yet.
-        The directory will be created lazily on first write.
+        Plan a new session output folder name.
+
+        We don't create it immediately; it's created on first actual write.
         """
-        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        base = Config.TRANSCRIPTIONS_DIR / stamp
-        FileManager._session_dir = base
-        FileManager._session_created = False
-        return base
+        base = Config.TRANSCRIPTIONS_DIR / "session"
+        if not base.exists():
+            return base
+        i = 1
+        while True:
+            cand = Config.TRANSCRIPTIONS_DIR / f"session ({i})"
+            if not cand.exists():
+                return cand
+            i += 1
 
     @staticmethod
-    def ensure_session() -> Path:
-        """Ensure the planned session directory exists (create once, lazily)."""
-        if FileManager._session_dir is None:
-            FileManager.plan_session()
-        assert FileManager._session_dir is not None
-        if not FileManager._session_created:
-            FileManager._session_dir.mkdir(parents=True, exist_ok=True)
-            FileManager._session_created = True
-        return FileManager._session_dir
+    def clear_temp_dir(path: Path) -> None:
+        """Remove temp dir if exists; ignore errors."""
+        shutil.rmtree(path, ignore_errors=True)
 
-    @staticmethod
-    def rollback_session_if_empty() -> None:
-        """Remove the session directory if it exists and is empty."""
-        sess = FileManager._session_dir
-        if not sess:
-            return
-        if sess.exists() and sess.is_dir():
-            try:
-                next(sess.iterdir())
-            except StopIteration:
-                shutil.rmtree(sess, ignore_errors=True)
-
-    @staticmethod
-    def end_session() -> None:
-        """Clear current session context (does not delete any data)."""
-        FileManager._session_dir = None
-        FileManager._session_created = False
-
-    @staticmethod
-    def session_dir() -> Path:
-        """Return planned/active session directory path (may not exist yet)."""
-        return FileManager._session_dir or Config.TRANSCRIPTIONS_DIR
-
-    # ----- Cross-session conflict lookup -----
-
-    @staticmethod
-    def find_existing_output(stem: str) -> Path | None:
-        """
-        Return an existing output directory for given stem if it exists
-        in any previous session under TRANSCRIPTIONS_DIR.
-        """
-        safe = sanitize_filename(stem)
-        root = Config.TRANSCRIPTIONS_DIR
-
-        # Legacy: direct child
-        direct = root / safe
-        if direct.exists():
-            return direct
-
-        # Any dated session subfolder
-        for sess in root.iterdir():
-            if not sess.is_dir():
-                continue
-            candidate = sess / safe
-            if candidate.exists():
-                return candidate
-        return None
-
-    # ----- Output helpers -----
-
-    @staticmethod
-    def output_dir_for(stem: str) -> Path:
-        """Return target directory for a given logical item name inside current session."""
-        safe = sanitize_filename(stem)
-        return FileManager.session_dir() / safe
-
-    @staticmethod
-    def ensure_output(stem: str) -> Path:
-        """Ensure the output directory exists for given stem and return it."""
-        FileManager.ensure_session()
-        out_dir = FileManager.output_dir_for(stem)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return out_dir
-
-    @staticmethod
-    def remove_dir_if_empty(path: Path) -> None:
-        """Remove directory if it exists and is empty."""
-        if not path.exists() or not path.is_dir():
-            return
         try:
             next(path.iterdir())
         except StopIteration:
@@ -123,9 +76,9 @@ class FileManager:
         cancel_check=None,
     ) -> Path:
         """
-        Return a path suitable as ASR model input.
+        Return a path suitable for chunked transcription.
 
-        - If 'source' is already a supported audio file (per settings) → return it as-is.
+        - If 'source' is a WAV file → return it as-is (wave module can read it).
         - Otherwise create a 16 kHz mono WAV copy in INPUT_TMP_DIR and return that path.
         """
         if source.suffix.lower() == ".wav":

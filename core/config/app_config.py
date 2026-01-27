@@ -5,16 +5,16 @@ import os
 import platform
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 import torch
 
-from core.services.settings_service import SettingsService, SettingsSnapshot, SettingsError
+if TYPE_CHECKING:
+    from core.services.settings_service import SettingsSnapshot
 
 
 class ConfigError(RuntimeError):
-    """App configuration error wrapping settings/device issues."""
-    pass
+    """App configuration error wrapping runtime/device issues."""
 
 
 class AppConfig:
@@ -31,7 +31,7 @@ class AppConfig:
 
     APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"
 
-    # ----- Paths -----
+    # ----- Paths (not user-configurable) -----
 
     ROOT_DIR: Path = Path(__file__).resolve().parents[2]
 
@@ -48,7 +48,24 @@ class AppConfig:
     INPUT_TMP_DIR: Path = TRANSCRIPTIONS_DIR / ".input_tmp"
     FFMPEG_BIN_DIR: Path = FFMPEG_DIR
 
-    # ----- Media extensions -----
+    @classmethod
+    def set_root_dir(cls, root_dir: Path) -> None:
+        """Set project root dir and recompute derived paths."""
+        cls.ROOT_DIR = Path(root_dir).resolve()
+        cls.RESOURCES_DIR = cls.ROOT_DIR / "resources"
+        cls.FFMPEG_DIR = cls.RESOURCES_DIR / "ffmpeg"
+        cls.MODELS_DIR = cls.RESOURCES_DIR / "models"
+        cls.LOCALES_DIR = cls.RESOURCES_DIR / "locales"
+        cls.STYLES_DIR = cls.RESOURCES_DIR / "styles"
+
+        cls.DATA_DIR = cls.ROOT_DIR / "data"
+        cls.DOWNLOADS_DIR = cls.DATA_DIR / "downloads"
+        cls.TRANSCRIPTIONS_DIR = cls.DATA_DIR / "transcriptions"
+        cls.INPUT_TMP_DIR = cls.TRANSCRIPTIONS_DIR / ".input_tmp"
+
+        # AI_ENGINE_DIR depends on model setting and is finalized in initialize_from_snapshot().
+
+    # ----- Media extensions (not user-configurable) -----
 
     AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
     VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm", ".mkv", ".mov", ".avi")
@@ -68,8 +85,10 @@ class AppConfig:
     NET_RETRIES: int = 3
     NET_CONC_FRAG: int = 4
     NET_TIMEOUT_S: int = 30
-    NET_PROXY: str | None = None
-    NET_THROTTLE_S: int = 0
+
+    # ----- Model loader defaults (not user-configurable) -----
+
+    USE_SAFETENSORS: bool = True
 
     # ----- Device / dtype / runtime -----
 
@@ -80,26 +99,18 @@ class AppConfig:
     DEVICE_MODEL: str | None = None
     TF32_ENABLED: bool = False
 
-    # Cached settings snapshot
-    SETTINGS: SettingsSnapshot | None = None
+    SETTINGS: "SettingsSnapshot | None" = None
 
-    # ----- Public initialization -----
+    # ----- Initialization -----
 
     @classmethod
-    def initialize(cls, settings: SettingsService | None = None) -> None:
+    def initialize_from_snapshot(cls, snap: "SettingsSnapshot") -> None:
         """
-        Load settings and apply runtime configuration.
+        Apply runtime configuration using an already-validated SettingsSnapshot.
 
-        User-configurable sections come from settings.json (app, engine, model,
-        transcription, downloader, network). Paths and media extensions are fixed
-        in code and not driven by JSON anymore.
+        AppConfig is a runtime map (source of truth) used across the app.
+        JSON parsing + validation lives in SettingsService.
         """
-        ss = settings or SettingsService(cls.ROOT_DIR)
-        try:
-            snap = ss.load()
-        except SettingsError as ex:
-            raise ConfigError(str(ex)) from ex
-
         cls.SETTINGS = snap
 
         cls._apply_model_dir(snap.model)
@@ -132,7 +143,8 @@ class AppConfig:
 
     @classmethod
     def _apply_network(cls, network: Dict[str, Any]) -> None:
-        """Apply basic network options: retries, timeouts, proxy, bandwidth."""
+        """Apply basic network options: retries, timeouts, bandwidth."""
+
         def _to_int(v, default):
             try:
                 return int(v)
@@ -163,16 +175,14 @@ class AppConfig:
         """
         Apply preferred transcript extension from settings.
 
-        Only updates TRANSCRIPT_DEFAULT_EXT if the value is one of supported
-        extensions (txt, srt, sub). Trailing dot is ignored.
+        Value is expected to be validated in SettingsService.
         """
         raw = transcription.get("output_ext", cls.TRANSCRIPT_DEFAULT_EXT)
         ext = str(raw).lower().strip()
         if ext.startswith("."):
             ext = ext[1:]
-        if ext and ext in cls.TRANSCRIPT_EXT:
+        if ext:
             cls.TRANSCRIPT_DEFAULT_EXT = ext
-
 
     @classmethod
     def _apply_model_dir(cls, model: Dict[str, Any]) -> None:
@@ -440,11 +450,3 @@ class AppConfig:
     @classmethod
     def net_timeout_s(cls) -> int:
         return cls.NET_TIMEOUT_S
-
-    @classmethod
-    def net_proxy(cls) -> str | None:
-        return cls.NET_PROXY
-
-    @classmethod
-    def net_throttle_startup_s(cls) -> int:
-        return cls.NET_THROTTLE_S

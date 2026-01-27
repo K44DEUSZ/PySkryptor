@@ -6,7 +6,7 @@
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
-    "allow_tf32": false
+    "allow_tf32": true
   },
   "model": {
     "ai_engine_name": "whisper-turbo",
