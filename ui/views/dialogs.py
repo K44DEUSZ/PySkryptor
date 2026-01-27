@@ -82,6 +82,52 @@ def info_settings_restored(parent: QtWidgets.QWidget | None = None) -> None:
     box.exec_()
 
 
+# ----- Live / audio dialogs -----
+
+def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
+    """
+    Shown when no audio input devices (microphones) are available.
+
+    IMPORTANT:
+    - This function is pure UI. It should be called by LivePanel only
+      after first entering the Live tab / on user action (refresh/start),
+      not on app startup.
+    - Kept consistent with other dialogs: same title, margins, spacing, tuned button.
+    """
+    dlg = QtWidgets.QDialog(parent)
+    _sanitize_window_flags(dlg)
+    dlg.setWindowTitle(T.tr("app.title"))
+    dlg.setModal(True)
+
+    lay = QtWidgets.QVBoxLayout(dlg)
+    _tune_dialog_layout(lay)
+
+    title_lbl = QtWidgets.QLabel(T.tr("live.dialog.no_devices.title"))
+    f = title_lbl.font()
+    f.setBold(True)
+    title_lbl.setFont(f)
+    title_lbl.setWordWrap(True)
+    lay.addWidget(title_lbl)
+
+    msg_lbl = QtWidgets.QLabel(T.tr("live.dialog.no_devices.text"))
+    msg_lbl.setWordWrap(True)
+    lay.addWidget(msg_lbl)
+
+    lay.addStretch(1)
+
+    btn_row = QtWidgets.QHBoxLayout()
+    btn_row.setSpacing(6)
+    btn_row.addStretch(1)
+
+    ok_btn = QtWidgets.QPushButton("OK")
+    _tune_buttons(ok_btn)
+    btn_row.addWidget(ok_btn)
+    lay.addLayout(btn_row)
+
+    ok_btn.clicked.connect(dlg.accept)
+    dlg.exec_()
+
+
 # ----- Downloader info dialogs -----
 
 def info_playlist_not_supported(parent: QtWidgets.QWidget | None = None) -> None:

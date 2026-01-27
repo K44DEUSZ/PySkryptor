@@ -7,6 +7,7 @@ from PyQt5 import QtWidgets
 
 from ui.utils.translating import tr
 from ui.views.files_panel import FilesPanel
+from ui.views.live_panel import LivePanel
 from ui.views.downloader_panel import DownloaderPanel
 from ui.views.settings_panel import SettingsPanel
 from ui.views.about_panel import AboutPanel
@@ -36,9 +37,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.files_panel = FilesPanel(self)
         self.tabs.addTab(self.files_panel, tr("tabs.files"))
 
-        # Live tab – still a placeholder page for now
-        self.live_page = self._make_placeholder(tr("tabs.live"))
-        self.tabs.addTab(self.live_page, tr("tabs.live"))
+        # Live panel
+        self.live_panel = LivePanel(self)
+        self.tabs.addTab(self.live_panel, tr("tabs.live"))
 
         # Downloader panel
         self.downloader_panel = DownloaderPanel(self)
@@ -52,28 +53,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.about_panel = AboutPanel(self)
         self.tabs.addTab(self.about_panel, tr("tabs.about"))
 
-    # ----- Helpers -----
-
-    def _make_placeholder(self, title: str) -> QtWidgets.QWidget:
-        """
-        Simple placeholder page (currently used for Live tab).
-        All text is i18n-driven.
-        """
-        page = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(page)
-        lbl = QtWidgets.QLabel(title + " — " + tr("ui.placeholder.soon"))
-        lbl.setWordWrap(True)
-        lay.addWidget(lbl)
-        lay.addStretch(1)
-        return page
-
     # ----- Close handling -----
 
     def closeEvent(self, e) -> None:
         """
         Allow panels to perform best-effort cleanup when the main window closes.
         """
-        for pnl in (self.files_panel, self.downloader_panel, self.settings_panel, self.about_panel):
+        for pnl in (
+            self.files_panel,
+            self.live_panel,
+            self.downloader_panel,
+            self.settings_panel,
+            self.about_panel,
+        ):
             try:
                 if hasattr(pnl, "on_parent_close"):
                     pnl.on_parent_close()

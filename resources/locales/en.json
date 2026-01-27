@@ -43,6 +43,55 @@
       "default_name": "Transcript"
     }
   },
+  "live": {
+    "group": {
+      "settings": "Settings",
+      "controls": "Controls"
+    },
+    "ctrl": {
+      "start": "Start ▶️",
+      "pause": "Pause ⏸️",
+      "stop": "Stop ⏹️",
+      "save_transcript": "Save 💾",
+      "load_model": "Load model",
+      "refresh_devices": "Refresh devices",
+      "clear": "Clear"
+    },
+    "meter": {
+      "input": "Audio input"
+    },
+    "dialog": {
+      "no_devices": {
+        "title": "No microphone",
+        "text": "No audio input devices were detected.\nConnect a microphone and try again (Refresh devices)."
+      }
+    },
+    "device": "Input device",
+    "device.none": "No input devices",
+    "device.unavailable": "Audio devices unavailable",
+    "mode": "Mode",
+    "mode.transcribe": "Transcribe",
+    "mode.translate": "Translate",
+    "source_language": "Source language",
+    "target_language": "Target language",
+    "show_source": "Show source text",
+    "tabs": {
+      "transcript": "Transcript",
+      "log": "Log"
+    },
+    "placeholder": {
+      "source": "Live transcript will appear here...",
+      "target": "Live translation will appear here..."
+    },
+    "model": {
+      "not_ready": "Model not loaded.",
+      "loading": "Loading model...",
+      "ready": "Model ready ({device}).",
+      "error": "Model load failed.",
+      "required": "Model is required for live mode. Loading now..."
+    },
+    "detected_language": "Detected language: {lang}"
+  },
   "down": {
     "url": {
       "placeholder": "Paste media URL here..."
@@ -127,14 +176,29 @@
     "no_supported_files_in_folder": "ℹ️ Folder \"{path}\" does not contain supported media files.",
     "path_not_found": "⚠️ Path not found: {path}",
     "conflict_dialog_error": "❌ Conflict dialog error. Details: {detail}",
-    "unexpected": "⚠️ Unexpected error: {msg}"
+    "unexpected": "⚠️ Unexpected error: {msg}",
+    "live": {
+      "audio": {
+        "no_devices": "No audio input devices found.",
+        "format_unsupported": "Unsupported audio format (rate={rate}, channels={channels}, bits={bits})."
+      },
+      "translate": {
+        "model_missing": "Translation model is not configured (engine.translation_model_name).",
+        "init_failed": "Translation init failed: {detail}"
+      }
+    }
   },
   "status": {
     "prep": "⏳ Preparing...",
     "proc": "🔄 Processing...",
     "done": "✅ Done",
     "skipped": "⏭️ Skipped",
-    "error": "❌ Error"
+    "error": "❌ Error",
+    "idle": "Idle",
+    "listening": "Listening…",
+    "paused": "Paused",
+    "stopped": "Stopped",
+    "no_devices": "No microphone"
   },
   "dialog": {
     "settings_restored": "✅ Settings file was not found. Defaults were restored.",
