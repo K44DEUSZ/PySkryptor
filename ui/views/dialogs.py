@@ -1,7 +1,7 @@
 # ui/views/dialogs.py
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, Optional, List
 from PyQt5 import QtCore, QtWidgets
 
 from ui.utils.translating import Translator as T
@@ -10,6 +10,9 @@ from ui.utils.translating import Translator as T
 BASE_H = 24
 PAD = 12
 SPACING = 8
+
+DLG_MIN_W = 560
+DLG_MAX_W = 760
 
 
 def _sanitize_window_flags(w: QtWidgets.QWidget) -> None:
@@ -20,174 +23,220 @@ def _sanitize_window_flags(w: QtWidgets.QWidget) -> None:
 
 
 def _tune_dialog_layout(layout: QtWidgets.QLayout) -> None:
-    """Keep dialogs visually consistent with FilesPanel spacing."""
     layout.setContentsMargins(PAD, PAD, PAD, PAD)
     layout.setSpacing(SPACING)
 
 
 def _tune_buttons(*buttons: QtWidgets.QAbstractButton) -> None:
-    """Unify button height / proportions across all dialogs."""
     for b in buttons:
         b.setMinimumHeight(BASE_H)
         b.setMinimumWidth(140)
 
 
+def _tune_dialog_window(dlg: QtWidgets.QDialog) -> None:
+    _sanitize_window_flags(dlg)
+    dlg.setModal(True)
+    dlg.setMinimumWidth(DLG_MIN_W)
+    dlg.setMaximumWidth(DLG_MAX_W)
+
+
+def _bold_label(text: str) -> QtWidgets.QLabel:
+    lbl = QtWidgets.QLabel(text)
+    f = lbl.font()
+    f.setBold(True)
+    lbl.setFont(f)
+    lbl.setWordWrap(True)
+    return lbl
+
+
+def _wrap_label(text: str) -> QtWidgets.QLabel:
+    lbl = QtWidgets.QLabel(text)
+    lbl.setWordWrap(True)
+    return lbl
+
+
+def _message_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    message: str,
+    header: str | None = None,
+    ok_text: str = "OK",
+) -> None:
+    dlg = QtWidgets.QDialog(parent)
+    _tune_dialog_window(dlg)
+    dlg.setWindowTitle(title)
+
+    lay = QtWidgets.QVBoxLayout(dlg)
+    _tune_dialog_layout(lay)
+
+    if header:
+        lay.addWidget(_bold_label(header))
+
+    lay.addWidget(_wrap_label(message))
+    lay.addStretch(1)
+
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    if ok_btn:
+        ok_btn.setText(ok_text)
+        _tune_buttons(ok_btn)
+    btns.accepted.connect(dlg.accept)
+
+    lay.addWidget(btns)
+    dlg.exec_()
+
+
+def _confirm_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    message: str,
+    accept_text: str,
+    reject_text: str,
+    header: str | None = None,
+    default_accept: bool = False,
+) -> bool:
+    dlg = QtWidgets.QDialog(parent)
+    _tune_dialog_window(dlg)
+    dlg.setWindowTitle(title)
+
+    lay = QtWidgets.QVBoxLayout(dlg)
+    _tune_dialog_layout(lay)
+
+    if header:
+        lay.addWidget(_bold_label(header))
+
+    lay.addWidget(_wrap_label(message))
+    lay.addStretch(1)
+
+    btns = QtWidgets.QDialogButtonBox()
+    btn_accept = btns.addButton(accept_text, QtWidgets.QDialogButtonBox.AcceptRole)
+    btn_reject = btns.addButton(reject_text, QtWidgets.QDialogButtonBox.RejectRole)
+    _tune_buttons(btn_accept, btn_reject)
+
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    lay.addWidget(btns)
+
+    if default_accept:
+        btn_accept.setDefault(True)
+        btn_accept.setFocus()
+    else:
+        btn_reject.setDefault(True)
+        btn_reject.setFocus()
+
+    return dlg.exec_() == QtWidgets.QDialog.Accepted
+
+
 # ----- Critical startup dialogs -----
 
 def critical_defaults_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
-    """
-    Hardcoded EN message. Called when defaults.json is missing.
-    Single 'OK' closes the app (caller should exit after return).
-    """
     title = "Application Error"
     text = (
         "Required configuration file 'defaults.json' is missing.\n\n"
         "The application cannot start without it.\n"
         "Please restore 'defaults.json' and try again."
     )
-    QtWidgets.QMessageBox.critical(parent, title, text)
+    _message_dialog(parent, title=title, message=text, header=title)
 
 
 def critical_locales_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
-    """
-    Hardcoded EN message. Called after settings are verified, but locale file is missing.
-    Single 'OK' closes the app (caller should exit after return).
-    """
     title = "Localization Error"
     text = (
         "Required localization file is missing.\n\n"
         "The application cannot start without language resources.\n"
         "Please restore the locale file in 'resources/locales' and try again."
     )
-    QtWidgets.QMessageBox.critical(parent, title, text)
+    _message_dialog(parent, title=title, message=text, header=title)
 
 
 def critical_config_load_failed_and_exit(parent: QtWidgets.QWidget | None, details: str) -> None:
-    """Generic config error before i18n is available."""
     title = "PySkryptor Error"
     text = f"Cannot load configuration.\n\nDetails: {details}"
-    QtWidgets.QMessageBox.critical(parent, title, text)
+    _message_dialog(parent, title=title, message=text, header=title)
 
 
 def info_settings_restored(parent: QtWidgets.QWidget | None = None) -> None:
-    """
-    Localized message (after Translator has been loaded using the restored settings).
-    Single 'OK' continues into the app.
-    """
     title = T.tr("app.title")
     text = T.tr("dialog.settings_restored")
-    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Information, title, text, parent=parent)
-    _sanitize_window_flags(box)
-    box.setStandardButtons(QtWidgets.QMessageBox.Ok)
-    box.exec_()
+    _message_dialog(parent, title=title, message=text, header=title)
 
 
 # ----- Live / audio dialogs -----
 
 def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
-    """
-    Shown when no audio input devices (microphones) are available.
-
-    IMPORTANT:
-    - This function is pure UI. It should be called by LivePanel only
-      after first entering the Live tab / on user action (refresh/start),
-      not on app startup.
-    - Kept consistent with other dialogs: same title, margins, spacing, tuned button.
-    """
     dlg = QtWidgets.QDialog(parent)
-    _sanitize_window_flags(dlg)
+    _tune_dialog_window(dlg)
     dlg.setWindowTitle(T.tr("app.title"))
-    dlg.setModal(True)
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay)
 
-    title_lbl = QtWidgets.QLabel(T.tr("live.dialog.no_devices.title"))
-    f = title_lbl.font()
-    f.setBold(True)
-    title_lbl.setFont(f)
-    title_lbl.setWordWrap(True)
-    lay.addWidget(title_lbl)
-
-    msg_lbl = QtWidgets.QLabel(T.tr("live.dialog.no_devices.text"))
-    msg_lbl.setWordWrap(True)
-    lay.addWidget(msg_lbl)
-
+    lay.addWidget(_bold_label(T.tr("live.dialog.no_devices.title")))
+    lay.addWidget(_wrap_label(T.tr("live.dialog.no_devices.text")))
     lay.addStretch(1)
 
-    btn_row = QtWidgets.QHBoxLayout()
-    btn_row.setSpacing(6)
-    btn_row.addStretch(1)
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    if ok_btn:
+        _tune_buttons(ok_btn)
+    btns.accepted.connect(dlg.accept)
+    lay.addWidget(btns)
 
-    ok_btn = QtWidgets.QPushButton("OK")
-    _tune_buttons(ok_btn)
-    btn_row.addWidget(ok_btn)
-    lay.addLayout(btn_row)
-
-    ok_btn.clicked.connect(dlg.accept)
     dlg.exec_()
 
 
 # ----- Downloader info dialogs -----
 
 def info_playlist_not_supported(parent: QtWidgets.QWidget | None = None) -> None:
-    """Shown when a playlist URL (or video-in-playlist context) is detected."""
     title = T.tr("app.title")
     text = T.tr("down.dialog.playlist_not_supported.text")
-    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Information, title, text, parent=parent)
-    _sanitize_window_flags(box)
-    box.setStandardButtons(QtWidgets.QMessageBox.Ok)
-    box.exec_()
+    _message_dialog(parent, title=title, message=text, header=title)
 
 
 # ----- Runtime confirmations -----
 
 def ask_cancel(parent: QtWidgets.QWidget) -> bool:
-    """Ask whether to cancel a long-running operation."""
     title = T.tr("app.title")
     text = T.tr("dialog.cancel_confirm", detail="")
-    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, title, text, parent=parent)
-    _sanitize_window_flags(box)
-
-    yes_btn = box.addButton(T.tr("action.cancel_now"), QtWidgets.QMessageBox.AcceptRole)
-    no_btn = box.addButton(T.tr("action.keep_working"), QtWidgets.QMessageBox.RejectRole)
-    _tune_buttons(yes_btn, no_btn)
-
-    box.setDefaultButton(no_btn)
-    box.exec_()
-    return box.clickedButton() is yes_btn
+    return _confirm_dialog(
+        parent,
+        title=title,
+        message=text,
+        accept_text=T.tr("action.cancel_now"),
+        reject_text=T.tr("action.keep_working"),
+        header=title,
+        default_accept=False,
+    )
 
 
 def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
-    """Confirm saving settings changes."""
     title = T.tr("app.title")
     text = T.tr("dialog.settings_save_confirm")
-    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Question, title, text, parent=parent)
-    _sanitize_window_flags(box)
-
-    yes_btn = box.addButton(T.tr("settings.buttons.save"), QtWidgets.QMessageBox.AcceptRole)
-    no_btn = box.addButton(T.tr("ctrl.cancel"), QtWidgets.QMessageBox.RejectRole)
-    _tune_buttons(yes_btn, no_btn)
-
-    box.setDefaultButton(no_btn)
-    box.exec_()
-    return box.clickedButton() is yes_btn
+    return _confirm_dialog(
+        parent,
+        title=title,
+        message=text,
+        accept_text=T.tr("settings.buttons.save"),
+        reject_text=T.tr("ctrl.cancel"),
+        header=title,
+        default_accept=False,
+    )
 
 
 def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
-    """Confirm restoring defaults (overwrites current settings)."""
     title = T.tr("app.title")
     text = T.tr("dialog.settings_restore_confirm")
-    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, title, text, parent=parent)
-    _sanitize_window_flags(box)
-
-    yes_btn = box.addButton(T.tr("settings.buttons.restore_defaults"), QtWidgets.QMessageBox.AcceptRole)
-    no_btn = box.addButton(T.tr("ctrl.cancel"), QtWidgets.QMessageBox.RejectRole)
-    _tune_buttons(yes_btn, no_btn)
-
-    box.setDefaultButton(no_btn)
-    box.exec_()
-    return box.clickedButton() is yes_btn
+    return _confirm_dialog(
+        parent,
+        title=title,
+        message=text,
+        accept_text=T.tr("settings.buttons.restore_defaults"),
+        reject_text=T.tr("ctrl.cancel"),
+        header=title,
+        default_accept=False,
+    )
 
 
 def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
@@ -197,15 +246,13 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
     'apply_all' is applicable to skip/overwrite.
     """
     dlg = QtWidgets.QDialog(parent)
-    _sanitize_window_flags(dlg)
+    _tune_dialog_window(dlg)
     dlg.setWindowTitle(T.tr("dialog.conflict.title"))
 
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout)
 
-    lbl = QtWidgets.QLabel(T.tr("dialog.conflict.text", name=stem))
-    lbl.setWordWrap(True)
-    layout.addWidget(lbl)
+    layout.addWidget(_wrap_label(T.tr("dialog.conflict.text", name=stem)))
 
     rb_skip = QtWidgets.QRadioButton(T.tr("dialog.conflict.skip"))
     rb_over = QtWidgets.QRadioButton(T.tr("dialog.conflict.overwrite"))
@@ -237,6 +284,8 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
     cancel_btn = btns.button(QtWidgets.QDialogButtonBox.Cancel)
     if ok_btn and cancel_btn:
         _tune_buttons(ok_btn, cancel_btn)
+        cancel_btn.setDefault(True)
+        cancel_btn.setFocus()
 
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
@@ -257,15 +306,13 @@ def ask_download_duplicate(parent: QtWidgets.QWidget, *, title: str, suggested_n
     Returns (action, new_name) where action ∈ {"skip","overwrite","rename"}.
     """
     dlg = QtWidgets.QDialog(parent)
-    _sanitize_window_flags(dlg)
+    _tune_dialog_window(dlg)
     dlg.setWindowTitle(T.tr("app.title"))
 
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout)
 
-    lbl = QtWidgets.QLabel(T.tr("down.dialog.exists.text", title=title))
-    lbl.setWordWrap(True)
-    layout.addWidget(lbl)
+    layout.addWidget(_wrap_label(T.tr("down.dialog.exists.text", title=title)))
 
     rb_skip = QtWidgets.QRadioButton(T.tr("down.dialog.exists.skip"))
     rb_over = QtWidgets.QRadioButton(T.tr("down.dialog.exists.overwrite"))
@@ -296,6 +343,8 @@ def ask_download_duplicate(parent: QtWidgets.QWidget, *, title: str, suggested_n
     cancel_btn = btns.button(QtWidgets.QDialogButtonBox.Cancel)
     if ok_btn and cancel_btn:
         _tune_buttons(ok_btn, cancel_btn)
+        cancel_btn.setDefault(True)
+        cancel_btn.setFocus()
 
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
@@ -315,43 +364,24 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     Restart decision dialog.
     Returns True if restart requested.
     """
-
     dlg = QtWidgets.QDialog(parent)
-    _sanitize_window_flags(dlg)
+    _tune_dialog_window(dlg)
     dlg.setWindowTitle(T.tr("dialog.restart_required.title"))
-    dlg.setModal(True)
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay)
 
-    lbl = QtWidgets.QLabel(T.tr("dialog.restart_required.text"))
-    lbl.setWordWrap(True)
-    lay.addWidget(lbl)
+    lay.addWidget(_wrap_label(T.tr("dialog.restart_required.text")))
+    lay.addStretch(1)
 
-    btns = QtWidgets.QHBoxLayout()
-    btns.setSpacing(6)
-    btns.addStretch(1)
-
-    btn_restart = QtWidgets.QPushButton(T.tr("dialog.restart_required.restart"))
-    btn_later = QtWidgets.QPushButton(T.tr("dialog.restart_required.later"))
+    btns = QtWidgets.QDialogButtonBox()
+    btn_restart = btns.addButton(T.tr("dialog.restart_required.restart"), QtWidgets.QDialogButtonBox.AcceptRole)
+    btn_later = btns.addButton(T.tr("dialog.restart_required.later"), QtWidgets.QDialogButtonBox.RejectRole)
     _tune_buttons(btn_restart, btn_later)
 
-    btns.addWidget(btn_restart)
-    btns.addWidget(btn_later)
-    lay.addLayout(btns)
+    btn_restart.clicked.connect(dlg.accept)
+    btn_later.clicked.connect(dlg.reject)
 
-    result = {"restart": False}
+    lay.addWidget(btns)
 
-    def _do_restart() -> None:
-        result["restart"] = True
-        dlg.accept()
-
-    def _do_later() -> None:
-        result["restart"] = False
-        dlg.reject()
-
-    btn_restart.clicked.connect(_do_restart)
-    btn_later.clicked.connect(_do_later)
-
-    dlg.exec_()
-    return bool(result["restart"])
+    return dlg.exec_() == QtWidgets.QDialog.Accepted

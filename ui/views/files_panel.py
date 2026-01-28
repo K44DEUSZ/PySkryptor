@@ -698,6 +698,9 @@ class FilesPanel(QtWidgets.QWidget):
     # ---- transcription ----
 
     def _on_start_clicked(self) -> None:
+        if self._transcribe_worker is not None or self._transcribe_thread is not None:
+            return
+
         if not self.pipe:
             self.log.info(tr("log.pipe_not_ready"))
             return
@@ -716,7 +719,6 @@ class FilesPanel(QtWidgets.QWidget):
         self._was_cancelled = False
         self._conflict_apply_all_action = None
         self._conflict_apply_all_new_base = None
-        self.log.info(tr("log.start"))
 
         self._transcribe_thread = QtCore.QThread(self)
         self._transcribe_worker = TranscriptionWorker(pipe=self.pipe, entries=entries)
@@ -822,6 +824,9 @@ class FilesPanel(QtWidgets.QWidget):
         self._keys.discard(old_key)
         self._keys.add(new_key)
         self._row_by_key[new_key] = row
+
+        if old_key in self._transcript_by_key:
+            self._transcript_by_key[new_key] = self._transcript_by_key.pop(old_key)
 
         if src_label:
             self._origin_src_by_key[new_key] = src_label
@@ -961,4 +966,3 @@ class FilesPanel(QtWidgets.QWidget):
                 self._meta_thread.requestInterruption()
         except Exception:
             pass
-

@@ -32,7 +32,7 @@ class SettingsPanel(QtWidgets.QWidget):
     Settings tab: form bound to settings.json via SettingsWorker.
 
     This panel intentionally exposes only user-relevant options.
-    Technical/internal flags (e.g. proxy, pipeline task) are hidden by design.
+    Technical/internal flags are hidden by design.
     """
 
     CONTROL_HEIGHT = 24

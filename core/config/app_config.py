@@ -35,6 +35,9 @@ class AppConfig:
 
     ROOT_DIR: Path = Path(__file__).resolve().parents[2]
 
+    APP_DIR: Path = ROOT_DIR / "app"
+    LICENSE_FILE: Path = APP_DIR / "LICENSE.txt"
+
     RESOURCES_DIR: Path = ROOT_DIR / "resources"
     FFMPEG_DIR: Path = RESOURCES_DIR / "ffmpeg"
     MODELS_DIR: Path = RESOURCES_DIR / "models"
@@ -52,6 +55,8 @@ class AppConfig:
     def set_root_dir(cls, root_dir: Path) -> None:
         """Set project root dir and recompute derived paths."""
         cls.ROOT_DIR = Path(root_dir).resolve()
+        cls.APP_DIR = cls.ROOT_DIR / "app"
+        cls.LICENSE_FILE = cls.APP_DIR / "LICENSE.txt"
         cls.RESOURCES_DIR = cls.ROOT_DIR / "resources"
         cls.FFMPEG_DIR = cls.RESOURCES_DIR / "ffmpeg"
         cls.MODELS_DIR = cls.RESOURCES_DIR / "models"
@@ -69,6 +74,8 @@ class AppConfig:
 
     AUDIO_EXT: Tuple[str, ...] = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
     VIDEO_EXT: Tuple[str, ...] = (".mp4", ".webm", ".mkv", ".mov", ".avi")
+
+    SUPPORTED_MEDIA_EXTS: Tuple[str, ...] = AUDIO_EXT + VIDEO_EXT
 
     DOWN_AUDIO_EXT: Tuple[str, ...] = ("m4a", "mp3")
     DOWN_VIDEO_EXT: Tuple[str, ...] = ("mp4", "webm")
@@ -335,49 +342,46 @@ class AppConfig:
         if device.type == "cuda" and allow_tf32:
             try:
                 torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
                 cls.TF32_ENABLED = True
             except Exception:
                 cls.TF32_ENABLED = False
         else:
-            try:
-                torch.backends.cuda.matmul.allow_tf32 = False
-            except Exception:
-                pass
             cls.TF32_ENABLED = False
 
     @staticmethod
     def _resolve_device(user: Dict[str, Any]) -> torch.device:
-        """Resolve torch.device from user preference and availability."""
-        pref = str(user.get("preferred_device", "auto")).lower()
-        if os.environ.get("FORCE_CPU", "0") == "1":
+        """Resolve device preference: cpu/cuda/auto."""
+        pref = str(user.get("device", "auto")).strip().lower()
+        if pref in ("cpu", "cuda"):
+            if pref == "cuda" and torch.cuda.is_available():
+                return torch.device("cuda")
             return torch.device("cpu")
-        if pref == "cpu":
-            return torch.device("cpu")
-        if pref == "gpu":
-            return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-        return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+        # auto
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
 
     @staticmethod
-    def _resolve_dtype(user: Dict[str, Any], device: torch.device):
-        """Resolve torch dtype for selected device and precision."""
-        prec = str(user.get("precision", "auto")).lower()
-        if device.type == "cuda":
-            if prec == "float32":
-                return torch.float32
-            if prec == "float16":
-                return torch.float16
-            if prec == "bfloat16":
-                return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        return torch.float32
+    def _resolve_dtype(user: Dict[str, Any], device: torch.device) -> Any:
+        """Resolve dtype preference for CUDA: float16/float32/bfloat16/auto."""
+        pref = str(user.get("dtype", "auto")).strip().lower()
 
-    # ----- Convenience accessors -----
+        if device.type != "cuda":
+            return torch.float32
 
-    @classmethod
-    def language(cls) -> str:
-        if cls.SETTINGS:
-            return str(cls.SETTINGS.app.get("language", "auto"))
-        return "auto"
+        if pref in ("float16", "fp16"):
+            return torch.float16
+        if pref in ("float32", "fp32"):
+            return torch.float32
+        if pref in ("bfloat16", "bf16"):
+            return torch.bfloat16
+
+        # auto: prefer float16
+        return torch.float16
+
+    # ----- Accessors (safe calls from UI / services) -----
 
     @classmethod
     def audio_extensions(cls) -> Tuple[str, ...]:
@@ -386,6 +390,14 @@ class AppConfig:
     @classmethod
     def video_extensions(cls) -> Tuple[str, ...]:
         return cls.VIDEO_EXT
+
+    @classmethod
+    def supported_media_extensions(cls) -> Tuple[str, ...]:
+        return cls.SUPPORTED_MEDIA_EXTS
+
+    @classmethod
+    def license_file_path(cls) -> Path:
+        return cls.LICENSE_FILE
 
     @classmethod
     def downloader_audio_extensions(cls) -> Tuple[str, ...]:

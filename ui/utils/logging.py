@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Iterable, Optional
 
 from PyQt5 import QtCore, QtGui
 
@@ -119,3 +119,15 @@ class QtHtmlLogSink:
     def _emit_line(self, inner_html: str) -> None:
         # Wrap inner HTML in a paragraph so CSS can control spacing.
         self._appender.append_html.emit(f"<p class='logline'>{inner_html}</p>")
+
+
+# ----- Convenience factories -----
+
+def gui_logger(text_sink: QtHtmlLogSink) -> Callable[[str], None]:
+    """
+    Return a simple callable that appends plain messages to the GUI sink.
+    Good for piping into DownloadService/YTDLP when you don't need formatting.
+    """
+    def _log(msg: str) -> None:
+        text_sink.plain(str(msg))
+    return _log
