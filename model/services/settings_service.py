@@ -46,7 +46,6 @@ class SettingsService:
         settings_path: Optional[Path] = None,
     ) -> None:
         self._root = Path(root_dir) if root_dir else Path.cwd()
-        # MVC refactor: settings live under model/config.
         cfg_dir = self._root / "model" / "config"
         self._defaults_path = Path(defaults_path) if defaults_path else (cfg_dir / "defaults.json")
         self._settings_path = Path(settings_path) if settings_path else (cfg_dir / "settings.json")
@@ -87,6 +86,13 @@ class SettingsService:
                 section=name,
             )
         return obj
+
+    @staticmethod
+    def _merge_with_schema(src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Fill missing keys from schema defaults to keep backward compatibility."""
+        merged = dict(schema)
+        merged.update(src)
+        return merged
 
     @staticmethod
     def _require_keys(sec_name: str, src: Dict[str, Any], schema: Dict[str, Any]) -> None:
@@ -181,16 +187,41 @@ class SettingsService:
         return out
 
     def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        self._require_keys("transcription", src, schema)
+        # Do not hard-require keys here (schema evolves). Missing keys are filled from defaults.
         out: Dict[str, Any] = {}
 
-        out["timestamps_output"] = bool(src.get("timestamps_output", False))
+        mode_raw = src.get("mode", schema.get("mode", "transcribe"))
+        mode = str(mode_raw or "transcribe").strip().lower()
+        if mode not in ("transcribe", "transcribe_translate"):
+            # Backward compat: older UI used "translate" as a mode name.
+            mode = "transcribe_translate" if mode == "translate" else "transcribe"
+        out["mode"] = mode
 
-        # NOTE:
-        # "keep_downloaded_files" has been deprecated and is intentionally ignored.
-        # It may still exist in older settings.json files; leaving it there is harmless.
-        out["keep_wav_temp"] = bool(src.get("keep_wav_temp", False))
-        out["download_audio_only"] = bool(src.get("download_audio_only", True))
+        tgt_raw = src.get("target_language", schema.get("target_language", "en"))
+        tgt = str(tgt_raw or "en").strip().lower()
+        out["target_language"] = tgt or "en"
+
+        out["timestamps_output"] = bool(src.get("timestamps_output", schema.get("timestamps_output", False)))
+        out["keep_wav_temp"] = bool(src.get("keep_wav_temp", schema.get("keep_wav_temp", False)))
+        out["download_audio_only"] = bool(src.get("download_audio_only", schema.get("download_audio_only", True)))
+
+        # Backward compat: "keep_intermediate_files" used to be a single flag.
+        legacy_keep = bool(src.get("keep_intermediate_files", False))
+
+        out["url_keep_audio"] = bool(src.get("url_keep_audio", legacy_keep or schema.get("url_keep_audio", False)))
+        out["url_keep_video"] = bool(src.get("url_keep_video", legacy_keep or schema.get("url_keep_video", False)))
+
+        raw_aext = src.get("url_audio_ext", schema.get("url_audio_ext", "m4a"))
+        aext = str(raw_aext or "m4a").strip().lower().lstrip(".")
+        if aext not in ("m4a", "mp3", "wav", "flac", "ogg"):
+            aext = str(schema.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip(".") or "m4a"
+        out["url_audio_ext"] = aext
+
+        raw_vext = src.get("url_video_ext", schema.get("url_video_ext", "mp4"))
+        vext = str(raw_vext or "mp4").strip().lower().lstrip(".")
+        if vext not in ("mp4", "mkv", "webm"):
+            vext = str(schema.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip(".") or "mp4"
+        out["url_video_ext"] = vext
 
         # Only allow formats supported by the application.
         allowed_ext = ("txt", "srt", "sub")
@@ -266,12 +297,12 @@ class SettingsService:
         try:
             settings = self._read_json(self._settings_path)
 
-            src_app = self._ensure_dict(settings.get("app"), "app")
-            src_engine = self._ensure_dict(settings.get("engine"), "engine")
-            src_model = self._ensure_dict(settings.get("model"), "model")
-            src_transcription = self._ensure_dict(settings.get("transcription"), "transcription")
-            src_downloader = self._ensure_dict(settings.get("downloader"), "downloader")
-            src_network = self._ensure_dict(settings.get("network"), "network")
+            src_app = self._merge_with_schema(self._ensure_dict(settings.get("app"), "app"), schema_app)
+            src_engine = self._merge_with_schema(self._ensure_dict(settings.get("engine"), "engine"), schema_engine)
+            src_model = self._merge_with_schema(self._ensure_dict(settings.get("model"), "model"), schema_model)
+            src_transcription = self._merge_with_schema(self._ensure_dict(settings.get("transcription"), "transcription"), schema_transcription)
+            src_downloader = self._merge_with_schema(self._ensure_dict(settings.get("downloader"), "downloader"), schema_downloader)
+            src_network = self._merge_with_schema(self._ensure_dict(settings.get("network"), "network"), schema_network)
 
             v_app = self._validate_app(src_app, schema_app)
             v_engine = self._validate_engine(src_engine, schema_engine)

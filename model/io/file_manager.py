@@ -143,6 +143,21 @@ class FileManager:
         safe = sanitize_filename(base) or "Audio"
         return out_dir / f"{safe}.wav"
 
+
+    @staticmethod
+    def source_media_path(
+        stem: str,
+        *,
+        src_ext: str,
+        base_name: str = "Source",
+    ) -> Path:
+        """Return a path for keeping the downloaded source media inside the item's output folder."""
+        out_dir = FileManager.ensure_output(stem)
+
+        ext = str(src_ext or "").strip().lstrip(".") or "bin"
+        safe = sanitize_filename(str(base_name or "")) or "Source"
+        return out_dir / f"{safe}.{ext}"
+
     # ----- Temp & downloads -----
 
     @staticmethod

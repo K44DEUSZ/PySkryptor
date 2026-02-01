@@ -15,9 +15,11 @@ def _read_json(path: Path) -> Dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    except Exception as ex:
+        raise RuntimeError(f"error.i18n.locale_invalid::{path}::{ex}")
+    if not isinstance(data, dict):
+        raise RuntimeError(f"error.i18n.locale_invalid::{path}::root-not-object")
+    return data
 
 
 def _flatten(d: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
@@ -45,93 +47,84 @@ def system_lang_hint() -> str:
     return f"{lang}-{region}" if region else lang
 
 
-def list_locales(locales_dir: Path) -> Set[str]:
-    codes: Set[str] = set()
+def discover_locales(locales_dir: Path) -> Set[str]:
+    available: Set[str] = set()
     if not locales_dir.exists():
-        return codes
+        return available
     for p in locales_dir.glob("*.json"):
-        if p.is_file():
-            codes.add(p.stem.lower())
-    return codes
+        code = p.stem.strip().lower().replace("_", "-")
+        if code:
+            available.add(code)
+            if "-" in code:
+                available.add(code.split("-", 1)[0])
+    return available
 
 
-def load(locales_dir: Path, code: str) -> bool:
+def _pick_best(sys_hint: str, available: Set[str], fallback: str = "en") -> str:
+    if sys_hint in available:
+        return sys_hint
+    base = sys_hint.split("-", 1)[0]
+    if base in available:
+        return base
+    if fallback in available:
+        return fallback
+    if "en" in available:
+        return "en"
+    return sorted(available)[0] if available else "en"
+
+
+def load(locales_dir: Path, lang: str) -> None:
+    """Load exact language file (prefer exact, fallback to base), or raise."""
     global _MESSAGES, _CURRENT_LANG
+    locales_dir = Path(locales_dir)
 
-    code = (code or "").strip().lower()
-    if not code:
-        return False
+    exact = locales_dir / f"{lang.lower()}.json"
+    base = locales_dir / f"{lang.split('-', 1)[0].lower()}.json"
 
-    path = locales_dir / f"{code}.json"
-    if not path.exists() or not path.is_file():
-        return False
+    path: Optional[Path] = exact if exact.exists() else (base if base.exists() else None)
+    if path is None:
+        raise RuntimeError(f"error.i18n.locale_not_found::{lang}::{locales_dir}")
 
     data = _read_json(path)
-    flat = _flatten(data)
-
-    if not flat:
-        return False
-
-    _MESSAGES = flat
-    _CURRENT_LANG = code
-    return True
+    _MESSAGES = _flatten(data)
+    _CURRENT_LANG = lang
 
 
-def load_best(
-    locales_dir: Path,
-    *,
-    system_first: bool = True,
-    fallback: str = "en",
-) -> str:
-    available = list_locales(locales_dir)
+def load_best(locales_dir: Path, system_first: bool = True, fallback: str = "en") -> None:
+    available = discover_locales(locales_dir)
     if not available:
-        return ""
-
-    candidates: list[str] = []
-    if system_first:
-        hint = system_lang_hint()
-        candidates.append(hint)
-        if "-" in hint:
-            candidates.append(hint.split("-", 1)[0])
-
-    fb = (fallback or "").strip().lower()
-    if fb:
-        candidates.append(fb)
-
-    for c in candidates:
-        if c in available and load(locales_dir, c):
-            return c
-
-    first = sorted(available)[0]
-    if load(locales_dir, first):
-        return first
-
-    return ""
+        _MESSAGES.clear()
+        return
+    hint = system_lang_hint() if system_first else fallback
+    picked = _pick_best(hint, available, fallback=fallback)
+    load(locales_dir, picked)
 
 
-def tr(key: str, **kwargs: Any) -> str:
-    text = _MESSAGES.get(key, key)
-    if kwargs:
-        try:
-            return text.format(**kwargs)
-        except Exception:
-            return text
-    return text
+def tr(key: str, **params: Any) -> str:
+    template = _MESSAGES.get(key, key)
+    try:
+        return template.format(**params)
+    except Exception:
+        return template
 
 
 class Translator:
     @staticmethod
-    def tr(key: str, **kwargs: Any) -> str:
-        return tr(key, **kwargs)
+    def load(locales_dir: Path, lang: str) -> None:
+        load(locales_dir, lang)
 
     @staticmethod
-    def load(locales_dir: Path, code: str) -> bool:
-        return load(locales_dir, code)
+    def load_best(locales_dir: Path, system_first: bool = True, fallback: str = "en") -> None:
+        load_best(locales_dir, system_first=system_first, fallback=fallback)
 
     @staticmethod
-    def load_best(locales_dir: Path, *, system_first: bool = True, fallback: str = "en") -> str:
-        return load_best(locales_dir, system_first=system_first, fallback=fallback)
+    def tr(key: str, **params: Any) -> str:
+        return tr(key, **params)
 
     @staticmethod
-    def current_lang() -> str:
+    def current_language() -> str:
         return _CURRENT_LANG
+
+    @staticmethod
+    def loaded_count() -> int:
+        return len(_MESSAGES)

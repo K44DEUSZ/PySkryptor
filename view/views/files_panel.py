@@ -11,6 +11,7 @@ from model.config.app_config import AppConfig as Config
 from model.io.text import is_url
 from view.utils.translating import tr
 from view.utils.gui_log import QtHtmlLogSink
+from view.widgets.language_combo import LanguageCombo
 from view.views.dialogs import ask_cancel, ask_conflict, ask_open_transcripts_folder
 from controller.tasks.metadata_task import MetadataWorker
 from controller.tasks.transcription_task import TranscriptionWorker
@@ -186,6 +187,148 @@ class FilesPanel(QtWidgets.QWidget):
         details_layout.addWidget(self.tbl, 2)
         root.addWidget(details_group, 2)
 
+        # --- Options (UI only; autosave / backend wiring comes later)
+        self.options_group = QtWidgets.QGroupBox(tr("files.options.title"))
+        self.options_group.setObjectName("QuickOptions")
+        ql = QtWidgets.QGridLayout(self.options_group)
+        ql.setHorizontalSpacing(10)
+        ql.setVerticalSpacing(6)
+        ql.setColumnStretch(0, 1)
+        ql.setColumnStretch(1, 1)
+
+        # Mode
+        self.lbl_mode = QtWidgets.QLabel(tr("files.options.mode.title"))
+        self.rb_transcribe = QtWidgets.QRadioButton(tr("files.options.mode.transcribe"))
+        self.rb_transcribe_translate = QtWidgets.QRadioButton(tr("files.options.mode.transcribe_translate"))
+        self.rb_transcribe.setChecked(True)
+
+        self._mode_group = QtWidgets.QButtonGroup(self)
+        self._mode_group.addButton(self.rb_transcribe, 0)
+        self._mode_group.addButton(self.rb_transcribe_translate, 1)
+
+        mode_box = QtWidgets.QHBoxLayout()
+        mode_box.setSpacing(10)
+        mode_box.addWidget(self.rb_transcribe)
+        mode_box.addWidget(self.rb_transcribe_translate)
+        mode_box.addStretch(1)
+
+        # Target language (only for transcribe+translate; source is auto-detect)
+        self.lbl_target_lang = QtWidgets.QLabel(tr("files.options.target_language.label"))
+        self.cmb_target_lang = LanguageCombo()
+        self.cmb_target_lang.setMinimumHeight(base_h)
+        self.lbl_target_lang.setBuddy(self.cmb_target_lang)
+
+        # Output format
+        self.lbl_output = QtWidgets.QLabel(tr("files.options.output_format.label"))
+        self.opt_output = QtWidgets.QComboBox()
+        self.opt_output.setObjectName("OptOutputFormat")
+        self.opt_output.setMinimumHeight(base_h)
+        self.lbl_output.setBuddy(self.opt_output)
+        self.opt_output.addItem(tr("settings.transcription.output.plain_txt"), "txt")
+        self.opt_output.addItem(tr("settings.transcription.output.txt_timestamps"), "txt_ts")
+        self.opt_output.addItem(tr("settings.transcription.output.srt"), "srt")
+
+        # Temporary files (URL)
+        self.lbl_tmp = QtWidgets.QLabel(tr("files.options.temp.title"))
+
+        self.opt_download_audio_only = QtWidgets.QCheckBox(tr("files.options.temp.download_audio_only"))
+        self.opt_download_audio_only.setToolTip(tr("files.options.help.download_audio_only"))
+        self.opt_download_audio_only.setMinimumHeight(base_h)
+
+        self.chk_keep_url_audio = QtWidgets.QCheckBox(tr("files.options.temp.keep_audio"))
+        self.chk_keep_url_audio.setToolTip(tr("files.options.help.keep_audio"))
+        self.chk_keep_url_audio.setMinimumHeight(base_h)
+
+        self.lbl_audio_ext = QtWidgets.QLabel(tr("files.options.temp.audio_ext"))
+        self.cmb_audio_ext = QtWidgets.QComboBox()
+        self.cmb_audio_ext.setMinimumHeight(base_h)
+        self.lbl_audio_ext.setBuddy(self.cmb_audio_ext)
+
+        self.chk_keep_url_video = QtWidgets.QCheckBox(tr("files.options.temp.keep_video"))
+        self.chk_keep_url_video.setToolTip(tr("files.options.help.keep_video"))
+        self.chk_keep_url_video.setMinimumHeight(base_h)
+
+        self.lbl_video_ext = QtWidgets.QLabel(tr("files.options.temp.video_ext"))
+        self.cmb_video_ext = QtWidgets.QComboBox()
+        self.cmb_video_ext.setMinimumHeight(base_h)
+        self.lbl_video_ext.setBuddy(self.cmb_video_ext)
+
+        self._fill_audio_ext_combo()
+        self._fill_video_ext_combo()
+
+        # Read current snapshot (display-only for now)
+        try:
+            tcfg = Config.transcription_settings()
+            self.opt_download_audio_only.setChecked(bool(tcfg.get("download_audio_only", True)))
+
+            out_ext = str(tcfg.get("output_ext", "txt") or "txt").strip().lower().lstrip(".")
+            ts_out = bool(tcfg.get("timestamps_output", False))
+            if out_ext == "srt":
+                self.opt_output.setCurrentIndex(2)
+            elif ts_out:
+                self.opt_output.setCurrentIndex(1)
+            else:
+                self.opt_output.setCurrentIndex(0)
+        except Exception:
+            pass
+
+        # Layout rows:
+        # Row 0: mode (left) + target language (right) — both always visible.
+        mode_host = QtWidgets.QWidget()
+        mode_lay = QtWidgets.QVBoxLayout(mode_host)
+        mode_lay.setContentsMargins(0, 0, 0, 0)
+        mode_lay.setSpacing(4)
+        mode_lay.addWidget(self.lbl_mode)
+        mode_lay.addLayout(mode_box)
+
+        lang_host = QtWidgets.QWidget()
+        lang_lay = QtWidgets.QVBoxLayout(lang_host)
+        lang_lay.setContentsMargins(0, 0, 0, 0)
+        lang_lay.setSpacing(4)
+        lang_lay.addWidget(self.lbl_target_lang)
+        lang_lay.addWidget(self.cmb_target_lang)
+
+        ql.addWidget(mode_host, 0, 0)
+        ql.addWidget(lang_host, 0, 1)
+
+        # Row 1: output format (left) + download audio only (right)
+        out_host = QtWidgets.QWidget()
+        out_lay = QtWidgets.QVBoxLayout(out_host)
+        out_lay.setContentsMargins(0, 0, 0, 0)
+        out_lay.setSpacing(4)
+        out_lay.addWidget(self.lbl_output)
+        out_lay.addWidget(self.opt_output)
+
+        tmp_host = QtWidgets.QWidget()
+        tmp_lay = QtWidgets.QVBoxLayout(tmp_host)
+        tmp_lay.setContentsMargins(0, 0, 0, 0)
+        tmp_lay.setSpacing(4)
+        tmp_lay.addWidget(self.lbl_tmp)
+        tmp_lay.addWidget(self.opt_download_audio_only)
+
+        ql.addWidget(out_host, 1, 0)
+        ql.addWidget(tmp_host, 1, 1)
+
+        # Row 2: keep audio + ext (left)  |  keep video + ext (right)
+        audio_host = QtWidgets.QWidget()
+        audio_lay = QtWidgets.QVBoxLayout(audio_host)
+        audio_lay.setContentsMargins(0, 0, 0, 0)
+        audio_lay.setSpacing(4)
+        audio_lay.addWidget(self.chk_keep_url_audio)
+        audio_lay.addWidget(self.cmb_audio_ext)
+
+        video_host = QtWidgets.QWidget()
+        video_lay = QtWidgets.QVBoxLayout(video_host)
+        video_lay.setContentsMargins(0, 0, 0, 0)
+        video_lay.setSpacing(4)
+        video_lay.addWidget(self.chk_keep_url_video)
+        video_lay.addWidget(self.cmb_video_ext)
+
+        ql.addWidget(audio_host, 2, 0)
+        ql.addWidget(video_host, 2, 1)
+
+        root.addWidget(self.options_group, 0)
+
         # --- BOTTOM BAR (ONLY progress + start/cancel) -> BELOW sources table
         bottom_bar = QtWidgets.QHBoxLayout()
         bottom_bar.setSpacing(8)
@@ -251,7 +394,56 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.deletePressed.connect(self._on_remove_selected)
         self.tbl.cellDoubleClicked.connect(lambda row, _col: self._open_transcript_for_row(row))
 
+
+        # Options UI dynamics (no saving yet)
+        self.rb_transcribe.toggled.connect(self._sync_options_ui)
+        self.rb_transcribe_translate.toggled.connect(self._sync_options_ui)
+        self.opt_download_audio_only.toggled.connect(self._sync_options_ui)
+        self.chk_keep_url_audio.toggled.connect(self._sync_options_ui)
+        self.chk_keep_url_video.toggled.connect(self._sync_options_ui)
+
+        self._sync_options_ui()
+
         self._update_buttons()
+
+    # ---------------- quick options (UI only) ----------------
+
+    def _fill_audio_ext_combo(self) -> None:
+        self.cmb_audio_ext.clear()
+        for ext in ("m4a", "mp3", "wav", "flac"):
+            self.cmb_audio_ext.addItem(tr(f"files.options.ext.audio.{ext}"), ext)
+        self.cmb_audio_ext.setCurrentIndex(0)
+
+    def _fill_video_ext_combo(self) -> None:
+        self.cmb_video_ext.clear()
+        for ext in ("mp4", "mkv", "webm"):
+            self.cmb_video_ext.addItem(tr(f"files.options.ext.video.{ext}"), ext)
+        self.cmb_video_ext.setCurrentIndex(0)
+
+    def _sync_options_ui(self) -> None:
+        running = self._transcribe_thread is not None
+
+        translate_mode = bool(self.rb_transcribe_translate.isChecked())
+        self.lbl_target_lang.setEnabled((not running) and translate_mode)
+        self.cmb_target_lang.setEnabled((not running) and translate_mode)
+
+        audio_only = bool(self.opt_download_audio_only.isChecked())
+
+        # Video keep is not meaningful when we download audio only
+        self.chk_keep_url_video.setEnabled((not running) and (not audio_only))
+        self.lbl_video_ext.setEnabled((not running) and (not audio_only) and self.chk_keep_url_video.isChecked())
+        self.cmb_video_ext.setEnabled((not running) and (not audio_only) and self.chk_keep_url_video.isChecked())
+
+        self.chk_keep_url_audio.setEnabled(not running)
+        self.lbl_audio_ext.setEnabled((not running) and self.chk_keep_url_audio.isChecked())
+        self.cmb_audio_ext.setEnabled((not running) and self.chk_keep_url_audio.isChecked())
+
+        self.opt_download_audio_only.setEnabled(not running)
+        self.lbl_mode.setEnabled(not running)
+        self.rb_transcribe.setEnabled(not running)
+        self.rb_transcribe_translate.setEnabled(not running)
+        self.lbl_output.setEnabled(not running)
+        self.opt_output.setEnabled(not running)
 
     # ---- header modes ----
 
@@ -1117,6 +1309,7 @@ class FilesPanel(QtWidgets.QWidget):
                 can_choose = bool(w.property("has_choices"))
                 w.setEnabled(bool(can_choose and (not running)))
 
+        self._sync_options_ui()
     def on_parent_close(self) -> None:
         """Best-effort shutdown for active background threads."""
         try:

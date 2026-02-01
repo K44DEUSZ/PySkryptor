@@ -39,6 +39,55 @@ class AudioExtractor:
         return str(cand) if cand.exists() else exe
 
     @staticmethod
+
+    @staticmethod
+    def convert_audio(
+        src: Path,
+        dst: Path,
+        log: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        """
+        Convert audio to a target container/codec based on dst suffix.
+        Uses ffmpeg defaults (reasonable for common formats like m4a/mp3/ogg/flac/wav).
+        """
+        cmd = [
+            AudioExtractor._ffmpeg_exe(),
+            "-y",
+            "-i",
+            str(src),
+            "-vn",
+            str(dst),
+        ]
+        proc: subprocess.Popen | None = None
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            while True:
+                if cancel_check and bool(cancel_check()):
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    raise AudioError("error.audio.ffmpeg_failed", src=str(src), detail="cancelled")
+
+                rc = proc.poll()
+                if rc is not None:
+                    if rc != 0:
+                        raise AudioError("error.audio.ffmpeg_failed", src=str(src), detail=f"ffmpeg rc={rc}")
+                    break
+                time.sleep(0.05)
+        finally:
+            try:
+                if proc and proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
+
     def ensure_mono_16k(
         src: Path,
         dst: Path,

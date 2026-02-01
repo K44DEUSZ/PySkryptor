@@ -10,6 +10,7 @@ import numpy as np
 
 from model.config.app_config import AppConfig as Config
 from model.io.text import TextPostprocessor
+from model.services.translation_service import TranslationService
 from controller.platform.microphone import (
     resolve_input_device,
     make_pcm16_mono_format,
@@ -63,9 +64,8 @@ class LiveTranscriptionWorker(QtCore.QObject):
         self._merged_source = ""
         self._merged_target = ""
 
-        # Optional text translator (lazy)
-        self._translator = None
-        self._translator_meta: Tuple[str, str] | None = None  # (src, tgt)
+        # Optional text translation
+        self._translator = TranslationService()
 
     # ----- External controls -----
 
@@ -162,50 +162,23 @@ class LiveTranscriptionWorker(QtCore.QObject):
                 except Exception:
                     raise e
             raise
-
     # ----- Optional text translation -----
-
-    def _ensure_text_translator(self, src: str, tgt: str) -> bool:
-        if self._translator is not None and self._translator_meta == (src, tgt):
-            return True
-
-        engine_cfg = Config.engine_settings()
-        model_name = str(engine_cfg.get("translation_model_name", "") or "").strip()
-
-        if not model_name:
-            self.log.emit(tr("log.live.translate.model_missing"))
-            return False
-
-        try:
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline  # lazy import
-
-            tok = AutoTokenizer.from_pretrained(model_name, local_files_only=False)
-            mdl = AutoModelForSeq2SeqLM.from_pretrained(model_name, local_files_only=False)
-            self._translator = pipeline("translation", model=mdl, tokenizer=tok, device=-1)
-            self._translator_meta = (src, tgt)
-            return True
-        except Exception as e:
-            self._translator = None
-            self._translator_meta = None
-            self.log.emit(tr("log.live.translate.init_failed", detail=str(e)))
-            return False
 
     def _translate_text(self, text: str, *, src: str, tgt: str) -> str:
         if not text.strip():
             return ""
-        if not self._ensure_text_translator(src, tgt):
+        try:
+            return self._translator.translate(
+                text,
+                src_lang=src,
+                tgt_lang=tgt,
+                log=lambda m: self.log.emit(str(m)),
+            )
+        except Exception:
             return ""
 
-        try:
-            out = self._translator(text)  # type: ignore[operator]
-            if isinstance(out, list) and out:
-                cand = out[0].get("translation_text", "")
-                return TextPostprocessor.clean(str(cand))
-        except Exception:
-            pass
-        return ""
-
     # ----- Spectrum helper -----
+
 
     @staticmethod
     def _compute_spectrum(audio: np.ndarray, *, bars: int = 24) -> List[float]:

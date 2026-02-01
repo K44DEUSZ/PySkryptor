@@ -17,10 +17,16 @@
     "low_cpu_mem_usage": true
   },
   "transcription": {
-    "timestamps_output": true,
+    "mode": "transcribe",
+    "target_language": "en",
+    "output_ext": "txt",
+    "timestamps_output": false,
     "keep_wav_temp": false,
     "download_audio_only": true,
-    "output_ext": "txt"
+    "url_keep_audio": false,
+    "url_audio_ext": "m4a",
+    "url_keep_video": false,
+    "url_video_ext": "mp4"
   },
   "downloader": {
     "min_video_height": 144,

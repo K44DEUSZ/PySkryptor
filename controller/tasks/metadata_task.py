@@ -1,55 +1,98 @@
 # controller/tasks/metadata_task.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import List, Dict, Any, Tuple, Union
 
 from PyQt5 import QtCore
 
 from model.services.media_metadata import MediaMetadataService
-from model.io.text import is_url
 from view.utils.concurrency import CancellationToken
+from model.io.text import is_url
+from view.utils.translating import tr
+
+GUIEntry = Union[str, Dict[str, Any]]
 
 
 class MetadataWorker(QtCore.QObject):
+    """
+    Gathers lightweight metadata for entries to present in the Files tab table.
+    For local files: name, source=LOCAL, path, size(bytes), duration(s).
+    For URLs: name=title, source=URL, path=url, size if available, duration(s).
+    """
     finished = QtCore.pyqtSignal()
     progress_log = QtCore.pyqtSignal(str)
-    table_ready = QtCore.pyqtSignal(list)
+    table_ready = QtCore.pyqtSignal(list)  # list[dict]
 
-    def __init__(self, entries: List[Dict[str, Any]]) -> None:
+    def __init__(self, entries: List[GUIEntry]) -> None:
         super().__init__()
-        self._entries = entries or []
-        self._cancel = CancellationToken()
+        self._entries = list(entries)
+        self._meta = MediaMetadataService()
+        self._token = CancellationToken()
 
+    # ----- Cancellation -----
+
+    @QtCore.pyqtSlot()
     def cancel(self) -> None:
-        self._cancel.cancel()
+        self._token.cancel()
+
+    def _is_cancelled(self) -> bool:
+        if self._token.is_cancelled:
+            return True
+        th = QtCore.QThread.currentThread()
+        return bool(th and th.isInterruptionRequested())
+
+    # ----- Main -----
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
+        batch: List[Dict[str, Any]] = []
         try:
-            svc = MediaMetadataService()
-            rows: List[Dict[str, Any]] = []
-
-            for e in self._entries:
-                if self._cancel.is_cancelled():
+            for raw in self._entries:
+                if self._is_cancelled():
+                    self.progress_log.emit(tr("log.cancelled"))
                     break
-                if QtCore.QThread.currentThread().isInterruptionRequested():
-                    break
-
-                kind = str(e.get("type") or "").strip().lower()
-                val = str(e.get("value") or "").strip()
-                if not val:
-                    continue
 
                 try:
-                    if kind == "url" or is_url(val):
-                        mm = svc.from_url(val, log=lambda m: self.progress_log.emit(str(m)))
-                    else:
-                        mm = svc.from_local(val, log=lambda m: self.progress_log.emit(str(m)))
-                    rows.append(mm.as_files_row())
-                except Exception as ex:
-                    self.progress_log.emit(f"{val}: {ex}")
+                    value, ty = self._normalize_entry(raw)
 
-            if rows:
-                self.table_ready.emit(rows)
+                    # URLs (or things that look like URLs) → use DownloadService via MediaMetadataService
+                    if ty == "url" or is_url(value):
+                        self.progress_log.emit(tr("down.log.analyze"))
+                        if self._is_cancelled():
+                            self.progress_log.emit(tr("log.cancelled"))
+                            break
+                        meta = self._meta.from_url(value, log=lambda m: None)
+                    else:
+                        # Local file metadata
+                        meta = self._meta.from_local(Path(value))
+
+                    if not meta:
+                        continue
+
+                    row = meta.as_files_row()
+
+                    batch.append(row)
+                    if len(batch) >= 10:
+                        self.table_ready.emit(batch)
+                        batch = []
+
+                except Exception as e:
+                    self.progress_log.emit(tr("log.unexpected", msg=f"metadata: {e}"))
+
+            if not self._is_cancelled() and batch:
+                self.table_ready.emit(batch)
         finally:
             self.finished.emit()
+
+    @staticmethod
+    def _normalize_entry(raw: GUIEntry) -> Tuple[str, str]:
+        if isinstance(raw, dict):
+            t = str(raw.get("type", "") or "").strip().lower()
+            v = raw.get("value", "")
+            v = str(v) if not isinstance(v, str) else v
+            return v.strip(), t
+        s = str(raw).strip()
+        if s.startswith("[URL]"):
+            return s[5:].strip(), "url"
+        return s, ""

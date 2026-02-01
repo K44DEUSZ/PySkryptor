@@ -1,9 +1,4 @@
 {
-  "meta": {
-    "language_code": "en",
-    "native_name": "English",
-    "language_name": "English"
-  },
   "app": {
     "title": "PySkryptor: Transcription Assistant 🎧"
   },
@@ -49,6 +44,49 @@
     },
     "transcript": {
       "default_name": "Transcript"
+    },
+    "options": {
+      "title": "Options",
+      "mode": {
+        "title": "Mode",
+        "transcribe": "Transcribe",
+        "transcribe_translate": "Transcribe & translate"
+      },
+      "target_language": {
+        "label": "Target language",
+        "placeholder": "Select target language…"
+      },
+      "output_format": {
+        "label": "Output format"
+      },
+      "temp": {
+        "title": "Temporary files (URL)",
+        "download_audio_only": "Download audio only (URL sources)",
+        "keep_audio": "Keep downloaded audio (URL)",
+        "audio_ext": "Audio format",
+        "keep_video": "Keep downloaded video (URL)",
+        "video_ext": "Video format",
+        "keep_wav": "Keep processed WAV"
+      },
+      "ext": {
+        "audio": {
+          "m4a": "M4A",
+          "mp3": "MP3",
+          "wav": "WAV",
+          "flac": "FLAC"
+        },
+        "video": {
+          "mp4": "MP4",
+          "mkv": "MKV",
+          "webm": "WebM"
+        }
+      },
+      "help": {
+        "download_audio_only": "If enabled, only an audio track will be downloaded from the URL (faster and smaller).",
+        "keep_audio": "Saves an audio file next to the transcript (copied or extracted from the source).",
+        "keep_video": "Saves the downloaded video file next to the transcript (only when \"Download audio only\" is off).",
+        "keep_wav": "Saves the processed WAV used for transcription next to the transcript."
+      }
     }
   },
   "live": {
@@ -225,7 +263,7 @@
         "text": "Language files are missing or invalid. The application cannot start."
       },
       "config_load_failed": {
-        "text": "Cannot load configuration. Please check the log file."
+        "text": "Cannot load configuration.\n\nDetails: {detail}"
       }
     }
   },
@@ -299,7 +337,7 @@
       "restart_failed": "❌ Failed to restart the app. Details: {detail}"
     },
     "help": {
-      "ui_language": "Choose UI language. New locales are detected automatically from “view/resources/locales”.",
+      "ui_language": "Choose UI language. New locales are detected automatically from “resources/locales”.",
       "theme": "Changes UI theme. Styling will ultimately be controlled via QSS.",
       "device": "Select device for ASR inference. “GPU” uses CUDA if available (NVIDIA only).",
       "precision_hint": "Precision affects performance and memory usage.",
@@ -310,7 +348,7 @@
         "bfloat16": "Similar to FP16 but available only on some GPUs. Often more stable than FP16."
       },
       "tf32": "TF32 is a fast matrix mode on newer NVIDIA GPUs (Ampere+). It speeds up computation with minimal quality impact.",
-      "model_name": "Select a local model folder from “assets/ai_models”. A restart is required to fully reload the pipeline.",
+      "model_name": "Select a local model folder from “resources/models”. A restart is required to fully reload the pipeline.",
       "default_language": "Optional transcription language hint (e.g. “en”, “pl”). Empty = auto-detect.",
       "chunk_length": "Audio chunk length for the pipeline (seconds). Larger values can be faster but use more memory.",
       "stride_length": "Chunk overlap (seconds). More overlap improves continuity but increases load.",
@@ -373,5 +411,12 @@
   },
   "icon": {
     "info": "ℹ️"
+  },
+  "assets": {
+    "file": {
+      "transcript": "Transcript",
+      "audio": "Audio",
+      "video": "Video"
+    }
   }
 }

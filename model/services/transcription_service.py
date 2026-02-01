@@ -17,6 +17,7 @@ from model.io.text import TextPostprocessor, is_url, sanitize_filename
 from model.services.conflict_service import ConflictService
 from model.services.download_service import DownloadCancelled, DownloadError, DownloadService
 from model.services.model_loader import ModelLoader
+from model.services.translation_service import TranslationService
 
 
 GUIEntry = Union[str, Dict[str, Any]]
@@ -91,7 +92,7 @@ class TranscriptionService:
         total_chunks = 0
         done_chunks = 0
 
-        keep_wav_with_transcript = False
+        keep_intermediate_files = False
 
         def _ensure_not_cancelled() -> None:
             if cancel_check():
@@ -103,7 +104,6 @@ class TranscriptionService:
                 return
             pct = int((done_chunks * 100.0) / float(total_chunks))
             progress(max(0, min(100, pct)))
-
 
         def _bump_chunk_done() -> None:
             nonlocal done_chunks
@@ -127,7 +127,14 @@ class TranscriptionService:
             timestamps_output = bool(trans_cfg.get("timestamps_output", False))
             out_ext = str(trans_cfg.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
 
-            keep_wav_with_transcript = bool(trans_cfg.get("keep_wav_temp", False))
+            mode = str(trans_cfg.get("mode", "transcribe") or "transcribe").strip().lower()
+            translate_enabled = mode in ("transcribe_translate", "translate") or bool(trans_cfg.get("translate_enabled", False))
+            target_language = str(trans_cfg.get("target_language", "en") or "en").strip().lower() or "en"
+            translator = TranslationService() if translate_enabled else None
+
+            keep_intermediate_files = bool(
+                trans_cfg.get("keep_intermediate_files", trans_cfg.get("keep_wav_temp", False))
+            )
 
             want_timestamped_output = bool(out_ext == "srt" or timestamps_output)
             return_ts_base = bool(want_timestamped_output)
@@ -208,6 +215,9 @@ class TranscriptionService:
                 stem = new_stem
                 item_status(key, translate("status.proc"))
 
+                audio_asset_name = str(translate("asset.audio") or "").strip() or "Audio"
+                video_asset_name = str(translate("asset.video") or "").strip() or "Video"
+
                 tmp_wav: Optional[Path] = None
                 wav_path: Optional[Path] = None
 
@@ -237,11 +247,21 @@ class TranscriptionService:
                         bump_chunk_done=_bump_chunk_done,
                     )
 
+                    translated_text = ""
+                    if translate_enabled and translator is not None and out_ext != "srt":
+                        translated_text = translator.translate(
+                            merged_text,
+                            src_lang=str(default_lang or ""),
+                            tgt_lang=target_language,
+                            log=lambda m: log(str(m)),
+                        )
+
                     transcript_path = self._write_outputs(
                         key=key,
                         stem=stem,
                         out_dir=out_dir,
                         merged_text=merged_text,
+                        translated_text=translated_text,
                         segments=segments,
                         out_ext=out_ext,
                         timestamps_output=timestamps_output,
@@ -256,14 +276,46 @@ class TranscriptionService:
                         item_status(key, translate("status.error"))
                         continue
 
-                    if keep_wav_with_transcript and wav_path is not None:
+                    is_url_source = path in downloaded
+
+                    # Keep intermediate file (replacement behavior):
+                    # - URL sources: keep downloaded media (audio or video)
+                    # - local sources: keep processed audio WAV used for ASR
+                    if keep_intermediate_files and is_url_source:
+                        try:
+                            ext = str(path.suffix or "").lower()
+                            video_exts = {
+                                ".mp4",
+                                ".mkv",
+                                ".webm",
+                                ".avi",
+                                ".mov",
+                                ".wmv",
+                                ".flv",
+                                ".m4v",
+                            }
+                            base = video_asset_name if ext in video_exts else audio_asset_name
+                            src_target = FileManager.source_media_path(stem, src_ext=ext, base_name=base)
+                            try:
+                                src_target.unlink(missing_ok=True)  # type: ignore[call-arg]
+                            except Exception:
+                                pass
+                            shutil.copy2(str(path), str(src_target))
+                        except Exception as e:
+                            had_errors = True
+                            log(translate("log.worker_error", detail=str(e)))
+
+                    if keep_intermediate_files and (not is_url_source) and wav_path is not None:
                         try:
                             self._persist_wav_asset(
                                 stem=stem,
                                 wav_path=wav_path,
                                 tmp_wav=tmp_wav,
+                                audio_filename=audio_asset_name,
                             )
-                            if tmp_wav is not None and FileManager.audio_wav_path(stem).exists():
+                            if tmp_wav is not None and FileManager.audio_wav_path(
+                                stem, filename=audio_asset_name
+                            ).exists():
                                 tmp_wav = None
                         except Exception as e:
                             had_errors = True
@@ -286,7 +338,7 @@ class TranscriptionService:
                     item_status(key, translate("status.error"))
                     continue
                 finally:
-                    if tmp_wav is not None and tmp_wav.exists() and not keep_wav_with_transcript:
+                    if tmp_wav is not None and tmp_wav.exists():
                         try:
                             tmp_wav.unlink(missing_ok=True)  # type: ignore[call-arg]
                         except Exception:
@@ -669,124 +721,53 @@ class TranscriptionService:
             chunk_len_frames = int(chunk_len_s * sr)
             step_frames = int(step_s * sr)
 
-            start_frame = 0
-            while start_frame < n_frames:
+            n_chunks = 1
+            if duration_s > 0 and step_s > 0:
+                n_chunks = max(1, int(math.ceil(duration_s / float(step_s))))
+
+            for idx in range(n_chunks):
                 if cancel_check():
                     raise _Cancelled()
 
-                wf.setpos(start_frame)
-                to_read = min(chunk_len_frames, n_frames - start_frame)
-                raw = wf.readframes(to_read)
+                start = idx * step_frames
+                wf.setpos(min(start, n_frames))
 
-                audio = self._pcm_bytes_to_float32(raw, sampwidth=sampwidth)
-                if audio.size == 0:
-                    break
+                frames = wf.readframes(min(chunk_len_frames, max(0, n_frames - start)))
+                if not frames:
+                    bump_chunk_done()
+                    continue
 
-                offset_s = start_frame / float(sr) if sr else 0.0
-                chunk_seconds = (float(audio.shape[0]) / float(sr)) if sr else 0.0
+                audio = np.frombuffer(frames, dtype=np.int16 if sampwidth == 2 else np.int8).astype(np.float32)
+                if sampwidth == 2:
+                    audio /= 32768.0
+                else:
+                    audio /= 128.0
 
-                generate_kwargs: Dict[str, Any] = {"task": task}
-                if default_lang:
-                    generate_kwargs["language"] = default_lang
+                try:
+                    out = pipe(
+                        audio,
+                        chunk_length_s=chunk_len_s,
+                        stride_length_s=stride_len_s,
+                        task=task,
+                        return_timestamps="word" if return_ts_base else False,
+                        generate_kwargs={"language": default_lang} if default_lang else None,
+                    )
+                except Exception as e:
+                    raise _FatalPipeError(str(e)) from e
 
-                return_ts_effective = bool(return_ts_base or (chunk_seconds > 30.0))
+                text_piece = str(out.get("text") or "")
+                if text_piece:
+                    merged_text = (merged_text + " " + text_piece).strip()
 
-                result = self._call_pipe_safe(
-                    pipe,
-                    audio,
-                    sr,
-                    return_timestamps=return_ts_effective,
-                    generate_kwargs=generate_kwargs,
-                    ignore_warning=ignore_warn,
-                )
+                segs = self._extract_segments(out, offset_s=float(idx * step_s))
+                segments.extend(segs)
 
-                text = str(result.get("text", "") or "")
-                merged_text = self._merge_text(merged_text, text)
-
-                segments.extend(self._extract_segments(result, offset_s=offset_s))
-
-                done_s = min(duration_s, offset_s + chunk_len_s)
-                pct_item = int((done_s * 100.0) / duration_s) if duration_s > 0 else 100
-                item_progress(key, max(0, min(100, pct_item)))
+                pct = int(((idx + 1) * 100.0) / float(n_chunks))
+                item_progress(key, max(0, min(100, pct)))
 
                 bump_chunk_done()
 
-                if start_frame + chunk_len_frames >= n_frames:
-                    break
-                start_frame += step_frames
-
         return merged_text, segments
-
-    @staticmethod
-    def _pcm_bytes_to_float32(raw: bytes, *, sampwidth: int) -> np.ndarray:
-        if not raw:
-            return np.array([], dtype=np.float32)
-
-        if sampwidth == 2:
-            data = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
-            return data / 32768.0
-
-        if sampwidth == 4:
-            data = np.frombuffer(raw, dtype=np.int32).astype(np.float32)
-            return data / 2147483648.0
-
-        return np.array([], dtype=np.float32)
-
-    @staticmethod
-    def _is_longform_timestamp_requirement(err: Exception) -> bool:
-        msg = str(err).lower()
-        return "long-form generation" in msg and "return_timestamps=true" in msg and "timestamp tokens" in msg
-
-    def _call_pipe_safe(
-        self,
-        pipe: Any,
-        audio: np.ndarray,
-        sr: int,
-        *,
-        return_timestamps: bool,
-        generate_kwargs: Dict[str, Any],
-        ignore_warning: bool,
-    ) -> Dict[str, Any]:
-        if pipe is None:
-            raise _FatalPipeError("pipe-not-ready")
-
-        payload = {"array": audio, "sampling_rate": sr}
-
-        try:
-            try:
-                result = pipe(payload, return_timestamps=return_timestamps, generate_kwargs=generate_kwargs)
-            except TypeError:
-                result = pipe(payload, generate_kwargs=generate_kwargs)
-
-            if isinstance(result, dict):
-                return result
-            return {"text": str(result)}
-
-        except Exception as e:
-            if self._is_longform_timestamp_requirement(e) and not return_timestamps:
-                try:
-                    result = pipe(payload, return_timestamps=True, generate_kwargs=generate_kwargs)
-                    if isinstance(result, dict):
-                        return result
-                    return {"text": str(result)}
-                except Exception as e2:
-                    raise _FatalPipeError(str(e2)) from e2
-
-            if ignore_warning:
-                raise _FatalPipeError(str(e)) from e
-            raise
-
-    @staticmethod
-    def _merge_text(prev: str, nxt: str) -> str:
-        p = (prev or "").strip()
-        n = (nxt or "").strip()
-        if not p:
-            return n
-        if not n:
-            return p
-        if p.endswith((" ", "\n")):
-            return p + n
-        return p + " " + n
 
     @staticmethod
     def _extract_segments(result: Dict[str, Any], *, offset_s: float) -> List[Dict[str, Any]]:
@@ -816,6 +797,7 @@ class TranscriptionService:
         stem: str,
         out_dir: Path,
         merged_text: str,
+        translated_text: str = "",
         segments: List[Dict[str, Any]],
         out_ext: str,
         timestamps_output: bool,
@@ -830,12 +812,16 @@ class TranscriptionService:
 
         out_text = self._render_transcript(
             merged_text=merged_text,
+            translated_text=translated_text,
             segments=segments,
             out_ext=out_ext,
             timestamps_output=timestamps_output,
+            translate=translate,
         )
 
-        base_name = translate("files.transcript.default_name")
+        base_name = translate("asset.transcript")
+        if base_name == "asset.transcript":
+            base_name = translate("files.transcript.default_name")
         base_name = sanitize_filename(str(base_name)) or "Transcript"
         out_path = FileManager.transcript_path(stem, base_name=base_name)
 
@@ -854,9 +840,11 @@ class TranscriptionService:
     def _render_transcript(
         *,
         merged_text: str,
+        translated_text: str = "",
         segments: List[Dict[str, Any]],
         out_ext: str,
         timestamps_output: bool,
+        translate: Callable[[str, Any], str],
     ) -> str:
         out_ext = (out_ext or "txt").lower().strip().lstrip(".") or "txt"
         if out_ext not in ("txt", "srt", "sub"):
@@ -868,12 +856,19 @@ class TranscriptionService:
             return TextPostprocessor.to_timestamped_plain(segments)
 
         merged = TextPostprocessor.clean(merged_text)
+        if out_ext == "txt" and translated_text and translated_text.strip():
+            src_m = translate("live.save.marker.source")
+            tgt_m = translate("live.save.marker.target")
+            src = merged if merged else TextPostprocessor.to_plain(segments)
+            tgt = TextPostprocessor.clean(translated_text)
+            return f"{src_m}\n{src}\n\n{tgt_m}\n{tgt}\n"
+
         if merged:
             return merged
         return TextPostprocessor.to_plain(segments)
 
-    def _persist_wav_asset(self, *, stem: str, wav_path: Path, tmp_wav: Optional[Path]) -> None:
-        target = FileManager.audio_wav_path(stem)
+    def _persist_wav_asset(self, *, stem: str, wav_path: Path, tmp_wav: Optional[Path], audio_filename: str) -> None:
+        target = FileManager.audio_wav_path(stem, filename=audio_filename)
 
         try:
             if target.exists():

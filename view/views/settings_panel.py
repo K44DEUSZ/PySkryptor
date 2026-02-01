@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional, List, Tuple
 
 import torch
 from PyQt5 import QtCore, QtWidgets
-
 from controller.tasks.settings_task import SettingsWorker
 
 from model.config.app_config import AppConfig as Config
@@ -169,36 +168,6 @@ class SettingsPanel(QtWidgets.QWidget):
         lay_model.addRow("", self.chk_model_ignore_warn)
         lay_model.addRow("", self.chk_model_low_cpu_mem)
 
-        # ----- Transcription -----
-        grp_tr = QtWidgets.QGroupBox(tr("settings.section.transcription"))
-        lay_tr = QtWidgets.QFormLayout(grp_tr)
-        self._tune_form_layout(lay_tr)
-
-        self.cb_tr_output_format = QtWidgets.QComboBox()
-        self.cb_tr_output_format.setMinimumHeight(base_h)
-        self._output_formats = [
-            ("plain_txt", tr("settings.transcription.output.plain_txt")),
-            ("txt_timestamps", tr("settings.transcription.output.txt_timestamps")),
-            ("srt", tr("settings.transcription.output.srt")),
-        ]
-        for key, label in self._output_formats:
-            self.cb_tr_output_format.addItem(label, key)
-
-        lay_tr.addRow(
-            tr("settings.transcription.output_format"),
-            self._hrow(self.cb_tr_output_format, _InfoButton(tr("settings.help.output_format"))),
-        )
-
-        self.chk_tr_keep_wav = QtWidgets.QCheckBox(tr("settings.transcription.keep_wav_temp"))
-        self.chk_tr_keep_wav.setToolTip(tr("settings.help.keep_wav_temp"))
-        self.chk_tr_keep_wav.setMinimumHeight(base_h)
-        lay_tr.addRow("", self.chk_tr_keep_wav)
-
-        self.chk_tr_audio_only = QtWidgets.QCheckBox(tr("settings.transcription.download_audio_only"))
-        self.chk_tr_audio_only.setToolTip(tr("settings.help.download_audio_only"))
-        self.chk_tr_audio_only.setMinimumHeight(base_h)
-        lay_tr.addRow("", self.chk_tr_audio_only)
-
         # ----- Downloader -----
         grp_down = QtWidgets.QGroupBox(tr("settings.section.downloader"))
         lay_down = QtWidgets.QFormLayout(grp_down)
@@ -271,9 +240,8 @@ class SettingsPanel(QtWidgets.QWidget):
         grid.addWidget(grp_app, 0, 0)
         grid.addWidget(grp_eng, 0, 1)
         grid.addWidget(grp_model, 1, 0)
-        grid.addWidget(grp_tr, 1, 1)
-        grid.addWidget(grp_down, 2, 0)
-        grid.addWidget(grp_net, 2, 1)
+        grid.addWidget(grp_down, 1, 1)
+        grid.addWidget(grp_net, 2, 0, 1, 2)
 
         root.addWidget(grid_wrap, 0)
 
@@ -298,7 +266,7 @@ class SettingsPanel(QtWidgets.QWidget):
         root.addLayout(bottom_bar)
         root.addStretch(1)
 
-        self._groups = [grp_app, grp_eng, grp_model, grp_tr, grp_down, grp_net]
+        self._groups = [grp_app, grp_eng, grp_model, grp_down, grp_net]
 
         # Signals
         self.btn_restore.clicked.connect(self._on_restore_clicked)
@@ -349,7 +317,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_engine_device.currentIndexChanged.connect(mark)
         self.cb_engine_precision.currentIndexChanged.connect(mark)
         self.cb_model_engine.currentIndexChanged.connect(mark)
-        self.cb_tr_output_format.currentIndexChanged.connect(mark)
 
         self.ed_model_default_lang.textChanged.connect(mark)
 
@@ -365,8 +332,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self.chk_engine_tf32.toggled.connect(mark)
         self.chk_model_ignore_warn.toggled.connect(mark)
         self.chk_model_low_cpu_mem.toggled.connect(mark)
-        self.chk_tr_keep_wav.toggled.connect(mark)
-        self.chk_tr_audio_only.toggled.connect(mark)
 
     def _set_dirty(self, dirty: bool) -> None:
         self._dirty = dirty
@@ -394,7 +359,7 @@ class SettingsPanel(QtWidgets.QWidget):
         """
         self.cb_model_engine.clear()
 
-        models_dir = getattr(Config, "AI_MODELS_DIR", None) or getattr(Config, "MODELS_DIR", None)
+        models_dir = getattr(Config, "MODELS_DIR", None)
         names: List[str] = []
 
         try:
@@ -545,7 +510,6 @@ class SettingsPanel(QtWidgets.QWidget):
             app = self._data.get("app", {})
             eng = self._data.get("engine", {})
             model = self._data.get("model", {})
-            trc = self._data.get("transcription", {})
             down = self._data.get("downloader", {})
             net = self._data.get("network", {})
 
@@ -567,19 +531,6 @@ class SettingsPanel(QtWidgets.QWidget):
             self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
             self.chk_model_ignore_warn.setChecked(bool(model.get("ignore_warning", True)))
             self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
-
-            timestamps_output = bool(trc.get("timestamps_output", False))
-            out_ext = str(trc.get("output_ext", "txt")).lower().strip().lstrip(".") or "txt"
-
-            fmt_key = "plain_txt"
-            if out_ext == "srt":
-                fmt_key = "srt"
-            elif out_ext == "txt" and timestamps_output:
-                fmt_key = "txt_timestamps"
-
-            self._select_combo_by_data(self.cb_tr_output_format, fmt_key, fallback="plain_txt")
-            self.chk_tr_keep_wav.setChecked(bool(trc.get("keep_wav_temp", False)))
-            self.chk_tr_audio_only.setChecked(bool(trc.get("download_audio_only", True)))
 
             self.spin_down_min_h.setValue(int(down.get("min_video_height", 144)))
             self.spin_down_max_h.setValue(int(down.get("max_video_height", 4320)))
@@ -633,23 +584,6 @@ class SettingsPanel(QtWidgets.QWidget):
             "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
         }
 
-        fmt_key = str(self.cb_tr_output_format.currentData() or "plain_txt")
-        timestamps_output = False
-        out_ext = "txt"
-        if fmt_key == "txt_timestamps":
-            timestamps_output = True
-            out_ext = "txt"
-        elif fmt_key == "srt":
-            timestamps_output = True
-            out_ext = "srt"
-
-        trc = {
-            "timestamps_output": timestamps_output,
-            "keep_wav_temp": bool(self.chk_tr_keep_wav.isChecked()),
-            "download_audio_only": bool(self.chk_tr_audio_only.isChecked()),
-            "output_ext": out_ext,
-        }
-
         down = {
             "min_video_height": int(self.spin_down_min_h.value()),
             "max_video_height": int(self.spin_down_max_h.value()),
@@ -667,7 +601,6 @@ class SettingsPanel(QtWidgets.QWidget):
             "app": app,
             "engine": eng,
             "model": model,
-            "transcription": trc,
             "downloader": down,
             "network": net,
         }

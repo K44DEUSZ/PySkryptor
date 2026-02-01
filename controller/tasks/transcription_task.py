@@ -17,6 +17,7 @@ from model.io.file_manager import FileManager
 from model.io.text import TextPostprocessor, is_url, sanitize_filename
 from model.services.conflict_service import ConflictService
 from model.services.download_service import DownloadCancelled, DownloadError, DownloadService
+from model.services.translation_service import TranslationService
 from view.utils.concurrency import CancellationToken
 from view.utils.translating import tr
 
@@ -125,6 +126,12 @@ class TranscriptionWorker(QtCore.QObject):
             timestamps_output = bool(trans_cfg.get("timestamps_output", False))
             out_ext = str(trans_cfg.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
 
+            mode = str(trans_cfg.get("mode", "transcribe") or "transcribe").strip().lower()
+            translate_enabled = mode in ("transcribe_translate", "translate") or bool(trans_cfg.get("translate_enabled", False))
+            target_language = str(trans_cfg.get("target_language", "en") or "en").strip().lower() or "en"
+
+            translator = TranslationService() if translate_enabled else None
+
             # NOTE: keep_wav_temp is now interpreted as:
             # "Keep WAV audio next to transcript" (per-item output folder).
             keep_wav_with_transcript = bool(trans_cfg.get("keep_wav_temp", False))
@@ -213,12 +220,26 @@ class TranscriptionWorker(QtCore.QObject):
                         ignore_warn=ignore_warn,
                     )
 
+                    translated_text = ""
+                    if translate_enabled and translator is not None:
+                        if out_ext == "srt":
+                            # SRT is segment-based; keep it as source-only.
+                            translated_text = ""
+                        else:
+                            translated_text = translator.translate(
+                                merged_text,
+                                src_lang=str(default_lang or ""),
+                                tgt_lang=target_language,
+                                log=lambda m: self.log.emit(str(m)),
+                            )
+
                     # ----- Write outputs -----
                     transcript_path = self._write_outputs(
                         key=key,
                         stem=stem,
                         out_dir=out_dir,
                         merged_text=merged_text,
+                        translated_text=translated_text,
                         segments=segments,
                         out_ext=out_ext,
                         timestamps_output=timestamps_output,
@@ -712,6 +733,7 @@ class TranscriptionWorker(QtCore.QObject):
         stem: str,
         out_dir: Path,
         merged_text: str,
+        translated_text: str = "",
         segments: List[Dict[str, Any]],
         out_ext: str,
         timestamps_output: bool,
@@ -720,6 +742,7 @@ class TranscriptionWorker(QtCore.QObject):
 
         out_text = self._render_transcript(
             merged_text=merged_text,
+            translated_text=translated_text,
             segments=segments,
             out_ext=out_ext,
             timestamps_output=timestamps_output,
@@ -745,6 +768,7 @@ class TranscriptionWorker(QtCore.QObject):
     def _render_transcript(
         *,
         merged_text: str,
+        translated_text: str = "",
         segments: List[Dict[str, Any]],
         out_ext: str,
         timestamps_output: bool,
@@ -759,6 +783,13 @@ class TranscriptionWorker(QtCore.QObject):
             return TextPostprocessor.to_timestamped_plain(segments)
 
         merged = TextPostprocessor.clean(merged_text)
+        if out_ext == "txt" and translated_text and translated_text.strip():
+            src_m = tr("live.save.marker.source")
+            tgt_m = tr("live.save.marker.target")
+            src = merged if merged else TextPostprocessor.to_plain(segments)
+            tgt = TextPostprocessor.clean(translated_text)
+            return f"{src_m}\n{src}\n\n{tgt_m}\n{tgt}\n"
+
         if merged:
             return merged
         return TextPostprocessor.to_plain(segments)
