@@ -30,14 +30,10 @@ class _InfoButton(QtWidgets.QToolButton):
 class SettingsPanel(QtWidgets.QWidget):
     """
     Settings tab: form bound to settings.json via SettingsWorker.
-
-    This panel intentionally exposes only user-relevant options.
-    Technical/internal flags are hidden by design.
     """
 
     CONTROL_HEIGHT = 24
 
-    # Settings that should trigger a restart prompt when changed.
     _RESTART_SENSITIVE_KEYS = {
         ("app", "language"),
         ("app", "theme"),
@@ -45,7 +41,6 @@ class SettingsPanel(QtWidgets.QWidget):
         ("engine", "precision"),
         ("engine", "allow_tf32"),
         ("model", "ai_engine_name"),
-        ("model", "local_models_only"),
     }
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
@@ -63,13 +58,12 @@ class SettingsPanel(QtWidgets.QWidget):
         self._pending_restart_prompt = False
         self._restore_base_snapshot: Optional[Dict[str, Any]] = None
 
-        # Root layout (no scroll area per current preference)
         root = QtWidgets.QVBoxLayout(self)
         root.setSpacing(8)
 
         base_h = self.CONTROL_HEIGHT
 
-        # ---- Sections ----
+        # ----- App -----
         grp_app = QtWidgets.QGroupBox(tr("settings.section.app"))
         lay_app = QtWidgets.QFormLayout(grp_app)
         self._tune_form_layout(lay_app)
@@ -83,19 +77,16 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_app_theme.addItem(tr("settings.app.theme.light"), "light")
         self.cb_app_theme.addItem(tr("settings.app.theme.dark"), "dark")
 
-        lang_row = self._hrow(
-            self.cb_app_language,
-            _InfoButton(tr("settings.help.ui_language")),
+        lay_app.addRow(
+            tr("settings.app.language"),
+            self._hrow(self.cb_app_language, _InfoButton(tr("settings.help.ui_language"))),
         )
-        theme_row = self._hrow(
-            self.cb_app_theme,
-            _InfoButton(tr("settings.help.theme")),
+        lay_app.addRow(
+            tr("settings.app.theme"),
+            self._hrow(self.cb_app_theme, _InfoButton(tr("settings.help.theme"))),
         )
 
-        lay_app.addRow(tr("settings.app.language"), lang_row)
-        lay_app.addRow(tr("settings.app.theme"), theme_row)
-
-        # ---- Engine section ----
+        # ----- Engine -----
         grp_eng = QtWidgets.QGroupBox(tr("settings.section.engine"))
         lay_eng = QtWidgets.QFormLayout(grp_eng)
         self._tune_form_layout(lay_eng)
@@ -113,7 +104,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_engine_precision.addItem(tr("settings.engine.precision.float16"), "float16")
         self.cb_engine_precision.addItem(tr("settings.engine.precision.bfloat16"), "bfloat16")
 
-        # per-option tooltips
         self._set_combo_tooltip(self.cb_engine_precision, 0, tr("settings.help.precision.auto"))
         self._set_combo_tooltip(self.cb_engine_precision, 1, tr("settings.help.precision.float32"))
         self._set_combo_tooltip(self.cb_engine_precision, 2, tr("settings.help.precision.float16"))
@@ -123,40 +113,23 @@ class SettingsPanel(QtWidgets.QWidget):
         self.chk_engine_tf32.setToolTip(tr("settings.help.tf32"))
         self.chk_engine_tf32.setMinimumHeight(base_h)
 
-        dev_row = self._hrow(
-            self.cb_engine_device,
-            _InfoButton(tr("settings.help.device")),
+        lay_eng.addRow(
+            tr("settings.engine.device"),
+            self._hrow(self.cb_engine_device, _InfoButton(tr("settings.help.device"))),
         )
-
-        # IMPORTANT: precision has a nested object in locales, so use precision_hint for general tooltip.
-        prec_row = self._hrow(
-            self.cb_engine_precision,
-            _InfoButton(tr("settings.help.precision_hint")),
+        lay_eng.addRow(
+            tr("settings.engine.precision"),
+            self._hrow(self.cb_engine_precision, _InfoButton(tr("settings.help.precision_hint"))),
         )
-
-        lay_eng.addRow(tr("settings.engine.device"), dev_row)
-        lay_eng.addRow(tr("settings.engine.precision"), prec_row)
         lay_eng.addRow("", self.chk_engine_tf32)
 
-        # ---- Model section ----
+        # ----- Model -----
         grp_model = QtWidgets.QGroupBox(tr("settings.section.model"))
         lay_model = QtWidgets.QFormLayout(grp_model)
         self._tune_form_layout(lay_model)
 
-        self.cb_model_name = QtWidgets.QComboBox()
-        self.cb_model_name.setMinimumHeight(base_h)
-        model_row = self._hrow(
-            self.cb_model_name,
-            _InfoButton(tr("settings.help.model_name")),
-        )
-
-        self.ed_model_default_lang = QtWidgets.QLineEdit()
-        self.ed_model_default_lang.setMinimumHeight(base_h)
-        self.ed_model_default_lang.setPlaceholderText("auto")
-        default_lang_row = self._hrow(
-            self.ed_model_default_lang,
-            _InfoButton(tr("settings.help.default_language")),
-        )
+        self.cb_model_engine = QtWidgets.QComboBox()
+        self.cb_model_engine.setMinimumHeight(base_h)
 
         self.spin_model_chunk = QtWidgets.QSpinBox()
         self.spin_model_chunk.setRange(5, 600)
@@ -166,26 +139,38 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_model_stride.setRange(0, 120)
         self.spin_model_stride.setMinimumHeight(base_h)
 
-        chunk_row = self._hrow(
-            self.spin_model_chunk,
-            _InfoButton(tr("settings.help.chunk_length")),
-        )
-        stride_row = self._hrow(
-            self.spin_model_stride,
-            _InfoButton(tr("settings.help.stride_length")),
-        )
+        self.chk_model_ignore_warn = QtWidgets.QCheckBox(tr("settings.model.ignore_warning"))
+        self.chk_model_ignore_warn.setToolTip(tr("settings.help.ignore_warning"))
+        self.chk_model_ignore_warn.setMinimumHeight(base_h)
+
+        self.ed_model_default_lang = QtWidgets.QLineEdit()
+        self.ed_model_default_lang.setMinimumHeight(base_h)
+        self.ed_model_default_lang.setPlaceholderText("auto")
 
         self.chk_model_low_cpu_mem = QtWidgets.QCheckBox(tr("settings.model.low_cpu_mem_usage"))
         self.chk_model_low_cpu_mem.setToolTip(tr("settings.help.low_cpu_mem_usage"))
         self.chk_model_low_cpu_mem.setMinimumHeight(base_h)
 
-        lay_model.addRow(tr("settings.model.ai_engine_name"), model_row)
-        lay_model.addRow(tr("settings.model.default_language"), default_lang_row)
-        lay_model.addRow(tr("settings.model.chunk_length_s"), chunk_row)
-        lay_model.addRow(tr("settings.model.stride_length_s"), stride_row)
+        lay_model.addRow(
+            tr("settings.model.ai_engine_name"),
+            self._hrow(self.cb_model_engine, _InfoButton(tr("settings.help.model_name"))),
+        )
+        lay_model.addRow(
+            tr("settings.model.default_language"),
+            self._hrow(self.ed_model_default_lang, _InfoButton(tr("settings.help.default_language"))),
+        )
+        lay_model.addRow(
+            tr("settings.model.chunk_length_s"),
+            self._hrow(self.spin_model_chunk, _InfoButton(tr("settings.help.chunk_length"))),
+        )
+        lay_model.addRow(
+            tr("settings.model.stride_length_s"),
+            self._hrow(self.spin_model_stride, _InfoButton(tr("settings.help.stride_length"))),
+        )
+        lay_model.addRow("", self.chk_model_ignore_warn)
         lay_model.addRow("", self.chk_model_low_cpu_mem)
 
-        # ---- Transcription section ----
+        # ----- Transcription -----
         grp_tr = QtWidgets.QGroupBox(tr("settings.section.transcription"))
         lay_tr = QtWidgets.QFormLayout(grp_tr)
         self._tune_form_layout(lay_tr)
@@ -200,29 +185,22 @@ class SettingsPanel(QtWidgets.QWidget):
         for key, label in self._output_formats:
             self.cb_tr_output_format.addItem(label, key)
 
-        out_row = self._hrow(
-            self.cb_tr_output_format,
-            _InfoButton(tr("settings.help.output_format")),
+        lay_tr.addRow(
+            tr("settings.transcription.output_format"),
+            self._hrow(self.cb_tr_output_format, _InfoButton(tr("settings.help.output_format"))),
         )
-
-        self.chk_tr_keep_downloaded = QtWidgets.QCheckBox(tr("settings.transcription.keep_downloaded_files"))
-        self.chk_tr_keep_downloaded.setToolTip(tr("settings.help.keep_downloaded_files"))
-        self.chk_tr_keep_downloaded.setMinimumHeight(base_h)
 
         self.chk_tr_keep_wav = QtWidgets.QCheckBox(tr("settings.transcription.keep_wav_temp"))
         self.chk_tr_keep_wav.setToolTip(tr("settings.help.keep_wav_temp"))
         self.chk_tr_keep_wav.setMinimumHeight(base_h)
+        lay_tr.addRow("", self.chk_tr_keep_wav)
 
         self.chk_tr_audio_only = QtWidgets.QCheckBox(tr("settings.transcription.download_audio_only"))
         self.chk_tr_audio_only.setToolTip(tr("settings.help.download_audio_only"))
         self.chk_tr_audio_only.setMinimumHeight(base_h)
-
-        lay_tr.addRow(tr("settings.transcription.output_format"), out_row)
-        lay_tr.addRow("", self.chk_tr_keep_downloaded)
-        lay_tr.addRow("", self.chk_tr_keep_wav)
         lay_tr.addRow("", self.chk_tr_audio_only)
 
-        # ---- Downloader section ----
+        # ----- Downloader -----
         grp_down = QtWidgets.QGroupBox(tr("settings.section.downloader"))
         lay_down = QtWidgets.QFormLayout(grp_down)
         self._tune_form_layout(lay_down)
@@ -235,19 +213,16 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_down_max_h.setRange(1, 4320)
         self.spin_down_max_h.setMinimumHeight(base_h)
 
-        min_row = self._hrow(
-            self.spin_down_min_h,
-            _InfoButton(tr("settings.help.min_video_height")),
+        lay_down.addRow(
+            tr("settings.downloader.min_video_height"),
+            self._hrow(self.spin_down_min_h, _InfoButton(tr("settings.help.min_video_height"))),
         )
-        max_row = self._hrow(
-            self.spin_down_max_h,
-            _InfoButton(tr("settings.help.max_video_height")),
+        lay_down.addRow(
+            tr("settings.downloader.max_video_height"),
+            self._hrow(self.spin_down_max_h, _InfoButton(tr("settings.help.max_video_height"))),
         )
 
-        lay_down.addRow(tr("settings.downloader.min_video_height"), min_row)
-        lay_down.addRow(tr("settings.downloader.max_video_height"), max_row)
-
-        # ---- Network section ----
+        # ----- Network -----
         grp_net = QtWidgets.QGroupBox(tr("settings.section.network"))
         lay_net = QtWidgets.QFormLayout(grp_net)
         self._tune_form_layout(lay_net)
@@ -268,29 +243,24 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_net_timeout.setRange(1, 600)
         self.spin_net_timeout.setMinimumHeight(base_h)
 
-        bw_row = self._hrow(
-            self.spin_net_bw,
-            _InfoButton(tr("settings.help.max_bandwidth_kbps")),
+        lay_net.addRow(
+            tr("settings.network.max_bandwidth_kbps"),
+            self._hrow(self.spin_net_bw, _InfoButton(tr("settings.help.max_bandwidth_kbps"))),
         )
-        retries_row = self._hrow(
-            self.spin_net_retries,
-            _InfoButton(tr("settings.help.retries")),
+        lay_net.addRow(
+            tr("settings.network.retries"),
+            self._hrow(self.spin_net_retries, _InfoButton(tr("settings.help.retries"))),
         )
-        frag_row = self._hrow(
-            self.spin_net_frag,
-            _InfoButton(tr("settings.help.concurrent_fragments")),
+        lay_net.addRow(
+            tr("settings.network.concurrent_fragments"),
+            self._hrow(self.spin_net_frag, _InfoButton(tr("settings.help.concurrent_fragments"))),
         )
-        timeout_row = self._hrow(
-            self.spin_net_timeout,
-            _InfoButton(tr("settings.help.http_timeout_s")),
+        lay_net.addRow(
+            tr("settings.network.http_timeout_s"),
+            self._hrow(self.spin_net_timeout, _InfoButton(tr("settings.help.http_timeout_s"))),
         )
 
-        lay_net.addRow(tr("settings.network.max_bandwidth_kbps"), bw_row)
-        lay_net.addRow(tr("settings.network.retries"), retries_row)
-        lay_net.addRow(tr("settings.network.concurrent_fragments"), frag_row)
-        lay_net.addRow(tr("settings.network.http_timeout_s"), timeout_row)
-
-        # ---- Two-column grid (match Files/Downloader spacing) ----
+        # ----- Two-column grid -----
         grid_wrap = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(grid_wrap)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -308,7 +278,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         root.addWidget(grid_wrap, 0)
 
-        # ---- Bottom buttons (spójne z Files/Downloader) ----
+        # ----- Buttons -----
         bottom_bar = QtWidgets.QHBoxLayout()
         bottom_bar.setSpacing(8)
         bottom_bar.addStretch(1)
@@ -327,7 +297,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
         bottom_bar.addLayout(right_btn_box, 0)
         root.addLayout(bottom_bar)
-
         root.addStretch(1)
 
         self._groups = [grp_app, grp_eng, grp_model, grp_tr, grp_down, grp_net]
@@ -335,18 +304,17 @@ class SettingsPanel(QtWidgets.QWidget):
         # Signals
         self.btn_restore.clicked.connect(self._on_restore_clicked)
         self.btn_save.clicked.connect(self._on_save_clicked)
-
         self.cb_engine_device.currentIndexChanged.connect(self._refresh_runtime_capabilities)
 
         self._install_dirty_signals()
 
-        # Initial state
         self._set_enabled(False)
         self._set_dirty(False)
 
+        self._populate_model_engines()
         self._rebuild_language_list()
-        self._rebuild_model_list()
         self._refresh_runtime_capabilities()
+
         self._start_worker(action="load")
 
     # ----- Layout helpers -----
@@ -371,7 +339,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _set_combo_tooltip(cb: QtWidgets.QComboBox, idx: int, tooltip: str) -> None:
         cb.setItemData(idx, tooltip, QtCore.Qt.ToolTipRole)
 
-    # ----- Dirty state -----
+    # ----- Dirty tracking -----
 
     def _install_dirty_signals(self) -> None:
         def mark() -> None:
@@ -381,7 +349,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_app_theme.currentIndexChanged.connect(mark)
         self.cb_engine_device.currentIndexChanged.connect(mark)
         self.cb_engine_precision.currentIndexChanged.connect(mark)
-        self.cb_model_name.currentIndexChanged.connect(mark)
+        self.cb_model_engine.currentIndexChanged.connect(mark)
         self.cb_tr_output_format.currentIndexChanged.connect(mark)
 
         self.ed_model_default_lang.textChanged.connect(mark)
@@ -396,8 +364,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self.spin_net_timeout.valueChanged.connect(mark)
 
         self.chk_engine_tf32.toggled.connect(mark)
+        self.chk_model_ignore_warn.toggled.connect(mark)
         self.chk_model_low_cpu_mem.toggled.connect(mark)
-        self.chk_tr_keep_downloaded.toggled.connect(mark)
         self.chk_tr_keep_wav.toggled.connect(mark)
         self.chk_tr_audio_only.toggled.connect(mark)
 
@@ -418,7 +386,31 @@ class SettingsPanel(QtWidgets.QWidget):
     def _all_groups_enabled(self) -> bool:
         return all(g.isEnabled() for g in self._groups)
 
-    # ----- Locale + model discovery -----
+    # ----- Models / locales -----
+
+    def _populate_model_engines(self) -> None:
+        """
+        Original methodology: list available local models by scanning MODELS_DIR.
+        Avoids depending on non-existent AppConfig APIs.
+        """
+        self.cb_model_engine.clear()
+
+        models_dir = getattr(Config, "MODELS_DIR", None)
+        names: List[str] = []
+
+        try:
+            if isinstance(models_dir, Path) and models_dir.exists() and models_dir.is_dir():
+                dirs = [d for d in models_dir.iterdir() if d.is_dir()]
+                dirs = [d for d in dirs if any(d.iterdir())]
+                names = [d.name for d in sorted(dirs, key=lambda x: x.name.lower())]
+        except Exception:
+            names = []
+
+        if not names:
+            names = ["whisper-turbo"]
+
+        for name in names:
+            self.cb_model_engine.addItem(name, name)
 
     def _load_locale_meta(self, path: Path) -> Tuple[str, str]:
         code = path.stem
@@ -450,17 +442,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
         for code, display in sorted(items, key=lambda x: x[1].lower()):
             self.cb_app_language.addItem(display, code)
-
-    def _rebuild_model_list(self) -> None:
-        self.cb_model_name.clear()
-        models_dir = Config.MODELS_DIR
-        if not models_dir.exists():
-            return
-
-        dirs = [p for p in models_dir.iterdir() if p.is_dir()]
-        dirs = [p for p in dirs if any(p.iterdir())]
-        for d in sorted(dirs, key=lambda p: p.name.lower()):
-            self.cb_model_name.addItem(d.name, d.name)
 
     # ----- Runtime capability -----
 
@@ -520,43 +501,14 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_thread_finished(self) -> None:
         self._thread = None
         self._worker = None
-        self._set_enabled(True)
         self._refresh_save_button()
-
-    # ----- Restart prompt decision -----
-
-    def _compute_restart_needed_for_save(self, payload: Dict[str, Any]) -> bool:
-        before = self._data or {}
-        for (sec, key) in self._RESTART_SENSITIVE_KEYS:
-            if sec not in payload:
-                continue
-            new_sec = payload.get(sec, {})
-            old_sec = before.get(sec, {})
-            if isinstance(new_sec, dict) and isinstance(old_sec, dict):
-                new_val = new_sec.get(key)
-                old_val = old_sec.get(key)
-                if new_val != old_val:
-                    return True
-        return False
-
-    def _compute_restart_needed_for_restore(self, after: Dict[str, Any]) -> bool:
-        before = self._restore_base_snapshot or {}
-        for (sec, key) in self._RESTART_SENSITIVE_KEYS:
-            new_sec = after.get(sec, {})
-            old_sec = before.get(sec, {})
-            if isinstance(new_sec, dict) and isinstance(old_sec, dict):
-                if new_sec.get(key) != old_sec.get(key):
-                    return True
-        return False
-
-    # ----- Slots from worker -----
+        self._set_enabled(True)
 
     @QtCore.pyqtSlot(object)
     def _on_settings_loaded(self, data: object) -> None:
-        if not isinstance(data, dict):
-            return
-        self._data = data
-        self._populate_from_data()
+        if isinstance(data, dict):
+            self._data = data
+            self._populate_from_data()
         self._set_dirty(False)
 
     @QtCore.pyqtSlot(object)
@@ -567,14 +519,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._set_dirty(False)
 
-        # Restart prompt only if needed.
-        need_restart = False
-        if self._restore_base_snapshot is not None and isinstance(data, dict):
-            need_restart = self._compute_restart_needed_for_restore(data)
-        else:
-            need_restart = self._pending_restart_prompt
-
-        self._restore_base_snapshot = None
+        need_restart = self._pending_restart_prompt
         self._pending_restart_prompt = False
 
         if need_restart:
@@ -588,13 +533,12 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_error(self, msg: str) -> None:
         QtWidgets.QMessageBox.critical(self, tr("app.title"), msg)
 
-    # ----- UI helpers -----
+    # ----- UI state -----
 
     def _set_enabled(self, enabled: bool) -> None:
         for g in self._groups:
             g.setEnabled(enabled)
-        self.btn_restore.setEnabled(enabled)
-        self.btn_save.setEnabled(enabled and self._dirty)
+        self._refresh_save_button()
 
     def _populate_from_data(self) -> None:
         self._blocking_updates = True
@@ -606,24 +550,25 @@ class SettingsPanel(QtWidgets.QWidget):
             down = self._data.get("downloader", {})
             net = self._data.get("network", {})
 
-            # app
             self._select_combo_by_data(self.cb_app_language, str(app.get("language", "auto")), fallback="auto")
             self._select_combo_by_data(self.cb_app_theme, str(app.get("theme", "auto")), fallback="auto")
 
-            # engine
             self._select_combo_by_data(self.cb_engine_device, str(eng.get("preferred_device", "auto")), fallback="auto")
             self._select_combo_by_data(self.cb_engine_precision, str(eng.get("precision", "auto")), fallback="auto")
             self.chk_engine_tf32.setChecked(bool(eng.get("allow_tf32", True)))
 
-            # model
-            model_name = str(model.get("ai_engine_name", "whisper-turbo")).strip() or "whisper-turbo"
-            self._select_combo_by_data(self.cb_model_name, model_name, fallback=model_name)
-            self.ed_model_default_lang.setText("" if model.get("default_language") is None else str(model.get("default_language")))
+            model_name = str(model.get("ai_engine_name", "")).strip()
+            if model_name:
+                self._select_combo_by_data(self.cb_model_engine, model_name, fallback=model_name)
+
+            default_lang = model.get("default_language", None)
+            self.ed_model_default_lang.setText("" if default_lang is None else str(default_lang))
+
             self.spin_model_chunk.setValue(int(model.get("chunk_length_s", 60)))
             self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
+            self.chk_model_ignore_warn.setChecked(bool(model.get("ignore_warning", True)))
             self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
 
-            # transcription
             timestamps_output = bool(trc.get("timestamps_output", False))
             out_ext = str(trc.get("output_ext", "txt")).lower().strip().lstrip(".") or "txt"
 
@@ -634,15 +579,12 @@ class SettingsPanel(QtWidgets.QWidget):
                 fmt_key = "txt_timestamps"
 
             self._select_combo_by_data(self.cb_tr_output_format, fmt_key, fallback="plain_txt")
-            self.chk_tr_keep_downloaded.setChecked(bool(trc.get("keep_downloaded_files", False)))
             self.chk_tr_keep_wav.setChecked(bool(trc.get("keep_wav_temp", False)))
             self.chk_tr_audio_only.setChecked(bool(trc.get("download_audio_only", True)))
 
-            # downloader
             self.spin_down_min_h.setValue(int(down.get("min_video_height", 144)))
             self.spin_down_max_h.setValue(int(down.get("max_video_height", 4320)))
 
-            # network
             bw = net.get("max_bandwidth_kbps")
             self.spin_net_bw.setValue(int(bw) if isinstance(bw, int) and bw >= 0 else 0)
             self.spin_net_retries.setValue(int(net.get("retries", 3)))
@@ -680,15 +622,16 @@ class SettingsPanel(QtWidgets.QWidget):
             "allow_tf32": bool(self.chk_engine_tf32.isChecked()),
         }
 
+        default_lang = self.ed_model_default_lang.text().strip()
+        default_lang_val = None if (not default_lang or default_lang.lower() == "auto") else default_lang
+
         model = {
-            "ai_engine_name": str(self.cb_model_name.currentData() or "whisper-turbo"),
+            "ai_engine_name": str(self.cb_model_engine.currentData() or "whisper-turbo"),
             "chunk_length_s": int(self.spin_model_chunk.value()),
             "stride_length_s": int(self.spin_model_stride.value()),
-            "ignore_warning": bool(self._data.get("model", {}).get("ignore_warning", True)),
-            "default_language": (self.ed_model_default_lang.text().strip() or None),
-            "return_timestamps": bool(self._data.get("model", {}).get("return_timestamps", False)),
+            "ignore_warning": bool(self.chk_model_ignore_warn.isChecked()),
+            "default_language": default_lang_val,
             "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
-            "local_models_only": bool(self._data.get("model", {}).get("local_models_only", True)),
         }
 
         fmt_key = str(self.cb_tr_output_format.currentData() or "plain_txt")
@@ -703,7 +646,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
         trc = {
             "timestamps_output": timestamps_output,
-            "keep_downloaded_files": bool(self.chk_tr_keep_downloaded.isChecked()),
             "keep_wav_temp": bool(self.chk_tr_keep_wav.isChecked()),
             "download_audio_only": bool(self.chk_tr_audio_only.isChecked()),
             "output_ext": out_ext,
@@ -735,20 +677,15 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_restore_clicked(self) -> None:
         if not dialogs.ask_restore_defaults(self):
             return
-
-        self._restore_base_snapshot = dict(self._data) if isinstance(self._data, dict) else {}
         self._start_worker(action="restore_defaults")
 
     @QtCore.pyqtSlot()
     def _on_save_clicked(self) -> None:
         if not dialogs.ask_save_settings(self):
             return
-
         payload = self._collect_payload()
         self._pending_restart_prompt = self._compute_restart_needed_for_save(payload)
         self._start_worker(action="save", payload=payload)
-
-    # ----- Restart -----
 
     def _restart_application(self) -> None:
         try:
@@ -758,8 +695,16 @@ class SettingsPanel(QtWidgets.QWidget):
             QtWidgets.QApplication.quit()
         except Exception as ex:
             QtWidgets.QMessageBox.critical(
-                self, tr("app.title"), tr("settings.msg.restart_failed", detail=str(ex))
+                self,
+                tr("app.title"),
+                tr("settings.msg.restart_failed", detail=str(ex)),
             )
 
-    def on_parent_close(self) -> None:
-        pass
+    def _compute_restart_needed_for_save(self, payload: Dict[str, Any]) -> bool:
+        current = self._data if isinstance(self._data, dict) else {}
+        for section, key in self._RESTART_SENSITIVE_KEYS:
+            old = (current.get(section, {}) or {}).get(key)
+            new = (payload.get(section, {}) or {}).get(key)
+            if old != new:
+                return True
+        return False

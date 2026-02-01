@@ -332,7 +332,8 @@
       "max_bandwidth_kbps": "Download speed limit. 0 means unlimited.",
       "retries": "How many times to retry failed HTTP requests.",
       "concurrent_fragments": "Concurrent fragment downloads. Higher can be faster but stresses the connection.",
-      "http_timeout_s": "Network timeout for downloads (seconds)."
+      "http_timeout_s": "Network timeout for downloads (seconds).",
+      "ignore_warning": "Ignore warnings that are safe to skip (recommended for smoother runs)."
     }
   },
   "about": {

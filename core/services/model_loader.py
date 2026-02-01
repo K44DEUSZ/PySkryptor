@@ -22,7 +22,6 @@ class ModelLoader:
 
         Respects model settings:
           - ai_engine_name
-          - local_models_only
           - low_cpu_mem_usage
         """
         logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -31,7 +30,6 @@ class ModelLoader:
         ai_name = str(model_cfg.get("ai_engine_name", "") or "").strip() or "unknown"
         low_cpu_mem_usage = bool(model_cfg.get("low_cpu_mem_usage", True))
         use_safetensors = bool(Config.USE_SAFETENSORS)
-        local_models_only = bool(model_cfg.get("local_models_only", True))
 
         if log is not None:
             try:
@@ -54,15 +52,13 @@ class ModelLoader:
             str(Config.AI_ENGINE_DIR),
             low_cpu_mem_usage=low_cpu_mem_usage,
             use_safetensors=use_safetensors,
-            local_files_only=local_models_only,
         )
         processor = AutoProcessor.from_pretrained(
             str(Config.AI_ENGINE_DIR),
-            local_files_only=local_models_only,
         )
 
-        # Behaviour (timestamps, task, language) is controlled later
-        # via generate_kwargs and return_timestamps in TranscriptionWorker.
+        # Behaviour (task, language, timestamps when required) is controlled later
+        # by the transcription workers.
         self.pipeline = pipeline(
             "automatic-speech-recognition",
             model=model,

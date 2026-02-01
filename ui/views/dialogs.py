@@ -1,6 +1,7 @@
 # ui/views/dialogs.py
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Tuple, Optional, List
 from PyQt5 import QtCore, QtWidgets
 
@@ -36,6 +37,8 @@ def _tune_buttons(*buttons: QtWidgets.QAbstractButton) -> None:
 def _tune_dialog_window(dlg: QtWidgets.QDialog) -> None:
     _sanitize_window_flags(dlg)
     dlg.setModal(True)
+    # Keep the title bar minimal. We show context inside the dialog content.
+    dlg.setWindowTitle("")
     dlg.setMinimumWidth(DLG_MIN_W)
     dlg.setMaximumWidth(DLG_MAX_W)
 
@@ -65,7 +68,8 @@ def _message_dialog(
 ) -> None:
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg)
-    dlg.setWindowTitle(title)
+    if title:
+        dlg.setWindowTitle(title)
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay)
@@ -99,7 +103,8 @@ def _confirm_dialog(
 ) -> bool:
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg)
-    dlg.setWindowTitle(title)
+    if title:
+        dlg.setWindowTitle(title)
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay)
@@ -158,9 +163,7 @@ def critical_config_load_failed_and_exit(parent: QtWidgets.QWidget | None, detai
 
 
 def info_settings_restored(parent: QtWidgets.QWidget | None = None) -> None:
-    title = T.tr("app.title")
-    text = T.tr("dialog.settings_restored")
-    _message_dialog(parent, title=title, message=text, header=title)
+    _message_dialog(parent, title="", message=T.tr("dialog.settings_restored"))
 
 
 # ----- Live / audio dialogs -----
@@ -168,7 +171,7 @@ def info_settings_restored(parent: QtWidgets.QWidget | None = None) -> None:
 def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg)
-    dlg.setWindowTitle(T.tr("app.title"))
+    dlg.setWindowTitle("")
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay)
@@ -190,51 +193,46 @@ def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
 # ----- Downloader info dialogs -----
 
 def info_playlist_not_supported(parent: QtWidgets.QWidget | None = None) -> None:
-    title = T.tr("app.title")
-    text = T.tr("down.dialog.playlist_not_supported.text")
-    _message_dialog(parent, title=title, message=text, header=title)
+    _message_dialog(parent, title="", message=T.tr("down.dialog.playlist_not_supported.text"))
 
 
 # ----- Runtime confirmations -----
 
 def ask_cancel(parent: QtWidgets.QWidget) -> bool:
-    title = T.tr("app.title")
     text = T.tr("dialog.cancel_confirm", detail="")
     return _confirm_dialog(
         parent,
-        title=title,
+        title="",
         message=text,
         accept_text=T.tr("action.cancel_now"),
         reject_text=T.tr("action.keep_working"),
-        header=title,
+        header=None,
         default_accept=False,
     )
 
 
 def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
-    title = T.tr("app.title")
     text = T.tr("dialog.settings_save_confirm")
     return _confirm_dialog(
         parent,
-        title=title,
+        title="",
         message=text,
         accept_text=T.tr("settings.buttons.save"),
         reject_text=T.tr("ctrl.cancel"),
-        header=title,
+        header=None,
         default_accept=False,
     )
 
 
 def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
-    title = T.tr("app.title")
     text = T.tr("dialog.settings_restore_confirm")
     return _confirm_dialog(
         parent,
-        title=title,
+        title="",
         message=text,
         accept_text=T.tr("settings.buttons.restore_defaults"),
         reject_text=T.tr("ctrl.cancel"),
-        header=title,
+        header=None,
         default_accept=False,
     )
 
@@ -247,11 +245,12 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> Tuple[str, str, bool]:
     """
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg)
-    dlg.setWindowTitle(T.tr("dialog.conflict.title"))
+    dlg.setWindowTitle("")
 
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout)
 
+    layout.addWidget(_bold_label(T.tr("dialog.conflict.title")))
     layout.addWidget(_wrap_label(T.tr("dialog.conflict.text", name=stem)))
 
     rb_skip = QtWidgets.QRadioButton(T.tr("dialog.conflict.skip"))
@@ -307,7 +306,7 @@ def ask_download_duplicate(parent: QtWidgets.QWidget, *, title: str, suggested_n
     """
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg)
-    dlg.setWindowTitle(T.tr("app.title"))
+    dlg.setWindowTitle("")
 
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout)
@@ -366,11 +365,12 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     """
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg)
-    dlg.setWindowTitle(T.tr("dialog.restart_required.title"))
+    dlg.setWindowTitle("")
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay)
 
+    lay.addWidget(_bold_label(T.tr("dialog.restart_required.title")))
     lay.addWidget(_wrap_label(T.tr("dialog.restart_required.text")))
     lay.addStretch(1)
 
@@ -385,3 +385,44 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     lay.addWidget(btns)
 
     return dlg.exec_() == QtWidgets.QDialog.Accepted
+
+
+# ----- Session finish helpers -----
+
+def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> bool:
+    """Show a minimal 'done' dialog. Returns True if user wants to open the session folder."""
+    # Reuse existing translations to avoid introducing new locale keys.
+    msg = f"{T.tr('log.done')}\n{session_dir}" if session_dir else T.tr('log.done')
+    return _confirm_dialog(
+        parent,
+        title="",
+        message=msg,
+        accept_text=T.tr("files.open_output"),
+        reject_text="OK",
+        header=T.tr("status.done"),
+        default_accept=False,
+    )
+
+
+def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -> bool:
+    """Show a minimal 'download finished' dialog. Returns True if user wants to open downloads folder."""
+    name = ""
+    try:
+        p = Path(downloaded_path)
+        name = p.name
+    except Exception:
+        name = str(downloaded_path or "")
+
+    msg = T.tr("down.log.downloaded_prefix")
+    if name:
+        msg = f"{msg} {name}"
+
+    return _confirm_dialog(
+        parent,
+        title="",
+        message=msg,
+        accept_text=T.tr("down.open_folder"),
+        reject_text="OK",
+        header=T.tr("status.done"),
+        default_accept=False,
+    )

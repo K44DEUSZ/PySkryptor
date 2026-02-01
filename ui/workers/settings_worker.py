@@ -57,6 +57,12 @@ class SettingsWorker(QtCore.QObject):
             msg = f"{ex.key}: {ex}"
         self.error.emit(msg)
 
+    @staticmethod
+    def _cleanup_deprecated_keys(data: Dict[str, Any]) -> None:
+        tr_sec = data.get("transcription")
+        if isinstance(tr_sec, dict):
+            tr_sec.pop("keep_downloaded_files", None)
+
     def _do_load(self) -> None:
         try:
             svc = SettingsService(Config.ROOT_DIR)
@@ -82,7 +88,6 @@ class SettingsWorker(QtCore.QObject):
 
     def _do_save(self) -> None:
         """Save selected settings sections back to settings.json."""
-
         try:
             svc = SettingsService(Config.ROOT_DIR)
             defaults_path: Path = svc._defaults_path  # type: ignore[attr-defined]
@@ -104,7 +109,6 @@ class SettingsWorker(QtCore.QObject):
 
             updated = dict(raw)
 
-            # Merge only known user sections to avoid dropping extra keys.
             for section in (
                 "app",
                 "engine",
@@ -124,7 +128,8 @@ class SettingsWorker(QtCore.QObject):
                 else:
                     updated[section] = patch
 
-            # Write to a tmp file first and validate against defaults before overwriting.
+            self._cleanup_deprecated_keys(updated)
+
             tmp_path = settings_path.with_suffix(settings_path.suffix + ".tmp")
             try:
                 svc._write_json(tmp_path, updated)  # type: ignore[attr-defined]
@@ -134,7 +139,7 @@ class SettingsWorker(QtCore.QObject):
                     defaults_path=defaults_path,
                     settings_path=tmp_path,
                 )
-                _ = tmp_svc.load()  # validate
+                _ = tmp_svc.load()
 
                 svc._write_json(settings_path, updated)  # type: ignore[attr-defined]
                 final_snap = svc.load()

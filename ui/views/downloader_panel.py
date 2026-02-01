@@ -10,7 +10,7 @@ from core.config.app_config import AppConfig as Config
 from core.io.text import format_bytes, format_hms
 from ui.utils.translating import tr
 from ui.utils.logging import QtHtmlLogSink
-from ui.views.dialogs import ask_download_duplicate, info_playlist_not_supported
+from ui.views.dialogs import ask_download_duplicate, ask_open_downloads_folder, info_playlist_not_supported
 from ui.workers.download_worker import DownloadWorker
 
 
@@ -408,6 +408,13 @@ class DownloaderPanel(QtWidgets.QWidget):
             self.pb_download.setValue(100)
             self.log.line_with_link(tr("down.log.downloaded_prefix"), path, title=title)
             self._update_buttons_and_size()
+
+            # Optional: offer quick access to the downloads folder.
+            try:
+                if ask_open_downloads_folder(self, str(path)):
+                    self._on_open_downloads_clicked()
+            except Exception:
+                pass
         except Exception as e:
             self.log.err(tr("down.log.error", msg=str(e)))
 

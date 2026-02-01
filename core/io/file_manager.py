@@ -133,6 +133,16 @@ class FileManager:
         name = sanitize_filename(str(base_name or "")) or "transcript"
         return out_dir / f"{name}.{ext}"
 
+    @staticmethod
+    def audio_wav_path(stem: str, *, filename: str = "Audio.wav") -> Path:
+        """Return a WAV asset path inside the item's output folder."""
+        out_dir = FileManager.ensure_output(stem)
+
+        name = str(filename or "Audio.wav").strip()
+        base = Path(name).stem
+        safe = sanitize_filename(base) or "Audio"
+        return out_dir / f"{safe}.wav"
+
     # ----- Temp & downloads -----
 
     @staticmethod
@@ -148,36 +158,6 @@ class FileManager:
         p = Config.INPUT_TMP_DIR / "url"
         p.mkdir(parents=True, exist_ok=True)
         return p
-
-    @staticmethod
-    def move_to_downloads(source: Path, *, desired_stem: str | None = None) -> Path:
-        """Move a file into DOWNLOADS_DIR with a non-colliding name."""
-        src = Path(source)
-        downloads = Config.DOWNLOADS_DIR
-        downloads.mkdir(parents=True, exist_ok=True)
-
-        try:
-            if src.parent.resolve() == downloads.resolve():
-                return src
-        except Exception:
-            pass
-
-        stem = sanitize_filename(desired_stem or src.stem) or "download"
-        ext = src.suffix or ""
-        candidate = downloads / f"{stem}{ext}"
-
-        if candidate.exists():
-            i = 2
-            while True:
-                cand = downloads / f"{stem} ({i}){ext}"
-                if not cand.exists():
-                    candidate = cand
-                    break
-                i += 1
-
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src), str(candidate))
-        return candidate
 
     @staticmethod
     def ensure_tmp_wav(

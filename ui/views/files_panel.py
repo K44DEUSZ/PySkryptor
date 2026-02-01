@@ -11,7 +11,7 @@ from core.config.app_config import AppConfig as Config
 from core.io.text import is_url
 from ui.utils.translating import tr
 from ui.utils.logging import QtHtmlLogSink
-from ui.views.dialogs import ask_cancel, ask_conflict
+from ui.views.dialogs import ask_cancel, ask_conflict, ask_open_transcripts_folder
 from ui.workers.metadata_worker import MetadataWorker
 from ui.workers.transcription_worker import TranscriptionWorker
 from ui.workers.model_loader_worker import ModelLoadWorker
@@ -41,6 +41,7 @@ class DropTableWidget(QtWidgets.QTableWidget):
     """QTableWidget with file/folder drag&drop support."""
 
     pathsDropped = QtCore.pyqtSignal(list)
+    deletePressed = QtCore.pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -71,6 +72,13 @@ class DropTableWidget(QtWidgets.QTableWidget):
             self.pathsDropped.emit(out)
         e.acceptProposedAction()
 
+    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
+        if e.key() == QtCore.Qt.Key_Delete:
+            self.deletePressed.emit()
+            e.accept()
+            return
+        super().keyPressEvent(e)
+
 
 class FilesPanel(QtWidgets.QWidget):
     """Files tab: sources list + transcription control."""
@@ -80,9 +88,9 @@ class FilesPanel(QtWidgets.QWidget):
     COL_TITLE = 2
     COL_DUR = 3
     COL_SRC = 4
-    COL_PATH = 5
-    COL_STATUS = 6
-    COL_PREVIEW = 7
+    COL_LANG = 5
+    COL_PATH = 6
+    COL_STATUS = 7
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -161,9 +169,9 @@ class FilesPanel(QtWidgets.QWidget):
             tr("files.details.col.name"),
             tr("files.details.col.duration"),
             tr("files.details.col.source"),
+            tr("files.details.col.language"),
             tr("files.details.col.path"),
             tr("files.details.col.status"),
-            tr("files.details.col.preview"),
         ])
 
         self.tbl.verticalHeader().setVisible(False)
@@ -218,11 +226,13 @@ class FilesPanel(QtWidgets.QWidget):
 
         # State
         self.pipe = None
+
         self._keys: set[str] = set()
         self._row_by_key: Dict[str, int] = {}
         self._transcript_by_key: Dict[str, str] = {}
         self._origin_src_by_key: Dict[str, str] = {}  # internal_key -> "URL"/"LOCAL"
         self._display_path_by_key: Dict[str, str] = {}  # internal_key -> display text shown in table
+        self._audio_lang_by_key: Dict[str, Optional[str]] = {}  # internal_key -> selected audio lang code
 
         # Model auto-load
         self._start_model_load()
@@ -241,6 +251,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)
 
         self.tbl.pathsDropped.connect(self._on_paths_dropped)
+        self.tbl.deletePressed.connect(self._on_remove_selected)
         self.tbl.cellDoubleClicked.connect(lambda row, _col: self._open_transcript_for_row(row))
 
         self._update_buttons()
@@ -255,10 +266,13 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.setColumnWidth(self.COL_CHECK, max(26, check_w))
 
         header.setSectionResizeMode(self.COL_NO, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_PREVIEW, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_DUR, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_SRC, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_LANG, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_STATUS, QtWidgets.QHeaderView.ResizeToContents)
 
-        for c in (self.COL_TITLE, self.COL_DUR, self.COL_SRC, self.COL_PATH, self.COL_STATUS):
-            header.setSectionResizeMode(c, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_TITLE, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(self.COL_PATH, QtWidgets.QHeaderView.Stretch)
 
     def _apply_populated_header_mode(self) -> None:
         header = self.tbl.horizontalHeader()
@@ -271,9 +285,9 @@ class FilesPanel(QtWidgets.QWidget):
         header.setSectionResizeMode(self.COL_TITLE, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(self.COL_DUR, QtWidgets.QHeaderView.ResizeToContents)
         header.setSectionResizeMode(self.COL_SRC, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(self.COL_LANG, QtWidgets.QHeaderView.ResizeToContents)
         header.setSectionResizeMode(self.COL_PATH, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(self.COL_STATUS, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(self.COL_PREVIEW, QtWidgets.QHeaderView.ResizeToContents)
 
     # ---- checkbox widget helpers ----
 
@@ -294,6 +308,95 @@ class FilesPanel(QtWidgets.QWidget):
         lay.addWidget(cb)
         cb.stateChanged.connect(lambda _v: self._update_buttons())
         return host
+
+    # ---- language selector helpers ----
+
+    @staticmethod
+    def _normalize_lang_code(code: str | None) -> str | None:
+        if not code:
+            return None
+        code = str(code).strip()
+        if not code:
+            return None
+        code = code.replace("_", "-")
+        parts = [p for p in code.split("-") if p]
+        if not parts:
+            return None
+        parts[0] = parts[0].lower()
+        for i in range(1, len(parts)):
+            if len(parts[i]) == 2:
+                parts[i] = parts[i].upper()
+            else:
+                parts[i] = parts[i].lower()
+        return "-".join(parts)
+
+    def _make_lang_combo(self, *, internal_key: str) -> QtWidgets.QComboBox:
+        cb = QtWidgets.QComboBox()
+        cb.addItem(tr("down.select.audio_track.default"))
+        cb.setProperty("lang_codes", [None])
+        cb.setProperty("has_choices", False)
+        cb.setProperty("internal_key", internal_key)
+        cb.setEnabled(False)
+        cb.currentIndexChanged.connect(self._on_lang_combo_changed)
+        return cb
+
+    @QtCore.pyqtSlot(int)
+    def _on_lang_combo_changed(self, idx: int) -> None:
+        w = self.sender()
+        if not isinstance(w, QtWidgets.QComboBox):
+            return
+
+        key = str(w.property("internal_key") or "").strip()
+        if not key:
+            return
+
+        codes = w.property("lang_codes") or [None]
+        try:
+            code = codes[idx] if 0 <= idx < len(codes) else None
+        except Exception:
+            code = None
+
+        self._audio_lang_by_key[key] = code or None
+
+    def _update_audio_tracks(self, row: int, meta: Dict[str, Any]) -> None:
+        w = self.tbl.cellWidget(row, self.COL_LANG)
+        if not isinstance(w, QtWidgets.QComboBox):
+            return
+
+        raw = meta.get("audio_tracks") or meta.get("audio_langs") or []
+        codes: List[str] = []
+        for t in raw or []:
+            if not isinstance(t, dict):
+                continue
+            code = t.get("lang_code") or t.get("lang") or t.get("language")
+            norm = self._normalize_lang_code(code)
+            if norm and norm not in codes:
+                codes.append(norm)
+
+        # Update combobox choices
+        w.blockSignals(True)
+        w.clear()
+        w.addItem(tr("down.select.audio_track.default"))
+        lang_codes: List[Optional[str]] = [None]
+
+        for c in codes:
+            w.addItem(c)
+            lang_codes.append(c)
+
+        w.setCurrentIndex(0)
+        w.blockSignals(False)
+
+        w.setProperty("lang_codes", lang_codes)
+        has_choices = len(lang_codes) > 2  # default + at least 2 tracks
+        w.setProperty("has_choices", has_choices)
+
+        internal_key = self._internal_key_at_row(row)
+        if internal_key:
+            w.setProperty("internal_key", internal_key)
+            # Reset selection if key changed
+            self._audio_lang_by_key.setdefault(internal_key, None)
+
+        self._update_buttons()
 
     # ---- keys / mapping helpers ----
 
@@ -339,6 +442,10 @@ class FilesPanel(QtWidgets.QWidget):
                 self._display_path_by_key[display_url] = display_url
                 self._origin_src_by_key[display_url] = "URL"
                 self._row_by_key[display_url] = r
+                w = self.tbl.cellWidget(r, self.COL_LANG)
+                if isinstance(w, QtWidgets.QComboBox):
+                    w.setProperty("internal_key", display_url)
+                self._audio_lang_by_key.setdefault(display_url, None)
                 continue
 
             # Remap all internal structures from tmp/local key -> original URL
@@ -359,6 +466,13 @@ class FilesPanel(QtWidgets.QWidget):
             if old_key in self._display_path_by_key:
                 self._display_path_by_key.pop(old_key, None)
             self._display_path_by_key[new_key] = new_key
+
+            if old_key in self._audio_lang_by_key:
+                self._audio_lang_by_key[new_key] = self._audio_lang_by_key.pop(old_key)
+
+            w = self.tbl.cellWidget(r, self.COL_LANG)
+            if isinstance(w, QtWidgets.QComboBox):
+                w.setProperty("internal_key", new_key)
 
             self._transcript_by_key.pop(old_key, None)
 
@@ -425,8 +539,13 @@ class FilesPanel(QtWidgets.QWidget):
             key = self._internal_key_at_row(r)
             if not key:
                 continue
+
             if is_url(key):
-                entries.append({"type": "url", "value": key})
+                payload: Dict[str, Any] = {"type": "url", "value": key}
+                lang = self._audio_lang_by_key.get(key)
+                if lang:
+                    payload["audio_lang"] = lang
+                entries.append(payload)
             else:
                 entries.append({"type": "file", "value": key})
         return entries
@@ -471,6 +590,10 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.setItem(row, self.COL_SRC, it_src)
         it_src.setToolTip(src_label)
 
+        lang_cb = self._make_lang_combo(internal_key=key)
+        self.tbl.setCellWidget(row, self.COL_LANG, lang_cb)
+        self._audio_lang_by_key.setdefault(key, None)
+
         it_path = QtWidgets.QTableWidgetItem(key)
         it_path.setToolTip(key)
         it_path.setData(QtCore.Qt.UserRole, key)  # internal key
@@ -479,11 +602,6 @@ class FilesPanel(QtWidgets.QWidget):
         it_status = QtWidgets.QTableWidgetItem("-")
         it_status.setTextAlignment(QtCore.Qt.AlignCenter)
         self.tbl.setItem(row, self.COL_STATUS, it_status)
-
-        btn = QtWidgets.QToolButton()
-        btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
-        btn.setEnabled(False)
-        self.tbl.setCellWidget(row, self.COL_PREVIEW, btn)
 
         self._row_by_key[key] = row
         self._origin_src_by_key[key] = src_label
@@ -498,6 +616,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.tbl.item(row, self.COL_TITLE).setText(title)
         self.tbl.item(row, self.COL_DUR).setText(_fmt_seconds(duration))
+        self._update_audio_tracks(row, meta)
 
     def _start_metadata_for(self, keys: List[str]) -> None:
         if not keys:
@@ -570,19 +689,35 @@ class FilesPanel(QtWidgets.QWidget):
         self._update_buttons()
 
     def _on_paths_dropped(self, paths: List[str]) -> None:
+        exts = {e.lower() for e in Config.SUPPORTED_MEDIA_EXTS}
         added: List[str] = []
+
+        def _add_file(fp: Path) -> None:
+            if not fp.exists() or not fp.is_file():
+                return
+            if fp.suffix.lower() not in exts:
+                return
+            key = str(fp)
+            if not self._try_add_key(key):
+                return
+            self._insert_placeholder_row(key, src_label="LOCAL")
+            added.append(key)
+
         for p in paths:
             p = self._normalize_key(p)
             if not p:
                 continue
             pp = Path(p)
-            if not pp.exists() or not pp.is_file():
+            if not pp.exists():
                 continue
-            key = str(pp)
-            if not self._try_add_key(key):
+
+            if pp.is_dir():
+                for fp in pp.rglob("*"):
+                    if fp.is_file():
+                        _add_file(fp)
                 continue
-            self._insert_placeholder_row(key, src_label="LOCAL")
-            added.append(key)
+
+            _add_file(pp)
 
         if added:
             self._start_metadata_for(added[:30])
@@ -617,6 +752,7 @@ class FilesPanel(QtWidgets.QWidget):
                 self._transcript_by_key.pop(key, None)
                 self._origin_src_by_key.pop(key, None)
                 self._display_path_by_key.pop(key, None)
+                self._audio_lang_by_key.pop(key, None)
             self.tbl.removeRow(r)
 
         if self.tbl.rowCount() == 0:
@@ -679,6 +815,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcript_by_key.clear()
         self._origin_src_by_key.clear()
         self._display_path_by_key.clear()
+        self._audio_lang_by_key.clear()
         self.tbl.setRowCount(0)
         self.progress.setValue(0)
         self._apply_empty_header_mode()
@@ -732,6 +869,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcribe_worker.item_path_update.connect(self._on_item_path_update)
         self._transcribe_worker.transcript_ready.connect(self._on_transcript_ready)
         self._transcribe_worker.conflict_check.connect(self._on_conflict_check)
+        self._transcribe_worker.session_done.connect(self._on_session_done)
 
         self._transcribe_worker.finished.connect(self._transcribe_thread.quit)
         self._transcribe_worker.finished.connect(self._transcribe_worker.deleteLater)
@@ -759,8 +897,8 @@ class FilesPanel(QtWidgets.QWidget):
 
         # Reset visible statuses immediately
         for r in range(self.tbl.rowCount()):
-            preview = self.tbl.cellWidget(r, self.COL_PREVIEW)
-            finished = isinstance(preview, QtWidgets.QToolButton) and preview.isEnabled()
+            key = self._internal_key_at_row(r)
+            finished = bool(key and self._transcript_by_key.get(key))
             if not finished:
                 it = self.tbl.item(r, self.COL_STATUS)
                 if it:
@@ -777,6 +915,23 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcribe_thread = None
         self._transcribe_worker = None
         self._update_buttons()
+
+    @QtCore.pyqtSlot(str, bool, bool, bool)
+    def _on_session_done(self, session_dir: str, processed_any: bool, had_errors: bool, was_cancelled: bool) -> None:
+        """Show a finish dialog after the worker reports a completed session."""
+        if not processed_any or had_errors or was_cancelled:
+            return
+        try:
+            if not ask_open_transcripts_folder(self, session_dir):
+                return
+            p = Path(session_dir)
+            p.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(str(p))  # type: ignore[attr-defined]
+            else:
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(p)))
+        except Exception:
+            pass
 
     @QtCore.pyqtSlot(str, str)
     def _on_item_status(self, key: str, status: str) -> None:
@@ -818,7 +973,6 @@ class FilesPanel(QtWidgets.QWidget):
 
         # Keep original URL for display
         display = self._display_path_by_key.get(old_key, old_key)
-
         src_label = self._origin_src_by_key.get(old_key)
 
         self._keys.discard(old_key)
@@ -827,6 +981,9 @@ class FilesPanel(QtWidgets.QWidget):
 
         if old_key in self._transcript_by_key:
             self._transcript_by_key[new_key] = self._transcript_by_key.pop(old_key)
+
+        if old_key in self._audio_lang_by_key:
+            self._audio_lang_by_key[new_key] = self._audio_lang_by_key.pop(old_key)
 
         if src_label:
             self._origin_src_by_key[new_key] = src_label
@@ -841,17 +998,15 @@ class FilesPanel(QtWidgets.QWidget):
             it_path.setText(display)
             it_path.setToolTip(display)
 
+        w = self.tbl.cellWidget(row, self.COL_LANG)
+        if isinstance(w, QtWidgets.QComboBox):
+            w.setProperty("internal_key", new_key)
+
         self._start_metadata_for([new_key])
 
     @QtCore.pyqtSlot(str, str)
     def _on_transcript_ready(self, key: str, transcript_path: str) -> None:
         self._transcript_by_key[key] = transcript_path
-        row = self._row_by_key.get(key)
-        if row is None:
-            return
-        w = self.tbl.cellWidget(row, self.COL_PREVIEW)
-        if isinstance(w, QtWidgets.QToolButton):
-            w.setEnabled(True)
         self.log.line_with_link(
             tr("log.transcript.saved_prefix"),
             Path(transcript_path),
@@ -943,14 +1098,27 @@ class FilesPanel(QtWidgets.QWidget):
         model_ready = self.pipe is not None
         running = self._transcribe_thread is not None
 
+        self.src_edit.setEnabled(not running)
+
         self.btn_start.setEnabled(has_items and model_ready and not running)
         self.btn_cancel.setEnabled(running)
+
         self.btn_clear_list.setEnabled(has_items and not running)
         self.btn_remove_selected.setEnabled(has_sel and not running)
+
         self.btn_src_add.setEnabled(not running)
-        self.btn_open_output.setEnabled(not running)
+        # Opening the output folder is safe during transcription.
+        self.btn_open_output.setEnabled(True)
+
         self.btn_add_files.setEnabled(not running)
         self.btn_add_folder.setEnabled(not running)
+
+        # Per-row language selectors (only meaningful for URLs with multiple audio tracks)
+        for r in range(self.tbl.rowCount()):
+            w = self.tbl.cellWidget(r, self.COL_LANG)
+            if isinstance(w, QtWidgets.QComboBox):
+                can_choose = bool(w.property("has_choices"))
+                w.setEnabled(bool(can_choose and (not running)))
 
     def on_parent_close(self) -> None:
         """Best-effort shutdown for active background threads."""

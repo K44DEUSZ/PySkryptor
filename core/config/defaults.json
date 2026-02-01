@@ -14,13 +14,10 @@
     "stride_length_s": 5,
     "ignore_warning": true,
     "default_language": null,
-    "return_timestamps": false,
-    "low_cpu_mem_usage": true,
-    "local_models_only": true
+    "low_cpu_mem_usage": true
   },
   "transcription": {
     "timestamps_output": true,
-    "keep_downloaded_files": false,
     "keep_wav_temp": false,
     "download_audio_only": true,
     "output_ext": "txt"

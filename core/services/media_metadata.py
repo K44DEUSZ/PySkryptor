@@ -33,6 +33,8 @@ class MediaMetadata:
             "path": self.path,
             "size": self.size,
             "duration": self.duration,
+            # Optional audio track list (language codes, bitrate, etc.).
+            "audio_tracks": self.audio_langs or [],
         }
 
 

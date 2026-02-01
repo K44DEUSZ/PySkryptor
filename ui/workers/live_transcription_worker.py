@@ -171,7 +171,6 @@ class LiveTranscriptionWorker(QtCore.QObject):
 
         engine_cfg = Config.engine_settings()
         model_name = str(engine_cfg.get("translation_model_name", "") or "").strip()
-        local_only = bool(engine_cfg.get("translation_local_models_only", True))
 
         if not model_name:
             self.log.emit(tr("log.live.translate.model_missing"))
@@ -180,8 +179,8 @@ class LiveTranscriptionWorker(QtCore.QObject):
         try:
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline  # lazy import
 
-            tok = AutoTokenizer.from_pretrained(model_name, local_files_only=local_only)
-            mdl = AutoModelForSeq2SeqLM.from_pretrained(model_name, local_files_only=local_only)
+            tok = AutoTokenizer.from_pretrained(model_name, local_files_only=False)
+            mdl = AutoModelForSeq2SeqLM.from_pretrained(model_name, local_files_only=False)
             self._translator = pipeline("translation", model=mdl, tokenizer=tok, device=-1)
             self._translator_meta = (src, tgt)
             return True

@@ -172,17 +172,22 @@ class SettingsService:
 
         out["ignore_warning"] = bool(src.get("ignore_warning", True))
         out["default_language"] = src.get("default_language", None)
-
-        out["return_timestamps"] = bool(src.get("return_timestamps", False))
         out["low_cpu_mem_usage"] = bool(src.get("low_cpu_mem_usage", True))
-        out["local_models_only"] = bool(src.get("local_models_only", True))
+
+        # NOTE:
+        # "return_timestamps" and "local_models_only" have been removed from user settings.
+        # They may still exist in older settings.json files; leaving them there is harmless.
         return out
 
     def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         self._require_keys("transcription", src, schema)
         out: Dict[str, Any] = {}
+
         out["timestamps_output"] = bool(src.get("timestamps_output", False))
-        out["keep_downloaded_files"] = bool(src.get("keep_downloaded_files", True))
+
+        # NOTE:
+        # "keep_downloaded_files" has been deprecated and is intentionally ignored.
+        # It may still exist in older settings.json files; leaving it there is harmless.
         out["keep_wav_temp"] = bool(src.get("keep_wav_temp", False))
         out["download_audio_only"] = bool(src.get("download_audio_only", True))
 
@@ -199,7 +204,6 @@ class SettingsService:
             default_ext = "txt"
 
         out["output_ext"] = ext if ext in allowed_ext else default_ext
-
         return out
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
