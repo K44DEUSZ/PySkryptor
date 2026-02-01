@@ -2,8 +2,8 @@
 venv/
 env/
 .idea/
-resources/models/
-resources/ffmpeg/
+assets/ai_models/
+assets/ffmpeg/
 data/
 __pycache__/
 *.py[cod]

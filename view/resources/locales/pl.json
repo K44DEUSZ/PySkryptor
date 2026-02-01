@@ -1,0 +1,377 @@
+{
+  "meta": {
+    "language_code": "pl",
+    "native_name": "Polski",
+    "language_name": "Polish"
+  },
+  "app": {
+    "title": "PySkryptor: Asystent transkrypcji 🎧"
+  },
+  "loading": {
+    "subtitle": "Uruchamianie aplikacji...",
+    "stage": {
+      "start": "Start..."
+    }
+  },
+  "tabs": {
+    "files": "Pliki",
+    "live": "Na żywo",
+    "downloader": "Pobieranie",
+    "settings": "Ustawienia",
+    "about": "O aplikacji"
+  },
+  "ctrl": {
+    "start": "Start ▶️",
+    "cancel": "Anuluj ✖️",
+    "ok": "OK"
+  },
+  "files": {
+    "placeholder": "Wklej ścieżkę do pliku lub URL...",
+    "add": "Dodaj",
+    "add_files": "Dodaj pliki... 📁",
+    "add_folder": "Dodaj folder... 📂",
+    "open_output": "Otwórz folder transkrypcji 📂",
+    "remove_selected": "Usuń zaznaczone 🗑️",
+    "clear": "Wyczyść listę 🧹",
+    "details": {
+      "title": "Źródła",
+      "col": {
+        "name": "Nazwa",
+        "source": "Źródło",
+        "path": "Ścieżka",
+        "duration": "Czas trwania",
+        "status": "Status",
+        "language": "Język"
+      },
+      "filters": {
+        "audio_video": "Audio / wideo"
+      }
+    },
+    "transcript": {
+      "default_name": "Transkrypcja"
+    }
+  },
+  "live": {
+    "group": {
+      "settings": "Ustawienia",
+      "controls": "Sterowanie"
+    },
+    "ctrl": {
+      "start": "Start ▶️",
+      "pause": "Pauza ⏸️",
+      "stop": "Stop ⏹️",
+      "save_transcript": "Zapisz 💾",
+      "refresh_devices": "Odśwież urządzenia",
+      "clear": "Wyczyść"
+    },
+    "dialog": {
+      "no_devices": {
+        "title": "Brak mikrofonu",
+        "text": "Nie wykryto urządzeń wejścia audio.\nPodłącz mikrofon i spróbuj ponownie (Odśwież urządzenia)."
+      }
+    },
+    "device": "Urządzenie wejściowe",
+    "device.none": "Brak urządzeń wejściowych",
+    "device.unavailable": "Brak dostępu do urządzeń audio",
+    "mode": "Tryb",
+    "mode.transcribe": "Transkrypcja",
+    "mode.translate": "Tłumaczenie",
+    "source_language": "Język źródłowy",
+    "target_language": "Język docelowy",
+    "show_source": "Pokaż tekst źródłowy",
+    "placeholder": {
+      "source": "Tutaj pojawi się transkrypcja na żywo...",
+      "target": "Tutaj pojawi się tłumaczenie na żywo..."
+    },
+    "model": {
+      "loading": "Ładowanie modelu..."
+    },
+    "detected_language": "Wykryty język: {lang}",
+    "meter": {
+      "input": "Poziom wejścia"
+    },
+    "save": {
+      "default_filename": "transcript.txt",
+      "file_filter": "Pliki tekstowe (*.txt);;Wszystkie pliki (*.*)",
+      "marker": {
+        "source": "--- ŹRÓDŁO ---",
+        "target": "--- DOCELOWY ---"
+      }
+    }
+  },
+  "down": {
+    "url": {
+      "placeholder": "Wklej URL do mediów..."
+    },
+    "probe": "Analizuj 🔍",
+    "open_folder": "Otwórz folder pobrań 📂",
+    "open_in_browser": "Otwórz w przeglądarce 🌐",
+    "meta": {
+      "title": "Informacje o mediach",
+      "service": "Usługa",
+      "name": "Tytuł",
+      "duration": "Czas trwania",
+      "size": "Szacowany rozmiar"
+    },
+    "select": {
+      "title": "Opcje pobierania",
+      "type": "Typ",
+      "type.video": "Wideo",
+      "type.audio": "Audio",
+      "quality": "Jakość",
+      "quality.auto": "Auto",
+      "ext": "Format",
+      "audio_track": "Ścieżka audio",
+      "audio_track.default": "Domyślna ścieżka"
+    },
+    "download": "Pobierz ⬇️",
+    "log": {
+      "analyze": "🔍 Analizowanie mediów...",
+      "meta_ready": "✅ Metadane wczytane.",
+      "downloading": "⬇️ Pobieranie...",
+      "downloaded_prefix": "✅ Pobrany plik:",
+      "playlist_not_supported": "Playlisty nie są obsługiwane w tej wersji.",
+      "error": "⚠️ {msg}"
+    },
+    "dialog": {
+      "exists": {
+        "text": "Plik „{title}” już istnieje w pobraniach.\nCo chcesz zrobić?",
+        "skip": "Pomiń ⏭️",
+        "overwrite": "Nadpisz ♻️",
+        "rename": "Zapisz pod nową nazwą ✏️"
+      },
+      "playlist_not_supported": {
+        "text": "Ten link wskazuje na playlistę (lub film otwarty w kontekście playlisty).\nPlaylisty nie są obsługiwane w tej wersji."
+      }
+    }
+  },
+  "log": {
+    "add": {
+      "missing": "⚠️ Plik nie istnieje."
+    },
+    "model": {
+      "ready": "✅ Model ASR gotowy na urządzeniu {device}.",
+      "error": "❌ Nie udało się zainicjalizować modelu ASR. Szczegóły: {msg}"
+    },
+    "pipe_not_ready": "⏳ Model nie jest jeszcze gotowy.",
+    "no_items": "ℹ️ Brak elementów do przetworzenia.",
+    "done": "✅ Wszystkie elementy zostały przetworzone.",
+    "cancelled": "✖️ Operacja anulowana.",
+    "transcription_failed": "❌ Transkrypcja nie powiodła się dla „{name}”. Szczegóły: {detail}",
+    "transcript": {
+      "saved_prefix": "✅ Zapisano transkrypcję:",
+      "save_failed": "❌ Nie udało się zapisać transkrypcji dla „{name}”. Szczegóły: {detail}"
+    },
+    "worker_error": "❌ Błąd wewnętrzny workera. Szczegóły: {detail}",
+    "path_not_found": "⚠️ Nie znaleziono ścieżki: {path}",
+    "unexpected": "⚠️ Nieoczekiwany błąd: {msg}",
+    "live": {
+      "audio": {
+        "no_devices": "Nie znaleziono urządzeń wejścia audio.",
+        "format_unsupported": "Nieobsługiwany format audio (rate={rate}, channels={channels}, bits={bits})."
+      },
+      "translate": {
+        "model_missing": "Model tłumaczenia nie jest skonfigurowany (engine.translation_model_name).",
+        "init_failed": "Inicjalizacja tłumaczenia nie powiodła się: {detail}"
+      }
+    },
+    "finished_with_errors": "❌ Zakończono z błędami — sprawdź log powyżej."
+  },
+  "status": {
+    "prep": "⏳ Przygotowanie...",
+    "proc": "🔄 Przetwarzanie...",
+    "done": "✅ Gotowe",
+    "skipped": "⏭️ Pominięto",
+    "error": "❌ Błąd",
+    "idle": "Bezczynny",
+    "listening": "Nasłuchiwanie…",
+    "paused": "Pauza",
+    "stopped": "Zatrzymano",
+    "no_devices": "Brak mikrofonu"
+  },
+  "dialog": {
+    "settings_restored": "✅ Nie znaleziono pliku ustawień. Przywrócono domyślne.",
+    "cancel_confirm": "❓ Czy chcesz anulować bieżącą operację?",
+    "settings_save_confirm": "💾 Czy chcesz zapisać zmiany ustawień?",
+    "settings_restore_confirm": "♻️ Przywrócić ustawienia domyślne?\n\nTo nadpisze bieżące ustawienia.",
+    "conflict": {
+      "title": "⚠️ Transkrypcja już istnieje",
+      "text": "Transkrypcja o nazwie „{name}” już istnieje.\nCo chcesz zrobić?",
+      "skip": "Pomiń ten element ⏭️",
+      "overwrite": "Nadpisz istniejącą transkrypcję ♻️",
+      "new_name": "Zapisz pod nową nazwą:",
+      "apply_all": "Zastosuj tę decyzję do wszystkich konfliktów"
+    },
+    "restart_required": {
+      "title": "Wymagany restart",
+      "text": "Niektóre zmiany ustawień wymagają ponownego uruchomienia aplikacji.\n\nUruchomić ponownie teraz?",
+      "restart": "Restart 🔁",
+      "later": "Później"
+    },
+    "critical": {
+      "application_error": {
+        "title": "Błąd aplikacji"
+      },
+      "localization_error": {
+        "title": "Błąd lokalizacji"
+      },
+      "pyskryptor_error": {
+        "title": "Błąd PySkryptor"
+      },
+      "defaults_missing": {
+        "text": "Brakuje pliku ustawień domyślnych lub jest on nieprawidłowy. Aplikacja nie może wystartować."
+      },
+      "locales_missing": {
+        "text": "Brakuje plików językowych lub są one nieprawidłowe. Aplikacja nie może wystartować."
+      },
+      "config_load_failed": {
+        "text": "Nie można wczytać konfiguracji. Sprawdź plik logów."
+      }
+    }
+  },
+  "action": {
+    "cancel_now": "Anuluj teraz ✖️",
+    "keep_working": "Kontynuuj ✅"
+  },
+  "settings": {
+    "section": {
+      "app": "Aplikacja ⚙️",
+      "engine": "Silnik 🧠",
+      "model": "Model 🧬",
+      "transcription": "Transkrypcja 📝",
+      "downloader": "Pobieranie ⬇️",
+      "network": "Sieć 🌐"
+    },
+    "app": {
+      "language": "Język",
+      "theme": "Motyw",
+      "theme.auto": "System",
+      "theme.light": "Jasny",
+      "theme.dark": "Ciemny",
+      "language.auto": "System (auto)"
+    },
+    "engine": {
+      "device": "Preferowane urządzenie",
+      "device.auto": "Auto",
+      "device.cpu": "Tylko CPU",
+      "device.gpu": "GPU (jeśli dostępne)",
+      "precision": "Precyzja",
+      "precision.auto": "Auto",
+      "precision.float32": "Float32 (najlepsza jakość)",
+      "precision.float16": "Float16 (szybciej, mniej pamięci)",
+      "precision.bfloat16": "bfloat16 (GPU z BF16)",
+      "allow_tf32": "Zezwól na TF32 na GPU (jeśli dostępne)"
+    },
+    "model": {
+      "ai_engine_name": "Nazwa / ścieżka modelu",
+      "default_language": "Domyślny język transkrypcji",
+      "chunk_length_s": "Długość segmentu (s)",
+      "stride_length_s": "Nakładanie (s)",
+      "ignore_warning": "Ignoruj niekrytyczne ostrzeżenia",
+      "low_cpu_mem_usage": "Optymalizuj użycie RAM CPU"
+    },
+    "transcription": {
+      "keep_wav_temp": "Zachowaj tymczasowe pliki WAV",
+      "download_audio_only": "Pobieraj tylko audio (źródła URL)",
+      "output_format": "Format wyjściowy",
+      "output": {
+        "plain_txt": "Tekst (.txt)",
+        "txt_timestamps": "Tekst + znaczniki czasu (.txt)",
+        "srt": "Napisy SubRip (.srt)"
+      }
+    },
+    "downloader": {
+      "min_video_height": "Minimalna wysokość wideo (px)",
+      "max_video_height": "Maksymalna wysokość wideo (px)"
+    },
+    "network": {
+      "max_bandwidth_kbps": "Limit prędkości (kbps; 0 = bez limitu)",
+      "retries": "Ponowienia HTTP",
+      "concurrent_fragments": "Równoległe fragmenty",
+      "http_timeout_s": "Timeout HTTP (s)"
+    },
+    "buttons": {
+      "save": "Zapisz 💾",
+      "restore_defaults": "Przywróć domyślne ♻️"
+    },
+    "msg": {
+      "saved": "✅ Ustawienia zostały zapisane.",
+      "restart_failed": "❌ Nie udało się zrestartować aplikacji. Szczegóły: {detail}"
+    },
+    "help": {
+      "ui_language": "Wybierz język interfejsu. Nowe pliki językowe są wykrywane automatycznie w „view/resources/locales”.",
+      "theme": "Zmienia motyw interfejsu. Styl docelowo będzie kontrolowany przez QSS.",
+      "device": "Wybierz urządzenie do inferencji ASR. „GPU” używa CUDA, jeśli dostępne (tylko NVIDIA).",
+      "precision_hint": "Precyzja wpływa na wydajność i zużycie pamięci.",
+      "precision": {
+        "auto": "Pozwól aplikacji dobrać najlepszą precyzję dla Twojego urządzenia.",
+        "float32": "Najlepsza jakość i kompatybilność. Zalecane na CPU.",
+        "float16": "Szybciej i mniej VRAM na CUDA. Może nieznacznie obniżyć dokładność.",
+        "bfloat16": "Podobne do FP16, ale dostępne tylko na niektórych GPU. Często stabilniejsze niż FP16."
+      },
+      "tf32": "TF32 to szybki tryb macierzy na nowszych kartach NVIDIA (Ampere+). Przyspiesza obliczenia z minimalnym wpływem na jakość.",
+      "model_name": "Wybierz lokalny folder modelu z „assets/ai_models”. Do pełnego przeładowania pipeline’u wymagany jest restart.",
+      "default_language": "Opcjonalna podpowiedź języka transkrypcji (np. „en”, „pl”). Puste = auto-wykrywanie.",
+      "chunk_length": "Długość segmentu audio dla pipeline’u (sekundy). Większe wartości mogą być szybsze, ale zużywają więcej pamięci.",
+      "stride_length": "Nakładanie segmentów (sekundy). Większe nakładanie poprawia ciągłość, ale zwiększa obciążenie.",
+      "low_cpu_mem_usage": "Zmniejsza zużycie RAM podczas ładowania modelu (zalecane).",
+      "output_format": "Określa rozszerzenie pliku i to, czy znaczniki czasu są uwzględniane.",
+      "keep_wav_temp": "Zachowuje tymczasowe pliki WAV utworzone w preprocessingu (przydatne do debugowania).",
+      "download_audio_only": "Podczas transkrypcji URL pobiera tylko audio zamiast pełnego wideo, jeśli to możliwe.",
+      "min_video_height": "Pobieranie: minimalne ograniczenie rozdzielczości.",
+      "max_video_height": "Pobieranie: maksymalne ograniczenie rozdzielczości.",
+      "max_bandwidth_kbps": "Limit prędkości pobierania. 0 oznacza brak limitu.",
+      "retries": "Ile razy ponawiać nieudane żądania HTTP.",
+      "concurrent_fragments": "Równoległe pobieranie fragmentów. Więcej może przyspieszyć, ale obciąża łącze.",
+      "http_timeout_s": "Limit czasu dla pobierania (sekundy).",
+      "ignore_warning": "Ignoruj ostrzeżenia, które można bezpiecznie pominąć (zalecane dla płynniejszej pracy)."
+    }
+  },
+  "about": {
+    "section": {
+      "app": "O aplikacji ℹ️",
+      "license": "Licencja 📄"
+    },
+    "app": {
+      "description": "<b>{name_lower}</b> ({years})<br/>Wersja: {version}<br/>Autor: {author}"
+    },
+    "license": {
+      "summary": "Program jest wolnym oprogramowaniem rozpowszechnianym na licencji GNU General Public License v3 (GPL-3.0).",
+      "full_link": "Pełny tekst licencji jest dostępny w <a href=\"license\">LICENSE</a> dołączonym do aplikacji."
+    }
+  },
+  "error": {
+    "audio": {
+      "ffmpeg_failed": "❌ Konwersja audio nie powiodła się dla „{src}”. Szczegóły: {detail}"
+    },
+    "down": {
+      "probe_failed": "❌ Nie udało się przeanalizować mediów. Szczegóły: {detail}",
+      "download_failed": "❌ Pobieranie nie powiodło się. Szczegóły: {detail}",
+      "no_output_file": "⚠️ Pobieranie nie wygenerowało pliku wyjściowego."
+    },
+    "config": {
+      "unknown_action": "⚠️ Nieznana akcja „{action}”.",
+      "generic": "⚠️ Błąd konfiguracji. Szczegóły: {detail}"
+    },
+    "settings": {
+      "json_invalid": "⚠️ Plik konfiguracyjny „{path}” zawiera nieprawidłowy JSON. Szczegóły: {detail}",
+      "section_invalid": "⚠️ Sekcja ustawień „{section}” jest nieprawidłowa.",
+      "missing_keys": "⚠️ Sekcja ustawień „{section}” nie zawiera wymaganych kluczy: {keys}",
+      "defaults_missing": "⚠️ Brak pliku domyślnego: {path}",
+      "settings_missing": "⚠️ Brak pliku ustawień: {path}",
+      "settings_invalid": "⚠️ Plik ustawień „{path}” jest nieprawidłowy. Szczegóły: {detail}"
+    },
+    "type": {
+      "string_nonempty": "⚠️ Pole „{field}” musi być niepustym stringiem.",
+      "int": "⚠️ Pole „{field}” musi być liczbą całkowitą.",
+      "enum_invalid": "⚠️ Pole „{field}” ma nieprawidłową wartość „{value}”. Dozwolone: {allowed}"
+    },
+    "generic": "Błąd: {detail}"
+  },
+  "window": {
+    "loading": "Ładowanie…"
+  },
+  "icon": {
+    "info": "ℹ️"
+  }
+}
