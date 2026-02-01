@@ -18,7 +18,7 @@
   },
   "transcription": {
     "mode": "transcribe",
-    "target_language": "en",
+    "target_language": "auto",
     "output_ext": "txt",
     "timestamps_output": false,
     "keep_wav_temp": false,

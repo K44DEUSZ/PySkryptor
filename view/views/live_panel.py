@@ -1,28 +1,17 @@
 # view/views/live_panel.py
 from __future__ import annotations
 
-from typing import Optional, List, Tuple
+from typing import Optional, List
 
 from PyQt5 import QtWidgets, QtCore
 
-from view.utils.translating import tr
+from view.utils.translating import tr, Translator
 from controller.tasks.model_loader_task import ModelLoadWorker
 from controller.platform.microphone import list_input_device_names
 from view.views.dialogs import show_no_microphone_dialog
 from controller.tasks.live_transcription_task import LiveTranscriptionWorker
 from view.widgets.audio_spectrum_widget import AudioSpectrumWidget
-
-_LANG_CHOICES: List[Tuple[str, str]] = [
-    ("", "Auto"),
-    ("en", "English"),
-    ("pl", "Polish"),
-    ("de", "German"),
-    ("fr", "French"),
-    ("es", "Spanish"),
-    ("it", "Italian"),
-    ("uk", "Ukrainian"),
-    ("ru", "Russian"),
-]
+from view.widgets.language_combo import LanguageCombo
 
 class LivePanel(QtWidgets.QWidget):
     """Live tab: capture audio input and run streaming ASR/translation."""
@@ -99,16 +88,9 @@ class LivePanel(QtWidgets.QWidget):
         s_lay.addWidget(mode_box, row, 1, 1, 4)
         row += 1
 
-        self.cmb_src_lang = QtWidgets.QComboBox()
-        self.cmb_src_lang.setEditable(False)
-        for code, name in _LANG_CHOICES:
-            self.cmb_src_lang.addItem(name, code)
-
-        self.cmb_tgt_lang = QtWidgets.QComboBox()
-        self.cmb_tgt_lang.setEditable(True)
-        for code, name in _LANG_CHOICES[1:]:
-            self.cmb_tgt_lang.addItem(name, code)
-        self.cmb_tgt_lang.setCurrentIndex(0)  # English
+        self.cmb_src_lang = LanguageCombo(special_first=("lang.auto_detect", ""))
+        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"))
+        self.cmb_tgt_lang.set_code("auto")
 
         self.chk_show_source = QtWidgets.QCheckBox(tr("live.show_source"))
         self.chk_show_source.setChecked(True)
@@ -377,10 +359,11 @@ class LivePanel(QtWidgets.QWidget):
     def _start_live_worker(self) -> None:
         device_name = str(self.cmb_device.currentData() or "").strip()
 
-        src_lang = str(self.cmb_src_lang.currentData() or "").strip().lower()
-        tgt_lang = str(self.cmb_tgt_lang.currentData() or "").strip().lower()
-        if not tgt_lang:
-            tgt_lang = str(self.cmb_tgt_lang.currentText() or "").strip().lower() or "en"
+        src_lang = self.cmb_src_lang.code() or ""
+        tgt_lang = self.cmb_tgt_lang.code() or "auto"
+        if tgt_lang in ("auto", "ui", "app", "default", ""):
+            ui = str(Translator.current_language() or "en").split("-", 1)[0].lower().strip()
+            tgt_lang = ui or "en"
 
         mode = "translate" if self.mode_translate.isChecked() else "transcribe"
         include_source = bool(self.chk_show_source.isChecked())

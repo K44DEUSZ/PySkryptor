@@ -19,7 +19,7 @@ from model.services.conflict_service import ConflictService
 from model.services.download_service import DownloadCancelled, DownloadError, DownloadService
 from model.services.translation_service import TranslationService
 from view.utils.concurrency import CancellationToken
-from view.utils.translating import tr
+from view.utils.translating import tr, Translator
 
 GUIEntry = Union[str, Dict[str, Any]]
 WorkItem = Tuple[str, Path, Optional[str]]
@@ -128,7 +128,10 @@ class TranscriptionWorker(QtCore.QObject):
 
             mode = str(trans_cfg.get("mode", "transcribe") or "transcribe").strip().lower()
             translate_enabled = mode in ("transcribe_translate", "translate") or bool(trans_cfg.get("translate_enabled", False))
-            target_language = str(trans_cfg.get("target_language", "en") or "en").strip().lower() or "en"
+            target_language = str(trans_cfg.get("target_language", "auto") or "auto").strip().lower() or "auto"
+            if target_language in ("auto", "ui", "app", "default"):
+                ui = str(Translator.current_language() or "en").split("-", 1)[0].lower().strip()
+                target_language = ui or "en"
 
             translator = TranslationService() if translate_enabled else None
 
@@ -360,7 +363,11 @@ class TranscriptionWorker(QtCore.QObject):
         if self._conflict_apply_all:
             action = (self._conflict_action or "skip").strip().lower()
             if action == "overwrite":
-                return existing
+                try:
+                    FileManager.delete_output_dir(existing)
+                except Exception:
+                    pass
+                return FileManager.ensure_output(stem)
             if action == "skip":
                 return None
             if action == "new":
@@ -381,7 +388,11 @@ class TranscriptionWorker(QtCore.QObject):
         if action == "skip":
             return None
         if action == "overwrite":
-            return existing
+            try:
+                FileManager.delete_output_dir(existing)
+            except Exception:
+                pass
+            return FileManager.ensure_output(stem)
         if action == "new":
             new_stem = sanitize_filename(self._conflict_new_stem) or f"{stem} (2)"
             return FileManager.ensure_output(new_stem)
@@ -750,7 +761,10 @@ class TranscriptionWorker(QtCore.QObject):
 
         base_name = tr("files.transcript.default_name")
         base_name = sanitize_filename(str(base_name)) or "Transcript"
-        out_path = FileManager.transcript_path(stem, base_name=base_name)
+        ext = (out_ext or "txt").lower().strip().lstrip(".") or "txt"
+        if ext not in ("txt", "srt", "sub"):
+            ext = "txt"
+        out_path = out_dir / f"{base_name}.{ext}"
 
         try:
             out_dir.mkdir(parents=True, exist_ok=True)

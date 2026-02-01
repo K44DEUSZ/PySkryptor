@@ -141,6 +141,32 @@ class AppConfig:
         cls._apply_transcription(snap.transcription)
         cls._setup_device_dtype(user=snap.engine)
 
+    @classmethod
+    def update_from_snapshot(
+        cls,
+        snap: "SettingsSnapshot",
+        *,
+        sections: tuple[str, ...] = ("transcription",),
+    ) -> None:
+        """Update runtime config from an already-validated snapshot.
+
+        This is a lightweight alternative to initialize_from_snapshot():
+        it only reapplies the requested sections and avoids expensive
+        setup steps (device probing, ffmpeg PATH, directory creation).
+        """
+        cls.SETTINGS = snap
+        want = set(sections or ())
+        if "model" in want:
+            cls._apply_model_dir(snap.model)
+        if "downloader" in want:
+            cls._apply_downloader(snap.downloader)
+        if "network" in want:
+            cls._apply_network(snap.network)
+        if "transcription" in want:
+            cls._apply_transcription(snap.transcription)
+        if "engine" in want:
+            cls._setup_device_dtype(user=snap.engine)
+
     # ----- Apply sections from settings -----
 
     @classmethod

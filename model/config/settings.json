@@ -18,11 +18,11 @@
   },
   "transcription": {
     "mode": "transcribe",
-    "target_language": "en",
+    "target_language": "auto",
     "output_ext": "txt",
     "timestamps_output": false,
     "keep_wav_temp": false,
-    "download_audio_only": true,
+    "download_audio_only": false,
     "url_keep_audio": false,
     "url_audio_ext": "m4a",
     "url_keep_video": false,

@@ -15,7 +15,9 @@ class SettingsWorker(QtCore.QObject):
     """Background worker for loading/saving application settings."""
 
     settings_loaded = QtCore.pyqtSignal(object)
+    settings_loaded_snapshot = QtCore.pyqtSignal(object)
     saved = QtCore.pyqtSignal(object)
+    saved_snapshot = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
@@ -68,6 +70,7 @@ class SettingsWorker(QtCore.QObject):
             svc = SettingsService(Config.ROOT_DIR)
             snap = svc.load()
             self.settings_loaded.emit(self._snapshot_to_dict(snap))
+            self.settings_loaded_snapshot.emit(snap)
         except SettingsError as ex:
             self._emit_settings_error(ex)
         except Exception as ex:
@@ -81,6 +84,7 @@ class SettingsWorker(QtCore.QObject):
 
             snap = svc.load()
             self.saved.emit(self._snapshot_to_dict(snap))
+            self.saved_snapshot.emit(snap)
         except SettingsError as ex:
             self._emit_settings_error(ex)
         except Exception as ex:
@@ -144,6 +148,7 @@ class SettingsWorker(QtCore.QObject):
                 svc._write_json(settings_path, updated)  # type: ignore[attr-defined]
                 final_snap = svc.load()
                 self.saved.emit(self._snapshot_to_dict(final_snap))
+                self.saved_snapshot.emit(final_snap)
             finally:
                 try:
                     tmp_path.unlink(missing_ok=True)  # type: ignore[call-arg]

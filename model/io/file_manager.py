@@ -113,6 +113,38 @@ class FileManager:
         return None
 
     @staticmethod
+    def delete_output_dir(output_dir: Path) -> None:
+        """Delete an item's output folder and prune the session dir if it becomes empty."""
+        if output_dir is None:
+            return
+        try:
+            p = Path(output_dir)
+        except Exception:
+            return
+        if not p.exists() or not p.is_dir():
+            return
+
+        try:
+            shutil.rmtree(p, ignore_errors=True)
+        except Exception:
+            return
+
+        # If the parent looks like a session folder inside TRANSCRIPTIONS_DIR,
+        # delete it when it becomes empty.
+        try:
+            root = Config.TRANSCRIPTIONS_DIR
+            parent = p.parent
+            if parent == root:
+                return
+            if root in parent.parents and parent.is_dir():
+                try:
+                    next(parent.iterdir())
+                except StopIteration:
+                    shutil.rmtree(parent, ignore_errors=True)
+        except Exception:
+            pass
+
+    @staticmethod
     def transcript_path(
         stem: str,
         filename: str | None = None,

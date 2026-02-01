@@ -197,9 +197,10 @@ class SettingsService:
             mode = "transcribe_translate" if mode == "translate" else "transcribe"
         out["mode"] = mode
 
-        tgt_raw = src.get("target_language", schema.get("target_language", "en"))
-        tgt = str(tgt_raw or "en").strip().lower()
-        out["target_language"] = tgt or "en"
+        # "auto" means "use UI language" (resolved in controller at runtime).
+        tgt_raw = src.get("target_language", schema.get("target_language", "auto"))
+        tgt = str(tgt_raw or "auto").strip().lower()
+        out["target_language"] = tgt or "auto"
 
         out["timestamps_output"] = bool(src.get("timestamps_output", schema.get("timestamps_output", False)))
         out["keep_wav_temp"] = bool(src.get("keep_wav_temp", schema.get("keep_wav_temp", False)))

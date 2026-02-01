@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from PyQt5 import QtCore, QtWidgets
 
@@ -20,13 +20,28 @@ def _normalize_code(code: str) -> str:
     return str(code or "").strip().lower().replace("_", "-")
 
 
-def _language_label(code: str, *, ui_lang: str) -> str:
-    code = _normalize_code(code)
-    ui = _normalize_code(ui_lang).split("-", 1)[0] or "en"
+def _tr_key_exists(key: str) -> bool:
+    # Translator.tr() returns the key itself when missing.
+    return Translator.tr(key) != key
 
+
+def _language_label(code: str) -> str:
+    code = _normalize_code(code)
+    if not code:
+        return ""
+
+    key = f"lang.whisper.{code}"
+    if _tr_key_exists(key):
+        name = Translator.tr(key).strip()
+        if name and name.lower() != code:
+            return f"{name} ({code})"
+        return code
+
+    # Fallback: try Babel (optional dependency).
     try:
         from babel import Locale  # type: ignore
 
+        ui = _normalize_code(Translator.current_language()).split("-", 1)[0] or "en"
         loc_ui = Locale.parse(ui, sep="-")
         loc_en = Locale.parse("en", sep="-")
 
@@ -44,14 +59,25 @@ def _language_label(code: str, *, ui_lang: str) -> str:
             return f"{best} ({code})"
         return code
     except Exception:
-        # If babel is unavailable or mapping is missing: show code only (stable, no crash)
         return code
 
 
 class LanguageCombo(QtWidgets.QComboBox):
-    """Searchable language picker for Whisper ISO codes."""
+    """Searchable language picker for Whisper ISO codes.
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    Labels are primarily sourced from locales via keys:
+      lang.whisper.<code>
+
+    Optionally, a special first item can be added (e.g. auto-detect / UI default).
+    Pass (label_key, code).
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QtWidgets.QWidget] = None,
+        *,
+        special_first: Optional[Tuple[str, str]] = None,
+    ) -> None:
         super().__init__(parent)
 
         self.setEditable(True)
@@ -61,6 +87,7 @@ class LanguageCombo(QtWidgets.QComboBox):
         if editor is not None:
             editor.setClearButtonEnabled(True)
 
+        self._special_first = special_first
         self._items: List[LanguageItem] = []
         self.rebuild()
 
@@ -71,29 +98,40 @@ class LanguageCombo(QtWidgets.QComboBox):
         self.setCompleter(completer)
 
     def rebuild(self) -> None:
-        ui_lang = Translator.current_language()
         codes = whisper_language_codes()
-        self._items = [LanguageItem(code=c, label=_language_label(c, ui_lang=ui_lang)) for c in codes]
-        self._items.sort(key=lambda x: x.label.lower())
+        items = [LanguageItem(code=c, label=_language_label(c)) for c in codes]
+        items = [it for it in items if it.label]
+        items.sort(key=lambda x: x.label.lower())
+
+        self._items = []
+
+        if self._special_first is not None:
+            label_key, code = self._special_first
+            label = Translator.tr(label_key).strip()
+            if not label:
+                label = str(code)
+            self._items.append(LanguageItem(code=str(code), label=label))
+
+        self._items.extend(items)
 
         self.blockSignals(True)
         try:
             self.clear()
             for it in self._items:
-                self.addItem(it.label, it.code)
+                self.addItem(it.label, _normalize_code(it.code))
         finally:
             self.blockSignals(False)
 
     def set_code(self, code: str) -> None:
-        code = _normalize_code(code)
-        idx = self.findData(code)
+        code_norm = _normalize_code(code)
+        idx = self.findData(code_norm)
         if idx >= 0:
             self.setCurrentIndex(idx)
         else:
-            self.setEditText(code)
+            self.setEditText(code_norm)
 
     def code(self) -> str:
         data = self.currentData()
-        if isinstance(data, str) and data.strip():
+        if isinstance(data, str):
             return _normalize_code(data)
         return _normalize_code(self.currentText())
