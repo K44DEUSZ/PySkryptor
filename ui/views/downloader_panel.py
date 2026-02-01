@@ -9,7 +9,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 from core.config.app_config import AppConfig as Config
 from core.io.text import format_bytes, format_hms
 from ui.utils.translating import tr
-from ui.utils.logging import QtHtmlLogSink
+from ui.utils.gui_log import QtHtmlLogSink
 from ui.views.dialogs import ask_download_duplicate, ask_open_downloads_folder, info_playlist_not_supported
 from ui.workers.download_worker import DownloadWorker
 

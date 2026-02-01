@@ -1,13 +1,11 @@
-# ui/utils/logging.py
+# ui/utils/gui_log.py
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Optional
 
 from PyQt5 import QtCore, QtGui
 
-
-# ----- Qt HTML appender -----
 
 class _QtHtmlAppender(QtCore.QObject):
     """
@@ -25,7 +23,6 @@ class _QtHtmlAppender(QtCore.QObject):
         self.append_html.connect(self._on_append_html, QtCore.Qt.QueuedConnection)
         self.clear_all.connect(self._on_clear, QtCore.Qt.QueuedConnection)
 
-        # Make each paragraph a *single visual line* with tiny vertical gap.
         try:
             self._w.document().setDefaultStyleSheet(
                 "p.logline{margin:0 0 2px 0;}"
@@ -59,18 +56,11 @@ def _href_for_path(path: Path) -> str:
     return QtCore.QUrl.fromLocalFile(str(Path(path))).toString()
 
 
-# ----- GUI sink -----
-
 class QtHtmlLogSink:
-    """
-    Log builder for GUI.
-    """
+    """Log builder for GUI."""
 
     def __init__(self, text_widget) -> None:
-        # text_widget: QTextBrowser (preferred) or QTextEdit
         self._appender = _QtHtmlAppender(text_widget)
-
-    # ----- public API -----
 
     def clear(self) -> None:
         self._appender.clear_all.emit()
@@ -91,10 +81,6 @@ class QtHtmlLogSink:
         self._emit_line(_escape_html(text))
 
     def line_with_link(self, prefix: str, path: Path, *, title: Optional[str] = None, icon: str = "") -> None:
-        """
-        Print one logical line in the form:
-        "<icon><prefix> <a href='file://...'>title</a>"
-        """
         t = _escape_html(title or Path(path).stem)
         href = _href_for_path(path)
         pref = _escape_html(prefix)
@@ -102,7 +88,6 @@ class QtHtmlLogSink:
             pref = icon + " " + pref
         self._emit_line(f"{pref} <a href=\"{href}\">{t}</a>")
 
-    # Backwards compatibility: a standalone link line.
     def link(self, title: str, path: Path, *, prefix: Optional[str] = None) -> None:
         txt = ""
         if prefix:
@@ -111,17 +96,11 @@ class QtHtmlLogSink:
         self._emit_line(f"{txt}<a href=\"{href}\">{_escape_html(title or Path(path).stem)}</a>")
 
     def hr(self) -> None:
-        # Horizontal rule is its own block.
         self._appender.append_html.emit("<hr/>")
 
-    # ----- internal helpers -----
-
     def _emit_line(self, inner_html: str) -> None:
-        # Wrap inner HTML in a paragraph so CSS can control spacing.
         self._appender.append_html.emit(f"<p class='logline'>{inner_html}</p>")
 
-
-# ----- Convenience factories -----
 
 def gui_logger(text_sink: QtHtmlLogSink) -> Callable[[str], None]:
     """

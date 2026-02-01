@@ -6,19 +6,19 @@
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
-    "allow_tf32": true
+    "allow_tf32": false
   },
   "model": {
     "ai_engine_name": "whisper-turbo",
     "chunk_length_s": 60,
     "stride_length_s": 5,
-    "ignore_warning": true,
+    "ignore_warning": false,
     "default_language": null,
     "low_cpu_mem_usage": true
   },
   "transcription": {
     "timestamps_output": true,
-    "keep_wav_temp": false,
+    "keep_wav_temp": true,
     "download_audio_only": true,
     "output_ext": "txt"
   },

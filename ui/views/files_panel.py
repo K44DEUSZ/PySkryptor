@@ -10,7 +10,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from core.config.app_config import AppConfig as Config
 from core.io.text import is_url
 from ui.utils.translating import tr
-from ui.utils.logging import QtHtmlLogSink
+from ui.utils.gui_log import QtHtmlLogSink
 from ui.views.dialogs import ask_cancel, ask_conflict, ask_open_transcripts_folder
 from ui.workers.metadata_worker import MetadataWorker
 from ui.workers.transcription_worker import TranscriptionWorker
