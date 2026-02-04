@@ -48,6 +48,7 @@ class SettingsWorker(QtCore.QObject):
             "engine": dict(snap.engine),
             "model": dict(snap.model),
             "transcription": dict(snap.transcription),
+            "translation": dict(getattr(snap, "translation", {}) or {}),
             "downloader": dict(snap.downloader),
             "network": dict(snap.network),
         }
@@ -64,6 +65,25 @@ class SettingsWorker(QtCore.QObject):
         tr_sec = data.get("transcription")
         if isinstance(tr_sec, dict):
             tr_sec.pop("keep_downloaded_files", None)
+            # legacy leftovers
+            tr_sec.pop("mode", None)
+            tr_sec.pop("target_language", None)
+
+        mdl = data.get("model")
+        if isinstance(mdl, dict):
+            # Remove legacy flat keys once nested model config is present.
+            if isinstance(mdl.get("transcription_model"), dict) or isinstance(mdl.get("translation_model"), dict):
+                for k in (
+                    "translation_engine_name",
+                    "ai_engine_name",
+                    "asr_engine_name",
+                    "chunk_length_s",
+                    "stride_length_s",
+                    "ignore_warning",
+                    "default_language",
+                    "low_cpu_mem_usage",
+                ):
+                    mdl.pop(k, None)
 
     def _do_load(self) -> None:
         try:
@@ -118,6 +138,7 @@ class SettingsWorker(QtCore.QObject):
                 "engine",
                 "model",
                 "transcription",
+                "translation",
                 "downloader",
                 "network",
             ):

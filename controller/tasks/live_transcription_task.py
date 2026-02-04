@@ -225,7 +225,7 @@ class LiveTranscriptionWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self) -> None:
         self.status.emit(tr("status.prep"))
-        model_cfg = Config.model_settings()
+        model_cfg = Config.transcription_model_settings()
 
         chunk_len_s = int(model_cfg.get("chunk_length_s", 5))
         stride_len_s = int(model_cfg.get("stride_length_s", 1))

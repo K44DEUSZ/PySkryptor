@@ -113,12 +113,10 @@ class TranscriptionService:
         try:
             FileManager.plan_session()
 
-            model_cfg = Config.model_settings()
+            model_cfg = Config.transcription_model_settings()
             trans_cfg = Config.transcription_settings()
 
-            task = str(model_cfg.get("ai_engine_name") or "transcribe").strip().lower()
-            if task not in ("transcribe", "translate"):
-                task = "transcribe"
+            task = "transcribe"
 
             chunk_len = int(model_cfg.get("chunk_length_s", 30))
             stride_len = int(model_cfg.get("stride_length_s", 5))
@@ -127,9 +125,17 @@ class TranscriptionService:
             timestamps_output = bool(trans_cfg.get("timestamps_output", False))
             out_ext = str(trans_cfg.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
 
-            mode = str(trans_cfg.get("mode", "transcribe") or "transcribe").strip().lower()
-            translate_enabled = mode in ("transcribe_translate", "translate") or bool(trans_cfg.get("translate_enabled", False))
-            target_language = str(trans_cfg.get("target_language", "en") or "en").strip().lower() or "en"
+            translate_enabled = bool(trans_cfg.get("translate_after_transcription", False))
+            mdl = Config.translation_model_settings()
+            tr_engine = str(mdl.get("engine_name", "none") or "none").strip().lower()
+            translate_enabled = bool(translate_enabled and tr_engine and tr_engine not in ("none", "off", "disabled"))
+
+            target_language = ""
+            try:
+                target_language = str(Config.translation_settings().get("target_language", "auto") or "auto").strip().lower()
+            except Exception:
+                target_language = "auto"
+
             translator = TranslationService() if translate_enabled else None
 
             keep_intermediate_files = bool(
@@ -749,8 +755,8 @@ class TranscriptionService:
                         chunk_length_s=chunk_len_s,
                         stride_length_s=stride_len_s,
                         task=task,
-                        return_timestamps="word" if return_ts_base else False,
-                        generate_kwargs={"language": default_lang} if default_lang else None,
+                        return_timestamps=True if return_ts_base else False,
+                        generate_kwargs={"language": default_lang} if default_lang else {},
                     )
                 except Exception as e:
                     raise _FatalPipeError(str(e)) from e

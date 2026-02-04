@@ -5,12 +5,15 @@ from typing import Optional, List
 
 from PyQt5 import QtWidgets, QtCore
 
+from model.config.app_config import AppConfig as Config
+
 from view.utils.translating import tr, Translator
-from controller.tasks.model_loader_task import ModelLoadWorker
+from controller.tasks.model_loader_task import TranscriptionLoadWorker
 from controller.platform.microphone import list_input_device_names
 from view.views.dialogs import show_no_microphone_dialog
 from controller.tasks.live_transcription_task import LiveTranscriptionWorker
 from view.widgets.audio_spectrum_widget import AudioSpectrumWidget
+from model.constants.m2m100_languages import m2m100_language_codes
 from view.widgets.language_combo import LanguageCombo
 
 class LivePanel(QtWidgets.QWidget):
@@ -27,7 +30,7 @@ class LivePanel(QtWidgets.QWidget):
         self.pipe = None
 
         self._model_thread: Optional[QtCore.QThread] = None
-        self._model_worker: Optional[ModelLoadWorker] = None
+        self._model_worker: Optional[TranscriptionLoadWorker] = None
         self._pending_start_after_model: bool = False
 
         self._live_thread: Optional[QtCore.QThread] = None
@@ -75,6 +78,13 @@ class LivePanel(QtWidgets.QWidget):
         self.mode_transcribe = QtWidgets.QRadioButton(tr("live.mode.transcribe"))
         self.mode_translate = QtWidgets.QRadioButton(tr("live.mode.translate"))
         self.mode_transcribe.setChecked(True)
+
+        tr_mdl = Config.translation_model_settings()
+        tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
+        tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
+        self.mode_translate.setEnabled(tr_enabled)
+        if not tr_enabled:
+            self.mode_transcribe.setChecked(True)
         self.mode_transcribe.toggled.connect(self._update_mode_ui)
 
         mode_box = QtWidgets.QWidget()
@@ -89,8 +99,11 @@ class LivePanel(QtWidgets.QWidget):
         row += 1
 
         self.cmb_src_lang = LanguageCombo(special_first=("lang.auto_detect", ""))
-        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"))
-        self.cmb_tgt_lang.set_code("auto")
+        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"), codes_provider=m2m100_language_codes, locale_prefix="lang.m2m100")
+        try:
+            self.cmb_tgt_lang.set_code(str(Config.translation_settings().get("target_language", "auto") or "auto"))
+        except Exception:
+            self.cmb_tgt_lang.set_code("auto")
 
         self.chk_show_source = QtWidgets.QCheckBox(tr("live.show_source"))
         self.chk_show_source.setChecked(True)
@@ -249,7 +262,7 @@ class LivePanel(QtWidgets.QWidget):
         self._set_status(tr("live.model.loading"))
 
         self._model_thread = QtCore.QThread(self)
-        self._model_worker = ModelLoadWorker()
+        self._model_worker = TranscriptionLoadWorker()
         self._model_worker.moveToThread(self._model_thread)
 
         self._model_thread.started.connect(self._model_worker.run)
@@ -266,7 +279,6 @@ class LivePanel(QtWidgets.QWidget):
 
     def _on_model_ready(self, pipe) -> None:
         self.pipe = pipe
-
         if self._pending_start_after_model:
             self._pending_start_after_model = False
             self._start_live_new_session()

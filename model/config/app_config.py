@@ -43,7 +43,10 @@ class AppConfig:
 
     FFMPEG_DIR: Path = RUNTIME_DIR / "ffmpeg"
     AI_MODELS_DIR: Path = ASSETS_DIR / "ai_models"
-    AI_ENGINE_DIR: Path = AI_MODELS_DIR / "whisper-turbo"
+    AI_ENGINE_DIR: Path = AI_MODELS_DIR / "__missing__"
+    TRANSLATION_ENGINE_DIR: Path = AI_MODELS_DIR / "__missing__"
+
+    TRANSLATION_ENGINE_IDS: Tuple[str, ...] = ("m2m100",)
 
     VIEW_RESOURCES_DIR: Path = ROOT_DIR / "view" / "resources"
     LOCALES_DIR: Path = VIEW_RESOURCES_DIR / "locales"
@@ -52,7 +55,6 @@ class AppConfig:
     DATA_DIR: Path = ROOT_DIR / "data"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
-    CACHE_DIR: Path = DATA_DIR / "cache"
     LOGS_DIR: Path = DATA_DIR / "logs"
 
     INPUT_TMP_DIR: Path = TRANSCRIPTIONS_DIR / ".input_tmp"
@@ -69,13 +71,14 @@ class AppConfig:
 
         cls.FFMPEG_DIR = cls.RUNTIME_DIR / "ffmpeg"
         cls.AI_MODELS_DIR = cls.ASSETS_DIR / "ai_models"
+        cls.AI_ENGINE_DIR = cls.AI_MODELS_DIR / "__missing__"
+        cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / "__missing__"
         cls.LOCALES_DIR = cls.ROOT_DIR / "view" / "resources" / "locales"
         cls.STYLES_DIR = cls.ROOT_DIR / "view" / "resources" / "styles"
 
         cls.DATA_DIR = cls.ROOT_DIR / "data"
         cls.DOWNLOADS_DIR = cls.DATA_DIR / "downloads"
         cls.TRANSCRIPTIONS_DIR = cls.DATA_DIR / "transcriptions"
-        cls.CACHE_DIR = cls.DATA_DIR / "cache"
         cls.LOGS_DIR = cls.DATA_DIR / "logs"
         cls.INPUT_TMP_DIR = cls.TRANSCRIPTIONS_DIR / ".input_tmp"
 
@@ -91,8 +94,56 @@ class AppConfig:
     DOWN_AUDIO_EXT: Tuple[str, ...] = ("m4a", "mp3")
     DOWN_VIDEO_EXT: Tuple[str, ...] = ("mp4", "webm")
 
-    TRANSCRIPT_EXT: Tuple[str, ...] = ("txt", "srt", "sub")
+    TRANSCRIPT_EXT: Tuple[str, ...] = ("txt", "srt")
     TRANSCRIPT_DEFAULT_EXT: str = "txt"
+
+    # Output modes used by UI and services. Keep these as the single source of truth
+    # for selectable transcript output formats.
+    TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
+        {
+            "id": "txt",
+            "ext": "txt",
+            "timestamps": False,
+            "tr_key": "settings.transcription.output.plain_txt",
+        },
+        {
+            "id": "txt_ts",
+            "ext": "txt",
+            "timestamps": True,
+            "tr_key": "settings.transcription.output.txt_timestamps",
+        },
+        {
+            "id": "srt",
+            "ext": "srt",
+            "timestamps": False,
+            "tr_key": "settings.transcription.output.srt",
+        },
+    )
+
+    @classmethod
+    def get_transcription_output_modes(cls) -> Tuple[Dict[str, Any], ...]:
+        """Return supported transcript output modes used by the UI."""
+        return cls.TRANSCRIPTION_OUTPUT_MODES
+
+    @classmethod
+    def resolve_transcription_output_mode_id(cls, output_ext: str, timestamps_output: bool) -> str:
+        """Resolve UI output mode id from settings fields (output_ext + timestamps_output)."""
+        ext = str(output_ext or "txt").strip().lower()
+        ts = bool(timestamps_output)
+        for mode in cls.TRANSCRIPTION_OUTPUT_MODES:
+            if str(mode.get("ext", "")).lower() == ext and bool(mode.get("timestamps")) == ts:
+                return str(mode.get("id", "txt"))
+        # Fallback to plain text
+        return "txt"
+
+    @classmethod
+    def get_transcription_output_mode(cls, mode_id: str) -> Dict[str, Any]:
+        """Get mode dict by id. Falls back to plain txt when unknown."""
+        mid = str(mode_id or "txt").strip().lower()
+        for mode in cls.TRANSCRIPTION_OUTPUT_MODES:
+            if str(mode.get("id", "")).lower() == mid:
+                return mode
+        return cls.TRANSCRIPTION_OUTPUT_MODES[0]
 
     # ----- Downloader / network defaults -----
 
@@ -132,6 +183,7 @@ class AppConfig:
         cls.SETTINGS = snap
 
         cls._apply_model_dir(snap.model)
+        cls._apply_translation_dir(snap.model)
 
         cls._ensure_dirs()
         cls._setup_ffmpeg_on_path()
@@ -146,7 +198,7 @@ class AppConfig:
         cls,
         snap: "SettingsSnapshot",
         *,
-        sections: tuple[str, ...] = ("transcription",),
+        sections: tuple[str, ...] = ("transcription", "translation"),
     ) -> None:
         """Update runtime config from an already-validated snapshot.
 
@@ -158,6 +210,7 @@ class AppConfig:
         want = set(sections or ())
         if "model" in want:
             cls._apply_model_dir(snap.model)
+        cls._apply_translation_dir(snap.model)
         if "downloader" in want:
             cls._apply_downloader(snap.downloader)
         if "network" in want:
@@ -165,6 +218,7 @@ class AppConfig:
         if "transcription" in want:
             cls._apply_transcription(snap.transcription)
         if "engine" in want:
+            cls._apply_translation_dir(snap.model)
             cls._setup_device_dtype(user=snap.engine)
 
     # ----- Apply sections from settings -----
@@ -216,11 +270,7 @@ class AppConfig:
 
     @classmethod
     def _apply_transcription(cls, transcription: Dict[str, Any]) -> None:
-        """
-        Apply preferred transcript extension from settings.
-
-        Value is expected to be validated in SettingsService.
-        """
+        # ----- Transcription -----
         raw = transcription.get("output_ext", cls.TRANSCRIPT_DEFAULT_EXT)
         ext = str(raw).lower().strip()
         if ext.startswith("."):
@@ -229,12 +279,65 @@ class AppConfig:
             cls.TRANSCRIPT_DEFAULT_EXT = ext
 
     @classmethod
+    def _apply_translation_dir(cls, model: Dict[str, Any]) -> None:
+        trans = model.get("translation_model", {}) if isinstance(model.get("translation_model"), dict) else {}
+        name = str(trans.get("engine_name", "auto") or "auto").strip().lower()
+
+        if not name or name in ("none", "off", "disabled"):
+            cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / "__missing__"
+            return
+
+        if name == "auto":
+            name = cls._autoselect_translation_engine_name() or "__missing__"
+
+        cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / name
+
+    @classmethod
     def _apply_model_dir(cls, model: Dict[str, Any]) -> None:
-        """Set AI_ENGINE_DIR from selected model folder name in settings."""
-        name = str(model.get("ai_engine_name", "") or "").strip()
+        """Set AI_ENGINE_DIR from selected transcription model folder name in settings."""
+        trans = model.get("transcription_model", {}) if isinstance(model.get("transcription_model"), dict) else {}
+        name = str(trans.get("engine_name", "auto") or "auto").strip().lower()
+
+        # Legacy fallbacks.
         if not name:
-            name = "whisper-turbo"
+            name = str(model.get("asr_engine_name", "") or "").strip()
+        if not name or name == "auto":
+            name = cls._autoselect_transcription_engine_name() or "__missing__"
+
         cls.AI_ENGINE_DIR = cls.AI_MODELS_DIR / name
+
+    @classmethod
+    def _iter_local_model_dirs(cls) -> Tuple[str, ...]:
+        try:
+            if not cls.AI_MODELS_DIR.exists() or not cls.AI_MODELS_DIR.is_dir():
+                return tuple()
+            out = []
+            for d in sorted(cls.AI_MODELS_DIR.iterdir(), key=lambda p: p.name.lower()):
+                if not d.is_dir():
+                    continue
+                try:
+                    if not any(d.iterdir()):
+                        continue
+                except Exception:
+                    continue
+                out.append(d.name)
+            return tuple(out)
+        except Exception:
+            return tuple()
+
+    @classmethod
+    def _autoselect_transcription_engine_name(cls) -> str:
+        for name in cls._iter_local_model_dirs():
+            if name.lower() not in set(x.lower() for x in cls.TRANSLATION_ENGINE_IDS):
+                return name
+        return ""
+
+    @classmethod
+    def _autoselect_translation_engine_name(cls) -> str:
+        for name in cls._iter_local_model_dirs():
+            if name.lower() in set(x.lower() for x in cls.TRANSLATION_ENGINE_IDS):
+                return name
+        return ""
 
     # ----- Filesystem / ffmpeg -----
 
@@ -252,7 +355,6 @@ class AppConfig:
             cls.DATA_DIR,
             cls.DOWNLOADS_DIR,
             cls.TRANSCRIPTIONS_DIR,
-            cls.CACHE_DIR,
             cls.LOGS_DIR,
         ):
             p.mkdir(parents=True, exist_ok=True)
@@ -461,6 +563,18 @@ class AppConfig:
         return dict(cls.SETTINGS.model) if cls.SETTINGS else {}
 
     @classmethod
+    def transcription_model_settings(cls) -> Dict[str, Any]:
+        mdl = cls.model_settings()
+        sub = mdl.get("transcription_model", {})
+        return dict(sub) if isinstance(sub, dict) else {}
+
+    @classmethod
+    def translation_model_settings(cls) -> Dict[str, Any]:
+        mdl = cls.model_settings()
+        sub = mdl.get("translation_model", {})
+        return dict(sub) if isinstance(sub, dict) else {}
+
+    @classmethod
     def app_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.app) if cls.SETTINGS else {}
 
@@ -473,12 +587,35 @@ class AppConfig:
         return dict(cls.SETTINGS.transcription) if cls.SETTINGS else {}
 
     @classmethod
+    def translation_settings(cls) -> Dict[str, Any]:
+        return dict(getattr(cls.SETTINGS, 'translation', {}) or {}) if cls.SETTINGS else {}
+
+    @classmethod
     def downloader_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.downloader) if cls.SETTINGS else {}
 
     @classmethod
     def network_settings(cls) -> Dict[str, Any]:
         return dict(cls.SETTINGS.network) if cls.SETTINGS else {}
+
+    @classmethod
+    def translation_engine_dir(cls) -> Path:
+        return cls.TRANSLATION_ENGINE_DIR
+
+    @classmethod
+    def translation_model_ref(cls) -> str:
+        p = cls.TRANSLATION_ENGINE_DIR
+        eng = str(cls.translation_model_settings().get("engine_name", "none") or "none").strip().lower()
+        if eng in ("none", "", "off", "disabled"):
+            return "none"
+
+        try:
+            if p and p.exists() and p.is_dir() and any(p.iterdir()):
+                return str(p)
+        except Exception:
+            pass
+
+        return eng
 
     @classmethod
     def min_video_height(cls) -> int:

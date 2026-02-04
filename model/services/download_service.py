@@ -9,7 +9,6 @@ import yt_dlp
 from model.config.app_config import AppConfig as Config
 from model.io.text import sanitize_filename
 
-
 # ----- yt-dlp logger adapter -----
 
 _NOISE_PATTERNS: tuple[str, ...] = (
@@ -127,10 +126,10 @@ class DownloadService:
                 continue  # not an audio stream
 
             raw_lang = (
-                f.get("language")
-                or f.get("lang")
-                or f.get("audio_lang")
-                or f.get("language_preference")
+                    f.get("language")
+                    or f.get("lang")
+                    or f.get("audio_lang")
+                    or f.get("language_preference")
             )
             lang = cls._normalize_lang_code(raw_lang)
             if not lang:
@@ -181,18 +180,18 @@ class DownloadService:
     # ----- Download -----
 
     def download(
-        self,
-        *,
-        url: str,
-        kind: str = "video",     # "video" | "audio"
-        quality: str = "auto",   # "auto" | "1080p" | "720p" | "320k" etc.
-        ext: str = "mp4",
-        out_dir: Path,
-        progress_cb=None,
-        log=lambda msg: None,
-        audio_lang: Optional[str] = None,  # normalized language code or None
-        file_stem: Optional[str] = None,
-        cancel_check=None,   # optional callable -> bool
+            self,
+            *,
+            url: str,
+            kind: str = "video",  # "video" | "audio"
+            quality: str = "auto",  # "auto" | "1080p" | "720p" | "320k" etc.
+            ext: str = "mp4",
+            out_dir: Path,
+            progress_cb=None,
+            log=lambda msg: None,
+            audio_lang: Optional[str] = None,  # normalized language code or None
+            file_stem: Optional[str] = None,
+            cancel_check=None,  # optional callable -> bool
     ) -> Optional[Path]:
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -230,6 +229,12 @@ class DownloadService:
             postprocessors.append(pp_audio)
 
         else:
+            # Desired container for the final file (may be remuxed by ffmpeg).
+            # We keep the format selection simple and rely on yt-dlp + ffmpeg postprocessors.
+            remux_to: str | None = None
+            if ext_l and ext_l not in ("mp4", "webm"):
+                remux_to = ext_l
+
             if quality.endswith("p"):
                 try:
                     req_h = int(quality[:-1])
@@ -271,6 +276,13 @@ class DownloadService:
                 else:
                     a_main = "bestaudio[ext=m4a]/bestaudio"
                 format_sort = [f"res:{upper}", "vcodec:avc", "acodec:m4a", "fps", "size"]
+
+            # Optional container remux (mp4/webm are native; other containers are remuxed).
+            if remux_to:
+                postprocessors.append({
+                    "key": "FFmpegVideoRemuxer",
+                    "preferedformat": remux_to,
+                })
 
             filt_main = f"{v_main}+{a_main}"
             alt_same = f"bestvideo[height>={min_h}][height<={upper}]+bestaudio"

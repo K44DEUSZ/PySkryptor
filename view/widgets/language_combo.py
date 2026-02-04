@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtWidgets
 
-from model.constants.whisper_languages import whisper_language_codes
+from model.constants.m2m100_languages import m2m100_language_codes
 from view.utils.translating import Translator
 
 
@@ -25,12 +25,12 @@ def _tr_key_exists(key: str) -> bool:
     return Translator.tr(key) != key
 
 
-def _language_label(code: str) -> str:
+def _language_label(code: str, *, locale_prefix: str) -> str:
     code = _normalize_code(code)
     if not code:
         return ""
 
-    key = f"lang.whisper.{code}"
+    key = f"{locale_prefix}.{code}"
     if _tr_key_exists(key):
         name = Translator.tr(key).strip()
         if name and name.lower() != code:
@@ -63,13 +63,12 @@ def _language_label(code: str) -> str:
 
 
 class LanguageCombo(QtWidgets.QComboBox):
-    """Searchable language picker for Whisper ISO codes.
+    """Searchable language picker.
 
     Labels are primarily sourced from locales via keys:
-      lang.whisper.<code>
+      <locale_prefix>.<code>
 
-    Optionally, a special first item can be added (e.g. auto-detect / UI default).
-    Pass (label_key, code).
+    Pass a codes_provider to reuse this widget for different language sets.
     """
 
     def __init__(
@@ -77,6 +76,8 @@ class LanguageCombo(QtWidgets.QComboBox):
         parent: Optional[QtWidgets.QWidget] = None,
         *,
         special_first: Optional[Tuple[str, str]] = None,
+        codes_provider: Callable[[], List[str]] = m2m100_language_codes,
+        locale_prefix: str = "lang.m2m100",
     ) -> None:
         super().__init__(parent)
 
@@ -88,6 +89,8 @@ class LanguageCombo(QtWidgets.QComboBox):
             editor.setClearButtonEnabled(True)
 
         self._special_first = special_first
+        self._codes_provider = codes_provider
+        self._locale_prefix = str(locale_prefix or "lang.m2m100")
         self._items: List[LanguageItem] = []
         self.rebuild()
 
@@ -98,8 +101,8 @@ class LanguageCombo(QtWidgets.QComboBox):
         self.setCompleter(completer)
 
     def rebuild(self) -> None:
-        codes = whisper_language_codes()
-        items = [LanguageItem(code=c, label=_language_label(c)) for c in codes]
+        codes = list(self._codes_provider() or [])
+        items = [LanguageItem(code=c, label=_language_label(c, locale_prefix=self._locale_prefix)) for c in codes]
         items = [it for it in items if it.label]
         items.sort(key=lambda x: x.label.lower())
 

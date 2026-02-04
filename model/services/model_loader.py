@@ -18,16 +18,16 @@ class ModelLoader:
 
     def load(self, log: Callable[[Any], None] | None = None) -> Any:
         """
-        Build and return a transformers ASR pipeline.
+        Build and return a transformers transcription pipeline.
 
         Respects model settings:
-          - ai_engine_name
+          - engine_name
           - low_cpu_mem_usage
         """
         logging.getLogger("transformers").setLevel(logging.ERROR)
 
-        model_cfg = Config.model_settings()
-        ai_name = str(model_cfg.get("ai_engine_name", "") or "").strip() or "unknown"
+        model_cfg = Config.transcription_model_settings()
+        ai_name = str(model_cfg.get("engine_name", "") or "").strip() or "unknown"
         low_cpu_mem_usage = bool(model_cfg.get("low_cpu_mem_usage", True))
         use_safetensors = bool(Config.USE_SAFETENSORS)
 

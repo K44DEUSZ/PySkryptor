@@ -33,10 +33,25 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
     n = re.sub(r'[:*?"<>|]', "_", n)
     n = re.sub(r"\s+", " ", n).strip()
     n = re.sub(r"_+", "_", n)
+
+    # Windows disallows trailing dots/spaces in file and folder names.
+    # YouTube titles may include ellipsis ("...") which would otherwise break output folder creation.
+    n = n.strip(" .")
+
+    # Avoid Windows reserved device names.
+    # https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+    _reserved = {
+        "con", "prn", "aux", "nul",
+        "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+        "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    }
+    if n.lower() in _reserved:
+        n = f"_{n}"
     if len(n) > max_len:
         stem, ext = Path(n).stem, Path(n).suffix
         allowed = max(1, max_len - len(ext) - 1)
         n = stem[:allowed] + ext
+        n = n.strip(" .")
     return n or "file"
 
 

@@ -12,10 +12,11 @@ from controller.tasks.settings_task import SettingsWorker
 from model.config.app_config import AppConfig as Config
 from view.utils.translating import tr
 from view.views import dialogs
+from view.widgets.language_combo import LanguageCombo
+from model.constants.m2m100_languages import m2m100_language_codes
+
 
 class _InfoButton(QtWidgets.QToolButton):
-    """Small info icon used for tooltips."""
-
     def __init__(self, tooltip: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsPanel")
@@ -25,21 +26,21 @@ class _InfoButton(QtWidgets.QToolButton):
         self.setAutoRaise(True)
         self.setFixedSize(18, 18)
 
+
 class SettingsPanel(QtWidgets.QWidget):
-    """
-    Settings tab: form bound to settings.json via SettingsWorker.
-    """
+    # Settings tab bound to settings.json via SettingsWorker.
 
     CONTROL_HEIGHT = 24
 
-    _RESTART_SENSITIVE_KEYS = {
+    _RESTART_SENSITIVE_KEYS: Tuple[Tuple[str, ...], ...] = (
         ("app", "language"),
         ("app", "theme"),
         ("engine", "preferred_device"),
         ("engine", "precision"),
         ("engine", "allow_tf32"),
-        ("model", "ai_engine_name"),
-    }
+        ("model", "transcription_model", "engine_name"),
+        ("model", "translation_model", "engine_name"),
+    )
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -129,6 +130,11 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_model_engine = QtWidgets.QComboBox()
         self.cb_model_engine.setMinimumHeight(base_h)
 
+        self.cb_translation_engine = QtWidgets.QComboBox()
+        self.cb_translation_engine.setMinimumHeight(base_h)
+        self.cb_translation_engine.addItem(tr("settings.model.translation.none"), "none")
+        self.cb_translation_engine.addItem(tr("settings.model.translation.m2m100"), "m2m100")
+
         self.spin_model_chunk = QtWidgets.QSpinBox()
         self.spin_model_chunk.setRange(5, 600)
         self.spin_model_chunk.setMinimumHeight(base_h)
@@ -143,18 +149,23 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.ed_model_default_lang = QtWidgets.QLineEdit()
         self.ed_model_default_lang.setMinimumHeight(base_h)
-        self.ed_model_default_lang.setPlaceholderText("auto")
+        self.ed_model_default_lang.setPlaceholderText(tr("settings.model.default_language.placeholder"))
 
         self.chk_model_low_cpu_mem = QtWidgets.QCheckBox(tr("settings.model.low_cpu_mem_usage"))
         self.chk_model_low_cpu_mem.setToolTip(tr("settings.help.low_cpu_mem_usage"))
         self.chk_model_low_cpu_mem.setMinimumHeight(base_h)
 
         lay_model.addRow(
-            tr("settings.model.ai_engine_name"),
+            tr("settings.model.transcription_model.engine_name"),
             self._hrow(self.cb_model_engine, _InfoButton(tr("settings.help.model_name"))),
         )
+
         lay_model.addRow(
-            tr("settings.model.default_language"),
+            tr("settings.model.translation_model.engine_name"),
+            self._hrow(self.cb_translation_engine, _InfoButton(tr("settings.help.translation_engine"))),
+        )
+        lay_model.addRow(
+            tr("settings.model.default_language.label"),
             self._hrow(self.ed_model_default_lang, _InfoButton(tr("settings.help.default_language"))),
         )
         lay_model.addRow(
@@ -167,6 +178,58 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         lay_model.addRow("", self.chk_model_ignore_warn)
         lay_model.addRow("", self.chk_model_low_cpu_mem)
+
+        # ----- Translation -----
+        grp_translation = QtWidgets.QGroupBox(tr("settings.section.translation"))
+        lay_tr = QtWidgets.QFormLayout(grp_translation)
+        self._tune_form_layout(lay_tr)
+
+        self.cmb_translation_target_lang = LanguageCombo(
+            special_first=("lang.default_ui", "auto"),
+            codes_provider=m2m100_language_codes,
+            locale_prefix="lang.m2m100",
+        )
+        self.cmb_translation_target_lang.setMinimumHeight(base_h)
+
+        self.cb_translation_dtype = QtWidgets.QComboBox()
+        self.cb_translation_dtype.setMinimumHeight(base_h)
+        self.cb_translation_dtype.addItem(tr("settings.translation.dtype.auto"), "auto")
+        self.cb_translation_dtype.addItem(tr("settings.translation.dtype.float32"), "float32")
+        self.cb_translation_dtype.addItem(tr("settings.translation.dtype.float16"), "float16")
+        self.cb_translation_dtype.addItem(tr("settings.translation.dtype.bfloat16"), "bfloat16")
+
+        self.spin_translation_max_tokens = QtWidgets.QSpinBox()
+        self.spin_translation_max_tokens.setRange(16, 2048)
+        self.spin_translation_max_tokens.setMinimumHeight(base_h)
+
+        self.spin_translation_chunk_chars = QtWidgets.QSpinBox()
+        self.spin_translation_chunk_chars.setRange(200, 8000)
+        self.spin_translation_chunk_chars.setMinimumHeight(base_h)
+
+        self.chk_translation_low_cpu_mem = QtWidgets.QCheckBox(tr("settings.translation.low_cpu_mem_usage"))
+        self.chk_translation_low_cpu_mem.setMinimumHeight(base_h)
+
+        self.chk_translation_local_only = QtWidgets.QCheckBox(tr("settings.translation.local_files_only"))
+        self.chk_translation_local_only.setMinimumHeight(base_h)
+
+        lay_tr.addRow(
+            tr("settings.translation.target_language"),
+            self._hrow(self.cmb_translation_target_lang, _InfoButton(tr("settings.help.translation_target_language"))),
+        )
+        lay_tr.addRow(
+            tr("settings.translation.dtype"),
+            self._hrow(self.cb_translation_dtype, _InfoButton(tr("settings.help.translation_dtype"))),
+        )
+        lay_tr.addRow(
+            tr("settings.translation.max_new_tokens"),
+            self._hrow(self.spin_translation_max_tokens, _InfoButton(tr("settings.help.translation_max_new_tokens"))),
+        )
+        lay_tr.addRow(
+            tr("settings.translation.chunk_max_chars"),
+            self._hrow(self.spin_translation_chunk_chars, _InfoButton(tr("settings.help.translation_chunk_max_chars"))),
+        )
+        lay_tr.addRow("", self.chk_translation_low_cpu_mem)
+        lay_tr.addRow("", self.chk_translation_local_only)
 
         # ----- Downloader -----
         grp_down = QtWidgets.QGroupBox(tr("settings.section.downloader"))
@@ -266,7 +329,7 @@ class SettingsPanel(QtWidgets.QWidget):
         root.addLayout(bottom_bar)
         root.addStretch(1)
 
-        self._groups = [grp_app, grp_eng, grp_model, grp_down, grp_net]
+        self._groups = [grp_app, grp_eng, grp_model, grp_translation, grp_down, grp_net]
 
         # Signals
         self.btn_restore.clicked.connect(self._on_restore_clicked)
@@ -317,6 +380,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_engine_device.currentIndexChanged.connect(mark)
         self.cb_engine_precision.currentIndexChanged.connect(mark)
         self.cb_model_engine.currentIndexChanged.connect(mark)
+        self.cb_translation_engine.currentIndexChanged.connect(mark)
 
         self.ed_model_default_lang.textChanged.connect(mark)
 
@@ -332,6 +396,12 @@ class SettingsPanel(QtWidgets.QWidget):
         self.chk_engine_tf32.toggled.connect(mark)
         self.chk_model_ignore_warn.toggled.connect(mark)
         self.chk_model_low_cpu_mem.toggled.connect(mark)
+        self.cmb_translation_target_lang.currentTextChanged.connect(mark)
+        self.cb_translation_dtype.currentIndexChanged.connect(mark)
+        self.spin_translation_max_tokens.valueChanged.connect(mark)
+        self.spin_translation_chunk_chars.valueChanged.connect(mark)
+        self.chk_translation_low_cpu_mem.toggled.connect(mark)
+        self.chk_translation_local_only.toggled.connect(mark)
 
     def _set_dirty(self, dirty: bool) -> None:
         self._dirty = dirty
@@ -353,28 +423,33 @@ class SettingsPanel(QtWidgets.QWidget):
     # ----- Models / locales -----
 
     def _populate_model_engines(self) -> None:
-        """
-        Original methodology: list available local ai_models by scanning MODELS_DIR.
-        Avoids depending on non-existent AppConfig APIs.
-        """
+        # ----- Models -----
         self.cb_model_engine.clear()
+        self.cb_translation_engine.clear()
+        self.cb_model_engine.addItem(tr("settings.model.transcription.auto"), "auto")
+        self.cb_translation_engine.addItem(tr("settings.model.translation.none"), "none")
+        self.cb_translation_engine.addItem(tr("settings.model.translation.auto"), "auto")
 
-        models_dir = getattr(Config, "MODELS_DIR", None)
-        names: List[str] = []
+        models_dir = getattr(Config, "AI_MODELS_DIR", None)
+        all_names: List[str] = []
 
         try:
             if isinstance(models_dir, Path) and models_dir.exists() and models_dir.is_dir():
                 dirs = [d for d in models_dir.iterdir() if d.is_dir()]
                 dirs = [d for d in dirs if any(d.iterdir())]
-                names = [d.name for d in sorted(dirs, key=lambda x: x.name.lower())]
+                all_names = [d.name for d in sorted(dirs, key=lambda x: x.name.lower())]
         except Exception:
-            names = []
+            all_names = []
 
-        if not names:
-            names = ["whisper-turbo"]
+        known_translation = set(x.lower() for x in getattr(Config, "TRANSLATION_ENGINE_IDS", ("m2m100",)))
+        transcription_names = [n for n in all_names if n.lower() not in known_translation]
+        translation_names = [n for n in all_names if n.lower() in known_translation]
 
-        for name in names:
+        for name in transcription_names:
             self.cb_model_engine.addItem(name, name)
+
+        for name in translation_names:
+            self.cb_translation_engine.addItem(name, name)
 
     def _load_locale_meta(self, path: Path) -> Tuple[str, str]:
         code = path.stem
@@ -520,17 +595,34 @@ class SettingsPanel(QtWidgets.QWidget):
             self._select_combo_by_data(self.cb_engine_precision, str(eng.get("precision", "auto")), fallback="auto")
             self.chk_engine_tf32.setChecked(bool(eng.get("allow_tf32", True)))
 
-            model_name = str(model.get("ai_engine_name", "")).strip()
+            t_model = model.get("transcription_model", {}) if isinstance(model.get("transcription_model"), dict) else {}
+            model_name = str(t_model.get("engine_name", "")).strip()
             if model_name:
                 self._select_combo_by_data(self.cb_model_engine, model_name, fallback=model_name)
 
-            default_lang = model.get("default_language", None)
+            tr_model = model.get("translation_model", {}) if isinstance(model.get("translation_model"), dict) else {}
+            tr_eng = str(tr_model.get("engine_name", "none") or "none").strip().lower()
+            self._select_combo_by_data(self.cb_translation_engine, tr_eng, fallback="none")
+
+            default_lang = (model.get("transcription_model", {}) if isinstance(model.get("transcription_model"), dict) else {}).get("default_language", None)
             self.ed_model_default_lang.setText("" if default_lang is None else str(default_lang))
 
-            self.spin_model_chunk.setValue(int(model.get("chunk_length_s", 60)))
-            self.spin_model_stride.setValue(int(model.get("stride_length_s", 5)))
-            self.chk_model_ignore_warn.setChecked(bool(model.get("ignore_warning", True)))
-            self.chk_model_low_cpu_mem.setChecked(bool(model.get("low_cpu_mem_usage", True)))
+            self.spin_model_chunk.setValue(int(t_model.get("chunk_length_s", 60)))
+            self.spin_model_stride.setValue(int(t_model.get("stride_length_s", 5)))
+            self.chk_model_ignore_warn.setChecked(bool(t_model.get("ignore_warning", True)))
+            self.chk_model_low_cpu_mem.setChecked(bool(t_model.get("low_cpu_mem_usage", True)))
+
+            # Translation (independent from Whisper; used for post-translation via M2M100)
+            tr = self._data.get("translation", {}) if isinstance(self._data.get("translation"), dict) else {}
+            tgt = str(tr.get("target_language", "auto") or "auto").strip().lower() or "auto"
+            self.cmb_translation_target_lang.set_code(tgt)
+
+            self._select_combo_by_data(self.cb_translation_dtype, str(tr_model.get("dtype", "auto") or "auto"),
+                                       fallback="auto")
+            self.spin_translation_max_tokens.setValue(int(tr_model.get("max_new_tokens", 256)))
+            self.spin_translation_chunk_chars.setValue(int(tr_model.get("chunk_max_chars", 1200)))
+            self.chk_translation_low_cpu_mem.setChecked(bool(tr_model.get("low_cpu_mem_usage", True)))
+            self.chk_translation_local_only.setChecked(bool(tr_model.get("local_files_only", True)))
 
             self.spin_down_min_h.setValue(int(down.get("min_video_height", 144)))
             self.spin_down_max_h.setValue(int(down.get("max_video_height", 4320)))
@@ -576,12 +668,26 @@ class SettingsPanel(QtWidgets.QWidget):
         default_lang_val = None if (not default_lang or default_lang.lower() == "auto") else default_lang
 
         model = {
-            "ai_engine_name": str(self.cb_model_engine.currentData() or "whisper-turbo"),
-            "chunk_length_s": int(self.spin_model_chunk.value()),
-            "stride_length_s": int(self.spin_model_stride.value()),
-            "ignore_warning": bool(self.chk_model_ignore_warn.isChecked()),
-            "default_language": default_lang_val,
-            "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
+            "transcription_model": {
+                "engine_name": str(self.cb_model_engine.currentData() or "whisper-turbo"),
+                "chunk_length_s": int(self.spin_model_chunk.value()),
+                "stride_length_s": int(self.spin_model_stride.value()),
+                "ignore_warning": bool(self.chk_model_ignore_warn.isChecked()),
+                "default_language": default_lang_val,
+                "low_cpu_mem_usage": bool(self.chk_model_low_cpu_mem.isChecked()),
+            },
+            "translation_model": {
+                "engine_name": str(self.cb_translation_engine.currentData() or "none"),
+                "dtype": str(self.cb_translation_dtype.currentData() or "auto"),
+                "max_new_tokens": int(self.spin_translation_max_tokens.value()),
+                "chunk_max_chars": int(self.spin_translation_chunk_chars.value()),
+                "low_cpu_mem_usage": bool(self.chk_translation_low_cpu_mem.isChecked()),
+                "local_files_only": bool(self.chk_translation_local_only.isChecked()),
+            },
+        }
+
+        translation = {
+            "target_language": self.cmb_translation_target_lang.code() or "auto",
         }
 
         down = {
@@ -601,6 +707,7 @@ class SettingsPanel(QtWidgets.QWidget):
             "app": app,
             "engine": eng,
             "model": model,
+            "translation": translation,
             "downloader": down,
             "network": net,
         }
@@ -632,11 +739,19 @@ class SettingsPanel(QtWidgets.QWidget):
                 tr("settings.msg.restart_failed", detail=str(ex)),
             )
 
+    def _get_nested(self, data: Dict[str, Any], path: Tuple[str, ...]) -> Any:
+        cur: Any = data
+        for k in path:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(k)
+        return cur
+
     def _compute_restart_needed_for_save(self, payload: Dict[str, Any]) -> bool:
         current = self._data if isinstance(self._data, dict) else {}
-        for section, key in self._RESTART_SENSITIVE_KEYS:
-            old = (current.get(section, {}) or {}).get(key)
-            new = (payload.get(section, {}) or {}).get(key)
+        for path in self._RESTART_SENSITIVE_KEYS:
+            old = self._get_nested(current, path)
+            new = self._get_nested(payload, path)
             if old != new:
                 return True
         return False
