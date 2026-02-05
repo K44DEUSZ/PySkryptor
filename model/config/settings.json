@@ -1,6 +1,6 @@
 {
   "app": {
-    "language": "auto",
+    "language": "pl",
     "theme": "dark"
   },
   "engine": {
@@ -48,6 +48,6 @@
     "http_timeout_s": 30
   },
   "translation": {
-    "target_language": "ar"
+    "target_language": "en"
   }
 }

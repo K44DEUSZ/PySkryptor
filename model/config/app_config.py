@@ -26,8 +26,7 @@ class AppConfig:
     APP_VERSION: str = "0.1.0"
     APP_AUTHOR: str = "Bartosz Golat"
 
-    APP_COPYRIGHT_START_YEAR: int = 2025
-    APP_COPYRIGHT_RANGE: str = str(APP_COPYRIGHT_START_YEAR)
+    APP_COPYRIGHT_RANGE: str = "2025–2026"
 
     APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"
 
@@ -52,6 +51,9 @@ class AppConfig:
     LOCALES_DIR: Path = VIEW_RESOURCES_DIR / "locales"
     STYLES_DIR: Path = VIEW_RESOURCES_DIR / "styles"
 
+    IMAGES_DIR: Path = VIEW_RESOURCES_DIR / "images"
+    APP_LOGO_SVG: Path = IMAGES_DIR / "logo.svg"
+
     DATA_DIR: Path = ROOT_DIR / "data"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
     TRANSCRIPTIONS_DIR: Path = DATA_DIR / "transcriptions"
@@ -75,6 +77,9 @@ class AppConfig:
         cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / "__missing__"
         cls.LOCALES_DIR = cls.ROOT_DIR / "view" / "resources" / "locales"
         cls.STYLES_DIR = cls.ROOT_DIR / "view" / "resources" / "styles"
+
+        cls.IMAGES_DIR = cls.ROOT_DIR / "view" / "resources" / "images"
+        cls.APP_LOGO_SVG = cls.IMAGES_DIR / "logo.svg"
 
         cls.DATA_DIR = cls.ROOT_DIR / "data"
         cls.DOWNLOADS_DIR = cls.DATA_DIR / "downloads"
