@@ -6,7 +6,7 @@ from typing import Callable, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtWidgets
 
-from model.constants.m2m100_languages import m2m100_language_codes
+from model.services.settings_service import SettingsCatalog
 from view.utils.translating import Translator
 
 
@@ -76,7 +76,7 @@ class LanguageCombo(QtWidgets.QComboBox):
         parent: Optional[QtWidgets.QWidget] = None,
         *,
         special_first: Optional[Tuple[str, str]] = None,
-        codes_provider: Callable[[], List[str]] = m2m100_language_codes,
+        codes_provider: Callable[[], List[str]] = lambda: sorted(SettingsCatalog.translation_language_codes()),
         locale_prefix: str = "lang.m2m100",
     ) -> None:
         super().__init__(parent)

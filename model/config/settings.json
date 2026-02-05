@@ -1,7 +1,7 @@
 {
   "app": {
     "language": "auto",
-    "theme": "auto"
+    "theme": "dark"
   },
   "engine": {
     "preferred_device": "auto",
@@ -28,7 +28,7 @@
   },
   "transcription": {
     "output_ext": "txt",
-    "timestamps_output": true,
+    "timestamps_output": false,
     "keep_wav_temp": false,
     "download_audio_only": true,
     "url_keep_audio": false,
@@ -48,6 +48,6 @@
     "http_timeout_s": 30
   },
   "translation": {
-    "target_language": "en"
+    "target_language": "ar"
   }
 }

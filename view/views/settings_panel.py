@@ -13,7 +13,6 @@ from model.config.app_config import AppConfig as Config
 from view.utils.translating import tr
 from view.views import dialogs
 from view.widgets.language_combo import LanguageCombo
-from model.constants.m2m100_languages import m2m100_language_codes
 
 
 class _InfoButton(QtWidgets.QToolButton):
@@ -186,7 +185,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cmb_translation_target_lang = LanguageCombo(
             special_first=("lang.default_ui", "auto"),
-            codes_provider=m2m100_language_codes,
             locale_prefix="lang.m2m100",
         )
         self.cmb_translation_target_lang.setMinimumHeight(base_h)

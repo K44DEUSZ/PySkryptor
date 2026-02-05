@@ -8,11 +8,11 @@ from typing import Optional, List, Dict, Any
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from model.config.app_config import AppConfig as Config
+from model.services.settings_service import SettingsCatalog
 from model.io.text import is_url
 from view.utils.translating import tr, Translator
 from view.utils.gui_log import QtHtmlLogSink
 from view.widgets.language_combo import LanguageCombo
-from model.constants.m2m100_languages import m2m100_language_codes
 from view.views.dialogs import ask_cancel, ask_conflict, ask_open_transcripts_folder
 from controller.tasks.metadata_task import MetadataWorker
 from controller.tasks.transcription_task import TranscriptionWorker
@@ -208,7 +208,6 @@ class FilesPanel(QtWidgets.QWidget):
         self.lbl_target_lang = QtWidgets.QLabel(tr("files.options.target_language.label"))
         self.cmb_target_lang = LanguageCombo(
             special_first=("lang.default_ui", "auto"),
-            codes_provider=m2m100_language_codes,
             locale_prefix="lang.m2m100",
         )
         self.cmb_target_lang.setMinimumHeight(base_h)
@@ -226,7 +225,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.opt_output.setMinimumHeight(base_h)
         self.lbl_output.setBuddy(self.opt_output)
 
-        for mode in Config.get_transcription_output_modes():
+        for mode in SettingsCatalog.transcription_output_modes():
             self.opt_output.addItem(
                 tr(str(mode.get("tr_key", ""))),
                 str(mode.get("id", "")),
@@ -521,13 +520,13 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _fill_audio_ext_combo(self) -> None:
         self.cmb_audio_ext.clear()
-        for ext in ("m4a", "mp3", "wav", "flac", "ogg", "opus", "aac"):
+        for ext in SettingsCatalog.download_audio_exts():
             self.cmb_audio_ext.addItem(tr(f"files.options.ext.audio.{ext}"), ext)
         self.cmb_audio_ext.setCurrentIndex(0)
 
     def _fill_video_ext_combo(self) -> None:
         self.cmb_video_ext.clear()
-        for ext in ("mp4", "mkv", "webm", "mov", "avi"):
+        for ext in SettingsCatalog.download_video_exts():
             self.cmb_video_ext.addItem(tr(f"files.options.ext.video.{ext}"), ext)
         self.cmb_video_ext.setCurrentIndex(0)
 

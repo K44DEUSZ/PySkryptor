@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List, Set
+
+from model.constants.m2m100_languages import m2m100_language_codes
 
 
 class SettingsError(RuntimeError):
@@ -23,6 +25,72 @@ class SettingsSnapshot:
     translation: Dict[str, Any]
     downloader: Dict[str, Any]
     network: Dict[str, Any]
+
+
+
+class SettingsCatalog:
+    """Central catalog of selectable/allowed settings values.
+
+    This is intentionally UI-agnostic: both the UI and services should source their
+    allowed values from here (and SettingsService uses it for validation).
+    """
+
+    TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
+        {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "settings.transcription.output.plain_txt"},
+        {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "settings.transcription.output.txt_timestamps"},
+        {"id": "srt", "ext": "srt", "timestamps": False, "tr_key": "settings.transcription.output.srt"},
+    )
+
+    DOWNLOAD_AUDIO_EXTS: Tuple[str, ...] = ("m4a", "mp3", "wav", "flac", "ogg", "opus", "aac")
+    DOWNLOAD_VIDEO_EXTS: Tuple[str, ...] = ("mp4", "webm", "mkv", "mov")
+
+    @classmethod
+    def transcription_output_modes(cls) -> Tuple[Dict[str, Any], ...]:
+        return cls.TRANSCRIPTION_OUTPUT_MODES
+
+    @classmethod
+    def transcript_extensions(cls) -> Tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    str(m.get("ext", "")).strip().lower()
+                    for m in cls.TRANSCRIPTION_OUTPUT_MODES
+                    if m.get("ext")
+                }
+            )
+        )
+
+    @classmethod
+    def download_audio_exts(cls) -> Tuple[str, ...]:
+        return cls.DOWNLOAD_AUDIO_EXTS
+
+    @classmethod
+    def download_video_exts(cls) -> Tuple[str, ...]:
+        return cls.DOWNLOAD_VIDEO_EXTS
+
+    @classmethod
+    def translation_language_codes(cls) -> Set[str]:
+        return set(m2m100_language_codes())
+
+    @classmethod
+    def translation_target_allowed(cls) -> Set[str]:
+        return cls.translation_language_codes() | {"auto"}
+
+class RuntimeConfigService:
+    """Applies a validated SettingsSnapshot to the runtime AppConfig.
+
+    AppConfig is a runtime map of paths and resolved runtime parameters.
+    SettingsService owns parsing/validation; this service owns applying.
+    """
+
+    @staticmethod
+    def initialize(config_cls: Any, snap: "SettingsSnapshot") -> None:
+        # Backward-compatible: delegate to AppConfig implementation.
+        config_cls.initialize_from_snapshot(snap)
+
+    @staticmethod
+    def update(config_cls: Any, snap: "SettingsSnapshot", *, sections: Tuple[str, ...] = ("transcription", "translation")) -> None:
+        config_cls.update_from_snapshot(snap, sections=sections)
 
 
 class SettingsService:
@@ -135,19 +203,22 @@ class SettingsService:
     def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
         return {
-            "output_ext": self._enum_str(src.get("output_ext", "txt"), ("txt", "srt"), "transcription.output_ext"),
+            "output_ext": self._enum_str(src.get("output_ext", "txt"), SettingsCatalog.transcript_extensions(), "transcription.output_ext"),
             "timestamps_output": bool(src.get("timestamps_output", False)),
             "download_audio_only": bool(src.get("download_audio_only", True)),
             "url_keep_audio": bool(src.get("url_keep_audio", False)),
-            "url_audio_ext": str(src.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."),
+            "url_audio_ext": self._enum_str(str(src.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."), SettingsCatalog.download_audio_exts(), "transcription.url_audio_ext"),
             "url_keep_video": bool(src.get("url_keep_video", False)),
-            "url_video_ext": str(src.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."),
+            "url_video_ext": self._enum_str(str(src.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."), SettingsCatalog.download_video_exts(), "transcription.url_video_ext"),
             "translate_after_transcription": bool(src.get("translate_after_transcription", False)),
         }
 
     def _validate_translation(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
-        return {"target_language": str(src.get("target_language", "auto") or "auto").strip().lower()}
+        tgt = str(src.get("target_language", "auto") or "auto").strip().lower()
+        if tgt not in SettingsCatalog.translation_target_allowed():
+            raise SettingsError("error.type.enum", field="translation.target_language", allowed=", ".join(sorted(SettingsCatalog.translation_target_allowed())))
+        return {"target_language": tgt}
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)

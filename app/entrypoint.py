@@ -8,7 +8,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from model.config.app_config import AppConfig as Config
 from model.services.app_logging_service import AppLoggingService
-from model.services.settings_service import SettingsService, SettingsError
+from model.services.settings_service import SettingsService, SettingsError, RuntimeConfigService
 from view.utils.translating import Translator
 from view.views.dialogs import (
     critical_defaults_missing_and_exit,
@@ -120,11 +120,11 @@ def run() -> int:
         info_settings_restored(None)
 
     try:
-        log.info("entrypoint: Config.initialize_from_snapshot() begin")
-        Config.initialize_from_snapshot(snap)
-        log.info("entrypoint: Config.initialize_from_snapshot() ok")
+        log.info("entrypoint: RuntimeConfigService.initialize() begin")
+        RuntimeConfigService.initialize(Config, snap)
+        log.info("entrypoint: RuntimeConfigService.initialize() ok")
     except Exception as ex:
-        log.exception("entrypoint: Config.initialize_from_snapshot() failed: %s", ex)
+        log.exception("entrypoint: RuntimeConfigService.initialize() failed: %s", ex)
         critical_config_load_failed_and_exit(None, type(ex).__name__)
         return 1
 

@@ -13,7 +13,6 @@ from controller.platform.microphone import list_input_device_names
 from view.views.dialogs import show_no_microphone_dialog
 from controller.tasks.live_transcription_task import LiveTranscriptionWorker
 from view.widgets.audio_spectrum_widget import AudioSpectrumWidget
-from model.constants.m2m100_languages import m2m100_language_codes
 from view.widgets.language_combo import LanguageCombo
 
 class LivePanel(QtWidgets.QWidget):
@@ -99,7 +98,7 @@ class LivePanel(QtWidgets.QWidget):
         row += 1
 
         self.cmb_src_lang = LanguageCombo(special_first=("lang.auto_detect", ""))
-        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"), codes_provider=m2m100_language_codes, locale_prefix="lang.m2m100")
+        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"), locale_prefix="lang.m2m100")
         try:
             self.cmb_tgt_lang.set_code(str(Config.translation_settings().get("target_language", "auto") or "auto"))
         except Exception:
@@ -374,8 +373,11 @@ class LivePanel(QtWidgets.QWidget):
         src_lang = self.cmb_src_lang.code() or ""
         tgt_lang = self.cmb_tgt_lang.code() or "auto"
         if tgt_lang in ("auto", "ui", "app", "default", ""):
-            ui = str(Translator.current_language() or "en").split("-", 1)[0].lower().strip()
-            tgt_lang = ui or "en"
+            try:
+                cfg = str(Config.translation_settings().get("target_language", "auto") or "auto").strip().lower()
+            except Exception:
+                cfg = "auto"
+            tgt_lang = cfg if cfg and cfg != "auto" else "en"
 
         mode = "translate" if self.mode_translate.isChecked() else "transcribe"
         include_source = bool(self.chk_show_source.isChecked())

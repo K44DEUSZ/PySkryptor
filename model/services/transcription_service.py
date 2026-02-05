@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 import shutil
 import wave
 from dataclasses import dataclass
@@ -254,13 +255,25 @@ class TranscriptionService:
                     )
 
                     translated_text = ""
-                    if translate_enabled and translator is not None and out_ext != "srt":
-                        translated_text = translator.translate(
-                            merged_text,
-                            src_lang=str(default_lang or ""),
-                            tgt_lang=target_language,
-                            log=lambda m: log(str(m)),
-                        )
+                    translated_segments: Optional[List[Dict[str, Any]]] = None
+                    if translate_enabled and translator is not None:
+                        src_lang = self._pick_source_language(default_lang=default_lang, merged_text=merged_text)
+                        log(f"[Translation] Request src='{src_lang or ''}' tgt='{target_language}' out_ext='{out_ext}' timestamps={timestamps_output}.")
+                        if out_ext == "srt" or timestamps_output:
+                            translated_segments = self._translate_segments(
+                                segments=segments,
+                                translator=translator,
+                                src_lang=src_lang,
+                                tgt_lang=target_language,
+                                log=log,
+                            )
+                        else:
+                            translated_text = translator.translate(
+                                merged_text,
+                                src_lang=src_lang,
+                                tgt_lang=target_language,
+                                log=lambda m: log(str(m)),
+                            )
 
                     transcript_path = self._write_outputs(
                         key=key,
@@ -268,6 +281,7 @@ class TranscriptionService:
                         out_dir=out_dir,
                         merged_text=merged_text,
                         translated_text=translated_text,
+                        translated_segments=translated_segments,
                         segments=segments,
                         out_ext=out_ext,
                         timestamps_output=timestamps_output,
@@ -804,6 +818,7 @@ class TranscriptionService:
         out_dir: Path,
         merged_text: str,
         translated_text: str = "",
+        translated_segments: Optional[List[Dict[str, Any]]] = None,
         segments: List[Dict[str, Any]],
         out_ext: str,
         timestamps_output: bool,
@@ -843,10 +858,82 @@ class TranscriptionService:
         return out_path
 
     @staticmethod
+    def _pick_source_language(*, default_lang: Optional[str], merged_text: str) -> str:
+        def _norm(code: Optional[str]) -> str:
+            return str(code or "").strip().lower().replace("_", "-").split("-", 1)[0]
+
+        src = _norm(default_lang)
+        if src and src != "auto":
+            return src
+
+        t = str(merged_text or "").strip()
+        if not t:
+            return ""
+
+        # Fast, dependency-free heuristic. We prefer a conservative guess to avoid feeding M2M100
+        # the wrong src_lang (which often produces "translated" text that is mostly unchanged).
+        if any(ch in t for ch in "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"):
+            return "pl"
+
+        sample = re.sub(r"[^a-zA-Z\s]", " ", t.lower())
+        words = [w for w in sample.split() if w]
+        if not words:
+            return ""
+
+        common_pl = {
+            "nie", "sie", "ze", "na", "jest", "dla", "oraz", "ale", "tak", "to", "w", "z", "do",
+            "jak", "mozna", "ktory", "ktore", "ktora", "przez", "bardzo", "juz", "tutaj",
+            "wlasnie", "ponizej", "ponad", "zostala", "zostal", "zostaly", "bedzie", "byc",
+        }
+        score = sum(1 for w in words[:500] if w in common_pl)
+
+        # Polish without diacritics tends to contain many "rz/sz/cz/dz/ch" sequences.
+        seq_score = 0
+        s = " ".join(words[:500])
+        for seq in ("rz", "sz", "cz", "dz", "ch"):
+            seq_score += s.count(seq)
+
+        if score >= 3 or seq_score >= 8:
+            return "pl"
+
+        return ""
+
+    def _translate_segments(
+        self,
+        *,
+        segments: List[Dict[str, Any]],
+        translator: TranslationService,
+        src_lang: str,
+        tgt_lang: str,
+        log: LogFn,
+    ) -> Optional[List[Dict[str, Any]]]:
+        out: List[Dict[str, Any]] = []
+        any_ok = False
+
+        for seg in segments:
+            s = float(seg.get("start", 0.0) or 0.0)
+            e = float(seg.get("end", 0.0) or 0.0)
+            txt = str(seg.get("text", "") or "").strip()
+            if not txt:
+                out.append({"start": s, "end": e, "text": ""})
+                continue
+
+            tr_txt = translator.translate(txt, src_lang=src_lang, tgt_lang=tgt_lang, log=lambda m: log(str(m)))
+            tr_txt = str(tr_txt or "").strip()
+            if tr_txt:
+                any_ok = True
+                out.append({"start": s, "end": e, "text": tr_txt})
+            else:
+                out.append({"start": s, "end": e, "text": txt})
+
+        return out if any_ok else None
+
     def _render_transcript(
+        self,
         *,
         merged_text: str,
         translated_text: str = "",
+        translated_segments: Optional[List[Dict[str, Any]]] = None,
         segments: List[Dict[str, Any]],
         out_ext: str,
         timestamps_output: bool,
@@ -857,9 +944,11 @@ class TranscriptionService:
             out_ext = "txt"
 
         if out_ext == "srt":
-            return TextPostprocessor.to_srt(segments)
+            use = translated_segments if translated_segments else segments
+            return TextPostprocessor.to_srt(use)
         if out_ext == "txt" and timestamps_output:
-            return TextPostprocessor.to_timestamped_plain(segments)
+            use = translated_segments if translated_segments else segments
+            return TextPostprocessor.to_timestamped_plain(use)
 
         merged = TextPostprocessor.clean(merged_text)
         if out_ext == "txt" and translated_text and translated_text.strip():

@@ -1,0 +1,51 @@
+/* ----- Dark theme tokens ----- */
+
+@bg: #15171A;
+@panel: #1E2126;
+@panel_alt: #22262C;
+
+@fg: #E6E8EB;
+@fg_muted: #BFC7D2;
+@fg_disabled: #8A93A0;
+
+@border: #2C313A;
+@border_hover: #3A414D;
+@border_focus: #2AA84A;
+
+@grid: #2B3038;
+@header_bg: #1B1E23;
+@header_fg: #D0D6DE;
+
+@btn_bg: #21252B;
+@btn_bg_hover: #2A3038;
+@btn_bg_pressed: #333B46;
+@btn_bg_disabled: #1E2126;
+
+@input_bg: #21252B;
+@input_bg_disabled: #1A1D22;
+
+@tab_hover: #252B33;
+
+@select_bg: #1F5F34;
+@select_fg: #FFFFFF;
+
+@accent: #2AA84A;
+@accent_hover: #239141;
+@accent_pressed: #1E7D38;
+@accent_disabled: #1A3A24;
+@accent_border: #239141;
+@accent_fg: #FFFFFF;
+
+@scroll_handle: rgba(230, 232, 235, 0.22);
+@scroll_handle_hover: rgba(230, 232, 235, 0.32);
+
+@tooltip_bg: #21252B;
+@tooltip_fg: #E6E8EB;
+
+@splitter_hover: rgba(42, 168, 74, 0.16);
+
+@link: #6BA7FF;
+
+@error: #F97066;
+@warning: #FDB022;
+@success: #32D583;
