@@ -121,7 +121,11 @@ class TranscriptionService:
 
             chunk_len = int(model_cfg.get("chunk_length_s", 30))
             stride_len = int(model_cfg.get("stride_length_s", 5))
-            ignore_warn = bool(model_cfg.get("ignore_warning", True))
+            ignore_warn = bool(model_cfg.get("ignore_warning", False))
+            quality_preset = str(model_cfg.get("quality_preset", "balanced") or "balanced").strip().lower()
+            if quality_preset not in ("fast", "balanced", "accurate"):
+                quality_preset = "balanced"
+            text_consistency = bool(model_cfg.get("text_consistency", True))
             default_lang = model_cfg.get("default_language", None)
             timestamps_output = bool(trans_cfg.get("timestamps_output", False))
             out_ext = str(trans_cfg.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
@@ -248,6 +252,8 @@ class TranscriptionService:
                         default_lang=default_lang,
                         return_ts_base=return_ts_base,
                         ignore_warn=ignore_warn,
+                        quality_preset=quality_preset,
+                        text_consistency=text_consistency,
                         translate=translate,
                         cancel_check=cancel_check,
                         item_progress=item_progress,
@@ -715,6 +721,8 @@ class TranscriptionService:
         default_lang: Optional[str],
         return_ts_base: bool,
         ignore_warn: bool,
+        quality_preset: str,
+        text_consistency: bool,
         translate: Callable[[str, Any], str],
         cancel_check: CancelCheckFn,
         item_progress: ItemProgressFn,
@@ -763,6 +771,18 @@ class TranscriptionService:
                 else:
                     audio /= 128.0
 
+                gen_kwargs: Dict[str, Any] = {}
+                if default_lang:
+                    gen_kwargs["language"] = default_lang
+                if str(quality_preset or "").lower() == "balanced":
+                    gen_kwargs["num_beams"] = 3
+                elif str(quality_preset or "").lower() == "accurate":
+                    gen_kwargs["num_beams"] = 5
+                else:
+                    gen_kwargs["num_beams"] = 1
+                if text_consistency:
+                    gen_kwargs["condition_on_prev_tokens"] = True
+
                 try:
                     out = pipe(
                         audio,
@@ -770,7 +790,7 @@ class TranscriptionService:
                         stride_length_s=stride_len_s,
                         task=task,
                         return_timestamps=True if return_ts_base else False,
-                        generate_kwargs={"language": default_lang} if default_lang else {},
+                        generate_kwargs=gen_kwargs,
                     )
                 except Exception as e:
                     raise _FatalPipeError(str(e)) from e
@@ -786,6 +806,9 @@ class TranscriptionService:
                 item_progress(key, max(0, min(100, pct)))
 
                 bump_chunk_done()
+
+        if not merged_text.strip() and not ignore_warn:
+            raise RuntimeError(translate("log.transcription_empty"))
 
         return merged_text, segments
 

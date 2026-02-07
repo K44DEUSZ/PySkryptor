@@ -83,6 +83,40 @@ class AppLoggingService:
             crash_log_path=crash_log_path,
         )
 
+
+    @staticmethod
+    def apply_settings(ctx: LoggingContext, *, file_enabled: bool, level: str) -> None:
+        logger = ctx.logger
+
+        lvl = str(level or "info").strip().lower()
+        level_map = {
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+        }
+        logger.setLevel(level_map.get(lvl, logging.INFO))
+
+        file_handlers = [h for h in list(logger.handlers) if isinstance(h, logging.handlers.RotatingFileHandler)]
+        if file_enabled:
+            if not file_handlers:
+                fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+                fh = logging.handlers.RotatingFileHandler(
+                    ctx.app_log_path,
+                    maxBytes=2_000_000,
+                    backupCount=5,
+                    encoding="utf-8",
+                )
+                fh.setFormatter(fmt)
+                logger.addHandler(fh)
+        else:
+            for h in file_handlers:
+                try:
+                    logger.removeHandler(h)
+                    h.close()
+                except Exception:
+                    pass
+
     @staticmethod
     def _write_startup_header(logger: logging.Logger) -> None:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

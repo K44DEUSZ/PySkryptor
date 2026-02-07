@@ -1,12 +1,11 @@
 {
   "about": {
     "app": {
-      "description": "<b>{name}</b><br/>Development: {years}<br/>Version: {version}<br/>Author: {author}"
+      "description": "<b>{name}</b> ({years})<br/>Version: {version}<br/>Author: {author}"
     },
     "license": {
-      "full_link": "The full license text is available in <a href=\"license\">LICENSE</a> shipped with the application.",
-      "summary": "This program is free software distributed under the GNU General Public License version 3 (GPL-3.0). Third-party components may be distributed under their own licenses.",
-      "open_button": "Open LICENSE"
+      "full_link": "Full license text is available in <a href=\"license\">LICENSE</a> shipped with the application.",
+      "summary": "This program is free software distributed under the GNU General Public License version 3 (GPL-3.0)."
     },
     "section": {
       "app": "About ℹ️",
@@ -26,6 +25,11 @@
       "transcript": "Transcript",
       "video": "Video"
     }
+  },
+  "common": {
+    "auto": "Auto",
+    "no": "No",
+    "yes": "Yes"
   },
   "ctrl": {
     "cancel": "Cancel ✖️",
@@ -104,15 +108,18 @@
     "open_in_browser": "Open in browser 🌐",
     "probe": "Analyze 🔍",
     "select": {
-      "audio_track": "Audio track",
-      "audio_track.default": "Default track",
+      "audio_track": {
+        "default": "Default track"
+      },
       "ext": "Format",
-      "quality": "Quality",
-      "quality.auto": "Auto",
+      "quality": {
+        "auto": "Auto"
+      },
       "title": "Download options",
-      "type": "Type",
-      "type.audio": "Audio",
-      "type.video": "Video"
+      "type": {
+        "audio": "Audio",
+        "video": "Video"
+      }
     },
     "url": {
       "placeholder": "Paste media URL here..."
@@ -222,108 +229,7 @@
   "lang": {
     "auto_detect": "Auto-detect",
     "default_ui": "Default (app language)",
-    "m2m100": {
-      "af": "Afrikaans",
-      "am": "Amharic",
-      "ar": "Arabic",
-      "ast": "Asturian",
-      "az": "Azerbaijani",
-      "ba": "Bashkir",
-      "be": "Belarusian",
-      "bg": "Bulgarian",
-      "bn": "Bangla",
-      "br": "Breton",
-      "bs": "Bosnian",
-      "ca": "Catalan",
-      "ceb": "Cebuano",
-      "cs": "Czech",
-      "cy": "Welsh",
-      "da": "Danish",
-      "de": "German",
-      "el": "Greek",
-      "en": "English",
-      "es": "Spanish",
-      "et": "Estonian",
-      "fa": "Persian",
-      "ff": "Fula",
-      "fi": "Finnish",
-      "fr": "French",
-      "fy": "Western Frisian",
-      "ga": "Irish",
-      "gd": "Scottish Gaelic",
-      "gl": "Galician",
-      "gu": "Gujarati",
-      "ha": "Hausa",
-      "he": "Hebrew",
-      "hi": "Hindi",
-      "hr": "Croatian",
-      "ht": "Haitian Creole",
-      "hu": "Hungarian",
-      "hy": "Armenian",
-      "id": "Indonesian",
-      "ig": "Igbo",
-      "ilo": "Iloko",
-      "is": "Icelandic",
-      "it": "Italian",
-      "ja": "Japanese",
-      "jv": "Javanese",
-      "ka": "Georgian",
-      "kk": "Kazakh",
-      "km": "Khmer",
-      "kn": "Kannada",
-      "ko": "Korean",
-      "lb": "Luxembourgish",
-      "lg": "Ganda",
-      "ln": "Lingala",
-      "lo": "Lao",
-      "lt": "Lithuanian",
-      "lv": "Latvian",
-      "mg": "Malagasy",
-      "mk": "Macedonian",
-      "ml": "Malayalam",
-      "mn": "Mongolian",
-      "mr": "Marathi",
-      "ms": "Malay",
-      "my": "Burmese",
-      "ne": "Nepali",
-      "nl": "Dutch",
-      "no": "Norwegian",
-      "ns": "Northern Sotho",
-      "oc": "Occitan",
-      "or": "Odia",
-      "pa": "Punjabi",
-      "pl": "Polish",
-      "ps": "Pashto",
-      "pt": "Portuguese",
-      "ro": "Romanian",
-      "ru": "Russian",
-      "sd": "Sindhi",
-      "si": "Sinhala",
-      "sk": "Slovak",
-      "sl": "Slovenian",
-      "so": "Somali",
-      "sq": "Albanian",
-      "sr": "Serbian",
-      "ss": "Swati",
-      "su": "Sundanese",
-      "sv": "Swedish",
-      "sw": "Swahili",
-      "ta": "Tamil",
-      "th": "Thai",
-      "tl": "Tagalog",
-      "tn": "Tswana",
-      "tr": "Turkish",
-      "uk": "Ukrainian",
-      "ur": "Urdu",
-      "uz": "Uzbek",
-      "vi": "Vietnamese",
-      "wo": "Wolof",
-      "xh": "Xhosa",
-      "yi": "Yiddish",
-      "yo": "Yoruba",
-      "zh": "Chinese",
-      "zu": "Zulu"
-    },
+    "m2m100": "M2M100",
     "whisper": {
       "af": "Afrikaans",
       "am": "Amharic",
@@ -426,7 +332,6 @@
       "zh": "Chinese"
     }
   },
-  "lang.m2m100": "M2M100",
   "live": {
     "ctrl": {
       "clear": "Clear",
@@ -437,9 +342,10 @@
       "stop": "Stop ⏹️"
     },
     "detected_language": "Detected language: {lang}",
-    "device": "Input device",
-    "device.none": "No input devices",
-    "device.unavailable": "No access to audio devices",
+    "device": {
+      "none": "No input devices",
+      "unavailable": "No access to audio devices"
+    },
     "dialog": {
       "no_devices": {
         "text": "No audio input devices detected.\nConnect a microphone and try again (Refresh devices).",
@@ -453,9 +359,10 @@
     "meter": {
       "input": "Input level"
     },
-    "mode": "Mode",
-    "mode.transcribe": "Transcribe",
-    "mode.translate": "Translate",
+    "mode": {
+      "transcribe": "Transcribe",
+      "translate": "Translate"
+    },
     "model": {
       "loading": "Loading model..."
     },
@@ -509,76 +416,121 @@
       "save_failed": "❌ Failed to save transcript for “{name}”. Details: {detail}",
       "saved_prefix": "✅ Saved transcript:"
     },
+    "transcription_empty": "Transcription returned an empty text.",
     "transcription_failed": "❌ Transcription failed for “{name}”. Details: {detail}",
+    "translation": {
+      "failed": {
+        "unsupported_target_language": "❌ Translation failed: unsupported target language '{code}'",
+        "worker_error": "❌ Translation failed: {msg}",
+        "worker_protocol": "❌ Translation failed: worker communication error ({msg})",
+        "worker_start": "❌ Translation failed: worker start error ({msg})"
+      },
+      "target_defaulted": "ℹ️ Target language not set. Using '{code}'.",
+      "worker_ready": "✅ Translation worker ready (model will load on first use)."
+    },
     "unexpected": "⚠️ Unexpected error: {msg}",
     "worker_error": "❌ Worker internal error. Details: {detail}"
   },
-  "log.translation.failed.unsupported_target_language": "❌ Translation failed: unsupported target language '{code}'",
-  "log.translation.failed.worker_error": "❌ Translation failed: {msg}",
-  "log.translation.failed.worker_protocol": "❌ Translation failed: worker communication error ({msg})",
-  "log.translation.failed.worker_start": "❌ Translation failed: worker start error ({msg})",
-  "log.translation.target_defaulted": "ℹ️ Target language not set. Using '{code}'.",
-  "log.translation.worker_ready": "✅ Translation worker ready (model will load on first use).",
   "settings": {
+    "advanced": {
+      "toggle": "Show advanced settings"
+    },
     "app": {
-      "language": "Language",
-      "language.auto": "System (auto)",
-      "theme": "Theme",
-      "theme.auto": "System",
-      "theme.dark": "Dark",
-      "theme.light": "Light"
+      "language": {
+        "auto": "System (auto)",
+        "label": "Language"
+      },
+      "logging": {
+        "enabled": "Save logs to file",
+        "level": {
+          "debug": "Debug",
+          "error": "Error",
+          "info": "Info",
+          "warning": "Warning",
+          "debug_tip": "Debug: detailed technical information (larger files).",
+          "error_tip": "Errors: failures that prevent an action from completing.",
+          "info_tip": "Standard logs: app status, progress, and non-critical events.",
+          "warning_tip": "Warnings: potential issues and recoverable problems."
+        },
+        "level_label": "Log level",
+        "open_folder": "Open logs folder",
+        "open_folder_label": "Logs folder"
+      },
+      "theme": {
+        "auto": "System (auto)",
+        "dark": "Dark",
+        "light": "Light",
+        "label": "Theme"
+      }
     },
     "buttons": {
       "restore_defaults": "Restore defaults ♻️",
-      "save": "Save 💾"
+      "save": "Save 💾",
+      "undo": "Undo"
     },
     "downloader": {
       "max_video_height": "Maximum video height (px)",
       "min_video_height": "Minimum video height (px)"
     },
     "engine": {
-      "allow_tf32": "Allow TF32 on GPU (if available)",
-      "device": "Preferred device",
-      "device.auto": "Auto",
-      "device.cpu": "CPU only",
-      "device.gpu": "GPU (if available)",
-      "precision": "Precision",
-      "precision.auto": "Auto",
-      "precision.bfloat16": "bfloat16 (BF16-capable GPU)",
-      "precision.float16": "Float16 (faster, less memory)",
-      "precision.float32": "Float32 (best quality)",
-      "translation.m2m100": "M2M100 (Facebook/Meta)",
-      "translation.none": "Disabled",
+      "allow_tf32": "Allow TF32 on GPU",
+      "device": {
+        "auto": "Auto",
+        "cpu": "CPU",
+        "gpu": "GPU",
+        "label": "Preferred device"
+      },
+      "precision": {
+        "auto": "Auto",
+        "bfloat16": "bfloat16 (BF16-capable GPU)",
+        "float16": "Float16 (faster, less memory)",
+        "float32": "Float32 (best quality)",
+        "auto_tip": "Let the engine pick the best precision for your device.",
+        "bfloat16_tip": "Fast and stable on supported GPUs, good compromise.",
+        "float16_tip": "Faster on GPU, lower memory usage, may reduce accuracy slightly.",
+        "float32_tip": "Highest compatibility, slower, uses more memory.",
+        "label": "Compute precision"
+      },
+      "translation": {
+        "m2m100": "M2M100 (Facebook/Meta)",
+        "none": "Disabled"
+      },
       "translation_engine": "Translation model"
     },
     "help": {
+      "advanced_toggle": "Shows additional technical settings.",
       "chunk_length": "Audio chunk length for the pipeline (seconds). Larger values can be faster but use more memory.",
       "concurrent_fragments": "Concurrent fragment downloads. Higher can be faster but stresses the connection.",
-      "default_language": "Optional transcription language hint (e.g. “en”, “pl”). Empty = auto-detect.",
-      "device": "Select device for ASR inference. “GPU” uses CUDA if available (NVIDIA only).",
+      "default_language": "Optional hint for spoken language. Use Auto for automatic detection.",
+      "device": "Choose the device used for AI inference.",
       "download_audio_only": "When transcribing URLs, download audio only instead of full video when possible.",
       "http_timeout_s": "Network timeout for downloads (seconds).",
-      "ignore_warning": "Ignore warnings that are safe to skip (recommended for smoother runs).",
+      "ignore_warning": "When enabled, empty results are accepted. This can happen with silence, very quiet audio, or unsupported language.",
       "keep_wav_temp": "Keep temporary WAV files created during preprocessing (useful for debugging).",
-      "low_cpu_mem_usage": "Reduces RAM usage during model loading (recommended).",
-      "max_bandwidth_kbps": "Download speed limit. 0 means unlimited.",
+      "logging": {
+        "open_folder": "Open the folder where log files are stored."
+      },
+      "logging_enabled": "Enable or disable writing logs to files.",
+      "logging_level": "Controls how much information is written to logs.",
+      "low_cpu_mem_usage": "Reduces RAM usage while loading models. Can be slower and may use more disk I/O.",
+      "max_bandwidth_kbps": "Limits download speed. Set to 0 to disable the limit.",
       "max_video_height": "Download: maximum video resolution constraint.",
       "min_video_height": "Download: minimum video resolution constraint.",
       "model_name": "Select a local model folder from “resources/models”. A restart is required to fully reload the pipeline.",
       "output_format": "Defines file extension and whether timestamps are included.",
-      "precision": {
-        "auto": "Let the app choose the best precision for your device.",
-        "bfloat16": "Similar to FP16 but available only on some GPUs. Often more stable than FP16.",
-        "float16": "Faster and uses less VRAM on CUDA. May slightly reduce accuracy.",
-        "float32": "Best quality and compatibility. Recommended on CPU."
-      },
-      "precision_hint": "Precision affects performance and memory usage.",
+      "precision_hint": "Controls numeric precision. Lower precision can speed up inference and reduce memory usage; availability depends on the device.",
       "retries": "How many times to retry failed HTTP requests.",
       "stride_length": "Chunk overlap (seconds). More overlap improves continuity but increases load.",
-      "tf32": "TF32 is a fast matrix mode on newer NVIDIA GPUs (Ampere+). It speeds up computation with minimal quality impact.",
-      "theme": "Changes UI theme. Styling will ultimately be controlled via QSS.",
-      "translation_engine": "Select the model used for text translation.",
-      "ui_language": "Choose UI language. New locales are detected automatically from “resources/locales”."
+      "text_consistency": "Uses previous segments as context to keep names, terms and style consistent. May propagate earlier mistakes across segments.",
+      "tf32": "NVIDIA Ampere+ (and newer): speeds up FP32 matrix operations with a small loss of numerical precision.",
+      "theme": "Choose the interface theme.",
+      "trans_quality": "Controls decoding effort. Higher quality is slower but can reduce recognition errors.",
+      "translation_chunk_max_chars": "Splits long text into chunks before translation. Smaller chunks are safer but may reduce coherence between sentences.",
+      "translation_engine": "Choose the model used for translating text.",
+      "translation_max_new_tokens": "Limits the maximum length of generated text. Increase if translations get cut off; higher values can be slower.",
+      "translation_target_language": "Language to translate transcripts into.",
+      "ui_language": "Choose the interface language.",
+      "transcription_engine": "Choose the model used for transcribing speech to text."
     },
     "model": {
       "ai_engine_name": "Model name / path",
@@ -589,7 +541,7 @@
         "placeholder": "auto"
       },
       "ignore_warning": "Ignore non-critical warnings",
-      "low_cpu_mem_usage": "Optimize CPU RAM usage",
+      "low_cpu_mem_usage": "Reduce RAM usage",
       "stride_length_s": "Overlap (s)",
       "transcription_model": {
         "engine_name": "Transcription model (Whisper)"
@@ -601,6 +553,9 @@
       "translation_engine_name": "Translation model",
       "translation_model": {
         "engine_name": "Translation model"
+      },
+      "transcription": {
+        "auto": "Auto"
       }
     },
     "msg": {
@@ -610,45 +565,52 @@
     "network": {
       "concurrent_fragments": "Concurrent fragments",
       "http_timeout_s": "HTTP timeout (s)",
-      "max_bandwidth_kbps": "Max bandwidth (kbps; 0 = unlimited)",
+      "max_bandwidth_kbps": "Max bandwidth (kbps)",
       "retries": "HTTP retries"
     },
     "section": {
-      "app": "App ⚙️",
+      "app": "Application 🖥️",
+      "download": "Download & Network 🌐",
       "downloader": "Download ⬇️",
-      "engine": "Engine 🧠",
+      "engine": "Engine ⚙️",
       "model": "Model 🧬",
       "network": "Network 🌐",
-      "transcription": "Transcription 📝"
+      "transcription": "Transcription 🎙️",
+      "translation": "Translation 🌍"
     },
     "transcription": {
+      "chunk_length_s": "Chunk length (s)",
       "download_audio_only": "Download audio only (URL sources)",
+      "ignore_warning": "Ignore non-critical warnings",
       "keep_wav_temp": "Keep temp WAV files",
+      "language": "Speech language",
+      "model": "Transcription engine",
       "output": {
         "plain_txt": "Text (.txt)",
         "srt": "SubRip subtitles (.srt)",
         "txt_timestamps": "Text + timestamps (.txt)"
       },
-      "output_format": "Output format"
+      "output_format": "Output format",
+      "quality": {
+        "accurate": "Accurate",
+        "balanced": "Balanced",
+        "fast": "Fast"
+      },
+      "quality_label": "Quality preset",
+      "stride_length_s": "Stride length (s)",
+      "text_consistency": "Enhanced text consistency"
+    },
+    "translation": {
+      "chunk_max_chars": "Chunk max chars",
+      "engine": {
+        "disabled": "Disabled",
+        "label": "Translation engine"
+      },
+      "low_cpu_mem_usage": "Low CPU memory usage",
+      "max_new_tokens": "Max new tokens",
+      "target_language": "Target language"
     }
   },
-  "settings.help.translation_chunk_max_chars": "Max characters per text chunk sent to the translator.",
-  "settings.help.translation_dtype": "Precision used when loading the translation model.",
-  "settings.help.translation_max_new_tokens": "Upper bound for generated tokens per chunk.",
-  "settings.help.translation_target_language": "Language to translate transcripts into.",
-  "settings.model.transcription.auto": "Auto",
-  "settings.model.translation.auto": "Auto",
-  "settings.section.translation": "Translation",
-  "settings.translation.chunk_max_chars": "Chunk max chars",
-  "settings.translation.dtype": "Model dtype",
-  "settings.translation.dtype.auto": "Auto",
-  "settings.translation.dtype.bfloat16": "bfloat16",
-  "settings.translation.dtype.float16": "float16",
-  "settings.translation.dtype.float32": "float32",
-  "settings.translation.local_files_only": "Local files only",
-  "settings.translation.low_cpu_mem_usage": "Low CPU mem usage",
-  "settings.translation.max_new_tokens": "Max new tokens",
-  "settings.translation.target_language": "Target language",
   "status": {
     "done": "✅ Done",
     "error": "❌ Error",

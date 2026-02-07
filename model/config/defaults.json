@@ -1,7 +1,11 @@
 {
   "app": {
     "language": "auto",
-    "theme": "auto"
+    "theme": "auto",
+    "logging": {
+      "enabled": true,
+      "level": "info"
+    }
   },
   "engine": {
     "preferred_device": "auto",
@@ -13,17 +17,18 @@
       "engine_name": "auto",
       "chunk_length_s": 60,
       "stride_length_s": 5,
-      "ignore_warning": true,
+      "ignore_warning": false,
       "default_language": null,
-      "low_cpu_mem_usage": true
+      "low_cpu_mem_usage": true,
+      "quality_preset": "balanced",
+      "text_consistency": true
     },
     "translation_model": {
       "engine_name": "none",
       "dtype": "auto",
       "max_new_tokens": 256,
       "chunk_max_chars": 1200,
-      "low_cpu_mem_usage": true,
-      "local_files_only": true
+      "low_cpu_mem_usage": true
     }
   },
   "transcription": {

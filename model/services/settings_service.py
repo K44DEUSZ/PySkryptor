@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, List, Set
+from typing import Any, Dict, Optional, Tuple, Set
 
 from model.constants.m2m100_languages import m2m100_language_codes
+from model.constants.whisper_languages import whisper_language_codes
 
 
 class SettingsError(RuntimeError):
@@ -27,14 +28,7 @@ class SettingsSnapshot:
     network: Dict[str, Any]
 
 
-
 class SettingsCatalog:
-    """Central catalog of selectable/allowed settings values.
-
-    This is intentionally UI-agnostic: both the UI and services should source their
-    allowed values from here (and SettingsService uses it for validation).
-    """
-
     TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
         {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "settings.transcription.output.plain_txt"},
         {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "settings.transcription.output.txt_timestamps"},
@@ -76,20 +70,27 @@ class SettingsCatalog:
     def translation_target_allowed(cls) -> Set[str]:
         return cls.translation_language_codes() | {"auto"}
 
+    @classmethod
+    def transcription_language_codes(cls) -> Set[str]:
+        return set(whisper_language_codes())
+
+    @classmethod
+    def transcription_language_allowed(cls) -> Set[str]:
+        return cls.transcription_language_codes() | {"auto"}
+
+
 class RuntimeConfigService:
-    """Applies a validated SettingsSnapshot to the runtime AppConfig.
-
-    AppConfig is a runtime map of paths and resolved runtime parameters.
-    SettingsService owns parsing/validation; this service owns applying.
-    """
-
     @staticmethod
     def initialize(config_cls: Any, snap: "SettingsSnapshot") -> None:
-        # Backward-compatible: delegate to AppConfig implementation.
         config_cls.initialize_from_snapshot(snap)
 
     @staticmethod
-    def update(config_cls: Any, snap: "SettingsSnapshot", *, sections: Tuple[str, ...] = ("transcription", "translation")) -> None:
+    def update(
+        config_cls: Any,
+        snap: "SettingsSnapshot",
+        *,
+        sections: Tuple[str, ...] = ("transcription", "translation"),
+    ) -> None:
         config_cls.update_from_snapshot(snap, sections=sections)
 
 
@@ -148,9 +149,22 @@ class SettingsService:
 
     def _validate_app(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
+
+        logging_cfg = src.get("logging", {}) if isinstance(src.get("logging"), dict) else {}
+        logging_schema = schema.get("logging", {}) if isinstance(schema.get("logging"), dict) else {}
+        logging_cfg = self._merge(logging_cfg, logging_schema)
+
+        level = str(logging_cfg.get("level", "info") or "info").strip().lower()
+        if level not in ("debug", "info", "warning", "error"):
+            level = "info"
+
         return {
             "language": str(src.get("language", "auto") or "auto"),
             "theme": self._enum_str(src.get("theme", "auto"), ("auto", "light", "dark"), "app.theme"),
+            "logging": {
+                "enabled": bool(logging_cfg.get("enabled", True)),
+                "level": level,
+            },
         }
 
     def _validate_engine(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -181,13 +195,32 @@ class SettingsService:
         t = self._merge(_d(src.get("transcription_model")), t_schema)
         x = self._merge(_d(src.get("translation_model")), x_schema)
 
+        default_lang_raw = t.get("default_language", None)
+        default_lang: Optional[str] = None
+        if default_lang_raw is not None:
+            s = str(default_lang_raw).strip().lower()
+            if s and s != "auto":
+                if s not in SettingsCatalog.transcription_language_codes():
+                    raise SettingsError(
+                        "error.type.enum",
+                        field="model.transcription_model.default_language",
+                        allowed=", ".join(sorted(SettingsCatalog.transcription_language_allowed())),
+                    )
+                default_lang = s
+
+        preset = str(t.get("quality_preset", "balanced") or "balanced").strip().lower()
+        if preset not in ("fast", "balanced", "accurate"):
+            preset = "balanced"
+
         return {
             "transcription_model": {
                 "engine_name": str(t.get("engine_name", "auto") or "auto"),
+                "quality_preset": preset,
+                "text_consistency": bool(t.get("text_consistency", True)),
                 "chunk_length_s": int(t.get("chunk_length_s", 60)),
                 "stride_length_s": int(t.get("stride_length_s", 5)),
-                "ignore_warning": bool(t.get("ignore_warning", True)),
-                "default_language": t.get("default_language", None),
+                "ignore_warning": bool(t.get("ignore_warning", False)),
+                "default_language": default_lang,
                 "low_cpu_mem_usage": bool(t.get("low_cpu_mem_usage", True)),
             },
             "translation_model": {
@@ -196,20 +229,31 @@ class SettingsService:
                 "max_new_tokens": int(x.get("max_new_tokens", 256)),
                 "chunk_max_chars": int(x.get("chunk_max_chars", 1200)),
                 "low_cpu_mem_usage": bool(x.get("low_cpu_mem_usage", True)),
-                "local_files_only": bool(x.get("local_files_only", True)),
             },
         }
 
     def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
         return {
-            "output_ext": self._enum_str(src.get("output_ext", "txt"), SettingsCatalog.transcript_extensions(), "transcription.output_ext"),
+            "output_ext": self._enum_str(
+                src.get("output_ext", "txt"),
+                SettingsCatalog.transcript_extensions(),
+                "transcription.output_ext",
+            ),
             "timestamps_output": bool(src.get("timestamps_output", False)),
             "download_audio_only": bool(src.get("download_audio_only", True)),
             "url_keep_audio": bool(src.get("url_keep_audio", False)),
-            "url_audio_ext": self._enum_str(str(src.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."), SettingsCatalog.download_audio_exts(), "transcription.url_audio_ext"),
+            "url_audio_ext": self._enum_str(
+                str(src.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."),
+                SettingsCatalog.download_audio_exts(),
+                "transcription.url_audio_ext",
+            ),
             "url_keep_video": bool(src.get("url_keep_video", False)),
-            "url_video_ext": self._enum_str(str(src.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."), SettingsCatalog.download_video_exts(), "transcription.url_video_ext"),
+            "url_video_ext": self._enum_str(
+                str(src.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."),
+                SettingsCatalog.download_video_exts(),
+                "transcription.url_video_ext",
+            ),
             "translate_after_transcription": bool(src.get("translate_after_transcription", False)),
         }
 
@@ -217,7 +261,11 @@ class SettingsService:
         src = self._merge(src, schema)
         tgt = str(src.get("target_language", "auto") or "auto").strip().lower()
         if tgt not in SettingsCatalog.translation_target_allowed():
-            raise SettingsError("error.type.enum", field="translation.target_language", allowed=", ".join(sorted(SettingsCatalog.translation_target_allowed())))
+            raise SettingsError(
+                "error.type.enum",
+                field="translation.target_language",
+                allowed=", ".join(sorted(SettingsCatalog.translation_target_allowed())),
+            )
         return {"target_language": tgt}
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:

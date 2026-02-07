@@ -101,6 +101,16 @@ def run() -> int:
         critical_config_load_failed_and_exit(None, type(ex).__name__)
         return 1
 
+    try:
+        logging_cfg = snap.app.get("logging", {}) if isinstance(snap.app.get("logging"), dict) else {}
+        AppLoggingService.apply_settings(
+            log_ctx,
+            file_enabled=bool(logging_cfg.get("enabled", True)),
+            level=str(logging_cfg.get("level", "info") or "info"),
+        )
+    except Exception:
+        pass
+
     locales_dir = Config.LOCALES_DIR
     lang_pref = str(snap.app.get("language", "auto"))
 

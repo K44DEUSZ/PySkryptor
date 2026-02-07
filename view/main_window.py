@@ -20,6 +20,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setObjectName("MainWindow")
         self.setWindowTitle(tr("app.title"))
         self.resize(1280, 820)
+        self.setMinimumSize(1080, 720)
 
         central = QtWidgets.QWidget(self)
         self.setCentralWidget(central)

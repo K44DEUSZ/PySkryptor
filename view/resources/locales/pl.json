@@ -1,12 +1,11 @@
 {
   "about": {
     "app": {
-      "description": "<b>{name}</b><br/>Rozwój: {years}<br/>Wersja: {version}<br/>Autor: {author}"
+      "description": "<b>{name}</b> ({years})<br/>Wersja: {version}<br/>Autor: {author}"
     },
     "license": {
       "full_link": "Pełny tekst licencji znajduje się w pliku <a href=\"license\">LICENSE</a> dołączonym do aplikacji.",
-      "summary": "Ten program jest wolnym oprogramowaniem rozpowszechnianym na licencji GNU General Public License w wersji 3 (GPL-3.0). Komponenty firm trzecich mogą być rozpowszechniane na własnych licencjach.",
-      "open_button": "Otwórz LICENSE"
+      "summary": "Ten program jest wolnym oprogramowaniem rozpowszechnianym na warunkach GNU General Public License w wersji 3 (GPL-3.0)."
     },
     "section": {
       "app": "O programie ℹ️",
@@ -26,6 +25,11 @@
       "transcript": "Transkrypcja",
       "video": "Wideo"
     }
+  },
+  "common": {
+    "auto": "Auto",
+    "no": "Nie",
+    "yes": "Tak"
   },
   "ctrl": {
     "cancel": "Anuluj ✖️",
@@ -104,15 +108,18 @@
     "open_in_browser": "Otwórz w przeglądarce 🌐",
     "probe": "Analizuj 🔍",
     "select": {
-      "audio_track": "Ścieżka audio",
-      "audio_track.default": "Domyślna ścieżka",
+      "audio_track": {
+        "default": "Domyślna ścieżka"
+      },
       "ext": "Format",
-      "quality": "Jakość",
-      "quality.auto": "Auto",
+      "quality": {
+        "auto": "Auto"
+      },
       "title": "Opcje pobierania",
-      "type": "Typ",
-      "type.audio": "Audio",
-      "type.video": "Wideo"
+      "type": {
+        "audio": "Audio",
+        "video": "Wideo"
+      }
     },
     "url": {
       "placeholder": "Wklej tutaj URL multimediów..."
@@ -222,108 +229,7 @@
   "lang": {
     "auto_detect": "Automatyczne wykrywanie",
     "default_ui": "Domyślny (język aplikacji)",
-    "m2m100": {
-      "af": "afrikaans",
-      "am": "amharski",
-      "ar": "arabski",
-      "ast": "asturyjski",
-      "az": "azerbejdżański",
-      "ba": "baszkirski",
-      "be": "białoruski",
-      "bg": "bułgarski",
-      "bn": "bengalski",
-      "br": "bretoński",
-      "bs": "bośniacki",
-      "ca": "kataloński",
-      "ceb": "cebuański",
-      "cs": "czeski",
-      "cy": "walijski",
-      "da": "duński",
-      "de": "niemiecki",
-      "el": "grecki",
-      "en": "angielski",
-      "es": "hiszpański",
-      "et": "estoński",
-      "fa": "perski",
-      "ff": "fulani",
-      "fi": "fiński",
-      "fr": "francuski",
-      "fy": "zachodniofryzyjski",
-      "ga": "irlandzki",
-      "gd": "szkocki gaelicki",
-      "gl": "galicyjski",
-      "gu": "gudżarati",
-      "ha": "hausa",
-      "he": "hebrajski",
-      "hi": "hindi",
-      "hr": "chorwacki",
-      "ht": "kreolski haitański",
-      "hu": "węgierski",
-      "hy": "ormiański",
-      "id": "indonezyjski",
-      "ig": "igbo",
-      "ilo": "ilokano",
-      "is": "islandzki",
-      "it": "włoski",
-      "ja": "japoński",
-      "jv": "jawajski",
-      "ka": "gruziński",
-      "kk": "kazachski",
-      "km": "khmerski",
-      "kn": "kannada",
-      "ko": "koreański",
-      "lb": "luksemburski",
-      "lg": "ganda",
-      "ln": "lingala",
-      "lo": "laotański",
-      "lt": "litewski",
-      "lv": "łotewski",
-      "mg": "malgaski",
-      "mk": "macedoński",
-      "ml": "malajalam",
-      "mn": "mongolski",
-      "mr": "marathi",
-      "ms": "malajski",
-      "my": "birmański",
-      "ne": "nepalski",
-      "nl": "niderlandzki",
-      "no": "norweski",
-      "ns": "sotho północny",
-      "oc": "oksytański",
-      "or": "orija",
-      "pa": "pendżabski",
-      "pl": "polski",
-      "ps": "paszto",
-      "pt": "portugalski",
-      "ro": "rumuński",
-      "ru": "rosyjski",
-      "sd": "sindhi",
-      "si": "syngaleski",
-      "sk": "słowacki",
-      "sl": "słoweński",
-      "so": "somalijski",
-      "sq": "albański",
-      "sr": "serbski",
-      "ss": "suazi",
-      "su": "sundajski",
-      "sv": "szwedzki",
-      "sw": "suahili",
-      "ta": "tamilski",
-      "th": "tajski",
-      "tl": "tagalski",
-      "tn": "setswana",
-      "tr": "turecki",
-      "uk": "ukraiński",
-      "ur": "urdu",
-      "uz": "uzbecki",
-      "vi": "wietnamski",
-      "wo": "wolof",
-      "xh": "khosa",
-      "yi": "jidysz",
-      "yo": "joruba",
-      "zh": "chiński",
-      "zu": "zulu"
-    },
+    "m2m100": "M2M100",
     "whisper": {
       "af": "afrikaans",
       "am": "amharski",
@@ -426,7 +332,6 @@
       "zh": "chiński"
     }
   },
-  "lang.m2m100": "M2M100",
   "live": {
     "ctrl": {
       "clear": "Wyczyść",
@@ -437,9 +342,10 @@
       "stop": "Stop ⏹️"
     },
     "detected_language": "Wykryty język: {lang}",
-    "device": "Urządzenie wejściowe",
-    "device.none": "Brak urządzeń wejściowych",
-    "device.unavailable": "Brak dostępu do urządzeń audio",
+    "device": {
+      "none": "Brak urządzeń wejściowych",
+      "unavailable": "Brak dostępu do urządzeń audio"
+    },
     "dialog": {
       "no_devices": {
         "text": "Nie wykryto urządzeń wejścia audio.\nPodłącz mikrofon i spróbuj ponownie (Odśwież urządzenia).",
@@ -453,9 +359,10 @@
     "meter": {
       "input": "Poziom wejścia"
     },
-    "mode": "Tryb",
-    "mode.transcribe": "Transkrypcja",
-    "mode.translate": "Tłumaczenie",
+    "mode": {
+      "transcribe": "Transkrypcja",
+      "translate": "Tłumaczenie"
+    },
     "model": {
       "loading": "Ładowanie modelu..."
     },
@@ -509,76 +416,121 @@
       "save_failed": "❌ Nie udało się zapisać transkryptu dla „{name}”. Szczegóły: {detail}",
       "saved_prefix": "✅ Zapisano transkrypt:"
     },
+    "transcription_empty": "Transkrypcja zwróciła pusty tekst.",
     "transcription_failed": "❌ Transkrypcja nie powiodła się dla „{name}”. Szczegóły: {detail}",
+    "translation": {
+      "failed": {
+        "unsupported_target_language": "❌ Tłumaczenie nieudane: nieobsługiwany język docelowy '{code}'",
+        "worker_error": "❌ Tłumaczenie nieudane: {msg}",
+        "worker_protocol": "❌ Tłumaczenie nieudane: błąd komunikacji z procesem ({msg})",
+        "worker_start": "❌ Tłumaczenie nieudane: błąd uruchomienia procesu ({msg})"
+      },
+      "target_defaulted": "ℹ️ Nie ustawiono języka docelowego. Używam '{code}'.",
+      "worker_ready": "✅ Proces tłumaczeń gotowy (model załaduje się przy pierwszym użyciu)."
+    },
     "unexpected": "⚠️ Nieoczekiwany błąd: {msg}",
     "worker_error": "❌ Wewnętrzny błąd workera. Szczegóły: {detail}"
   },
-  "log.translation.failed.unsupported_target_language": "❌ Tłumaczenie nieudane: nieobsługiwany język docelowy '{code}'",
-  "log.translation.failed.worker_error": "❌ Tłumaczenie nieudane: {msg}",
-  "log.translation.failed.worker_protocol": "❌ Tłumaczenie nieudane: błąd komunikacji z procesem ({msg})",
-  "log.translation.failed.worker_start": "❌ Tłumaczenie nieudane: błąd uruchomienia procesu ({msg})",
-  "log.translation.target_defaulted": "ℹ️ Nie ustawiono języka docelowego. Używam '{code}'.",
-  "log.translation.worker_ready": "✅ Proces tłumaczeń gotowy (model załaduje się przy pierwszym użyciu).",
   "settings": {
+    "advanced": {
+      "toggle": "Pokaż ustawienia zaawansowane"
+    },
     "app": {
-      "language": "Język",
-      "language.auto": "System (auto)",
-      "theme": "Motyw",
-      "theme.auto": "System",
-      "theme.dark": "Ciemny",
-      "theme.light": "Jasny"
+      "language": {
+        "auto": "System (auto)",
+        "label": "Język"
+      },
+      "logging": {
+        "enabled": "Zapisuj logi do pliku",
+        "level": {
+          "debug": "Debug",
+          "error": "Błędy",
+          "info": "Info",
+          "warning": "Ostrzeżenia",
+          "debug_tip": "Debug: szczegółowe informacje techniczne (większe pliki).",
+          "error_tip": "Błędy: sytuacje uniemożliwiające dokończenie działania.",
+          "info_tip": "Standardowe logi: status aplikacji, postęp i zdarzenia niekrytyczne.",
+          "warning_tip": "Ostrzeżenia: potencjalne problemy i sytuacje możliwe do naprawienia."
+        },
+        "level_label": "Poziom logów",
+        "open_folder": "Otwórz folder logów",
+        "open_folder_label": "Folder logów"
+      },
+      "theme": {
+        "auto": "System (auto)",
+        "dark": "Ciemny",
+        "light": "Jasny",
+        "label": "Motyw"
+      }
     },
     "buttons": {
       "restore_defaults": "Przywróć domyślne ♻️",
-      "save": "Zapisz 💾"
+      "save": "Zapisz 💾",
+      "undo": "Cofnij"
     },
     "downloader": {
       "max_video_height": "Maksymalna wysokość wideo (px)",
       "min_video_height": "Minimalna wysokość wideo (px)"
     },
     "engine": {
-      "allow_tf32": "Zezwalaj na TF32 na GPU (jeśli dostępne)",
-      "device": "Preferowane urządzenie",
-      "device.auto": "Auto",
-      "device.cpu": "Tylko CPU",
-      "device.gpu": "GPU (jeśli dostępne)",
-      "precision": "Precyzja",
-      "precision.auto": "Auto",
-      "precision.bfloat16": "bfloat16 (GPU obsługujące BF16)",
-      "precision.float16": "Float16 (szybciej, mniej pamięci)",
-      "precision.float32": "Float32 (najlepsza jakość)",
-      "translation.m2m100": "M2M100 (Facebook/Meta)",
-      "translation.none": "Wyłączone",
+      "allow_tf32": "Zezwalaj na TF32 na GPU",
+      "device": {
+        "auto": "Auto",
+        "cpu": "CPU",
+        "gpu": "GPU",
+        "label": "Preferowane urządzenie"
+      },
+      "precision": {
+        "auto": "Auto",
+        "bfloat16": "bfloat16 (GPU obsługujące BF16)",
+        "float16": "Float16 (szybciej, mniej pamięci)",
+        "float32": "Float32 (najlepsza jakość)",
+        "auto_tip": "Silnik dobierze najlepszą precyzję dla Twojego urządzenia.",
+        "bfloat16_tip": "Szybko i stabilnie na wspieranych GPU, dobry kompromis.",
+        "float16_tip": "Szybciej na GPU, mniejsze zużycie pamięci, możliwy minimalny spadek jakości.",
+        "float32_tip": "Najwyższa zgodność, wolniej, większe zużycie pamięci.",
+        "label": "Precyzja obliczeń"
+      },
+      "translation": {
+        "m2m100": "M2M100 (Facebook/Meta)",
+        "none": "Wyłączone"
+      },
       "translation_engine": "Model tłumaczenia"
     },
     "help": {
+      "advanced_toggle": "Pokazuje dodatkowe ustawienia techniczne.",
       "chunk_length": "Długość fragmentu audio dla pipeline (sekundy). Większe wartości mogą być szybsze, ale zużywają więcej pamięci.",
       "concurrent_fragments": "Równoległe pobieranie fragmentów. Więcej może być szybciej, ale obciąża łącze.",
-      "default_language": "Opcjonalna podpowiedź języka transkrypcji (np. „en”, „pl”). Puste = auto-wykrywanie.",
-      "device": "Wybierz urządzenie do inferencji ASR. „GPU” używa CUDA, jeśli jest dostępne (tylko NVIDIA).",
+      "default_language": "Opcjonalna podpowiedź języka mowy. Ustaw Auto, aby model wykrywał język automatycznie.",
+      "device": "Wybierz urządzenie używane do obliczeń modeli AI.",
       "download_audio_only": "Podczas transkrypcji URL pobieraj tylko audio zamiast pełnego wideo, jeśli to możliwe.",
       "http_timeout_s": "Limit czasu sieci dla pobierania (sekundy).",
-      "ignore_warning": "Ignoruj ostrzeżenia, które można bezpiecznie pominąć (zalecane dla płynniejszej pracy).",
+      "ignore_warning": "Gdy włączone, akceptowane są puste wyniki. Może to wystąpić przy ciszy, bardzo cichym nagraniu lub niewspieranym języku.",
       "keep_wav_temp": "Zachowuj tymczasowe pliki WAV tworzone podczas preprocessingu (przydatne do debugowania).",
-      "low_cpu_mem_usage": "Zmniejsza zużycie RAM podczas ładowania modelu (zalecane).",
-      "max_bandwidth_kbps": "Limit prędkości pobierania. 0 oznacza brak limitu.",
+      "logging": {
+        "open_folder": "Otwiera folder, w którym znajdują się logi."
+      },
+      "logging_enabled": "Włącz lub wyłącz zapisywanie logów do plików.",
+      "logging_level": "Określa ilość informacji zapisywanych w logach.",
+      "low_cpu_mem_usage": "Zmniejsza zużycie RAM podczas ładowania modeli. Może działać wolniej i częściej korzystać z dysku.",
+      "max_bandwidth_kbps": "Ogranicza prędkość pobierania. Ustaw 0, aby wyłączyć limit.",
       "max_video_height": "Pobieranie: maksymalne ograniczenie rozdzielczości wideo.",
       "min_video_height": "Pobieranie: minimalne ograniczenie rozdzielczości wideo.",
       "model_name": "Wybierz lokalny folder modelu z „resources/models”. Restart jest wymagany, aby w pełni przeładować pipeline.",
       "output_format": "Określa rozszerzenie pliku i to, czy mają być dołączone znaczniki czasu.",
-      "precision": {
-        "auto": "Pozwól aplikacji dobrać najlepszą precyzję dla Twojego urządzenia.",
-        "bfloat16": "Podobne do FP16, ale dostępne tylko na niektórych GPU. Często stabilniejsze niż FP16.",
-        "float16": "Szybciej i mniej VRAM na CUDA. Może minimalnie obniżyć dokładność.",
-        "float32": "Najlepsza jakość i kompatybilność. Zalecane na CPU."
-      },
-      "precision_hint": "Precyzja wpływa na wydajność i zużycie pamięci.",
+      "precision_hint": "Steruje precyzją obliczeń. Niższa precyzja może przyspieszyć działanie i zmniejszyć zużycie pamięci; dostępność zależy od urządzenia.",
       "retries": "Ile razy ponawiać nieudane żądania HTTP.",
       "stride_length": "Nakładanie fragmentów (sekundy). Większe nakładanie poprawia ciągłość, ale zwiększa obciążenie.",
-      "tf32": "TF32 to szybki tryb macierzy na nowszych kartach NVIDIA (Ampere+). Przyspiesza obliczenia z minimalnym wpływem na jakość.",
-      "theme": "Zmienia motyw interfejsu. Wygląd będzie docelowo kontrolowany przez QSS.",
+      "text_consistency": "Wykorzystuje poprzednie fragmenty jako kontekst, aby utrzymać spójność nazw, terminów i stylu. Może przenosić wcześniejsze błędy na kolejne fragmenty.",
+      "tf32": "NVIDIA Ampere+ (i nowsze): przyspiesza obliczenia macierzy w FP32 kosztem minimalnej utraty precyzji numerycznej.",
+      "theme": "Wybierz motyw interfejsu.",
+      "trans_quality": "Steruje wysiłkiem dekodowania. Wyższa jakość jest wolniejsza, ale może zmniejszyć liczbę błędów.",
+      "translation_chunk_max_chars": "Dzieli długi tekst na fragmenty przed tłumaczeniem. Mniejsze fragmenty są bezpieczniejsze, ale mogą zmniejszyć spójność między zdaniami.",
       "translation_engine": "Wybierz model używany do tłumaczenia tekstu.",
-      "ui_language": "Wybierz język interfejsu. Nowe języki są wykrywane automatycznie z „resources/locales”."
+      "translation_max_new_tokens": "Ogranicza maksymalną długość generowanego tłumaczenia. Zwiększ, jeśli tekst jest ucinany; wyższe wartości mogą spowolnić działanie.",
+      "translation_target_language": "Język, na który tłumaczyć transkrypcję.",
+      "ui_language": "Wybierz język interfejsu.",
+      "transcription_engine": "Wybierz model używany do transkrypcji mowy na tekst."
     },
     "model": {
       "ai_engine_name": "Nazwa / ścieżka modelu",
@@ -589,7 +541,7 @@
         "placeholder": "auto"
       },
       "ignore_warning": "Ignoruj niekrytyczne ostrzeżenia",
-      "low_cpu_mem_usage": "Optymalizuj użycie RAM CPU",
+      "low_cpu_mem_usage": "Oszczędzaj RAM",
       "stride_length_s": "Nakładanie (s)",
       "transcription_model": {
         "engine_name": "Model transkrypcji (Whisper)"
@@ -601,6 +553,9 @@
       "translation_engine_name": "Model tłumaczenia",
       "translation_model": {
         "engine_name": "Model tłumaczenia"
+      },
+      "transcription": {
+        "auto": "Auto"
       }
     },
     "msg": {
@@ -610,45 +565,52 @@
     "network": {
       "concurrent_fragments": "Równoległe fragmenty",
       "http_timeout_s": "Limit czasu HTTP (s)",
-      "max_bandwidth_kbps": "Maks. pasmo (kbps; 0 = bez limitu)",
+      "max_bandwidth_kbps": "Maks. pasmo (kbps)",
       "retries": "Ponowienia HTTP"
     },
     "section": {
-      "app": "Aplikacja ⚙️",
+      "app": "Aplikacja 🖥️",
+      "download": "Pobieranie i sieć 🌐",
       "downloader": "Pobieranie ⬇️",
-      "engine": "Silnik 🧠",
+      "engine": "Silnik ⚙️",
       "model": "Model 🧬",
       "network": "Sieć 🌐",
-      "transcription": "Transkrypcja 📝"
+      "transcription": "Transkrypcja 🎙️",
+      "translation": "Tłumaczenie 🌍"
     },
     "transcription": {
+      "chunk_length_s": "Długość fragmentu (s)",
       "download_audio_only": "Pobieraj tylko audio (źródła URL)",
+      "ignore_warning": "Ignoruj ostrzeżenia niekrytyczne",
       "keep_wav_temp": "Zachowaj tymczasowe pliki WAV",
+      "language": "Język mowy",
+      "model": "Silnik transkrypcji",
       "output": {
         "plain_txt": "Tekst (.txt)",
         "srt": "Napisy SubRip (.srt)",
         "txt_timestamps": "Tekst + znaczniki czasu (.txt)"
       },
-      "output_format": "Format wyjściowy"
+      "output_format": "Format wyjściowy",
+      "quality": {
+        "accurate": "Dokładnie",
+        "balanced": "Zbalansowane",
+        "fast": "Szybko"
+      },
+      "quality_label": "Profil jakości",
+      "stride_length_s": "Nakładanie (s)",
+      "text_consistency": "Zwiększona spójność tekstu"
+    },
+    "translation": {
+      "chunk_max_chars": "Maks. znaków w fragmencie",
+      "engine": {
+        "disabled": "Wyłączone",
+        "label": "Silnik tłumaczenia"
+      },
+      "low_cpu_mem_usage": "Oszczędzaj pamięć CPU",
+      "max_new_tokens": "Maks. liczba tokenów",
+      "target_language": "Język docelowy"
     }
   },
-  "settings.help.translation_chunk_max_chars": "Maksymalna liczba znaków w fragmencie wysyłanym do tłumacza.",
-  "settings.help.translation_dtype": "Precyzja używana przy ładowaniu modelu tłumaczenia.",
-  "settings.help.translation_max_new_tokens": "Górny limit tokenów generowanych na fragment.",
-  "settings.help.translation_target_language": "Język, na który tłumaczyć transkrypcję.",
-  "settings.model.transcription.auto": "Auto",
-  "settings.model.translation.auto": "Auto",
-  "settings.section.translation": "Tłumaczenie",
-  "settings.translation.chunk_max_chars": "Maks. znaków w fragmencie",
-  "settings.translation.dtype": "Typ danych modelu",
-  "settings.translation.dtype.auto": "Auto",
-  "settings.translation.dtype.bfloat16": "bfloat16",
-  "settings.translation.dtype.float16": "float16",
-  "settings.translation.dtype.float32": "float32",
-  "settings.translation.local_files_only": "Tylko pliki lokalne",
-  "settings.translation.low_cpu_mem_usage": "Oszczędzanie RAM (CPU)",
-  "settings.translation.max_new_tokens": "Maks. liczba tokenów",
-  "settings.translation.target_language": "Język docelowy",
   "status": {
     "done": "✅ Gotowe",
     "error": "❌ Błąd",

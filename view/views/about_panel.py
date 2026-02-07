@@ -32,8 +32,9 @@ class AboutPanel(QtWidgets.QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
 
+        logo_path = self._resolve_logo_svg_path()
         left_layout.addWidget(
-            self._build_logo_widget(Config.APP_LOGO_SVG),
+            self._build_logo_widget(logo_path),
             0,
             QtCore.Qt.AlignTop | QtCore.Qt.AlignHCenter,
         )
@@ -56,7 +57,7 @@ class AboutPanel(QtWidgets.QWidget):
                 name=Config.APP_NAME,
                 version=Config.APP_VERSION,
                 author=Config.APP_AUTHOR,
-                years=Config.APP_COPYRIGHT_RANGE,
+                years=getattr(Config, "APP_COPYRIGHT_RANGE", ""),
             )
         )
         app_layout.addWidget(app_label)
@@ -110,6 +111,18 @@ class AboutPanel(QtWidgets.QWidget):
         if height < 24:
             height = 24
         self._license_browser.setFixedHeight(height)
+
+    @staticmethod
+    def _resolve_logo_svg_path() -> Path:
+        p = getattr(Config, "APP_LOGO_SVG", None)
+        if isinstance(p, Path):
+            return p
+
+        base = getattr(Config, "VIEW_RESOURCES_DIR", None)
+        if isinstance(base, Path):
+            return base / "images" / "logo.svg"
+
+        return Path("view") / "resources" / "images" / "logo.svg"
 
     def _build_logo_widget(self, logo_path: Path) -> QtWidgets.QWidget:
         if logo_path.exists():

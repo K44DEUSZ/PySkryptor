@@ -83,7 +83,7 @@ class TranslationService:
         mdl = Config.translation_model_settings()
         model_ref = str(Config.translation_model_ref() or "").strip() or "facebook/m2m100_418M"
         dtype_name = str(mdl.get("dtype", "auto") or "auto").strip().lower()
-        local_files_only = bool(mdl.get("local_files_only", True))
+        local_files_only = True
         low_cpu_mem_usage = bool(mdl.get("low_cpu_mem_usage", True))
         max_new_tokens = int(mdl.get("max_new_tokens", 256))
         chunk_max_chars = int(mdl.get("chunk_max_chars", 1200))
@@ -95,7 +95,6 @@ class TranslationService:
             "tgt": tgt,
             "model_ref": model_ref,
             "dtype": dtype_name,
-            "local_files_only": local_files_only,
             "low_cpu_mem_usage": low_cpu_mem_usage,
             "max_new_tokens": max_new_tokens,
             "chunk_max_chars": chunk_max_chars,
@@ -240,7 +239,6 @@ def _load_m2m100(
     *,
     model_ref: str,
     dtype_name: str,
-    local_files_only: bool,
     low_cpu_mem_usage: bool,
 ) -> _LoadedM2M100:
     from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer  # type: ignore
@@ -248,10 +246,10 @@ def _load_m2m100(
     device = getattr(Config, "DEVICE", torch.device("cpu"))
     dtype = _resolve_dtype(dtype_name, device)
 
-    tok = M2M100Tokenizer.from_pretrained(model_ref, local_files_only=local_files_only)
+    tok = M2M100Tokenizer.from_pretrained(model_ref, local_files_only=True)
     model = M2M100ForConditionalGeneration.from_pretrained(
         model_ref,
-        local_files_only=local_files_only,
+        local_files_only=True,
         torch_dtype=dtype,
         low_cpu_mem_usage=low_cpu_mem_usage,
     )
@@ -278,18 +276,18 @@ def _worker_handle(req: Dict) -> Dict:
 
         model_ref = str(req.get("model_ref") or "facebook/m2m100_418M").strip()
         dtype_name = str(req.get("dtype") or "auto").strip().lower()
-        local_files_only = bool(req.get("local_files_only", True))
+        local_files_only = True
         low_cpu_mem_usage = bool(req.get("low_cpu_mem_usage", True))
         max_new_tokens = int(req.get("max_new_tokens", 256))
         chunk_max_chars = int(req.get("chunk_max_chars", 1200))
 
-        key = (model_ref, dtype_name, local_files_only, low_cpu_mem_usage)
+        key = (model_ref, dtype_name, low_cpu_mem_usage)
         loaded = _WORKER_STATE.get(key)
         if loaded is None:
             loaded = _load_m2m100(
                 model_ref=model_ref,
                 dtype_name=dtype_name,
-                local_files_only=local_files_only,
+                local_files_only=True,
                 low_cpu_mem_usage=low_cpu_mem_usage,
             )
             _WORKER_STATE[key] = loaded
