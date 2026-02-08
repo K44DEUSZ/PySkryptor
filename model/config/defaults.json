@@ -2,57 +2,66 @@
   "app": {
     "language": "auto",
     "theme": "auto",
+    "ui": {
+      "show_advanced_settings": false
+    },
     "logging": {
       "enabled": true,
       "level": "info"
     }
   },
+
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
-    "allow_tf32": true
+    "allow_tf32": false,
+    "low_cpu_mem_usage": true
   },
-  "model": {
-    "transcription_model": {
-      "engine_name": "auto",
-      "chunk_length_s": 60,
-      "stride_length_s": 5,
-      "ignore_warning": false,
-      "default_language": null,
-      "low_cpu_mem_usage": true,
-      "quality_preset": "balanced",
-      "text_consistency": true
-    },
-    "translation_model": {
-      "engine_name": "none",
-      "dtype": "auto",
-      "max_new_tokens": 256,
-      "chunk_max_chars": 1200,
-      "low_cpu_mem_usage": true
-    }
-  },
+
   "transcription": {
-    "output_ext": "txt",
-    "timestamps_output": false,
-    "keep_wav_temp": false,
+    "output_format": "txt",
     "download_audio_only": true,
+
     "url_keep_audio": false,
     "url_audio_ext": "m4a",
     "url_keep_video": false,
     "url_video_ext": "mp4",
+
     "translate_after_transcription": false
   },
+
+  "translation": {
+    "default_source_language": "auto",
+    "default_target_language": "auto"
+  },
+
+  "model": {
+    "transcription_model": {
+      "engine_name": "auto",
+      "quality_preset": "balanced",
+      "text_consistency": true,
+      "chunk_length_s": 60,
+      "stride_length_s": 5,
+      "ignore_warning": false
+    },
+    "translation_model": {
+      "engine_name": "none",
+      "dtype": "auto",
+      "quality_preset": "balanced",
+      "max_new_tokens": 256,
+      "chunk_max_chars": 1200
+    }
+  },
+
   "downloader": {
     "min_video_height": 144,
     "max_video_height": 4320
   },
+
   "network": {
-    "max_bandwidth_kbps": null,
     "retries": 3,
-    "concurrent_fragments": 4,
+    "max_bandwidth_kbps": 0,
+    "concurrent_fragments": 2,
     "http_timeout_s": 30
-  },
-  "translation": {
-    "target_language": "auto"
   }
 }

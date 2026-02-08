@@ -154,11 +154,11 @@ class DownloadService:
             "nocheckcertificate": True,
             "extractor_args": {"youtube": {"player_client": ["default"]}},
             "logger": YtdlpLogger(log),
-            "retries": Config.net_retries(),
-            "socket_timeout": Config.net_timeout_s(),
+            "retries": Config.NET_RETRIES,
+            "socket_timeout": Config.NET_TIMEOUT_S,
         }
-        if Config.net_max_kbps():
-            ydl_opts["ratelimit"] = int(Config.net_max_kbps()) * 1024
+        if Config.NET_MAX_KBPS:
+            ydl_opts["ratelimit"] = int(Config.NET_MAX_KBPS) * 1024
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -199,8 +199,8 @@ class DownloadService:
         format_sort: list[str] = []
         ytdlp_format: str
 
-        min_h = Config.min_video_height()
-        max_h = Config.max_video_height()
+        min_h = Config.VIDEO_MIN_HEIGHT
+        max_h = Config.VIDEO_MAX_HEIGHT
         ext_l = (ext or "mp4").lower()
         audio_lang = self._normalize_lang_code(audio_lang)
 
@@ -303,9 +303,9 @@ class DownloadService:
             "quiet": True,
             "nocheckcertificate": True,
             "noprogress": False,
-            "retries": Config.net_retries(),
-            "concurrent_fragment_downloads": Config.net_concurrent_fragments(),
-            "socket_timeout": Config.net_timeout_s(),
+            "retries": Config.NET_RETRIES,
+            "concurrent_fragment_downloads": Config.NET_CONC_FRAG,
+            "socket_timeout": Config.NET_TIMEOUT_S,
             "nopart": True,
             "continuedl": False,
             "postprocessors": postprocessors,
@@ -313,8 +313,8 @@ class DownloadService:
             "extractor_args": {"youtube": {"player_client": ["default"]}},
             "logger": YtdlpLogger(log),
         }
-        if Config.net_max_kbps():
-            ydl_opts["ratelimit"] = int(Config.net_max_kbps()) * 1024
+        if Config.NET_MAX_KBPS:
+            ydl_opts["ratelimit"] = int(Config.NET_MAX_KBPS) * 1024
 
         ydl_opts = {k: v for k, v in ydl_opts.items() if v is not None}
 

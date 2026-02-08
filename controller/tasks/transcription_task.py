@@ -34,10 +34,11 @@ class TranscriptionWorker(QtCore.QObject):
     # session_dir, processed_any, had_errors, was_cancelled
     session_done = QtCore.pyqtSignal(str, bool, bool, bool)
 
-    def __init__(self, pipe: Any, entries: List[GUIEntry]) -> None:
+    def __init__(self, pipe: Any, entries: List[GUIEntry], overrides: Optional[Dict[str, Any]] = None) -> None:
         super().__init__()
         self._pipe = pipe
         self._entries = list(entries or [])
+        self._overrides: Dict[str, Any] = dict(overrides or {})
 
         self._cancelled = threading.Event()
 
@@ -101,6 +102,7 @@ class TranscriptionWorker(QtCore.QObject):
                 transcript_ready=lambda key, p: self.transcript_ready.emit(str(key), str(p)),
                 conflict_resolver=self._conflict_resolver,
                 cancel_check=self._cancel_check,
+                overrides=self._overrides,
             )
             self.session_done.emit(
                 str(res.session_dir),

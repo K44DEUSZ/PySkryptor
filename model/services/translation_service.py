@@ -63,9 +63,6 @@ class TranslationService:
         src = _norm(src_lang)
         tgt = _norm(tgt_lang)
 
-        if not tgt or tgt == "auto":
-            cfg_tgt = str(Config.translation_settings().get("target_language", "auto") or "auto").strip().lower()
-            tgt = _norm(cfg_tgt)
 
         if not tgt or tgt == "auto":
             tgt = "en"
@@ -80,13 +77,21 @@ class TranslationService:
         if not src or src not in sup:
             src = "en"
 
-        mdl = Config.translation_model_settings()
-        model_ref = str(Config.translation_model_ref() or "").strip() or "facebook/m2m100_418M"
+        snap = Config.SETTINGS
+        if snap is None:
+            raise RuntimeError("error.runtime.settings_not_initialized")
+
+        mdl = snap.model.get("translation_model", {}) if isinstance(snap.model, dict) else {}
+        model_path = Config.TRANSLATION_ENGINE_DIR
+        use_local = model_path.exists() and model_path.is_dir() and model_path.name != "__missing__"
+        model_ref = str(model_path if use_local else "facebook/m2m100_418M")
         dtype_name = str(mdl.get("dtype", "auto") or "auto").strip().lower()
-        local_files_only = True
-        low_cpu_mem_usage = bool(mdl.get("low_cpu_mem_usage", True))
+        local_files_only = bool(use_local)
+        engine_cfg = snap.engine if isinstance(snap.engine, dict) else {}
+        low_cpu_mem_usage = bool(engine_cfg.get("low_cpu_mem_usage", True))
         max_new_tokens = int(mdl.get("max_new_tokens", 256))
         chunk_max_chars = int(mdl.get("chunk_max_chars", 1200))
+        quality_preset = str(mdl.get("quality_preset", "balanced") or "balanced").strip().lower()
 
         payload = {
             "cmd": "translate",
@@ -98,6 +103,7 @@ class TranslationService:
             "low_cpu_mem_usage": low_cpu_mem_usage,
             "max_new_tokens": max_new_tokens,
             "chunk_max_chars": chunk_max_chars,
+            "quality_preset": quality_preset,
         }
 
         try:
@@ -239,6 +245,7 @@ def _load_m2m100(
     *,
     model_ref: str,
     dtype_name: str,
+    local_files_only: bool,
     low_cpu_mem_usage: bool,
 ) -> _LoadedM2M100:
     from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer  # type: ignore
@@ -246,10 +253,10 @@ def _load_m2m100(
     device = getattr(Config, "DEVICE", torch.device("cpu"))
     dtype = _resolve_dtype(dtype_name, device)
 
-    tok = M2M100Tokenizer.from_pretrained(model_ref, local_files_only=True)
+    tok = M2M100Tokenizer.from_pretrained(model_ref, local_files_only=local_files_only)
     model = M2M100ForConditionalGeneration.from_pretrained(
         model_ref,
-        local_files_only=True,
+        local_files_only=local_files_only,
         torch_dtype=dtype,
         low_cpu_mem_usage=low_cpu_mem_usage,
     )
@@ -281,6 +288,10 @@ def _worker_handle(req: Dict) -> Dict:
         max_new_tokens = int(req.get("max_new_tokens", 256))
         chunk_max_chars = int(req.get("chunk_max_chars", 1200))
 
+        preset = str(req.get("quality_preset", "balanced") or "balanced").strip().lower()
+        if preset not in ("fast", "balanced", "accurate"):
+            preset = "balanced"
+
         key = (model_ref, dtype_name, low_cpu_mem_usage)
         loaded = _WORKER_STATE.get(key)
         if loaded is None:
@@ -301,7 +312,16 @@ def _worker_handle(req: Dict) -> Dict:
             tok.src_lang = src
             enc = tok(chunk, return_tensors="pt", truncation=True).to(device)
             forced = tok.get_lang_id(tgt)
-            gen = model.generate(**enc, forced_bos_token_id=forced, max_new_tokens=max_new_tokens)
+            gen_kwargs = {"forced_bos_token_id": forced, "max_new_tokens": max_new_tokens}
+            if preset == "fast":
+                gen_kwargs["num_beams"] = 1
+            elif preset == "balanced":
+                gen_kwargs["num_beams"] = 3
+                gen_kwargs["no_repeat_ngram_size"] = 3
+            else:
+                gen_kwargs["num_beams"] = 6
+                gen_kwargs["no_repeat_ngram_size"] = 3
+            gen = model.generate(**enc, **gen_kwargs)
             out = tok.batch_decode(gen, skip_special_tokens=True)[0]
             out_parts.append(str(out).strip())
 

@@ -20,6 +20,16 @@ from controller.tasks.model_loader_task import TranscriptionLoadWorker
 from controller.tasks.settings_task import SettingsWorker
 
 
+def _get_transcription_settings() -> Dict[str, Any]:
+    snap = getattr(Config, "SETTINGS", None)
+    return dict(getattr(snap, "transcription", {}) or {}) if snap is not None else {}
+
+
+def _get_model_settings() -> Dict[str, Any]:
+    snap = getattr(Config, "SETTINGS", None)
+    return dict(getattr(snap, "model", {}) or {}) if snap is not None else {}
+
+
 def _fmt_seconds(sec: Optional[float]) -> str:
     if sec is None:
         return "-"
@@ -210,6 +220,21 @@ class FilesPanel(QtWidgets.QWidget):
             special_first=("lang.default_ui", "auto"),
             locale_prefix="lang.m2m100",
         )
+
+        self.lbl_source_lang = QtWidgets.QLabel(tr("files.options.source_language.label"))
+        self.cmb_source_lang = LanguageCombo(
+            special_first=("lang.auto_detect", "auto"),
+            locale_prefix="lang.whisper",
+        )
+        self.cmb_source_lang.setMinimumHeight(base_h)
+        try:
+            ed2 = self.cmb_source_lang.lineEdit()
+            if ed2 is not None:
+                ed2.setPlaceholderText(tr("files.options.source_language.placeholder"))
+        except Exception:
+            pass
+        self.lbl_source_lang.setBuddy(self.cmb_source_lang)
+
         self.cmb_target_lang.setMinimumHeight(base_h)
         try:
             ed = self.cmb_target_lang.lineEdit()
@@ -256,7 +281,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._opt_block_save = True
         try:
-            tcfg = Config.transcription_settings()
+            tcfg = _get_transcription_settings()
 
             self.opt_download_audio_only.setChecked(bool(tcfg.get("download_audio_only", True)))
             self.chk_keep_url_audio.setChecked(bool(tcfg.get("url_keep_audio", False)))
@@ -271,20 +296,18 @@ class FilesPanel(QtWidgets.QWidget):
             self.rb_transcribe.setChecked(not translate_after)
             self.rb_transcribe_translate.setChecked(translate_after)
 
-            tr_mdl = Config.translation_model_settings()
+            mdl_cfg = _get_model_settings()
+            tr_mdl = (mdl_cfg.get("translation_model") or {}) if isinstance(mdl_cfg.get("translation_model"), dict) else {}
             tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
             tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
             self.rb_transcribe_translate.setEnabled(tr_enabled)
             if not tr_enabled:
                 self.rb_transcribe.setChecked(True)
 
-            xcfg = Config.translation_settings()
-            tgt = str(xcfg.get("target_language", "auto") or "auto").strip().lower()
-            self.cmb_target_lang.set_code(tgt or "auto")
+            self.cmb_target_lang.set_code("auto")
+            self.cmb_source_lang.set_code("auto")
 
-            out_ext = str(tcfg.get("output_ext", "txt") or "txt").strip().lower().lstrip(".")
-            ts_out = bool(tcfg.get("timestamps_output", False))
-            mode_id = Config.resolve_transcription_output_mode_id(out_ext, ts_out)
+            mode_id = str(tcfg.get("output_format", "txt") or "txt").strip().lower()
 
             for i in range(self.opt_output.count()):
                 if str(self.opt_output.itemData(i) or "").strip().lower() == mode_id:
@@ -294,6 +317,8 @@ class FilesPanel(QtWidgets.QWidget):
             pass
         finally:
             self._opt_block_save = False
+            self._session_target_language = str(self.cmb_target_lang.code() or "auto").strip().lower() or "auto"
+            self._session_source_language = str(self.cmb_source_lang.code() or "auto").strip().lower() or "auto"
 
         mode_host = QtWidgets.QWidget()
         mode_lay = QtWidgets.QVBoxLayout(mode_host)
@@ -308,6 +333,9 @@ class FilesPanel(QtWidgets.QWidget):
         lang_lay.setSpacing(4)
         lang_lay.addWidget(self.lbl_target_lang)
         lang_lay.addWidget(self.cmb_target_lang)
+        lang_lay.addSpacing(4)
+        lang_lay.addWidget(self.lbl_source_lang)
+        lang_lay.addWidget(self.cmb_source_lang)
 
         ql.addWidget(mode_host, 0, 0)
         ql.addWidget(lang_host, 0, 1)
@@ -389,6 +417,9 @@ class FilesPanel(QtWidgets.QWidget):
         self._display_path_by_key: Dict[str, str] = {}
         self._audio_lang_by_key: Dict[str, Optional[str]] = {}
 
+        self._session_target_language: str = "auto"
+        self._session_source_language: str = "auto"
+
         self._opt_autosave_timer = QtCore.QTimer(self)
         self._opt_autosave_timer.setSingleShot(True)
         self._opt_autosave_timer.setInterval(1200)
@@ -424,7 +455,8 @@ class FilesPanel(QtWidgets.QWidget):
         self.opt_output.currentIndexChanged.connect(self._on_quick_option_changed)
         self.cmb_audio_ext.currentIndexChanged.connect(self._on_quick_option_changed)
         self.cmb_video_ext.currentIndexChanged.connect(self._on_quick_option_changed)
-        self.cmb_target_lang.currentTextChanged.connect(self._on_quick_option_changed)
+        self.cmb_target_lang.currentTextChanged.connect(self._on_target_language_changed)
+        self.cmb_source_lang.currentTextChanged.connect(self._on_source_language_changed)
 
         self._sync_options_ui()
         self._update_buttons()
@@ -437,14 +469,18 @@ class FilesPanel(QtWidgets.QWidget):
             return
         self._opt_autosave_timer.start()
 
+    def _on_target_language_changed(self, *_args) -> None:
+        self._session_target_language = str(self.cmb_target_lang.code() or "auto").strip().lower() or "auto"
+        self._sync_options_ui()
+
+    def _on_source_language_changed(self, *_args) -> None:
+        self._session_source_language = str(self.cmb_source_lang.code() or "auto").strip().lower() or "auto"
+        self._sync_options_ui()
+
     def _gather_quick_options_patch(self) -> Dict[str, Any]:
         translate_after = bool(self.rb_transcribe_translate.isChecked())
 
-        out_mode = str(self.opt_output.currentData() or "txt").strip().lower()
-
-        mode = Config.get_transcription_output_mode(out_mode)
-        output_ext = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".")
-        ts_out = bool(mode.get("timestamps", False))
+        output_format = str(self.opt_output.currentData() or "txt").strip().lower()
 
         audio_only = bool(self.opt_download_audio_only.isChecked())
         keep_audio = bool(self.chk_keep_url_audio.isChecked())
@@ -455,8 +491,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         return {
             "translate_after_transcription": translate_after,
-            "output_ext": output_ext,
-            "timestamps_output": ts_out,
+            "output_format": output_format,
             "download_audio_only": audio_only,
             "url_keep_audio": keep_audio,
             "url_audio_ext": aext,
@@ -474,7 +509,6 @@ class FilesPanel(QtWidgets.QWidget):
 
         payload = {
             "transcription": self._gather_quick_options_patch(),
-            "translation": {"target_language": (self.cmb_target_lang.code() or "auto")},
         }
 
         thread = QtCore.QThread(self)
@@ -505,7 +539,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _on_quick_options_saved_snapshot(self, snap: object) -> None:
         try:
-            Config.update_from_snapshot(snap, sections=("transcription", "translation", "model"))  # type: ignore[arg-type]
+            Config.update_from_snapshot(snap, sections=("transcription", "model"))  # type: ignore[arg-type]
         except Exception:
             pass
 
@@ -531,7 +565,8 @@ class FilesPanel(QtWidgets.QWidget):
         self.cmb_video_ext.setCurrentIndex(0)
 
     def _translation_enabled(self) -> bool:
-        cfg = Config.translation_model_settings()
+        mdl_cfg = _get_model_settings()
+        cfg = (mdl_cfg.get("translation_model") or {}) if isinstance(mdl_cfg.get("translation_model"), dict) else {}
         eng = str(cfg.get("engine_name", "none") or "none").strip().lower()
         return bool(eng and eng not in ("none", "off", "disabled"))
 
@@ -1131,7 +1166,11 @@ class FilesPanel(QtWidgets.QWidget):
         self._conflict_apply_all_new_base = None
 
         self._transcribe_thread = QtCore.QThread(self)
-        self._transcribe_worker = TranscriptionWorker(pipe=self.pipe, entries=entries)
+        overrides = {
+            "target_language": str(self._session_target_language or "auto").strip().lower() or "auto",
+            "source_language": str(self._session_source_language or "auto").strip().lower() or "auto",
+        }
+        self._transcribe_worker = TranscriptionWorker(pipe=self.pipe, entries=entries, overrides=overrides)
         self._transcribe_worker.moveToThread(self._transcribe_thread)
         self._transcribe_thread.started.connect(self._transcribe_worker.run)
 

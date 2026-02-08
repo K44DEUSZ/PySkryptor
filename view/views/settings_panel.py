@@ -46,10 +46,10 @@ class _YesNoToggle(QtWidgets.QWidget):
             b.setCursor(QtCore.Qt.PointingHandCursor)
             b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
-        group = QtWidgets.QButtonGroup(self)
-        group.setExclusive(True)
-        group.addButton(self._btn_yes)
-        group.addButton(self._btn_no)
+        self._group = QtWidgets.QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._group.addButton(self._btn_yes)
+        self._group.addButton(self._btn_no)
 
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -74,6 +74,18 @@ class _YesNoToggle(QtWidgets.QWidget):
 
     def is_checked(self) -> bool:
         return bool(self._btn_yes.isChecked())
+
+    def clear_selection(self) -> None:
+        # QButtonGroup exclusivity keeps one button checked. Temporarily disable exclusivity
+        # to allow clearing both states when a feature is unavailable (e.g. TF32).
+        try:
+            if hasattr(self, "_group") and self._group is not None:
+                self._group.setExclusive(False)
+            self._btn_yes.setChecked(False)
+            self._btn_no.setChecked(False)
+        finally:
+            if hasattr(self, "_group") and self._group is not None:
+                self._group.setExclusive(True)
 
     def toggled(self, fn) -> None:
         self._btn_yes.toggled.connect(fn)
@@ -194,6 +206,7 @@ class SettingsPanel(QtWidgets.QWidget):
         lay.setSpacing(8)
 
         lbl = QtWidgets.QLabel(label)
+        setattr(w, "_setting_label", lbl)
         lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self._label_widgets.append(lbl)
 
@@ -223,6 +236,7 @@ class SettingsPanel(QtWidgets.QWidget):
         lay.setSpacing(8)
 
         lbl = QtWidgets.QLabel(label)
+        setattr(w, "_setting_label", lbl)
         lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self._label_widgets.append(lbl)
 
@@ -250,6 +264,7 @@ class SettingsPanel(QtWidgets.QWidget):
         lay.setSpacing(8)
 
         lbl = QtWidgets.QLabel(label)
+        setattr(w, "_setting_label", lbl)
         lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self._label_widgets.append(lbl)
 
@@ -277,6 +292,7 @@ class SettingsPanel(QtWidgets.QWidget):
         lay.setSpacing(8)
 
         lbl = QtWidgets.QLabel(label)
+        setattr(w, "_setting_label", lbl)
         lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self._label_widgets.append(lbl)
 
@@ -417,14 +433,22 @@ class SettingsPanel(QtWidgets.QWidget):
             height=self.CONTROL_HEIGHT,
         )
 
+        self.tg_low_cpu_mem = _YesNoToggle(
+            yes_text=tr("common.yes"),
+            no_text=tr("common.no"),
+            height=self.CONTROL_HEIGHT,
+        )
+
         lay.addWidget(self._row(tr("settings.engine.device.label"), self.cb_engine_device, tr("settings.help.device")))
         lay.addWidget(self._row(tr("settings.engine.precision.label"), self.cb_engine_precision, tr("settings.help.precision_hint")))
         lay.addWidget(self._row_toggle(tr("settings.engine.allow_tf32"), self.tg_tf32, tr("settings.help.tf32")))
+        lay.addWidget(self._row_toggle(tr("settings.engine.low_cpu_mem_usage"), self.tg_low_cpu_mem, tr("settings.help.low_cpu_mem_usage"), advanced=True))
         lay.addStretch(1)
 
         self.cb_engine_device.currentIndexChanged.connect(self._on_device_changed)
         self.cb_engine_precision.currentIndexChanged.connect(self._on_precision_changed)
         self.tg_tf32.toggled(self._mark_dirty)
+        self.tg_low_cpu_mem.toggled(self._mark_dirty)
 
     def _build_transcription_section(self, base_h: int) -> None:
         lay = QtWidgets.QVBoxLayout(self.grp_transcription)
@@ -461,11 +485,6 @@ class SettingsPanel(QtWidgets.QWidget):
             no_text=tr("common.no"),
             height=self.CONTROL_HEIGHT,
         )
-        self.tg_low_cpu_mem = _YesNoToggle(
-            yes_text=tr("common.yes"),
-            no_text=tr("common.no"),
-            height=self.CONTROL_HEIGHT,
-        )
 
         lay.addWidget(self._row(tr("settings.transcription.model"), self.cb_trans_engine, tr("settings.help.transcription_engine")))
         lay.addWidget(self._row(tr("settings.transcription.quality_label"), self.cb_quality, tr("settings.help.trans_quality")))
@@ -474,7 +493,6 @@ class SettingsPanel(QtWidgets.QWidget):
         lay.addWidget(self._row(tr("settings.transcription.chunk_length_s"), self.sp_chunk_len, tr("settings.help.chunk_length"), advanced=True))
         lay.addWidget(self._row(tr("settings.transcription.stride_length_s"), self.sp_stride_len, tr("settings.help.stride_length"), advanced=True))
         lay.addWidget(self._row_toggle(tr("settings.transcription.ignore_warning"), self.tg_ignore_empty, tr("settings.help.ignore_warning"), advanced=True))
-        lay.addWidget(self._row_toggle(tr("settings.model.low_cpu_mem_usage"), self.tg_low_cpu_mem, tr("settings.help.low_cpu_mem_usage"), advanced=True))
 
         lay.addStretch(1)
 
@@ -484,7 +502,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_chunk_len.valueChanged.connect(self._mark_dirty)
         self.sp_stride_len.valueChanged.connect(self._mark_dirty)
         self.tg_ignore_empty.toggled(self._mark_dirty)
-        self.tg_low_cpu_mem.toggled(self._mark_dirty)
 
     def _build_translation_section(self, base_h: int) -> None:
         lay = QtWidgets.QVBoxLayout(self.grp_translation)
@@ -493,6 +510,12 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_tr_engine = QtWidgets.QComboBox()
         self.cb_tr_engine.setMinimumHeight(base_h)
+
+        self.cb_tr_quality = QtWidgets.QComboBox()
+        self.cb_tr_quality.setMinimumHeight(base_h)
+        self.cb_tr_quality.addItem(tr("settings.translation.quality.fast"), "fast")
+        self.cb_tr_quality.addItem(tr("settings.translation.quality.balanced"), "balanced")
+        self.cb_tr_quality.addItem(tr("settings.translation.quality.accurate"), "accurate")
         self.cb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
         self.sp_tr_max_tokens = QtWidgets.QSpinBox()
@@ -506,12 +529,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_tr_chunk_chars.setMinimumHeight(base_h)
 
         lay.addWidget(self._row(tr("settings.translation.engine.label"), self.cb_tr_engine, tr("settings.help.translation_engine")))
+        lay.addWidget(self._row(tr("settings.translation.quality.label"), self.cb_tr_quality, tr("settings.help.translation_quality")))
         lay.addWidget(self._row(tr("settings.translation.max_new_tokens"), self.sp_tr_max_tokens, tr("settings.help.translation_max_new_tokens"), advanced=True))
         lay.addWidget(self._row(tr("settings.translation.chunk_max_chars"), self.sp_tr_chunk_chars, tr("settings.help.translation_chunk_max_chars"), advanced=True))
 
         lay.addStretch(1)
 
         self.cb_tr_engine.currentIndexChanged.connect(self._mark_dirty)
+        self.cb_tr_quality.currentIndexChanged.connect(self._mark_dirty)
         self.sp_tr_max_tokens.valueChanged.connect(self._mark_dirty)
         self.sp_tr_chunk_chars.valueChanged.connect(self._mark_dirty)
 
@@ -729,6 +754,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self._select_combo_by_data(self.cb_app_language, str(app.get("language", "auto")), fallback="auto")
         self._select_combo_by_data(self.cb_app_theme, str(app.get("theme", "auto")), fallback="auto")
 
+        ui_cfg = app.get("ui", {}) if isinstance(app.get("ui"), dict) else {}
+        show_adv = bool(ui_cfg.get("show_advanced_settings", False))
+        self.chk_show_advanced.blockSignals(True)
+        self.chk_show_advanced.setChecked(show_adv)
+        self.chk_show_advanced.blockSignals(False)
+        self._apply_advanced_visibility(show_adv)
+
         log_cfg = app.get("logging", {}) if isinstance(app.get("logging"), dict) else {}
         self.tg_log_enabled.set_checked(bool(log_cfg.get("enabled", True)))
         self._select_combo_by_data(self.cb_log_level, str(log_cfg.get("level", "info")), fallback="info")
@@ -737,6 +769,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self._select_combo_by_data(self.cb_engine_device, str(eng.get("preferred_device", "auto")), fallback="auto")
         self._select_combo_by_data(self.cb_engine_precision, str(eng.get("precision", "auto")), fallback="auto")
         self.tg_tf32.set_checked(bool(eng.get("allow_tf32", True)))
+        self.tg_low_cpu_mem.set_checked(bool(eng.get("low_cpu_mem_usage", True)))
 
         self._populate_model_engines()
 
@@ -748,9 +781,9 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_chunk_len.setValue(int(t_model.get("chunk_length_s", 60)))
         self.sp_stride_len.setValue(int(t_model.get("stride_length_s", 5)))
         self.tg_ignore_empty.set_checked(bool(t_model.get("ignore_warning", False)))
-        self.tg_low_cpu_mem.set_checked(bool(t_model.get("low_cpu_mem_usage", True)))
 
         self._select_combo_by_data(self.cb_tr_engine, str(x_model.get("engine_name", "none")), fallback="none")
+        self._select_combo_by_data(self.cb_tr_quality, str(x_model.get("quality_preset", "balanced")), fallback="balanced")
 
         tgt = str(trn.get("target_language", "auto") or "auto").strip().lower()
 
@@ -769,6 +802,9 @@ class SettingsPanel(QtWidgets.QWidget):
         app = {
             "language": str(self.cb_app_language.currentData() or "auto"),
             "theme": str(self.cb_app_theme.currentData() or "auto"),
+            "ui": {
+                "show_advanced_settings": bool(self.chk_show_advanced.isChecked()),
+            },
             "logging": {
                 "enabled": bool(self.tg_log_enabled.is_checked()),
                 "level": str(self.cb_log_level.currentData() or "info"),
@@ -779,15 +815,9 @@ class SettingsPanel(QtWidgets.QWidget):
             "preferred_device": str(self.cb_engine_device.currentData() or "auto"),
             "precision": str(self.cb_engine_precision.currentData() or "auto"),
             "allow_tf32": bool(self.tg_tf32.is_checked()),
+            "low_cpu_mem_usage": bool(self.tg_low_cpu_mem.is_checked()),
         }
 
-        prev_default_language = None
-        try:
-            prev_default_language = (
-                (((self._data or {}).get("model") or {}).get("transcription_model") or {}).get("default_language")
-            )
-        except Exception:
-            prev_default_language = None
 
         transcription_model = {
             "engine_name": str(self.cb_trans_engine.currentData() or "auto"),
@@ -796,15 +826,13 @@ class SettingsPanel(QtWidgets.QWidget):
             "chunk_length_s": int(self.sp_chunk_len.value()),
             "stride_length_s": int(self.sp_stride_len.value()),
             "ignore_warning": bool(self.tg_ignore_empty.is_checked()),
-            "default_language": prev_default_language,
-            "low_cpu_mem_usage": bool(self.tg_low_cpu_mem.is_checked()),
         }
 
         translation_model = {
             "engine_name": str(self.cb_tr_engine.currentData() or "none"),
             "max_new_tokens": int(self.sp_tr_max_tokens.value()),
             "chunk_max_chars": int(self.sp_tr_chunk_chars.value()),
-            "low_cpu_mem_usage": True,
+            "quality_preset": str(self.cb_tr_quality.currentData() or "balanced"),
         }
 
         model = {
@@ -944,5 +972,16 @@ class SettingsPanel(QtWidgets.QWidget):
         cur_dev = str(self.cb_engine_device.currentData() or "auto")
         tf32_enable_allowed = bool(has_cuda and tf32_supported and cur_dev in ("auto", "cuda") and cur_prec in ("auto", "float32"))
         self.tg_tf32.setEnabled(tf32_enable_allowed)
+
+        tf32_row_label = None
+        try:
+            tf32_row = self.tg_tf32.parentWidget().parentWidget() if self.tg_tf32.parentWidget() else None
+            tf32_row_label = getattr(tf32_row, "_setting_label", None) if tf32_row is not None else None
+        except Exception:
+            tf32_row_label = None
+
+        if tf32_row_label is not None:
+            tf32_row_label.setEnabled(tf32_enable_allowed)
+
         if not tf32_enable_allowed:
-            self.tg_tf32.set_checked(False)
+            self.tg_tf32.clear_selection()

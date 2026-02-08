@@ -32,7 +32,7 @@ class SettingsCatalog:
     TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
         {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "settings.transcription.output.plain_txt"},
         {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "settings.transcription.output.txt_timestamps"},
-        {"id": "srt", "ext": "srt", "timestamps": False, "tr_key": "settings.transcription.output.srt"},
+        {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "settings.transcription.output.srt"},
     )
 
     DOWNLOAD_AUDIO_EXTS: Tuple[str, ...] = ("m4a", "mp3", "wav", "flac", "ogg", "opus", "aac")
@@ -53,6 +53,10 @@ class SettingsCatalog:
                 }
             )
         )
+
+    @classmethod
+    def transcription_output_mode_ids(cls) -> Tuple[str, ...]:
+        return tuple(str(m.get("id", "")).strip().lower() for m in cls.TRANSCRIPTION_OUTPUT_MODES if m.get("id"))
 
     @classmethod
     def download_audio_exts(cls) -> Tuple[str, ...]:
@@ -158,12 +162,21 @@ class SettingsService:
         if level not in ("debug", "info", "warning", "error"):
             level = "info"
 
+
+        ui_cfg = src.get("ui", {}) if isinstance(src.get("ui"), dict) else {}
+        ui_schema = schema.get("ui", {}) if isinstance(schema.get("ui"), dict) else {}
+        ui_cfg = self._merge(ui_cfg, ui_schema)
+
+        show_adv = bool(ui_cfg.get("show_advanced_settings", False))
         return {
             "language": str(src.get("language", "auto") or "auto"),
             "theme": self._enum_str(src.get("theme", "auto"), ("auto", "light", "dark"), "app.theme"),
             "logging": {
                 "enabled": bool(logging_cfg.get("enabled", True)),
                 "level": level,
+            },
+            "ui": {
+                "show_advanced_settings": show_adv,
             },
         }
 
@@ -181,6 +194,7 @@ class SettingsService:
                 "engine.precision",
             ),
             "allow_tf32": bool(src.get("allow_tf32", True)),
+            "low_cpu_mem_usage": bool(src.get("low_cpu_mem_usage", True)),
         }
 
     def _validate_model(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -212,6 +226,10 @@ class SettingsService:
         if preset not in ("fast", "balanced", "accurate"):
             preset = "balanced"
 
+        preset_tr = str(x.get("quality_preset", "balanced") or "balanced").strip().lower()
+        if preset_tr not in ("fast", "balanced", "accurate"):
+            preset_tr = "balanced"
+
         return {
             "transcription_model": {
                 "engine_name": str(t.get("engine_name", "auto") or "auto"),
@@ -221,26 +239,37 @@ class SettingsService:
                 "stride_length_s": int(t.get("stride_length_s", 5)),
                 "ignore_warning": bool(t.get("ignore_warning", False)),
                 "default_language": default_lang,
-                "low_cpu_mem_usage": bool(t.get("low_cpu_mem_usage", True)),
             },
             "translation_model": {
                 "engine_name": str(x.get("engine_name", "none") or "none").strip().lower(),
                 "dtype": str(x.get("dtype", "auto") or "auto").strip().lower(),
                 "max_new_tokens": int(x.get("max_new_tokens", 256)),
                 "chunk_max_chars": int(x.get("chunk_max_chars", 1200)),
-                "low_cpu_mem_usage": bool(x.get("low_cpu_mem_usage", True)),
+                "quality_preset": preset_tr,
             },
         }
 
     def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
+
+        # Backward-compat: older versions stored output as (output_ext + timestamps_output).
+        output_format = src.get("output_format")
+        if not isinstance(output_format, str) or not output_format.strip():
+            out_ext = str(src.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
+            ts = bool(src.get("timestamps_output", False))
+            if out_ext == "srt":
+                output_format = "srt"
+            elif out_ext == "txt" and ts:
+                output_format = "txt_ts"
+            else:
+                output_format = "txt"
+
         return {
-            "output_ext": self._enum_str(
-                src.get("output_ext", "txt"),
-                SettingsCatalog.transcript_extensions(),
-                "transcription.output_ext",
+            "output_format": self._enum_str(
+                str(output_format).strip().lower(),
+                SettingsCatalog.transcription_output_mode_ids(),
+                "transcription.output_format",
             ),
-            "timestamps_output": bool(src.get("timestamps_output", False)),
             "download_audio_only": bool(src.get("download_audio_only", True)),
             "url_keep_audio": bool(src.get("url_keep_audio", False)),
             "url_audio_ext": self._enum_str(
@@ -258,15 +287,10 @@ class SettingsService:
         }
 
     def _validate_translation(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        src = self._merge(src, schema)
-        tgt = str(src.get("target_language", "auto") or "auto").strip().lower()
-        if tgt not in SettingsCatalog.translation_target_allowed():
-            raise SettingsError(
-                "error.type.enum",
-                field="translation.target_language",
-                allowed=", ".join(sorted(SettingsCatalog.translation_target_allowed())),
-            )
-        return {"target_language": tgt}
+        # Translation target language is handled as a per-session quick option (Files tab),
+        # therefore it is not persisted in settings.json.
+        _ = self._merge(src, schema)
+        return {}
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
@@ -311,6 +335,18 @@ class SettingsService:
         translation = self._ensure_dict(settings.get("translation", {}), "translation")
         downloader = self._ensure_dict(settings.get("downloader", {}), "downloader")
         network = self._ensure_dict(settings.get("network", {}), "network")
+
+        # Backward-compat: older versions stored low_cpu_mem_usage inside model sections.
+        if "low_cpu_mem_usage" not in engine:
+            try:
+                t_old = (model.get("transcription_model") or {}) if isinstance(model.get("transcription_model"), dict) else {}
+                x_old = (model.get("translation_model") or {}) if isinstance(model.get("translation_model"), dict) else {}
+                for cand in (t_old.get("low_cpu_mem_usage"), x_old.get("low_cpu_mem_usage")):
+                    if isinstance(cand, bool):
+                        engine["low_cpu_mem_usage"] = cand
+                        break
+            except Exception:
+                pass
 
         return SettingsSnapshot(
             app=self._validate_app(app, schema_app),

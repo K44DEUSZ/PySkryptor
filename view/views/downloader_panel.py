@@ -82,14 +82,12 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._vid_quals: List[str] = ["Auto", "1080p", "720p", "480p"]
         self._aud_quals: List[str] = ["Auto", "320k", "256k", "192k", "128k"]
 
-        down_vid_ext = [
-            e.lstrip(".") for e in getattr(Config, "downloader_video_extensions", lambda: ())()
-        ]
-        down_aud_ext = [
-            e.lstrip(".") for e in getattr(Config, "downloader_audio_extensions", lambda: ())()
-        ]
-        self._vid_exts: List[str] = down_vid_ext or ["mp4", "webm"]
-        self._aud_exts: List[str] = down_aud_ext or ["m4a", "mp3"]
+        self._vid_exts = [str(x).strip().lower().lstrip(".") for x in getattr(Config, "VIDEO_EXTS", ())]
+        self._aud_exts = [str(x).strip().lower().lstrip(".") for x in getattr(Config, "AUDIO_EXTS", ())]
+        if not self._vid_exts:
+            self._vid_exts = ["mp4", "webm"]
+        if not self._aud_exts:
+            self._aud_exts = ["m4a", "mp3"]
 
         self.cb_quality.addItems(self._vid_quals)
         self.cb_ext.addItems(self._vid_exts)
@@ -298,8 +296,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         vid_heights_all = {int(f["height"]) for f in fmts if f.get("height")}
         aud_abrs = {int(f["abr"]) for f in fmts if f.get("abr")}
 
-        min_h = int(getattr(Config, "min_video_height", lambda: 1)())
-        max_h = int(getattr(Config, "max_video_height", lambda: 10_000)())
+        min_h = int(getattr(Config, "VIDEO_MIN_HEIGHT", 1))
+        max_h = int(getattr(Config, "VIDEO_MAX_HEIGHT", 10_000))
         vid_heights = {h for h in vid_heights_all if min_h <= h <= max_h}
 
         fallback_heights = [2160, 1440, 1080, 720, 480, 360, 240, 144]

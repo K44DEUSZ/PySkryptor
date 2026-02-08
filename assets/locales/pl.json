@@ -215,7 +215,11 @@
         "title": "Pliki tymczasowe (URL)",
         "video_ext": "Format wideo"
       },
-      "title": "Opcje"
+      "title": "Opcje",
+      "source_language": {
+        "label": "Język źródłowy",
+        "placeholder": "Automatyczne wykrywanie"
+      }
     },
     "placeholder": "Wklej tutaj ścieżkę pliku lub URL...",
     "remove_selected": "Usuń zaznaczone 🗑️",
@@ -495,7 +499,8 @@
         "m2m100": "M2M100 (Facebook/Meta)",
         "none": "Wyłączone"
       },
-      "translation_engine": "Model tłumaczenia"
+      "translation_engine": "Model tłumaczenia",
+      "low_cpu_mem_usage": "Oszczędzaj RAM (ładowanie modeli)"
     },
     "help": {
       "advanced_toggle": "Pokazuje dodatkowe ustawienia techniczne.",
@@ -530,7 +535,8 @@
       "translation_max_new_tokens": "Ogranicza maksymalną długość generowanego tłumaczenia. Zwiększ, jeśli tekst jest ucinany; wyższe wartości mogą spowolnić działanie.",
       "translation_target_language": "Język, na który tłumaczyć transkrypcję.",
       "ui_language": "Wybierz język interfejsu.",
-      "transcription_engine": "Wybierz model używany do transkrypcji mowy na tekst."
+      "transcription_engine": "Wybierz model używany do transkrypcji mowy na tekst.",
+      "translation_quality": "Steruje parametrami generowania w modelu tłumaczeń. Wyższa jakość jest wolniejsza, ale może poprawić płynność."
     },
     "model": {
       "ai_engine_name": "Nazwa / ścieżka modelu",
@@ -608,7 +614,13 @@
       },
       "low_cpu_mem_usage": "Oszczędzaj pamięć CPU",
       "max_new_tokens": "Maks. liczba tokenów",
-      "target_language": "Język docelowy"
+      "target_language": "Język docelowy",
+      "quality": {
+        "label": "Profil jakości",
+        "fast": "Szybki",
+        "balanced": "Zbalansowany",
+        "accurate": "Dokładny"
+      }
     }
   },
   "status": {

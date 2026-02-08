@@ -161,7 +161,7 @@ class FileManager:
         if filename:
             return out_dir / filename
 
-        ext = str(Config.transcript_default_ext() or "txt").lower().strip().lstrip(".") or "txt"
+        ext = str(Config.TRANSCRIPT_DEFAULT_EXT or "txt").lower().strip().lstrip(".") or "txt"
         name = sanitize_filename(str(base_name or "")) or "transcript"
         return out_dir / f"{name}.{ext}"
 
@@ -202,7 +202,7 @@ class FileManager:
     @staticmethod
     def url_tmp_dir() -> Path:
         """Temp directory for media downloaded from URLs."""
-        p = Config.INPUT_TMP_DIR / "url"
+        p = Config.DOWNLOADS_TMP_DIR / "url"
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -217,13 +217,13 @@ class FileManager:
         Return a WAV path for transcription.
 
         If source is already wav, return it.
-        Otherwise, extract/convert to 16kHz mono PCM wav in INPUT_TMP_DIR.
+        Otherwise, extract/convert to 16kHz mono PCM wav in TRANSCRIPTIONS_TMP_DIR.
         """
         ext = source.suffix.lower().strip()
         if ext == ".wav":
             return source
 
-        tmp_dir = Config.INPUT_TMP_DIR
+        tmp_dir = Config.TRANSCRIPTIONS_TMP_DIR / "wav"
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         out = tmp_dir / f"{source.stem}.wav"

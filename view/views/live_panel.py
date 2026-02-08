@@ -1,4 +1,6 @@
 # view/views/live_panel.py
+
+
 from __future__ import annotations
 
 from typing import Optional, List
@@ -14,6 +16,16 @@ from view.views.dialogs import show_no_microphone_dialog
 from controller.tasks.live_transcription_task import LiveTranscriptionWorker
 from view.widgets.audio_spectrum_widget import AudioSpectrumWidget
 from view.widgets.language_combo import LanguageCombo
+
+def _get_translation_settings() -> dict:
+    snap = Config.SETTINGS
+    return dict(getattr(snap, "translation", {}) or {}) if snap is not None else {}
+
+
+def _get_translation_model_settings() -> dict:
+    snap = Config.SETTINGS
+    mdl = getattr(snap, "model", {}) if snap is not None else {}
+    return dict(mdl.get("translation_model", {}) or {}) if isinstance(mdl, dict) else {}
 
 class LivePanel(QtWidgets.QWidget):
     """Live tab: capture audio input and run streaming ASR/translation."""
@@ -78,7 +90,7 @@ class LivePanel(QtWidgets.QWidget):
         self.mode_translate = QtWidgets.QRadioButton(tr("live.mode.translate"))
         self.mode_transcribe.setChecked(True)
 
-        tr_mdl = Config.translation_model_settings()
+        tr_mdl = _get_translation_model_settings()
         tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
         tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
         self.mode_translate.setEnabled(tr_enabled)
@@ -100,7 +112,7 @@ class LivePanel(QtWidgets.QWidget):
         self.cmb_src_lang = LanguageCombo(special_first=("lang.auto_detect", ""))
         self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"), locale_prefix="lang.m2m100")
         try:
-            self.cmb_tgt_lang.set_code(str(Config.translation_settings().get("target_language", "auto") or "auto"))
+            self.cmb_tgt_lang.set_code(str(_get_translation_settings().get("target_language", "auto") or "auto"))
         except Exception:
             self.cmb_tgt_lang.set_code("auto")
 
@@ -374,7 +386,7 @@ class LivePanel(QtWidgets.QWidget):
         tgt_lang = self.cmb_tgt_lang.code() or "auto"
         if tgt_lang in ("auto", "ui", "app", "default", ""):
             try:
-                cfg = str(Config.translation_settings().get("target_language", "auto") or "auto").strip().lower()
+                cfg = str(_get_translation_settings().get("target_language", "auto") or "auto").strip().lower()
             except Exception:
                 cfg = "auto"
             tgt_lang = cfg if cfg and cfg != "auto" else "en"

@@ -1,4 +1,3 @@
-# view/controller/startup_task.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,6 +14,27 @@ class StartupTask:
     label: str
     weight: int
     fn: TaskFn
+
+
+def build_startup_tasks(config_cls: Any, snap: Any, labels: Dict[str, str]) -> List[StartupTask]:
+    def init_runtime(progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+        config_cls.initialize_from_snapshot(snap)
+        ctx["settings_snapshot"] = snap
+        progress(100)
+
+    def ensure_dirs(progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+        config_cls.ensure_dirs()
+        progress(100)
+
+    def setup_ffmpeg(progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+        config_cls.setup_ffmpeg_on_path()
+        progress(100)
+
+    return [
+        StartupTask(label=labels.get("init", "Initialize"), weight=2, fn=init_runtime),
+        StartupTask(label=labels.get("dirs", "Prepare folders"), weight=1, fn=ensure_dirs),
+        StartupTask(label=labels.get("ffmpeg", "Prepare FFmpeg"), weight=1, fn=setup_ffmpeg),
+    ]
 
 
 class StartupWorker(QtCore.QObject):
@@ -41,8 +61,8 @@ class StartupWorker(QtCore.QObject):
                 self.status.emit(t.label)
 
                 def phase_progress(pct: int) -> None:
-                    pct = max(0, min(100, int(pct)))
-                    overall = int(((done + (w * pct / 100.0)) / total) * 100.0)
+                    pct_i = max(0, min(100, int(pct)))
+                    overall = int(((done + (w * pct_i / 100.0)) / total) * 100.0)
                     self.progress.emit(max(0, min(100, overall)))
 
                 t.fn(phase_progress, self._ctx)

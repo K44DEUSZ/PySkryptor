@@ -1,4 +1,3 @@
-# app/entrypoint.py
 from __future__ import annotations
 
 import sys
@@ -8,7 +7,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from model.config.app_config import AppConfig as Config
 from model.services.app_logging_service import AppLoggingService
-from model.services.settings_service import SettingsService, SettingsError, RuntimeConfigService
+from model.services.settings_service import SettingsService, SettingsError
 from view.utils.translating import Translator
 from view.views.dialogs import (
     critical_defaults_missing_and_exit,
@@ -27,7 +26,6 @@ def _guess_theme(app: QtWidgets.QApplication) -> str:
 
 
 def _apply_stylesheet(app: QtWidgets.QApplication, styles_dir: Path, theme_pref: str) -> str:
-    """Load and apply QSS from view/resources/styles (if present)."""
     pref = (theme_pref or "auto").strip().lower()
     theme = pref if pref in ("light", "dark") else _guess_theme(app)
 
@@ -58,42 +56,24 @@ def run() -> int:
     project_root = Path(__file__).resolve().parent.parent
     Config.set_root_dir(project_root)
 
-    # Load translations early so startup errors are readable.
-    # Language preference will be applied later from settings.
-    try:
-        Translator.load_best(Config.LOCALES_DIR, system_first=True, fallback="en")
-    except Exception:
-        pass
 
-    log_ctx = AppLoggingService.setup(
-        Config.ROOT_DIR,
-        log_dir_name=str(Path("data") / "logs"),
-    )
+    log_ctx = AppLoggingService.setup(Config.ROOT_DIR, log_dir_name=str(Path("data") / "logs"))
     log = log_ctx.logger
 
     try:
-        QtCore.qInstallMessageHandler(
-            AppLoggingService.make_qt_message_handler(log, log_ctx.crash_log_path)
-        )
+        QtCore.qInstallMessageHandler(AppLoggingService.make_qt_message_handler(log, log_ctx.crash_log_path))
     except Exception:
         pass
-
-    log.info("entrypoint: QApplication created")
-    log.info("entrypoint: root=%s", Config.ROOT_DIR)
 
     svc = SettingsService(Config.ROOT_DIR)
 
     try:
-        log.info("entrypoint: load_or_restore() begin")
         snap, restored, reason = svc.load_or_restore()
-        log.info("entrypoint: load_or_restore() ok")
     except SettingsError as ex:
         key = getattr(ex, "key", str(ex))
-        log.error("entrypoint: load_or_restore() SettingsError key=%s", key)
         if key == "error.settings.defaults_missing":
             critical_defaults_missing_and_exit(None)
             return 1
-        # Do not show internal details (paths/lines). Keep details in logs only.
         critical_config_load_failed_and_exit(None, "SettingsError")
         return 1
     except Exception as ex:
@@ -115,14 +95,11 @@ def run() -> int:
     lang_pref = str(snap.app.get("language", "auto"))
 
     try:
-        log.info("entrypoint: Translator load lang=%s", lang_pref)
         if lang_pref.lower() == "auto":
             Translator.load_best(locales_dir, system_first=True, fallback="en")
         else:
             Translator.load(locales_dir, lang_pref)
-        log.info("entrypoint: Translator ok")
-    except Exception as ex:
-        log.exception("entrypoint: Translator failed: %s", ex)
+    except Exception:
         critical_locales_missing_and_exit(None)
         return 1
 
@@ -130,22 +107,12 @@ def run() -> int:
         info_settings_restored(None)
 
     try:
-        log.info("entrypoint: RuntimeConfigService.initialize() begin")
-        RuntimeConfigService.initialize(Config, snap)
-        log.info("entrypoint: RuntimeConfigService.initialize() ok")
-    except Exception as ex:
-        log.exception("entrypoint: RuntimeConfigService.initialize() failed: %s", ex)
-        critical_config_load_failed_and_exit(None, type(ex).__name__)
-        return 1
-
-    try:
-        log.info("entrypoint: apply stylesheet")
         _apply_stylesheet(app, Config.STYLES_DIR, str(snap.app.get("theme", "auto")))
     except Exception as ex:
         log.exception("entrypoint: stylesheet failed: %s", ex)
 
     from view.widgets.loading_screen import LoadingScreenWidget
-    from controller.tasks.startup_task import StartupWorker, StartupTask
+    from controller.tasks.startup_task import StartupWorker, build_startup_tasks
 
     loading = LoadingScreenWidget()
     loading.setWindowTitle(Translator.tr("window.loading"))
@@ -153,23 +120,18 @@ def run() -> int:
     loading.show()
     app.processEvents()
 
-    def _noop_task(progress, ctx) -> None:
-        progress(100)
-
-    tasks = [
-        StartupTask(label=Translator.tr("loading.stage.start"), weight=1, fn=_noop_task),
-    ]
+    labels = {
+        "init": Translator.tr("loading.stage.init"),
+        "dirs": Translator.tr("loading.stage.dirs"),
+        "ffmpeg": Translator.tr("loading.stage.ffmpeg"),
+    }
+    tasks = build_startup_tasks(Config, snap, labels)
 
     thread = QtCore.QThread()
     worker = StartupWorker(tasks)
     worker.moveToThread(thread)
 
-    boot_refs = {
-        "loading": loading,
-        "thread": thread,
-        "worker": worker,
-        "win": None,
-    }
+    boot_refs = {"loading": loading, "thread": thread, "worker": worker, "win": None}
     setattr(app, "_boot_refs", boot_refs)
 
     def _on_status(text: str) -> None:
@@ -187,35 +149,16 @@ def run() -> int:
         critical_config_load_failed_and_exit(None, "StartupError")
 
     def _on_ready(ctx: dict) -> None:
-        log.info("entrypoint: startup worker ready")
         thread.quit()
         thread.wait(2000)
 
         try:
-            log.info("entrypoint: importing MainWindow")
             from view.main_window import MainWindow
-            log.info("entrypoint: imported MainWindow")
-        except Exception as ex:
-            log.exception("entrypoint: import MainWindow failed: %s", ex)
-            critical_config_load_failed_and_exit(None, type(ex).__name__)
-            return
-
-        try:
-            log.info("entrypoint: constructing MainWindow")
             win = MainWindow()
             boot_refs["win"] = win
-            log.info("entrypoint: constructed MainWindow")
-        except Exception as ex:
-            log.exception("entrypoint: MainWindow() failed: %s", ex)
-            critical_config_load_failed_and_exit(None, type(ex).__name__)
-            return
-
-        try:
-            log.info("entrypoint: showing MainWindow")
             win.show()
-            log.info("entrypoint: MainWindow shown")
         except Exception as ex:
-            log.exception("entrypoint: show() failed: %s", ex)
+            log.exception("entrypoint: MainWindow failed: %s", ex)
             critical_config_load_failed_and_exit(None, type(ex).__name__)
             return
 
@@ -232,7 +175,6 @@ def run() -> int:
     worker.failed.connect(worker.deleteLater)
     thread.finished.connect(thread.deleteLater)
 
-    log.info("entrypoint: starting startup thread")
     thread.start()
     return app.exec_()
 

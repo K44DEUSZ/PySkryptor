@@ -83,6 +83,7 @@ class TranscriptionService:
         transcript_ready: TranscriptReadyFn,
         conflict_resolver: ConflictResolverFn,
         cancel_check: CancelCheckFn,
+        overrides: Optional[Dict[str, Any]] = None,
     ) -> SessionResult:
         processed_any = False
         had_errors = False
@@ -114,8 +115,10 @@ class TranscriptionService:
         try:
             FileManager.plan_session()
 
-            model_cfg = Config.transcription_model_settings()
-            trans_cfg = Config.transcription_settings()
+            snap = getattr(Config, "SETTINGS", None)
+            mdl_root = dict(getattr(snap, "model", {}) or {}) if snap is not None else {}
+            model_cfg = (mdl_root.get("transcription_model") or {}) if isinstance(mdl_root.get("transcription_model"), dict) else {}
+            trans_cfg = dict(getattr(snap, "transcription", {}) or {}) if snap is not None else {}
 
             task = "transcribe"
 
@@ -126,20 +129,21 @@ class TranscriptionService:
             if quality_preset not in ("fast", "balanced", "accurate"):
                 quality_preset = "balanced"
             text_consistency = bool(model_cfg.get("text_consistency", True))
-            default_lang = model_cfg.get("default_language", None)
-            timestamps_output = bool(trans_cfg.get("timestamps_output", False))
-            out_ext = str(trans_cfg.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
+            override_src = (overrides or {}).get("source_language")
+            override_src = str(override_src or "").strip().lower() if override_src is not None else ""
+            default_lang = override_src if override_src and override_src not in ("auto", "none") else None
+            out_mode_id = str(trans_cfg.get("output_format", "txt") or "txt").strip().lower()
+            out_mode = Config.get_transcription_output_mode(out_mode_id)
+            out_ext = str(out_mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
+            want_timestamped_output = bool(out_mode.get("timestamps", False))
 
             translate_enabled = bool(trans_cfg.get("translate_after_transcription", False))
-            mdl = Config.translation_model_settings()
-            tr_engine = str(mdl.get("engine_name", "none") or "none").strip().lower()
+            tr_mdl = (mdl_root.get("translation_model") or {}) if isinstance(mdl_root.get("translation_model"), dict) else {}
+            tr_engine = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
             translate_enabled = bool(translate_enabled and tr_engine and tr_engine not in ("none", "off", "disabled"))
 
-            target_language = ""
-            try:
-                target_language = str(Config.translation_settings().get("target_language", "auto") or "auto").strip().lower()
-            except Exception:
-                target_language = "auto"
+            override_tgt = (overrides or {}).get("target_language")
+            target_language = str(override_tgt or "auto").strip().lower() or "auto"
 
             translator = TranslationService() if translate_enabled else None
 
@@ -147,7 +151,6 @@ class TranscriptionService:
                 trans_cfg.get("keep_intermediate_files", trans_cfg.get("keep_wav_temp", False))
             )
 
-            want_timestamped_output = bool(out_ext == "srt" or timestamps_output)
             return_ts_base = bool(want_timestamped_output)
 
             # ----- Materialize entries into work items -----
@@ -264,8 +267,10 @@ class TranscriptionService:
                     translated_segments: Optional[List[Dict[str, Any]]] = None
                     if translate_enabled and translator is not None:
                         src_lang = self._pick_source_language(default_lang=default_lang, merged_text=merged_text)
-                        log(f"[Translation] Request src='{src_lang or ''}' tgt='{target_language}' out_ext='{out_ext}' timestamps={timestamps_output}.")
-                        if out_ext == "srt" or timestamps_output:
+                        log(
+                            f"[Translation] Request src='{src_lang or ''}' tgt='{target_language}' out_ext='{out_ext}' timestamps={want_timestamped_output}."
+                        )
+                        if want_timestamped_output:
                             translated_segments = self._translate_segments(
                                 segments=segments,
                                 translator=translator,
@@ -290,7 +295,7 @@ class TranscriptionService:
                         translated_segments=translated_segments,
                         segments=segments,
                         out_ext=out_ext,
-                        timestamps_output=timestamps_output,
+                        timestamps_output=want_timestamped_output,
                         translate=translate,
                         log=log,
                         item_status=item_status,
@@ -629,7 +634,13 @@ class TranscriptionService:
 
         safe_stem = sanitize_filename(title) or "download"
 
-        kind = "audio" if bool(Config.transcription_settings().get("download_audio_only", True)) else "video"
+        tcfg = getattr(Config, "SETTINGS", None)
+        tmap = getattr(tcfg, "transcription", None)
+        download_audio_only = True
+        if isinstance(tmap, dict):
+            download_audio_only = bool(tmap.get("download_audio_only", True))
+
+        kind = "audio" if download_audio_only else "video"
         item_status(key, translate("status.proc"))
 
         def _progress_hook(d: Dict[str, Any]) -> None:

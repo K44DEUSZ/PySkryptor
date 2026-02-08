@@ -1,4 +1,11 @@
-# controller/tasks/settings_task.py
+"""controller/tasks/settings_task.py
+
+Background worker for loading/saving application settings.
+
+Note: `from __future__ import annotations` must be the first import (after this docstring),
+otherwise Python raises a SyntaxError.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

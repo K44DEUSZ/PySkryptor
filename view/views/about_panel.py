@@ -57,7 +57,7 @@ class AboutPanel(QtWidgets.QWidget):
                 name=Config.APP_NAME,
                 version=Config.APP_VERSION,
                 author=Config.APP_AUTHOR,
-                years=getattr(Config, "APP_COPYRIGHT_RANGE", ""),
+                years=getattr(Config, "APP_DEVELOPMENT_YEARS", ""),
             )
         )
         app_layout.addWidget(app_label)
@@ -114,15 +114,7 @@ class AboutPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _resolve_logo_svg_path() -> Path:
-        p = getattr(Config, "APP_LOGO_SVG", None)
-        if isinstance(p, Path):
-            return p
-
-        base = getattr(Config, "VIEW_RESOURCES_DIR", None)
-        if isinstance(base, Path):
-            return base / "images" / "logo.svg"
-
-        return Path("view") / "resources" / "images" / "logo.svg"
+        return getattr(Config, "IMAGES_DIR", Path("assets") / "images") / "logo.svg"
 
     def _build_logo_widget(self, logo_path: Path) -> QtWidgets.QWidget:
         if logo_path.exists():
@@ -147,7 +139,7 @@ class AboutPanel(QtWidgets.QWidget):
     def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
         if url.toString().strip().lower() != "license":
             return
-        self._open_local_file(Config.license_file_path())
+        self._open_local_file(Config.LICENSE_FILE)
 
     @staticmethod
     def _open_local_file(path: Path) -> None:
