@@ -77,7 +77,7 @@ class LivePanel(QtWidgets.QWidget):
         self.btn_refresh_devices = QtWidgets.QPushButton(tr("live.ctrl.refresh_devices"))
         self.btn_refresh_devices.clicked.connect(self._refresh_devices_clicked)
 
-        s_lay.addWidget(QtWidgets.QLabel(tr("live.device")), row, 0)
+        s_lay.addWidget(QtWidgets.QLabel(tr("live.device.label")), row, 0)
         s_lay.addWidget(self.cmb_device, row, 1, 1, 2)
         s_lay.addWidget(self.btn_refresh_devices, row, 3)
 
@@ -105,12 +105,12 @@ class LivePanel(QtWidgets.QWidget):
         mode_lay.addWidget(self.mode_translate)
         mode_lay.addStretch(1)
 
-        s_lay.addWidget(QtWidgets.QLabel(tr("live.mode")), row, 0)
+        s_lay.addWidget(QtWidgets.QLabel(tr("live.mode.label")), row, 0)
         s_lay.addWidget(mode_box, row, 1, 1, 4)
         row += 1
 
-        self.cmb_src_lang = LanguageCombo(special_first=("lang.auto_detect", ""))
-        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.default_ui", "auto"), locale_prefix="lang.m2m100")
+        self.cmb_src_lang = LanguageCombo(special_first=("lang.special.auto_detect", ""))
+        self.cmb_tgt_lang = LanguageCombo(special_first=("lang.special.default_ui", "auto"), locale_prefix="lang.names")
         try:
             self.cmb_tgt_lang.set_code(str(_get_translation_settings().get("target_language", "auto") or "auto"))
         except Exception:

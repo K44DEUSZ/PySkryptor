@@ -101,9 +101,9 @@ class AppConfig:
 
     # ----- Transcript output -----
     TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
-        {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "settings.transcription.output.plain_txt"},
-        {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "settings.transcription.output.txt_timestamps"},
-        {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "settings.transcription.output.srt"},
+        {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "transcription.output_mode.plain_txt.label"},
+        {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "transcription.output_mode.txt_timestamps.label"},
+        {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "transcription.output_mode.srt.label"},
     )
     TRANSCRIPT_DEFAULT_EXT: str = "txt"
 
@@ -252,7 +252,14 @@ class AppConfig:
 
     @classmethod
     def _apply_transcription(cls, transcription: Dict[str, Any]) -> None:
-        mode_id = str(transcription.get("output_format", "txt") or "txt").strip().lower()
+        raw = transcription.get("output_formats")
+        if isinstance(raw, str) and raw.strip():
+            mode_id = raw.strip().lower()
+        elif isinstance(raw, (list, tuple)) and raw:
+            mode_id = str(raw[0] or "txt").strip().lower()
+        else:
+            mode_id = str(transcription.get("output_format", "txt") or "txt").strip().lower()
+
         mode = cls.get_transcription_output_mode(mode_id)
         cls.TRANSCRIPT_DEFAULT_EXT = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
 

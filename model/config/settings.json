@@ -1,6 +1,6 @@
 {
   "app": {
-    "language": "en",
+    "language": "pl",
     "theme": "auto",
     "ui": {
       "show_advanced_settings": false
@@ -19,11 +19,15 @@
   "transcription": {
     "output_format": "srt",
     "download_audio_only": true,
-    "url_keep_audio": true,
+    "url_keep_audio": false,
     "url_audio_ext": "m4a",
     "url_keep_video": false,
     "url_video_ext": "mp4",
-    "translate_after_transcription": false
+    "translate_after_transcription": true,
+    "output_formats": [
+      "txt_ts",
+      "srt"
+    ]
   },
   "translation": {
     "default_source_language": "auto",
@@ -36,10 +40,10 @@
       "text_consistency": true,
       "chunk_length_s": 60,
       "stride_length_s": 5,
-      "ignore_warning": false
+      "ignore_warning": true
     },
     "translation_model": {
-      "engine_name": "none",
+      "engine_name": "m2m100",
       "max_new_tokens": 256,
       "chunk_max_chars": 1200,
       "quality_preset": "balanced"

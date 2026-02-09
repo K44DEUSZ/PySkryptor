@@ -32,6 +32,8 @@ ItemStatusFn = Callable[[str, str], None]
 ItemProgressFn = Callable[[str, int], None]
 ItemPathUpdateFn = Callable[[str, str], None]
 TranscriptReadyFn = Callable[[str, str], None]
+ItemErrorFn = Callable[[str, str], None]
+ItemOutputDirFn = Callable[[str, str], None]
 CancelCheckFn = Callable[[], bool]
 ConflictResolverFn = Callable[[str, str], Tuple[str, str, bool]]
 
@@ -51,6 +53,81 @@ class SessionResult:
     had_errors: bool
     was_cancelled: bool
 
+
+
+@dataclass
+class _ItemPlan:
+    has_download: bool
+    has_translate: bool
+    # stage -> pct (0..100)
+    stage_pct: Dict[str, int]
+
+
+class _ProgressTracker:
+    """Compute a global progress value from per-item stage percentages."""
+
+    _BASE_WEIGHTS: Dict[str, int] = {
+        "download": 20,
+        "transcribe": 60,
+        "translate": 15,
+        "save": 5,
+    }
+
+    def __init__(self) -> None:
+        self._items: Dict[str, _ItemPlan] = {}
+
+    def register(self, key: str, *, has_download: bool, has_translate: bool) -> None:
+        self._items[str(key)] = _ItemPlan(
+            has_download=bool(has_download),
+            has_translate=bool(has_translate),
+            stage_pct={"download": 0, "transcribe": 0, "translate": 0, "save": 0},
+        )
+
+    def rename_key(self, old_key: str, new_key: str) -> None:
+        old = str(old_key)
+        new = str(new_key)
+        if old == new:
+            return
+        plan = self._items.pop(old, None)
+        if plan is not None:
+            self._items[new] = plan
+
+    def set_stage(self, key: str, stage: str, pct: int) -> None:
+        plan = self._items.get(str(key))
+        if not plan:
+            return
+        stage = str(stage)
+        pct = max(0, min(100, int(pct)))
+        if stage in plan.stage_pct:
+            plan.stage_pct[stage] = pct
+
+    def _weights_for(self, plan: _ItemPlan) -> Dict[str, float]:
+        active = {"transcribe", "save"}
+        if plan.has_download:
+            active.add("download")
+        if plan.has_translate:
+            active.add("translate")
+
+        total = sum(self._BASE_WEIGHTS[s] for s in active) or 1
+        return {s: (self._BASE_WEIGHTS[s] / float(total)) for s in active}
+
+    def item_total(self, key: str) -> int:
+        plan = self._items.get(str(key))
+        if not plan:
+            return 0
+        weights = self._weights_for(plan)
+        total = 0.0
+        for stage, w in weights.items():
+            total += w * float(plan.stage_pct.get(stage, 0))
+        return int(max(0, min(100, round(total))))
+
+    def global_total(self) -> int:
+        if not self._items:
+            return 0
+        vals = [self.item_total(k) for k in self._items.keys()]
+        if not vals:
+            return 0
+        return int(max(0, min(100, round(sum(vals) / float(len(vals))))))
 
 class TranscriptionService:
     """Facade for ASR pipeline build + transcription session execution."""
@@ -81,6 +158,8 @@ class TranscriptionService:
         item_progress: ItemProgressFn,
         item_path_update: ItemPathUpdateFn,
         transcript_ready: TranscriptReadyFn,
+        item_error: Optional[ItemErrorFn] = None,
+        item_output_dir: Optional[ItemOutputDirFn] = None,
         conflict_resolver: ConflictResolverFn,
         cancel_check: CancelCheckFn,
         overrides: Optional[Dict[str, Any]] = None,
@@ -96,29 +175,35 @@ class TranscriptionService:
 
         keep_intermediate_files = False
 
+        def _emit_item_error(key: str, msg: str) -> None:
+            try:
+                if item_error is not None:
+                    item_error(str(key), str(msg))
+            except Exception:
+                pass
+
+        def _emit_item_output_dir(key: str, out_dir: str) -> None:
+            try:
+                if item_output_dir is not None:
+                    item_output_dir(str(key), str(out_dir))
+            except Exception:
+                pass
+
         def _ensure_not_cancelled() -> None:
             if cancel_check():
                 raise _Cancelled()
 
         def _bump_global_progress() -> None:
-            if total_chunks <= 0:
-                progress(0)
-                return
-            pct = int((done_chunks * 100.0) / float(total_chunks))
-            progress(max(0, min(100, pct)))
+            _emit_global()
 
         def _bump_chunk_done() -> None:
-            nonlocal done_chunks
-            done_chunks += 1
             _bump_global_progress()
 
         try:
             FileManager.plan_session()
 
-            snap = getattr(Config, "SETTINGS", None)
-            mdl_root = dict(getattr(snap, "model", {}) or {}) if snap is not None else {}
-            model_cfg = (mdl_root.get("transcription_model") or {}) if isinstance(mdl_root.get("transcription_model"), dict) else {}
-            trans_cfg = dict(getattr(snap, "transcription", {}) or {}) if snap is not None else {}
+            model_cfg = Config.SETTINGS.model.get('transcription_model', {})
+            trans_cfg = Config.SETTINGS.transcription
 
             task = "transcribe"
 
@@ -132,14 +217,11 @@ class TranscriptionService:
             override_src = (overrides or {}).get("source_language")
             override_src = str(override_src or "").strip().lower() if override_src is not None else ""
             default_lang = override_src if override_src and override_src not in ("auto", "none") else None
-            out_mode_id = str(trans_cfg.get("output_format", "txt") or "txt").strip().lower()
-            out_mode = Config.get_transcription_output_mode(out_mode_id)
-            out_ext = str(out_mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
-            want_timestamped_output = bool(out_mode.get("timestamps", False))
+            output_mode_ids = list(trans_cfg.get('output_formats') or ('txt',))
 
             translate_enabled = bool(trans_cfg.get("translate_after_transcription", False))
-            tr_mdl = (mdl_root.get("translation_model") or {}) if isinstance(mdl_root.get("translation_model"), dict) else {}
-            tr_engine = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
+            mdl = Config.SETTINGS.model.get('translation_model', {})
+            tr_engine = str(mdl.get("engine_name", "none") or "none").strip().lower()
             translate_enabled = bool(translate_enabled and tr_engine and tr_engine not in ("none", "off", "disabled"))
 
             override_tgt = (overrides or {}).get("target_language")
@@ -147,13 +229,67 @@ class TranscriptionService:
 
             translator = TranslationService() if translate_enabled else None
 
+            tracker = _ProgressTracker()
+            has_translate = bool(translate_enabled and target_language and target_language not in ("none","off","disabled"))
+
+            def _register_initial_entry(e: GUIEntry) -> None:
+                try:
+                    if isinstance(e, str):
+                        k = str(e).strip()
+                        if not k:
+                            return
+                        tracker.register(k, has_download=is_url(k), has_translate=has_translate)
+                        return
+                    if isinstance(e, dict):
+                        k = str(e.get("url") or e.get("link") or e.get("value") or e.get("path") or "").strip()
+                        if not k:
+                            return
+                        tracker.register(k, has_download=is_url(k), has_translate=has_translate)
+                        return
+                except Exception:
+                    return
+
+
+
             keep_intermediate_files = bool(
                 trans_cfg.get("keep_intermediate_files", trans_cfg.get("keep_wav_temp", False))
             )
 
+            want_timestamped_output = bool(
+                ("srt" in output_mode_ids)
+                or ("txt_ts" in output_mode_ids)
+                or ("timestamps" in output_mode_ids)
+            )
             return_ts_base = bool(want_timestamped_output)
 
             # ----- Materialize entries into work items -----
+
+            # Pre-register original entry keys so the global progress also covers downloads.
+            for _e in list(entries):
+                _register_initial_entry(_e)
+
+            def _emit_global() -> None:
+                try:
+                    progress(int(tracker.global_total()))
+                except Exception:
+                    pass
+
+            def _item_progress_download(k: str, pct: int) -> None:
+                tracker.set_stage(str(k), "download", int(pct))
+                try:
+                    item_progress(str(k), int(pct))
+                except Exception:
+                    pass
+                _emit_global()
+
+            def _item_path_update_track(old: str, new: str) -> None:
+                tracker.rename_key(str(old), str(new))
+                try:
+                    item_path_update(str(old), str(new))
+                except Exception:
+                    pass
+                _emit_global()
+
             work_items: List[WorkItem] = []
             for entry in list(entries):
                 if cancel_check():
@@ -165,11 +301,12 @@ class TranscriptionService:
                             download=download,
                             downloaded=downloaded,
                             item_status=item_status,
-                            item_progress=item_progress,
-                            item_path_update=item_path_update,
+                            item_progress=_item_progress_download,
+                            item_path_update=_item_path_update_track,
                             log=log,
                             translate=translate,
                             cancel_check=cancel_check,
+                            item_error_cb=_emit_item_error,
                         )
                     )
                 except _Cancelled:
@@ -185,21 +322,29 @@ class TranscriptionService:
                 return SessionResult(session_dir="", processed_any=False, had_errors=had_errors, was_cancelled=False)
 
             # ----- Global progress estimation -----
-            total_dur = 0.0
-            for _key, p, _forced in work_items:
-                try:
-                    d = AudioExtractor.probe_duration(p)
-                    total_dur += float(d or 0.0)
-                except Exception:
-                    pass
-
-            total_chunks = max(1, int(self._estimate_chunks(total_dur, chunk_len, stride_len)))
             _bump_global_progress()
 
             # apply-all conflict policy cache
             apply_all_action: Optional[str] = None
             apply_all_new_stem: str = ""
             apply_all_enabled = False
+
+
+            def _item_progress_transcribe(k: str, pct: int) -> None:
+                tracker.set_stage(str(k), "transcribe", int(pct))
+                try:
+                    item_progress(str(k), int(pct))
+                except Exception:
+                    pass
+                _emit_global()
+
+            def _item_progress_translate(k: str, pct: int) -> None:
+                tracker.set_stage(str(k), "translate", int(pct))
+                try:
+                    item_progress(str(k), int(pct))
+                except Exception:
+                    pass
+                _emit_global()
 
             # ----- Process items -----
             for key, path, forced_stem in work_items:
@@ -208,7 +353,7 @@ class TranscriptionService:
 
                 stem = sanitize_filename(forced_stem) if forced_stem else sanitize_filename(path.stem)
 
-                item_status(key, translate("status.prep"))
+                item_status(key, translate("status.preparing"))
                 item_progress(key, 0)
 
                 # ----- Resolve output folder conflicts -----
@@ -227,7 +372,7 @@ class TranscriptionService:
                     continue
 
                 stem = new_stem
-                item_status(key, translate("status.proc"))
+                item_status(key, translate("status.downloading"))
 
                 audio_asset_name = str(translate("asset.audio") or "").strip() or "Audio"
                 video_asset_name = str(translate("asset.video") or "").strip() or "Video"
@@ -245,6 +390,10 @@ class TranscriptionService:
 
                     _ensure_not_cancelled()
 
+                    item_status(key, translate("status.processing"))
+                    tracker.set_stage(key, "transcribe", 0)
+                    _emit_global()
+
                     merged_text, segments = self._transcribe_wav(
                         pipe=pipe,
                         key=key,
@@ -259,33 +408,55 @@ class TranscriptionService:
                         text_consistency=text_consistency,
                         translate=translate,
                         cancel_check=cancel_check,
-                        item_progress=item_progress,
+                        item_progress=_item_progress_download,
                         bump_chunk_done=_bump_chunk_done,
                     )
 
                     translated_text = ""
                     translated_segments: Optional[List[Dict[str, Any]]] = None
-                    if translate_enabled and translator is not None:
-                        src_lang = self._pick_source_language(default_lang=default_lang, merged_text=merged_text)
-                        log(
-                            f"[Translation] Request src='{src_lang or ''}' tgt='{target_language}' out_ext='{out_ext}' timestamps={want_timestamped_output}."
-                        )
-                        if want_timestamped_output:
-                            translated_segments = self._translate_segments(
-                                segments=segments,
-                                translator=translator,
-                                src_lang=src_lang,
-                                tgt_lang=target_language,
-                                log=log,
-                            )
-                        else:
-                            translated_text = translator.translate(
-                                merged_text,
-                                src_lang=src_lang,
-                                tgt_lang=target_language,
-                                log=lambda m: log(str(m)),
-                            )
 
+                    if translate_enabled and translator is not None and target_language not in ("none", "off", "disabled"):
+                        tracker.set_stage(key, "translate", 0)
+                        _emit_global()
+                        item_status(key, translate("status.translating"))
+                        src_lang = self._pick_source_language(default_lang=default_lang, merged_text=merged_text)
+
+                        if want_timestamped_output and segments:
+                            translated_segments = []
+                            total = max(1, len(segments))
+                            for i, seg in enumerate(segments):
+                                if cancel_check():
+                                    raise _Cancelled()
+                                txt = str(seg.get("text") or "")
+                                out = translator.translate(txt, src_lang=src_lang, tgt_lang=target_language, log=lambda m: log(str(m)))
+                                seg2 = dict(seg)
+                                seg2["text"] = out
+                                translated_segments.append(seg2)
+                                _item_progress_translate(key, int(((i + 1) * 100.0) / float(total)))
+                        else:
+                            # Translate in chunks to provide meaningful progress updates.
+                            raw = str(merged_text or "").strip()
+                            if raw:
+                                parts = [p for p in re.split(r"\n\s*\n", raw) if p.strip()]
+                            else:
+                                parts = []
+                            if not parts:
+                                translated_text = ""
+                                _item_progress_translate(key, 100)
+                            else:
+                                out_parts: List[str] = []
+                                total = max(1, len(parts))
+                                for i, part in enumerate(parts):
+                                    if cancel_check():
+                                        raise _Cancelled()
+                                    out = translator.translate(part, src_lang=src_lang, tgt_lang=target_language, log=lambda m: log(str(m)))
+                                    out_parts.append(str(out or ""))
+                                    _item_progress_translate(key, int(((i + 1) * 100.0) / float(total)))
+                                translated_text = "\n\n".join(out_parts)
+
+                    tracker.set_stage(key, "save", 0)
+                    _emit_global()
+                    item_status(key, translate("status.saving"))
                     transcript_path = self._write_outputs(
                         key=key,
                         stem=stem,
@@ -294,8 +465,7 @@ class TranscriptionService:
                         translated_text=translated_text,
                         translated_segments=translated_segments,
                         segments=segments,
-                        out_ext=out_ext,
-                        timestamps_output=want_timestamped_output,
+                        output_mode_ids=output_mode_ids,
                         translate=translate,
                         log=log,
                         item_status=item_status,
@@ -306,6 +476,9 @@ class TranscriptionService:
                         had_errors = True
                         item_status(key, translate("status.error"))
                         continue
+
+                    tracker.set_stage(key, "save", 100)
+                    _emit_global()
 
                     is_url_source = path in downloaded
 
@@ -358,14 +531,18 @@ class TranscriptionService:
 
                 except _FatalPipeError as e:
                     had_errors = True
-                    log(translate("log.transcription_failed", name="ASR pipeline", detail=str(e)))
+                    msg = translate("log.transcription_failed", name="ASR pipeline", detail=str(e))
+                    log(msg)
+                    _emit_item_error(key, msg)
                     item_status(key, translate("status.error"))
                     break
                 except _Cancelled:
                     break
                 except Exception as e:
                     had_errors = True
-                    log(translate("log.transcription_failed", name=str(path.name), detail=str(e)))
+                    msg = translate("log.transcription_failed", name=str(path.name), detail=str(e))
+                    log(msg)
+                    _emit_item_error(key, msg)
                     item_status(key, translate("status.error"))
                     continue
                 finally:
@@ -501,6 +678,7 @@ class TranscriptionService:
         log: LogFn,
         translate: Callable[[str, Any], str],
         cancel_check: CancelCheckFn,
+        item_error_cb: Optional[ItemErrorFn] = None,
     ) -> List[WorkItem]:
         if cancel_check():
             raise _Cancelled()
@@ -521,6 +699,7 @@ class TranscriptionService:
                     log=log,
                     translate=translate,
                     cancel_check=cancel_check,
+                    item_error_cb=item_error_cb,
                 )
             return self._materialize_path(
                 path=Path(raw),
@@ -552,6 +731,7 @@ class TranscriptionService:
                     log=log,
                     translate=translate,
                     cancel_check=cancel_check,
+                    item_error_cb=item_error_cb,
                 )
 
             if path_val:
@@ -563,6 +743,7 @@ class TranscriptionService:
                     log=log,
                     translate=translate,
                     cancel_check=cancel_check,
+                    item_error_cb=item_error_cb,
                 )
 
             raw = str(entry.get("value") or "").strip()
@@ -588,6 +769,7 @@ class TranscriptionService:
                     log=log,
                     translate=translate,
                     cancel_check=cancel_check,
+                    item_error_cb=item_error_cb,
                 )
 
         return []
@@ -605,12 +787,13 @@ class TranscriptionService:
         log: LogFn,
         translate: Callable[[str, Any], str],
         cancel_check: CancelCheckFn,
+        item_error_cb: Optional[ItemErrorFn] = None,
     ) -> List[WorkItem]:
         if cancel_check():
             raise _Cancelled()
 
         key = url
-        item_status(key, translate("status.prep"))
+        item_status(key, translate("status.preparing"))
 
         audio_lang = meta.get("audio_lang")
         title = meta.get("title") or None
@@ -622,7 +805,10 @@ class TranscriptionService:
             info = download.probe(url, log=log)
         except DownloadError as ex:
             item_status(key, translate("status.error"))
-            log(translate(ex.key, **getattr(ex, "params", {})))
+            msg = translate(ex.key, **getattr(ex, "params", {}))
+            log(msg)
+            if item_error_cb is not None:
+                item_error_cb(key, msg)
             return []
 
         if cancel_check():
@@ -634,20 +820,15 @@ class TranscriptionService:
 
         safe_stem = sanitize_filename(title) or "download"
 
-        tcfg = getattr(Config, "SETTINGS", None)
-        tmap = getattr(tcfg, "transcription", None)
-        download_audio_only = True
-        if isinstance(tmap, dict):
-            download_audio_only = bool(tmap.get("download_audio_only", True))
-
-        kind = "audio" if download_audio_only else "video"
-        item_status(key, translate("status.proc"))
+        kind = "audio" if bool(Config.SETTINGS.transcription.get("download_audio_only", True)) else "video"
+        item_status(key, translate("status.processing"))
 
         def _progress_hook(d: Dict[str, Any]) -> None:
             if cancel_check():
                 raise DownloadCancelled()
             st = d.get("status")
             if st == "downloading":
+                item_status(key, translate("status.downloading"))
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
                 downloaded_bytes = d.get("downloaded_bytes") or 0
                 if total:
@@ -673,16 +854,25 @@ class TranscriptionService:
             raise _Cancelled()
         except DownloadError as ex:
             item_status(key, translate("status.error"))
-            log(translate(ex.key, **getattr(ex, "params", {})))
+            msg = translate(ex.key, **getattr(ex, "params", {}))
+            log(msg)
+            if item_error_cb is not None:
+                item_error_cb(key, msg)
             return []
         except Exception as e:
             item_status(key, translate("status.error"))
-            log(translate("error.down.download_failed", detail=str(e)))
+            msg = translate("error.down.download_failed", detail=str(e))
+            log(msg)
+            if item_error_cb is not None:
+                item_error_cb(key, msg)
             return []
 
         if not out_path:
             item_status(key, translate("status.error"))
-            log(translate("error.down.no_output_file"))
+            msg = translate("error.down.no_output_file")
+            log(msg)
+            if item_error_cb is not None:
+                item_error_cb(key, msg)
             return []
 
         downloaded.add(out_path)
@@ -700,6 +890,7 @@ class TranscriptionService:
         log: LogFn,
         translate: Callable[[str, Any], str],
         cancel_check: CancelCheckFn,
+        item_error_cb: Optional[ItemErrorFn] = None,
     ) -> List[WorkItem]:
         if cancel_check():
             raise _Cancelled()
@@ -708,13 +899,16 @@ class TranscriptionService:
         key = str(p)
         if not p.exists():
             item_status(key, translate("status.error"))
-            log(translate("log.path_not_found", path=str(p)))
+            msg = translate("log.path_not_found", path=str(p))
+            log(msg)
+            if item_error_cb is not None:
+                item_error_cb(key, msg)
             return []
 
         title = str(meta.get("title") or "").strip()
         forced_stem = sanitize_filename(title) if title else None
 
-        item_status(key, translate("status.prep"))
+        item_status(key, translate("status.preparing"))
         item_progress(key, 0)
         return [(key, p, forced_stem)]
 
@@ -854,44 +1048,56 @@ class TranscriptionService:
         translated_text: str = "",
         translated_segments: Optional[List[Dict[str, Any]]] = None,
         segments: List[Dict[str, Any]],
-        out_ext: str,
-        timestamps_output: bool,
+        output_mode_ids: List[str],
         translate: Callable[[str, Any], str],
         log: LogFn,
         item_status: ItemStatusFn,
         transcript_ready: TranscriptReadyFn,
+        item_output_dir_cb: Optional[ItemOutputDirFn] = None,
+        item_error_cb: Optional[ItemErrorFn] = None,
         cancel_check: CancelCheckFn,
     ) -> Optional[Path]:
         if cancel_check():
             raise _Cancelled()
 
-        out_text = self._render_transcript(
-            merged_text=merged_text,
-            translated_text=translated_text,
-            segments=segments,
-            out_ext=out_ext,
-            timestamps_output=timestamps_output,
-            translate=translate,
-        )
-
         base_name = translate("asset.transcript")
         if base_name == "asset.transcript":
             base_name = translate("files.transcript.default_name")
         base_name = sanitize_filename(str(base_name)) or "Transcript"
-        out_path = FileManager.transcript_path(stem, base_name=base_name)
 
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(out_text, encoding="utf-8")
-        except Exception as e:
-            log(translate("log.transcript.save_failed", name=stem, detail=str(e)))
-            item_status(key, translate("status.error"))
-            return None
+        primary_path: Optional[Path] = None
+        for mode_id in output_mode_ids:
+            mode = Config.get_transcription_output_mode(str(mode_id))
+            out_ext = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
+            out_text = self._render_transcript(
+                merged_text=merged_text,
+                translated_text=translated_text,
+                translated_segments=translated_segments,
+                segments=segments,
+                mode=mode,
+                translate=translate,
+            )
 
-        transcript_ready(key, str(out_path))
-        return out_path
+            out_path = out_dir / f"{base_name}.{out_ext}"
+            out_path = FileManager.ensure_unique_path(out_path)
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(out_text, encoding="utf-8")
+            except Exception as e:
+                msg = translate("log.transcript.save_failed", name=stem, detail=str(e))
+                log(msg)
+                item_status(key, translate("status.error"))
+                if item_error_cb is not None:
+                    item_error_cb(key, msg)
+                return None
 
-    @staticmethod
+            if primary_path is None:
+                primary_path = out_path
+                transcript_ready(key, str(out_path))
+                if item_output_dir_cb is not None:
+                    item_output_dir_cb(key, str(out_dir))
+
+        return primary_path
     def _pick_source_language(*, default_lang: Optional[str], merged_text: str) -> str:
         def _norm(code: Optional[str]) -> str:
             return str(code or "").strip().lower().replace("_", "-").split("-", 1)[0]
@@ -969,17 +1175,21 @@ class TranscriptionService:
         translated_text: str = "",
         translated_segments: Optional[List[Dict[str, Any]]] = None,
         segments: List[Dict[str, Any]],
-        out_ext: str,
-        timestamps_output: bool,
+        mode: Dict[str, Any],
         translate: Callable[[str, Any], str],
     ) -> str:
-        out_ext = (out_ext or "txt").lower().strip().lstrip(".") or "txt"
+        """Render a single transcript output according to a selected output mode."""
+
+        out_ext = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
+        timestamps_output = bool(mode.get("timestamps", False))
+
         if out_ext not in ("txt", "srt", "sub"):
             out_ext = "txt"
 
         if out_ext == "srt":
             use = translated_segments if translated_segments else segments
             return TextPostprocessor.to_srt(use)
+
         if out_ext == "txt" and timestamps_output:
             use = translated_segments if translated_segments else segments
             return TextPostprocessor.to_timestamped_plain(use)

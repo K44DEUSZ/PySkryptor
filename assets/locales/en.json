@@ -74,7 +74,15 @@
     },
     "settings_restore_confirm": "♻️ Restore default settings?\n\nThis will overwrite current settings.",
     "settings_restored": "✅ Settings file not found. Defaults restored.",
-    "settings_save_confirm": "💾 Do you want to save settings changes?"
+    "settings_save_confirm": "💾 Do you want to save settings changes?",
+    "info": {
+      "title": "Information",
+      "header": "Info"
+    },
+    "error": {
+      "title": "Error",
+      "header": "Error"
+    }
   },
   "down": {
     "dialog": {
@@ -109,16 +117,19 @@
     "probe": "Analyze 🔍",
     "select": {
       "audio_track": {
-        "default": "Default track"
+        "default": "Default track",
+        "label": "Audio track"
       },
       "ext": "Format",
       "quality": {
-        "auto": "Auto"
+        "auto": "Auto",
+        "label": "Quality"
       },
       "title": "Download options",
       "type": {
         "audio": "Audio",
-        "video": "Video"
+        "video": "Video",
+        "label": "Type"
       }
     },
     "url": {
@@ -165,7 +176,8 @@
         "name": "Name",
         "path": "Path",
         "source": "Source",
-        "status": "Status"
+        "status": "Status",
+        "preview": "Preview"
       },
       "filters": {
         "audio_video": "Audio / video"
@@ -174,20 +186,6 @@
     },
     "open_output": "Open transcripts folder 📂",
     "options": {
-      "ext": {
-        "audio": {
-          "flac": "FLAC",
-          "m4a": "M4A",
-          "mp3": "MP3",
-          "ogg": "OGG",
-          "wav": "WAV"
-        },
-        "video": {
-          "mkv": "MKV",
-          "mp4": "MP4",
-          "webm": "WebM"
-        }
-      },
       "help": {
         "download_audio_only": "If enabled, only an audio track will be downloaded from the URL (faster and smaller).",
         "keep_audio": "Saves an audio file next to the transcript (copied or extracted from the source).",
@@ -225,116 +223,28 @@
     "remove_selected": "Remove selected 🗑️",
     "transcript": {
       "default_name": "Transcript"
+    },
+    "model": {
+      "loading": "Loading model…",
+      "ready": "Model ready",
+      "error": "Model error",
+      "device": "Device: {device}",
+      "asr": "ASR model: {engine}",
+      "translation": "Translation model: {engine}",
+      "translation_disabled": "Translation: disabled",
+      "mode": "Mode"
+    },
+    "preview": {
+      "open_folder": "Open folder"
+    },
+    "mode": {
+      "note": {
+        "translate_unavailable": "Translation unavailable"
+      }
     }
   },
   "icon": {
     "info": "ℹ️"
-  },
-  "lang": {
-    "auto_detect": "Auto-detect",
-    "default_ui": "Default (app language)",
-    "m2m100": "M2M100",
-    "whisper": {
-      "af": "Afrikaans",
-      "am": "Amharic",
-      "ar": "Arabic",
-      "as": "Assamese",
-      "az": "Azerbaijani",
-      "ba": "Bashkir",
-      "be": "Belarusian",
-      "bg": "Bulgarian",
-      "bn": "Bangla",
-      "bo": "Tibetan",
-      "br": "Breton",
-      "bs": "Bosnian",
-      "ca": "Catalan",
-      "cs": "Czech",
-      "cy": "Welsh",
-      "da": "Danish",
-      "de": "German",
-      "el": "Greek",
-      "en": "English",
-      "es": "Spanish",
-      "et": "Estonian",
-      "eu": "Basque",
-      "fa": "Persian",
-      "fi": "Finnish",
-      "fo": "Faroese",
-      "fr": "French",
-      "gl": "Galician",
-      "gu": "Gujarati",
-      "ha": "Hausa",
-      "haw": "Hawaiian",
-      "he": "Hebrew",
-      "hi": "Hindi",
-      "hr": "Croatian",
-      "ht": "Haitian Creole",
-      "hu": "Hungarian",
-      "hy": "Armenian",
-      "id": "Indonesian",
-      "is": "Icelandic",
-      "it": "Italian",
-      "ja": "Japanese",
-      "jw": "jw",
-      "ka": "Georgian",
-      "kk": "Kazakh",
-      "km": "Khmer",
-      "kn": "Kannada",
-      "ko": "Korean",
-      "la": "Latin",
-      "lb": "Luxembourgish",
-      "ln": "Lingala",
-      "lo": "Lao",
-      "lt": "Lithuanian",
-      "lv": "Latvian",
-      "mg": "Malagasy",
-      "mi": "Māori",
-      "mk": "Macedonian",
-      "ml": "Malayalam",
-      "mn": "Mongolian",
-      "mr": "Marathi",
-      "ms": "Malay",
-      "mt": "Maltese",
-      "my": "Burmese",
-      "ne": "Nepali",
-      "nl": "Dutch",
-      "nn": "Norwegian Nynorsk",
-      "no": "Norwegian",
-      "oc": "Occitan",
-      "pa": "Punjabi",
-      "pl": "Polish",
-      "ps": "Pashto",
-      "pt": "Portuguese",
-      "ro": "Romanian",
-      "ru": "Russian",
-      "sa": "Sanskrit",
-      "sd": "Sindhi",
-      "si": "Sinhala",
-      "sk": "Slovak",
-      "sl": "Slovenian",
-      "sn": "Shona",
-      "so": "Somali",
-      "sq": "Albanian",
-      "sr": "Serbian",
-      "su": "Sundanese",
-      "sv": "Swedish",
-      "sw": "Swahili",
-      "ta": "Tamil",
-      "te": "Telugu",
-      "tg": "Tajik",
-      "th": "Thai",
-      "tk": "Turkmen",
-      "tl": "Tagalog",
-      "tr": "Turkish",
-      "tt": "Tatar",
-      "uk": "Ukrainian",
-      "ur": "Urdu",
-      "uz": "Uzbek",
-      "vi": "Vietnamese",
-      "yi": "Yiddish",
-      "yo": "Yoruba",
-      "zh": "Chinese"
-    }
   },
   "live": {
     "ctrl": {
@@ -348,7 +258,8 @@
     "detected_language": "Detected language: {lang}",
     "device": {
       "none": "No input devices",
-      "unavailable": "No access to audio devices"
+      "unavailable": "No access to audio devices",
+      "label": "Input device"
     },
     "dialog": {
       "no_devices": {
@@ -365,7 +276,8 @@
     },
     "mode": {
       "transcribe": "Transcribe",
-      "translate": "Translate"
+      "translate": "Translate",
+      "label": "Mode"
     },
     "model": {
       "loading": "Loading model..."
@@ -388,7 +300,10 @@
   },
   "loading": {
     "stage": {
-      "start": "Starting..."
+      "start": "Starting...",
+      "init": "Initializing…",
+      "dirs": "Preparing folders…",
+      "ffmpeg": "Checking FFmpeg…"
     },
     "subtitle": "Starting application..."
   },
@@ -591,11 +506,6 @@
       "keep_wav_temp": "Keep temp WAV files",
       "language": "Speech language",
       "model": "Transcription engine",
-      "output": {
-        "plain_txt": "Text (.txt)",
-        "srt": "SubRip subtitles (.srt)",
-        "txt_timestamps": "Text + timestamps (.txt)"
-      },
       "output_format": "Output format",
       "quality": {
         "accurate": "Accurate",
@@ -623,18 +533,6 @@
       }
     }
   },
-  "status": {
-    "done": "✅ Done",
-    "error": "❌ Error",
-    "idle": "Idle",
-    "listening": "Listening…",
-    "no_devices": "No microphone",
-    "paused": "Paused",
-    "prep": "⏳ Preparing...",
-    "proc": "🔄 Processing...",
-    "skipped": "⏭️ Skipped",
-    "stopped": "Stopped"
-  },
   "tabs": {
     "about": "About",
     "downloader": "Downloader",
@@ -644,5 +542,145 @@
   },
   "window": {
     "loading": "Loading…"
+  },
+  "lang": {
+    "special": {
+      "auto_detect": "Auto-detect",
+      "default_ui": "Default (app language)"
+    },
+    "names": {
+      "af": "Afrikaans",
+      "am": "Amharic",
+      "ar": "Arabic",
+      "as": "Assamese",
+      "az": "Azerbaijani",
+      "ba": "Bashkir",
+      "be": "Belarusian",
+      "bg": "Bulgarian",
+      "bn": "Bangla",
+      "bo": "Tibetan",
+      "br": "Breton",
+      "bs": "Bosnian",
+      "ca": "Catalan",
+      "cs": "Czech",
+      "cy": "Welsh",
+      "da": "Danish",
+      "de": "German",
+      "el": "Greek",
+      "en": "English",
+      "es": "Spanish",
+      "et": "Estonian",
+      "eu": "Basque",
+      "fa": "Persian",
+      "fi": "Finnish",
+      "fo": "Faroese",
+      "fr": "French",
+      "gl": "Galician",
+      "gu": "Gujarati",
+      "ha": "Hausa",
+      "haw": "Hawaiian",
+      "he": "Hebrew",
+      "hi": "Hindi",
+      "hr": "Croatian",
+      "ht": "Haitian Creole",
+      "hu": "Hungarian",
+      "hy": "Armenian",
+      "id": "Indonesian",
+      "is": "Icelandic",
+      "it": "Italian",
+      "ja": "Japanese",
+      "jw": "jw",
+      "ka": "Georgian",
+      "kk": "Kazakh",
+      "km": "Khmer",
+      "kn": "Kannada",
+      "ko": "Korean",
+      "la": "Latin",
+      "lb": "Luxembourgish",
+      "ln": "Lingala",
+      "lo": "Lao",
+      "lt": "Lithuanian",
+      "lv": "Latvian",
+      "mg": "Malagasy",
+      "mi": "Māori",
+      "mk": "Macedonian",
+      "ml": "Malayalam",
+      "mn": "Mongolian",
+      "mr": "Marathi",
+      "ms": "Malay",
+      "mt": "Maltese",
+      "my": "Burmese",
+      "ne": "Nepali",
+      "nl": "Dutch",
+      "nn": "Norwegian Nynorsk",
+      "no": "Norwegian",
+      "oc": "Occitan",
+      "pa": "Punjabi",
+      "pl": "Polish",
+      "ps": "Pashto",
+      "pt": "Portuguese",
+      "ro": "Romanian",
+      "ru": "Russian",
+      "sa": "Sanskrit",
+      "sd": "Sindhi",
+      "si": "Sinhala",
+      "sk": "Slovak",
+      "sl": "Slovenian",
+      "sn": "Shona",
+      "so": "Somali",
+      "sq": "Albanian",
+      "sr": "Serbian",
+      "su": "Sundanese",
+      "sv": "Swedish",
+      "sw": "Swahili",
+      "ta": "Tamil",
+      "te": "Telugu",
+      "tg": "Tajik",
+      "th": "Thai",
+      "tk": "Turkmen",
+      "tl": "Tagalog",
+      "tr": "Turkish",
+      "tt": "Tatar",
+      "uk": "Ukrainian",
+      "ur": "Urdu",
+      "uz": "Uzbek",
+      "vi": "Vietnamese",
+      "yi": "Yiddish",
+      "yo": "Yoruba",
+      "zh": "Chinese"
+    }
+  },
+  "transcription": {
+    "output_mode": {
+      "plain_txt": {
+        "label": "Text (.txt)"
+      },
+      "srt": {
+        "label": "SubRip subtitles (.srt)"
+      },
+      "txt_timestamps": {
+        "label": "Text + timestamps (.txt)"
+      }
+    }
+  },
+  "status": {
+    "idle": "Idle",
+    "preparing": "Preparing...",
+    "downloading": "Downloading...",
+    "processing": "Processing...",
+    "transcribing": "Transcribing...",
+    "translating": "Translating...",
+    "saving": "Saving...",
+    "done": "Done",
+    "error": "Error",
+    "listening": "Listening…",
+    "paused": "Paused",
+    "stopped": "Stopped",
+    "skipped": "Skipped",
+    "no_devices": "No microphone"
+  },
+  "meta": {
+    "locale": "en",
+    "name": "English"
   }
 }

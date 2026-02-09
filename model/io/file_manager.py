@@ -202,7 +202,7 @@ class FileManager:
     @staticmethod
     def url_tmp_dir() -> Path:
         """Temp directory for media downloaded from URLs."""
-        p = Config.DOWNLOADS_TMP_DIR / "url"
+        p = Config.DOWNLOADS_TMP_DIR
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -223,7 +223,7 @@ class FileManager:
         if ext == ".wav":
             return source
 
-        tmp_dir = Config.TRANSCRIPTIONS_TMP_DIR / "wav"
+        tmp_dir = Config.TRANSCRIPTIONS_TMP_DIR
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         out = tmp_dir / f"{source.stem}.wav"
@@ -267,6 +267,28 @@ class FileManager:
             if p.is_file():
                 items.append(p)
         return sorted(items)
+
+
+    @staticmethod
+    def ensure_unique_path(path: Path) -> Path:
+        """Return `path` or a non-colliding variant like 'Name (1).ext'."""
+        try:
+            p = Path(path)
+        except Exception:
+            return path
+        if not p.exists():
+            return p
+
+        stem = p.stem
+        ext = p.suffix
+        parent = p.parent
+
+        for i in range(1, 1000):
+            cand = parent / f"{stem} ({i}){ext}"
+            if not cand.exists():
+                return cand
+        # Fallback: if something is seriously wrong, still return the original path.
+        return p
 
     @staticmethod
     def snapshot_metadata(

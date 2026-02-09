@@ -28,6 +28,8 @@ class TranscriptionWorker(QtCore.QObject):
     item_progress = QtCore.pyqtSignal(str, int)       # key, pct
     item_path_update = QtCore.pyqtSignal(str, str)    # old_key, new_key
     transcript_ready = QtCore.pyqtSignal(str, str)    # key, transcript path
+    item_error = QtCore.pyqtSignal(str, str)          # key, error detail
+    item_output_dir = QtCore.pyqtSignal(str, str)     # key, output directory
 
     conflict_check = QtCore.pyqtSignal(str, str)      # stem, existing_dir
 
@@ -100,6 +102,8 @@ class TranscriptionWorker(QtCore.QObject):
                 item_progress=lambda key, pct: self.item_progress.emit(str(key), int(pct)),
                 item_path_update=lambda old, new: self.item_path_update.emit(str(old), str(new)),
                 transcript_ready=lambda key, p: self.transcript_ready.emit(str(key), str(p)),
+                item_error=lambda key, msg: self.item_error.emit(str(key), str(msg)),
+                item_output_dir=lambda key, d: self.item_output_dir.emit(str(key), str(d)),
                 conflict_resolver=self._conflict_resolver,
                 cancel_check=self._cancel_check,
                 overrides=self._overrides,

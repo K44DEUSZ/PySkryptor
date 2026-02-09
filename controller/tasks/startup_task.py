@@ -5,6 +5,8 @@ from typing import Any, Callable, Dict, List
 
 from PyQt5 import QtCore
 
+from model.io.file_manager import FileManager
+
 ProgressCb = Callable[[int], None]
 TaskFn = Callable[[ProgressCb, Dict[str, Any]], None]
 
@@ -24,6 +26,14 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: Dict[str, str]) -> L
 
     def ensure_dirs(progress: ProgressCb, ctx: Dict[str, Any]) -> None:
         config_cls.ensure_dirs()
+        # Keep temp dirs predictable: clear leftovers from previous sessions.
+        try:
+            FileManager.clear_temp_dir(config_cls.DOWNLOADS_TMP_DIR)
+            FileManager.clear_temp_dir(config_cls.TRANSCRIPTIONS_TMP_DIR)
+            config_cls.DOWNLOADS_TMP_DIR.mkdir(parents=True, exist_ok=True)
+            config_cls.TRANSCRIPTIONS_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         progress(100)
 
     def setup_ffmpeg(progress: ProgressCb, ctx: Dict[str, Any]) -> None:

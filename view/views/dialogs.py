@@ -418,3 +418,11 @@ def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -
         header=T.tr("status.done"),
         default_accept=False,
     )
+
+
+def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
+    _message_dialog(parent, title=title, message=message, header=header, ok_text=T.tr("ctrl.ok"))
+
+
+def show_error(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
+    _message_dialog(parent, title=title, message=message, header=header, ok_text=T.tr("ctrl.ok"))

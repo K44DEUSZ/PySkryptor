@@ -105,7 +105,7 @@ class DownloadWorker(QtCore.QObject):
                     pass
 
             def _cancel_check() -> bool:
-                return self._cancel.is_cancelled()
+                return self._cancel.is_cancelled
 
             path = svc.download(
                 url=self._url,
@@ -120,7 +120,7 @@ class DownloadWorker(QtCore.QObject):
                 cancel_check=_cancel_check,
             )
 
-            if self._cancel.is_cancelled() or path is None:
+            if self._cancel.is_cancelled or path is None:
                 return
 
             self.download_finished.emit(path)
@@ -131,7 +131,7 @@ class DownloadWorker(QtCore.QObject):
             self.finished.emit()
 
     def _resolve_duplicate(self, title: str, stem: str, expected: Path) -> str:
-        if self._cancel.is_cancelled():
+        if self._cancel.is_cancelled:
             return ""
 
         if not expected.exists():
@@ -139,7 +139,7 @@ class DownloadWorker(QtCore.QObject):
 
         self.duplicate_check.emit(title, str(expected))
 
-        while not self._cancel.is_cancelled():
+        while not self._cancel.is_cancelled:
             if QtCore.QThread.currentThread().isInterruptionRequested():
                 self._cancel.cancel()
                 break

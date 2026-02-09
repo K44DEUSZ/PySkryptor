@@ -224,7 +224,7 @@ class LiveTranscriptionWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
-        self.status.emit(tr("status.prep"))
+        self.status.emit(tr("status.preparing"))
         snap = Config.SETTINGS
         if snap is None:
             raise RuntimeError("error.runtime.settings_not_initialized")

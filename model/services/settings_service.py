@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple, Set
 
 from model.constants.m2m100_languages import m2m100_language_codes
 from model.constants.whisper_languages import whisper_language_codes
+from model.config.app_config import AppConfig as Config
 
 
 class SettingsError(RuntimeError):
@@ -30,9 +31,9 @@ class SettingsSnapshot:
 
 class SettingsCatalog:
     TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
-        {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "settings.transcription.output.plain_txt"},
-        {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "settings.transcription.output.txt_timestamps"},
-        {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "settings.transcription.output.srt"},
+        {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "transcription.output_mode.plain_txt.label"},
+        {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "transcription.output_mode.txt_timestamps.label"},
+        {"id": "srt", "ext": "srt", "timestamps": False, "tr_key": "transcription.output_mode.srt.label"},
     )
 
     DOWNLOAD_AUDIO_EXTS: Tuple[str, ...] = ("m4a", "mp3", "wav", "flac", "ogg", "opus", "aac")
@@ -40,7 +41,7 @@ class SettingsCatalog:
 
     @classmethod
     def transcription_output_modes(cls) -> Tuple[Dict[str, Any], ...]:
-        return cls.TRANSCRIPTION_OUTPUT_MODES
+        return Config.get_transcription_output_modes()
 
     @classmethod
     def transcript_extensions(cls) -> Tuple[str, ...]:
@@ -55,16 +56,12 @@ class SettingsCatalog:
         )
 
     @classmethod
-    def transcription_output_mode_ids(cls) -> Tuple[str, ...]:
-        return tuple(str(m.get("id", "")).strip().lower() for m in cls.TRANSCRIPTION_OUTPUT_MODES if m.get("id"))
-
-    @classmethod
     def download_audio_exts(cls) -> Tuple[str, ...]:
-        return cls.DOWNLOAD_AUDIO_EXTS
+        return tuple(Config.AUDIO_EXTS)
 
     @classmethod
     def download_video_exts(cls) -> Tuple[str, ...]:
-        return cls.DOWNLOAD_VIDEO_EXTS
+        return tuple(Config.VIDEO_EXTS)
 
     @classmethod
     def translation_language_codes(cls) -> Set[str]:
@@ -81,6 +78,10 @@ class SettingsCatalog:
     @classmethod
     def transcription_language_allowed(cls) -> Set[str]:
         return cls.transcription_language_codes() | {"auto"}
+
+    @classmethod
+    def transcription_source_allowed(cls) -> Set[str]:
+        return cls.transcription_language_allowed()
 
 
 class RuntimeConfigService:
@@ -252,40 +253,64 @@ class SettingsService:
     def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)
 
-        # Backward-compat: older versions stored output as (output_ext + timestamps_output).
-        output_format = src.get("output_format")
-        if not isinstance(output_format, str) or not output_format.strip():
-            out_ext = str(src.get("output_ext") or "txt").strip().lower().lstrip(".") or "txt"
-            ts = bool(src.get("timestamps_output", False))
-            if out_ext == "srt":
-                output_format = "srt"
-            elif out_ext == "txt" and ts:
-                output_format = "txt_ts"
+        mode_ids = [str(m.get('id', '')).strip().lower() for m in SettingsCatalog.transcription_output_modes()]
+        mode_ids = [m for m in mode_ids if m]
+
+        legacy_ext = str(src.get('output_ext') or '').strip().lower().lstrip('.')
+        legacy_ts = bool(src.get('timestamps_output', False))
+        legacy_format = str(src.get('output_format') or '').strip().lower()
+        raw_formats = src.get('output_formats')
+
+        if isinstance(raw_formats, (list, tuple)):
+            selected = [str(x or '').strip().lower() for x in raw_formats if str(x or '').strip()]
+        elif legacy_format:
+            selected = [legacy_format]
+        elif legacy_ext:
+            if legacy_ext == 'srt':
+                selected = ['srt']
+            elif legacy_ts:
+                selected = ['txt_ts']
             else:
-                output_format = "txt"
+                selected = ['txt']
+        else:
+            selected = ['txt']
+
+        norm: list[str] = []
+        seen: set[str] = set()
+        for mid in selected:
+            if mid in mode_ids and mid not in seen:
+                norm.append(mid)
+                seen.add(mid)
+        if not norm:
+            norm = ['txt']
 
         return {
-            "output_format": self._enum_str(
-                str(output_format).strip().lower(),
-                SettingsCatalog.transcription_output_mode_ids(),
-                "transcription.output_format",
-            ),
-            "download_audio_only": bool(src.get("download_audio_only", True)),
-            "url_keep_audio": bool(src.get("url_keep_audio", False)),
-            "url_audio_ext": self._enum_str(
-                str(src.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."),
+            'output_formats': tuple(norm),
+            'download_audio_only': bool(src.get('download_audio_only', True)),
+            'url_keep_audio': bool(src.get('url_keep_audio', False)),
+            'url_audio_ext': self._enum_str(
+                str(src.get('url_audio_ext', 'm4a') or 'm4a').strip().lower().lstrip('.'),
                 SettingsCatalog.download_audio_exts(),
-                "transcription.url_audio_ext",
+                'transcription.url_audio_ext',
             ),
-            "url_keep_video": bool(src.get("url_keep_video", False)),
-            "url_video_ext": self._enum_str(
-                str(src.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."),
+            'url_keep_video': bool(src.get('url_keep_video', False)),
+            'url_video_ext': self._enum_str(
+                str(src.get('url_video_ext', 'mp4') or 'mp4').strip().lower().lstrip('.'),
                 SettingsCatalog.download_video_exts(),
-                "transcription.url_video_ext",
+                'transcription.url_video_ext',
             ),
-            "translate_after_transcription": bool(src.get("translate_after_transcription", False)),
+            'translate_after_transcription': bool(src.get('translate_after_transcription', False)),
+            'source_language': self._enum_str(
+                str(src.get('source_language', 'auto') or 'auto').strip().lower(),
+                SettingsCatalog.transcription_source_allowed(),
+                'transcription.source_language',
+            ),
+            'target_language': self._enum_str(
+                str(src.get('target_language', 'auto') or 'auto').strip().lower(),
+                SettingsCatalog.translation_target_allowed(),
+                'transcription.target_language',
+            ),
         }
-
     def _validate_translation(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         # Translation target language is handled as a per-session quick option (Files tab),
         # therefore it is not persisted in settings.json.

@@ -15,6 +15,7 @@ from model.services.settings_service import SettingsCatalog
 from view.utils.translating import tr
 from view.views import dialogs
 from view.widgets.language_combo import LanguageCombo
+from view.widgets.choice_toggle import ChoiceToggle
 
 
 class _InfoButton(QtWidgets.QToolButton):
@@ -23,11 +24,9 @@ class _InfoButton(QtWidgets.QToolButton):
         self.setText(tr("icon.info"))
         self.setCursor(QtCore.Qt.PointingHandCursor)
         self.setToolTip(tooltip)
-        self.setAutoRaise(True)
-        self.setFixedSize(18, 18)
 
 
-class _YesNoToggle(QtWidgets.QWidget):
+class _YesNoToggle(ChoiceToggle):
     def __init__(
         self,
         *,
@@ -36,61 +35,12 @@ class _YesNoToggle(QtWidgets.QWidget):
         height: int,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
-        super().__init__(parent)
-        self._btn_yes = QtWidgets.QPushButton(yes_text)
-        self._btn_no = QtWidgets.QPushButton(no_text)
-
-        for b in (self._btn_yes, self._btn_no):
-            b.setCheckable(True)
-            b.setMinimumHeight(height)
-            b.setCursor(QtCore.Qt.PointingHandCursor)
-            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-
-        self._group = QtWidgets.QButtonGroup(self)
-        self._group.setExclusive(True)
-        self._group.addButton(self._btn_yes)
-        self._group.addButton(self._btn_no)
-
-        lay = QtWidgets.QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-        lay.addWidget(self._btn_yes, 1)
-        lay.addWidget(self._btn_no, 1)
-
-        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self.setObjectName("YesNoToggle")
-        self.setStyleSheet(
-            "QWidget#YesNoToggle QPushButton{border:1px solid rgba(255,255,255,0.20); padding:3px 10px;}"
-            "QWidget#YesNoToggle QPushButton:first-child{border-top-left-radius:6px;border-bottom-left-radius:6px;}"
-            "QWidget#YesNoToggle QPushButton:last-child{border-top-right-radius:6px;border-bottom-right-radius:6px;}"
-            "QWidget#YesNoToggle QPushButton:checked{background:rgba(120,180,255,0.25);border-color:rgba(120,180,255,0.45);}"
+        super().__init__(
+            first_text=yes_text,
+            second_text=no_text,
+            height=height,
+            parent=parent,
         )
-
-    def set_checked(self, value: bool) -> None:
-        if value:
-            self._btn_yes.setChecked(True)
-        else:
-            self._btn_no.setChecked(True)
-
-    def is_checked(self) -> bool:
-        return bool(self._btn_yes.isChecked())
-
-    def clear_selection(self) -> None:
-        # QButtonGroup exclusivity keeps one button checked. Temporarily disable exclusivity
-        # to allow clearing both states when a feature is unavailable (e.g. TF32).
-        try:
-            if hasattr(self, "_group") and self._group is not None:
-                self._group.setExclusive(False)
-            self._btn_yes.setChecked(False)
-            self._btn_no.setChecked(False)
-        finally:
-            if hasattr(self, "_group") and self._group is not None:
-                self._group.setExclusive(True)
-
-    def toggled(self, fn) -> None:
-        self._btn_yes.toggled.connect(fn)
-        self._btn_no.toggled.connect(fn)
-
 
 class SettingsPanel(QtWidgets.QWidget):
     CONTROL_HEIGHT = 24

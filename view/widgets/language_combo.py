@@ -77,7 +77,7 @@ class LanguageCombo(QtWidgets.QComboBox):
         *,
         special_first: Optional[Tuple[str, str]] = None,
         codes_provider: Callable[[], List[str]] = lambda: sorted(SettingsCatalog.translation_language_codes()),
-        locale_prefix: str = "lang.m2m100",
+        locale_prefix: str = "lang.names",
     ) -> None:
         super().__init__(parent)
 
@@ -90,7 +90,7 @@ class LanguageCombo(QtWidgets.QComboBox):
 
         self._special_first = special_first
         self._codes_provider = codes_provider
-        self._locale_prefix = str(locale_prefix or "lang.m2m100")
+        self._locale_prefix = str(locale_prefix or "lang.names")
         self._items: List[LanguageItem] = []
         self.rebuild()
 
