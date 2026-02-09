@@ -1,4 +1,4 @@
-# view/controller/live_transcription_task.py
+# controller/tasks/live_transcription_task.py
 from __future__ import annotations
 
 import time

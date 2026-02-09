@@ -33,7 +33,7 @@ class SettingsCatalog:
     TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
         {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "transcription.output_mode.plain_txt.label"},
         {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "transcription.output_mode.txt_timestamps.label"},
-        {"id": "srt", "ext": "srt", "timestamps": False, "tr_key": "transcription.output_mode.srt.label"},
+        {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "transcription.output_mode.srt.label"},
     )
 
     DOWNLOAD_AUDIO_EXTS: Tuple[str, ...] = ("m4a", "mp3", "wav", "flac", "ogg", "opus", "aac")
@@ -233,7 +233,7 @@ class SettingsService:
 
         return {
             "transcription_model": {
-                "engine_name": str(t.get("engine_name", "auto") or "auto"),
+                "engine_name": str(t.get("engine_name", "none") or "none"),
                 "quality_preset": preset,
                 "text_consistency": bool(t.get("text_consistency", True)),
                 "chunk_length_s": int(t.get("chunk_length_s", 60)),
@@ -256,22 +256,10 @@ class SettingsService:
         mode_ids = [str(m.get('id', '')).strip().lower() for m in SettingsCatalog.transcription_output_modes()]
         mode_ids = [m for m in mode_ids if m]
 
-        legacy_ext = str(src.get('output_ext') or '').strip().lower().lstrip('.')
-        legacy_ts = bool(src.get('timestamps_output', False))
-        legacy_format = str(src.get('output_format') or '').strip().lower()
         raw_formats = src.get('output_formats')
 
         if isinstance(raw_formats, (list, tuple)):
             selected = [str(x or '').strip().lower() for x in raw_formats if str(x or '').strip()]
-        elif legacy_format:
-            selected = [legacy_format]
-        elif legacy_ext:
-            if legacy_ext == 'srt':
-                selected = ['srt']
-            elif legacy_ts:
-                selected = ['txt_ts']
-            else:
-                selected = ['txt']
         else:
             selected = ['txt']
 
@@ -300,22 +288,27 @@ class SettingsService:
                 'transcription.url_video_ext',
             ),
             'translate_after_transcription': bool(src.get('translate_after_transcription', False)),
-            'source_language': self._enum_str(
-                str(src.get('source_language', 'auto') or 'auto').strip().lower(),
-                SettingsCatalog.transcription_source_allowed(),
-                'transcription.source_language',
+        }
+
+    def _validate_translation(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and persist translation preferences used by the Files panel."""
+        src = self._merge(src, schema)
+
+        src_lang = str(src.get("source_language", "") or "").strip().lower() or "auto"
+        tgt_lang = str(src.get("target_language", "") or "").strip().lower() or "auto"
+
+        return {
+            "source_language": self._enum_str(
+                src_lang,
+                tuple(sorted(SettingsCatalog.transcription_source_allowed())),
+                "translation.source_language",
             ),
-            'target_language': self._enum_str(
-                str(src.get('target_language', 'auto') or 'auto').strip().lower(),
-                SettingsCatalog.translation_target_allowed(),
-                'transcription.target_language',
+            "target_language": self._enum_str(
+                tgt_lang,
+                tuple(sorted(SettingsCatalog.translation_target_allowed())),
+                "translation.target_language",
             ),
         }
-    def _validate_translation(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        # Translation target language is handled as a per-session quick option (Files tab),
-        # therefore it is not persisted in settings.json.
-        _ = self._merge(src, schema)
-        return {}
 
     def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
         src = self._merge(src, schema)

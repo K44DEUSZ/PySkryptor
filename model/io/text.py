@@ -1,3 +1,5 @@
+# model/io/text.py
+
 from __future__ import annotations
 
 import re

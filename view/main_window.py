@@ -1,7 +1,9 @@
-# view/views/main_window.py
+# view/main_window.py
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Dict, Any
+
+BootContext = Dict[str, Any]
 
 from PyQt5 import QtWidgets
 
@@ -14,8 +16,10 @@ from view.views.about_panel import AboutPanel
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None, boot_ctx: Optional[BootContext] = None) -> None:
         super().__init__(parent)
+
+        self._boot_ctx: Optional[BootContext] = boot_ctx
 
         self.setObjectName("MainWindow")
         self.setWindowTitle(tr("app.title"))
@@ -30,8 +34,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.setObjectName("MainTabs")
         root.addWidget(self.tabs)
 
-        self.files_panel = FilesPanel(self)
-        self.live_panel = LivePanel(self)
+        self.files_panel = FilesPanel(self, boot_ctx=self._boot_ctx)
+        self.live_panel = LivePanel(self, boot_ctx=self._boot_ctx)
         self.down_panel = DownloaderPanel(self)
         self.settings_panel = SettingsPanel(self)
         self.about_panel = AboutPanel(self)

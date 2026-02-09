@@ -1,3 +1,5 @@
+# controller/tasks/startup_task.py
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +8,7 @@ from typing import Any, Callable, Dict, List
 from PyQt5 import QtCore
 
 from model.io.file_manager import FileManager
+from model.services.model_loader import ModelLoader, ModelNotInstalledError
 
 ProgressCb = Callable[[int], None]
 TaskFn = Callable[[ProgressCb, Dict[str, Any]], None]
@@ -40,10 +43,40 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: Dict[str, str]) -> L
         config_cls.setup_ffmpeg_on_path()
         progress(100)
 
+    def load_transcription_model(progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+        loader = ModelLoader()
+        try:
+            pipe = loader.load_transcription()
+            ctx["transcription_pipeline"] = pipe
+            ctx["transcription_ready"] = bool(pipe)
+        except ModelNotInstalledError as e:
+            ctx["transcription_pipeline"] = None
+            ctx["transcription_ready"] = False
+            ctx["transcription_error"] = str(e)
+        progress(100)
+
+    def warmup_translation_model(progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+        snap_trans = getattr(snap, "transcription", {}) if snap is not None else {}
+        translate_enabled = bool(snap_trans.get("translate_after_transcription", False)) if isinstance(snap_trans, dict) else False
+        if not translate_enabled:
+            ctx["translation_ready"] = False
+            progress(100)
+            return
+
+        loader = ModelLoader()
+        try:
+            ctx["translation_ready"] = bool(loader.warmup_translation(log=None))
+        except ModelNotInstalledError as e:
+            ctx["translation_ready"] = False
+            ctx["translation_error"] = str(e)
+        progress(100)
+
     return [
         StartupTask(label=labels.get("init", "Initialize"), weight=2, fn=init_runtime),
         StartupTask(label=labels.get("dirs", "Prepare folders"), weight=1, fn=ensure_dirs),
         StartupTask(label=labels.get("ffmpeg", "Prepare FFmpeg"), weight=1, fn=setup_ffmpeg),
+        StartupTask(label=labels.get("asr", "Load transcription model"), weight=4, fn=load_transcription_model),
+        StartupTask(label=labels.get("tr", "Load translation model"), weight=3, fn=warmup_translation_model),
     ]
 
 

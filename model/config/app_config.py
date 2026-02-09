@@ -258,7 +258,7 @@ class AppConfig:
         elif isinstance(raw, (list, tuple)) and raw:
             mode_id = str(raw[0] or "txt").strip().lower()
         else:
-            mode_id = str(transcription.get("output_format", "txt") or "txt").strip().lower()
+            mode_id = "txt"
 
         mode = cls.get_transcription_output_mode(mode_id)
         cls.TRANSCRIPT_DEFAULT_EXT = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
@@ -284,9 +284,11 @@ class AppConfig:
         tcfg = model.get("transcription_model", {})
         if not isinstance(tcfg, dict):
             tcfg = {}
-        name = str(tcfg.get("engine_name", "auto") or "auto").strip().lower()
-        if not name or name == "auto":
-            name = cls._autoselect_transcription_engine_name() or "__missing__"
+
+        name = str(tcfg.get("engine_name", "none") or "none").strip().lower()
+        if not name or name in ("none", "off", "disabled"):
+            name = "__missing__"
+
         cls.TRANSCRIPTION_ENGINE_DIR = cls.AI_MODELS_DIR / name
 
     @classmethod
@@ -305,13 +307,7 @@ class AppConfig:
             out.append(d.name)
         return tuple(out)
 
-    @classmethod
-    def _autoselect_transcription_engine_name(cls) -> str:
-        trans_ids = {x.lower() for x in cls.TRANSLATION_ENGINE_IDS}
-        for name in cls._iter_local_model_dirs():
-            if name.lower() not in trans_ids:
-                return name
-        return ""
+
 
     @classmethod
     def _autoselect_translation_engine_name(cls) -> str:

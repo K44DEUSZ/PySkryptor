@@ -1,9 +1,9 @@
 {
   "app": {
-    "language": "pl",
+    "language": "auto",
     "theme": "auto",
     "ui": {
-      "show_advanced_settings": false
+      "show_advanced_settings": true
     },
     "logging": {
       "enabled": true,
@@ -17,46 +17,44 @@
     "low_cpu_mem_usage": true
   },
   "transcription": {
-    "output_format": "srt",
     "download_audio_only": true,
     "url_keep_audio": false,
     "url_audio_ext": "m4a",
     "url_keep_video": false,
     "url_video_ext": "mp4",
-    "translate_after_transcription": true,
+    "translate_after_transcription": false,
     "output_formats": [
-      "txt_ts",
-      "srt"
+      "txt"
     ]
   },
   "translation": {
-    "default_source_language": "auto",
-    "default_target_language": "auto"
+    "source_language": "auto",
+    "target_language": "auto"
   },
   "model": {
     "transcription_model": {
-      "engine_name": "auto",
-      "quality_preset": "balanced",
+      "engine_name": "whisper-turbo",
+      "quality_preset": "fast",
       "text_consistency": true,
-      "chunk_length_s": 60,
-      "stride_length_s": 5,
+      "chunk_length_s": 5,
+      "stride_length_s": 0,
       "ignore_warning": true
     },
     "translation_model": {
       "engine_name": "m2m100",
-      "max_new_tokens": 256,
-      "chunk_max_chars": 1200,
-      "quality_preset": "balanced"
+      "max_new_tokens": 16,
+      "chunk_max_chars": 200,
+      "quality_preset": "fast"
     }
   },
   "downloader": {
-    "min_video_height": 144,
-    "max_video_height": 4320
+    "min_video_height": 0,
+    "max_video_height": 0
   },
   "network": {
-    "retries": 3,
+    "retries": 0,
     "max_bandwidth_kbps": null,
-    "concurrent_fragments": 2,
-    "http_timeout_s": 30
+    "concurrent_fragments": 1,
+    "http_timeout_s": 1
   }
 }

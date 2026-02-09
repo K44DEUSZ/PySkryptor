@@ -12,7 +12,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from controller.tasks.settings_task import SettingsWorker
 from model.config.app_config import AppConfig as Config
 from model.services.settings_service import SettingsCatalog
-from view.utils.translating import tr
+from view.utils.translating import tr, list_locales
 from view.views import dialogs
 from view.widgets.language_combo import LanguageCombo
 from view.widgets.choice_toggle import ChoiceToggle
@@ -28,12 +28,12 @@ class _InfoButton(QtWidgets.QToolButton):
 
 class _YesNoToggle(ChoiceToggle):
     def __init__(
-        self,
-        *,
-        yes_text: str,
-        no_text: str,
-        height: int,
-        parent: Optional[QtWidgets.QWidget] = None,
+            self,
+            *,
+            yes_text: str,
+            no_text: str,
+            height: int,
+            parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__(
             first_text=yes_text,
@@ -41,6 +41,7 @@ class _YesNoToggle(ChoiceToggle):
             height=height,
             parent=parent,
         )
+
 
 class SettingsPanel(QtWidgets.QWidget):
     CONTROL_HEIGHT = 24
@@ -116,6 +117,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self.chk_show_advanced.setChecked(False)
         self.chk_show_advanced.stateChanged.connect(self._on_toggle_advanced)
 
+        self._adv_autosave_timer = QtCore.QTimer(self)
+        self._adv_autosave_timer.setSingleShot(True)
+        self._adv_autosave_timer.setInterval(600)
+        self._adv_autosave_timer.timeout.connect(self._save_advanced_setting)
+
+        self._adv_save_thread: Optional[QtCore.QThread] = None
+        self._adv_save_worker: Optional[SettingsWorker] = None
+
         bottom.addWidget(self.chk_show_advanced, 0, QtCore.Qt.AlignLeft)
         bottom.addStretch(1)
 
@@ -149,7 +158,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
     # ----- Row helpers -----
 
-    def _row(self, label: str, control: QtWidgets.QWidget, tooltip: str, *, advanced: bool = False) -> QtWidgets.QWidget:
+    def _row(self, label: str, control: QtWidgets.QWidget, tooltip: str, *,
+             advanced: bool = False) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         lay = QtWidgets.QHBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -176,7 +186,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
         return w
 
-    def _row_checkbox(self, label: str, checkbox: QtWidgets.QCheckBox, tooltip: str, *, advanced: bool = False) -> QtWidgets.QWidget:
+    def _row_checkbox(self, label: str, checkbox: QtWidgets.QCheckBox, tooltip: str, *,
+                      advanced: bool = False) -> QtWidgets.QWidget:
         checkbox.setText("")
         checkbox.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
 
@@ -205,7 +216,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
         return w
 
-    def _row_toggle(self, label: str, toggle: _YesNoToggle, tooltip: str, *, advanced: bool = False) -> QtWidgets.QWidget:
+    def _row_toggle(self, label: str, toggle: _YesNoToggle, tooltip: str, *,
+                    advanced: bool = False) -> QtWidgets.QWidget:
         toggle.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
         w = QtWidgets.QWidget()
@@ -233,7 +245,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
         return w
 
-    def _row_button(self, label: str, button: QtWidgets.QPushButton, tooltip: str, *, advanced: bool = False) -> QtWidgets.QWidget:
+    def _row_button(self, label: str, button: QtWidgets.QPushButton, tooltip: str, *,
+                    advanced: bool = False) -> QtWidgets.QWidget:
         button.setMinimumHeight(self.CONTROL_HEIGHT)
 
         w = QtWidgets.QWidget()
@@ -284,7 +297,6 @@ class SettingsPanel(QtWidgets.QWidget):
             self._advanced_rows.append(w)
         return w
 
-
     def _normalize_all_labels(self) -> None:
         labels = [lbl for lbl in self._label_widgets if lbl.text().strip()]
         if not labels:
@@ -304,13 +316,12 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_app_language = QtWidgets.QComboBox()
         self.cb_app_language.setMinimumHeight(base_h)
-        self.cb_app_language.addItem(tr("settings.app.language.auto"), "auto")
-        self.cb_app_language.addItem("English", "en")
-        self.cb_app_language.addItem("Polski", "pl")
-
+        self.cb_app_language.addItem(tr("common.auto"), "auto")
+        for code, name in list_locales(Config.LOCALES_DIR):
+            self.cb_app_language.addItem(name, code)
         self.cb_app_theme = QtWidgets.QComboBox()
         self.cb_app_theme.setMinimumHeight(base_h)
-        self.cb_app_theme.addItem(tr("settings.app.theme.auto"), "auto")
+        self.cb_app_theme.addItem(tr("common.auto"), "auto")
         self.cb_app_theme.addItem(tr("settings.app.theme.light"), "light")
         self.cb_app_theme.addItem(tr("settings.app.theme.dark"), "dark")
 
@@ -335,9 +346,11 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_log_level.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.btn_open_logs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        lay.addWidget(self._row(tr("settings.app.language.label"), self.cb_app_language, tr("settings.help.ui_language")))
+        lay.addWidget(
+            self._row(tr("settings.app.language.label"), self.cb_app_language, tr("settings.help.ui_language")))
         lay.addWidget(self._row(tr("settings.app.theme.label"), self.cb_app_theme, tr("settings.help.theme")))
-        lay.addWidget(self._row_toggle(tr("settings.app.logging.enabled"), self.tg_log_enabled, tr("settings.help.logging_enabled")))
+        lay.addWidget(self._row_toggle(tr("settings.app.logging.enabled"), self.tg_log_enabled,
+                                       tr("settings.help.logging_enabled")))
 
         log_level_row = QtWidgets.QWidget()
         log_level_lay = QtWidgets.QHBoxLayout(log_level_row)
@@ -346,7 +359,8 @@ class SettingsPanel(QtWidgets.QWidget):
         log_level_lay.addWidget(self.cb_log_level, 1)
         log_level_lay.addWidget(self.btn_open_logs, 1)
 
-        lay.addWidget(self._row(tr("settings.app.logging.level_label"), log_level_row, tr("settings.help.logging_level")))
+        lay.addWidget(
+            self._row(tr("settings.app.logging.level_label"), log_level_row, tr("settings.help.logging_level")))
 
         lay.addStretch(1)
 
@@ -390,9 +404,11 @@ class SettingsPanel(QtWidgets.QWidget):
         )
 
         lay.addWidget(self._row(tr("settings.engine.device.label"), self.cb_engine_device, tr("settings.help.device")))
-        lay.addWidget(self._row(tr("settings.engine.precision.label"), self.cb_engine_precision, tr("settings.help.precision_hint")))
+        lay.addWidget(self._row(tr("settings.engine.precision.label"), self.cb_engine_precision,
+                                tr("settings.help.precision_hint")))
         lay.addWidget(self._row_toggle(tr("settings.engine.allow_tf32"), self.tg_tf32, tr("settings.help.tf32")))
-        lay.addWidget(self._row_toggle(tr("settings.engine.low_cpu_mem_usage"), self.tg_low_cpu_mem, tr("settings.help.low_cpu_mem_usage"), advanced=True))
+        lay.addWidget(self._row_toggle(tr("settings.engine.low_cpu_mem_usage"), self.tg_low_cpu_mem,
+                                       tr("settings.help.low_cpu_mem_usage"), advanced=True))
         lay.addStretch(1)
 
         self.cb_engine_device.currentIndexChanged.connect(self._on_device_changed)
@@ -410,9 +426,12 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_quality = QtWidgets.QComboBox()
         self.cb_quality.setMinimumHeight(base_h)
-        self.cb_quality.addItem(tr("settings.transcription.quality.fast"), "fast")
-        self.cb_quality.addItem(tr("settings.transcription.quality.balanced"), "balanced")
-        self.cb_quality.addItem(tr("settings.transcription.quality.accurate"), "accurate")
+        self.cb_quality.addItem(tr("settings.quality.fast"), "fast")
+        self.cb_quality.setItemData(0, tr("settings.quality.fast_tip"), QtCore.Qt.ToolTipRole)
+        self.cb_quality.addItem(tr("settings.quality.balanced"), "balanced")
+        self.cb_quality.setItemData(1, tr("settings.quality.balanced_tip"), QtCore.Qt.ToolTipRole)
+        self.cb_quality.addItem(tr("settings.quality.accurate"), "accurate")
+        self.cb_quality.setItemData(2, tr("settings.quality.accurate_tip"), QtCore.Qt.ToolTipRole)
 
         self.tg_text_consistency = _YesNoToggle(
             yes_text=tr("common.yes"),
@@ -436,13 +455,20 @@ class SettingsPanel(QtWidgets.QWidget):
             height=self.CONTROL_HEIGHT,
         )
 
-        lay.addWidget(self._row(tr("settings.transcription.model"), self.cb_trans_engine, tr("settings.help.transcription_engine")))
-        lay.addWidget(self._row(tr("settings.transcription.quality_label"), self.cb_quality, tr("settings.help.trans_quality")))
-        lay.addWidget(self._row_toggle(tr("settings.transcription.text_consistency"), self.tg_text_consistency, tr("settings.help.text_consistency")))
+        lay.addWidget(self._row(tr("settings.transcription.model"), self.cb_trans_engine,
+                                tr("settings.help.transcription_engine")))
+        lay.addWidget(
+            self._row(tr("settings.transcription.quality_label"), self.cb_quality, tr("settings.help.trans_quality")))
+        lay.addWidget(self._row_toggle(tr("settings.transcription.text_consistency"), self.tg_text_consistency,
+                                       tr("settings.help.text_consistency")))
 
-        lay.addWidget(self._row(tr("settings.transcription.chunk_length_s"), self.sp_chunk_len, tr("settings.help.chunk_length"), advanced=True))
-        lay.addWidget(self._row(tr("settings.transcription.stride_length_s"), self.sp_stride_len, tr("settings.help.stride_length"), advanced=True))
-        lay.addWidget(self._row_toggle(tr("settings.transcription.ignore_warning"), self.tg_ignore_empty, tr("settings.help.ignore_warning"), advanced=True))
+        lay.addWidget(
+            self._row(tr("settings.transcription.chunk_length_s"), self.sp_chunk_len, tr("settings.help.chunk_length"),
+                      advanced=True))
+        lay.addWidget(self._row(tr("settings.transcription.stride_length_s"), self.sp_stride_len,
+                                tr("settings.help.stride_length"), advanced=True))
+        lay.addWidget(self._row_toggle(tr("settings.transcription.ignore_warning"), self.tg_ignore_empty,
+                                       tr("settings.help.ignore_warning"), advanced=True))
 
         lay.addStretch(1)
 
@@ -463,9 +489,12 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_tr_quality = QtWidgets.QComboBox()
         self.cb_tr_quality.setMinimumHeight(base_h)
-        self.cb_tr_quality.addItem(tr("settings.translation.quality.fast"), "fast")
-        self.cb_tr_quality.addItem(tr("settings.translation.quality.balanced"), "balanced")
-        self.cb_tr_quality.addItem(tr("settings.translation.quality.accurate"), "accurate")
+        self.cb_tr_quality.addItem(tr("settings.quality.fast"), "fast")
+        self.cb_tr_quality.setItemData(0, tr("settings.quality.fast_tip"), QtCore.Qt.ToolTipRole)
+        self.cb_tr_quality.addItem(tr("settings.quality.balanced"), "balanced")
+        self.cb_tr_quality.setItemData(1, tr("settings.quality.balanced_tip"), QtCore.Qt.ToolTipRole)
+        self.cb_tr_quality.addItem(tr("settings.quality.accurate"), "accurate")
+        self.cb_tr_quality.setItemData(2, tr("settings.quality.accurate_tip"), QtCore.Qt.ToolTipRole)
         self.cb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
         self.sp_tr_max_tokens = QtWidgets.QSpinBox()
@@ -478,10 +507,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_tr_chunk_chars.setSingleStep(100)
         self.sp_tr_chunk_chars.setMinimumHeight(base_h)
 
-        lay.addWidget(self._row(tr("settings.translation.engine.label"), self.cb_tr_engine, tr("settings.help.translation_engine")))
-        lay.addWidget(self._row(tr("settings.translation.quality.label"), self.cb_tr_quality, tr("settings.help.translation_quality")))
-        lay.addWidget(self._row(tr("settings.translation.max_new_tokens"), self.sp_tr_max_tokens, tr("settings.help.translation_max_new_tokens"), advanced=True))
-        lay.addWidget(self._row(tr("settings.translation.chunk_max_chars"), self.sp_tr_chunk_chars, tr("settings.help.translation_chunk_max_chars"), advanced=True))
+        lay.addWidget(self._row(tr("settings.translation.engine.label"), self.cb_tr_engine,
+                                tr("settings.help.translation_engine")))
+        lay.addWidget(self._row(tr("settings.translation.quality.label"), self.cb_tr_quality,
+                                tr("settings.help.translation_quality")))
+        lay.addWidget(self._row(tr("settings.translation.max_new_tokens"), self.sp_tr_max_tokens,
+                                tr("settings.help.translation_max_new_tokens"), advanced=True))
+        lay.addWidget(self._row(tr("settings.translation.chunk_max_chars"), self.sp_tr_chunk_chars,
+                                tr("settings.help.translation_chunk_max_chars"), advanced=True))
 
         lay.addStretch(1)
 
@@ -531,13 +564,19 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_timeout.setRange(1, 600)
         self.sp_timeout.setMinimumHeight(base_h)
 
-        left.addWidget(self._row(tr("settings.downloader.min_video_height"), self.sp_min_height, tr("settings.help.min_video_height")))
-        left.addWidget(self._row(tr("settings.downloader.max_video_height"), self.sp_max_height, tr("settings.help.max_video_height")))
+        left.addWidget(self._row(tr("settings.downloader.min_video_height"), self.sp_min_height,
+                                 tr("settings.help.min_video_height")))
+        left.addWidget(self._row(tr("settings.downloader.max_video_height"), self.sp_max_height,
+                                 tr("settings.help.max_video_height")))
         left.addWidget(self._row(tr("settings.network.retries"), self.sp_retries, tr("settings.help.retries")))
 
-        right.addWidget(self._row(tr("settings.network.max_bandwidth_kbps"), self.sp_bandwidth, tr("settings.help.max_bandwidth_kbps"), advanced=True))
-        right.addWidget(self._row(tr("settings.network.concurrent_fragments"), self.sp_fragments, tr("settings.help.concurrent_fragments"), advanced=True))
-        right.addWidget(self._row(tr("settings.network.http_timeout_s"), self.sp_timeout, tr("settings.help.http_timeout_s"), advanced=True))
+        right.addWidget(self._row(tr("settings.network.max_bandwidth_kbps"), self.sp_bandwidth,
+                                  tr("settings.help.max_bandwidth_kbps"), advanced=True))
+        right.addWidget(self._row(tr("settings.network.concurrent_fragments"), self.sp_fragments,
+                                  tr("settings.help.concurrent_fragments"), advanced=True))
+        right.addWidget(
+            self._row(tr("settings.network.http_timeout_s"), self.sp_timeout, tr("settings.help.http_timeout_s"),
+                      advanced=True))
 
         lay.addStretch(1)
 
@@ -622,11 +661,58 @@ class SettingsPanel(QtWidgets.QWidget):
         self._set_dirty(True)
 
     def _on_toggle_advanced(self) -> None:
-        self._apply_advanced_visibility(self.chk_show_advanced.isChecked())
+        show = bool(self.chk_show_advanced.isChecked())
+        self._apply_advanced_visibility(show)
+
+        if self._blocking_updates:
+            return
+        self._adv_autosave_timer.start()
 
     def _apply_advanced_visibility(self, show: bool) -> None:
         for w in self._advanced_rows:
             w.setVisible(bool(show))
+
+
+    def _save_advanced_setting(self) -> None:
+        if self._adv_save_thread is not None and self._adv_save_thread.isRunning():
+            self._adv_autosave_timer.start(600)
+            return
+
+        payload = {
+            "app": {
+                "ui": {
+                    "show_advanced_settings": bool(self.chk_show_advanced.isChecked()),
+                }
+            }
+        }
+
+        thread = QtCore.QThread(self)
+        worker = SettingsWorker(action="save", payload=payload)
+        worker.moveToThread(thread)
+
+        self._adv_save_thread = thread
+        self._adv_save_worker = worker
+
+        worker.saved_snapshot.connect(self._on_advanced_saved_snapshot)
+
+        def _done() -> None:
+            try:
+                thread.quit()
+                thread.wait(2000)
+            except Exception:
+                pass
+            self._adv_save_thread = None
+            self._adv_save_worker = None
+
+        worker.finished.connect(_done)
+        thread.started.connect(worker.run)
+        thread.start()
+
+    def _on_advanced_saved_snapshot(self, snap: object) -> None:
+        try:
+            Config.update_from_snapshot(snap, sections=("app",))  # type: ignore[arg-type]
+        except Exception:
+            pass
 
     # ----- Actions -----
 
@@ -640,7 +726,6 @@ class SettingsPanel(QtWidgets.QWidget):
             self._set_dirty(False)
         finally:
             self._blocking_updates = False
-
 
     def _on_restore_clicked(self) -> None:
         if not dialogs.ask_restore_defaults(self):
@@ -723,7 +808,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._populate_model_engines()
 
-        self._select_combo_by_data(self.cb_trans_engine, str(t_model.get("engine_name", "auto")), fallback="auto")
+        self._select_combo_by_data(self.cb_trans_engine, str(t_model.get("engine_name", "none")), fallback="none")
 
         self._select_combo_by_data(self.cb_quality, str(t_model.get("quality_preset", "balanced")), fallback="balanced")
         self.tg_text_consistency.set_checked(bool(t_model.get("text_consistency", True)))
@@ -733,7 +818,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self.tg_ignore_empty.set_checked(bool(t_model.get("ignore_warning", False)))
 
         self._select_combo_by_data(self.cb_tr_engine, str(x_model.get("engine_name", "none")), fallback="none")
-        self._select_combo_by_data(self.cb_tr_quality, str(x_model.get("quality_preset", "balanced")), fallback="balanced")
+        self._select_combo_by_data(self.cb_tr_quality, str(x_model.get("quality_preset", "balanced")),
+                                   fallback="balanced")
 
         tgt = str(trn.get("target_language", "auto") or "auto").strip().lower()
 
@@ -747,6 +833,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_bandwidth.setValue(int(net.get("max_bandwidth_kbps", 0) or 0))
         self.sp_fragments.setValue(int(net.get("concurrent_fragments", 2)))
         self.sp_timeout.setValue(int(net.get("http_timeout_s", 30)))
+
+        self._refresh_auto_option_labels()
 
     def _collect_payload(self) -> Dict[str, Any]:
         app = {
@@ -768,9 +856,8 @@ class SettingsPanel(QtWidgets.QWidget):
             "low_cpu_mem_usage": bool(self.tg_low_cpu_mem.is_checked()),
         }
 
-
         transcription_model = {
-            "engine_name": str(self.cb_trans_engine.currentData() or "auto"),
+            "engine_name": str(self.cb_trans_engine.currentData() or "none"),
             "quality_preset": str(self.cb_quality.currentData() or "balanced"),
             "text_consistency": bool(self.tg_text_consistency.is_checked()),
             "chunk_length_s": int(self.sp_chunk_len.value()),
@@ -828,15 +915,75 @@ class SettingsPanel(QtWidgets.QWidget):
 
     # ----- Model engines -----
 
+    @staticmethod
+    def _short_label(text: str) -> str:
+        s = str(text or "").strip()
+        if "(" in s:
+            s = s.split("(", 1)[0].strip()
+        return s or str(text or "").strip()
+
+    def _refresh_auto_option_labels(self) -> None:
+        # Language "Auto" hint (based on system locale and available UI languages).
+        try:
+            sys_hint = QtCore.QLocale.system().name().split("_", 1)[0].lower()
+            available: Dict[str, str] = {}
+            for i in range(self.cb_app_language.count()):
+                code = str(self.cb_app_language.itemData(i) or "").strip().lower()
+                if code and code != "auto":
+                    available[code] = self.cb_app_language.itemText(i)
+            resolved_lang = available.get(sys_hint) or available.get("en") or next(iter(available.values()), sys_hint or "")
+            idx_auto = self.cb_app_language.findData("auto")
+            if idx_auto >= 0:
+                self.cb_app_language.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_lang})')
+        except Exception:
+            pass
+
+        # Theme "Auto" hint (uses current app theme property; fallback to palette heuristic).
+        try:
+            app = QtWidgets.QApplication.instance()
+            theme = str(app.property("theme") or "").strip().lower() if app is not None else ""
+            if theme not in ("light", "dark"):
+                col = app.palette().color(QtGui.QPalette.Window) if app is not None else None
+                theme = "dark" if col is not None and col.value() < 128 else "light"
+            resolved_theme = tr("settings.app.theme.dark") if theme == "dark" else tr("settings.app.theme.light")
+            idx_auto = self.cb_app_theme.findData("auto")
+            if idx_auto >= 0:
+                self.cb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
+        except Exception:
+            pass
+
+        # Preferred device "Auto" hint.
+        try:
+            auto_dev = "cuda" if torch.cuda.is_available() else "cpu"
+            resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
+            idx_auto = self.cb_engine_device.findData("auto")
+            if idx_auto >= 0:
+                self.cb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
+        except Exception:
+            pass
+
+        # Precision "Auto" hint.
+        try:
+            auto_prec = "float16" if torch.cuda.is_available() else "float32"
+            resolved_prec = self._short_label(
+                tr("settings.engine.precision.float16") if auto_prec == "float16" else tr(
+                    "settings.engine.precision.float32")
+            )
+            idx_auto = self.cb_engine_precision.findData("auto")
+            if idx_auto >= 0:
+                self.cb_engine_precision.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_prec})')
+        except Exception:
+            pass
+
     def _populate_model_engines(self) -> None:
         base = getattr(Config, "AI_MODELS_DIR", None)
         base_ok = isinstance(base, Path) and base.exists()
 
         self.cb_trans_engine.blockSignals(True)
         try:
-            current = str(self.cb_trans_engine.currentData() or "auto")
+            current = str(self.cb_trans_engine.currentData() or "none")
             self.cb_trans_engine.clear()
-            self.cb_trans_engine.addItem(tr("common.auto"), "auto")
+            self.cb_trans_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
             if base_ok:
                 for p in sorted(base.iterdir()):
@@ -846,7 +993,7 @@ class SettingsPanel(QtWidgets.QWidget):
                         continue
                     self.cb_trans_engine.addItem(p.name, p.name)
 
-            self._select_combo_by_data(self.cb_trans_engine, current, fallback="auto")
+            self._select_combo_by_data(self.cb_trans_engine, current, fallback="none")
         finally:
             self.cb_trans_engine.blockSignals(False)
 
@@ -920,7 +1067,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
         # TF32 toggle
         cur_dev = str(self.cb_engine_device.currentData() or "auto")
-        tf32_enable_allowed = bool(has_cuda and tf32_supported and cur_dev in ("auto", "cuda") and cur_prec in ("auto", "float32"))
+        tf32_enable_allowed = bool(
+            has_cuda and tf32_supported and cur_dev in ("auto", "cuda") and cur_prec in ("auto", "float32"))
         self.tg_tf32.setEnabled(tf32_enable_allowed)
 
         tf32_row_label = None
@@ -935,3 +1083,5 @@ class SettingsPanel(QtWidgets.QWidget):
 
         if not tf32_enable_allowed:
             self.tg_tf32.clear_selection()
+
+        self._refresh_auto_option_labels()

@@ -10,34 +10,30 @@
       "level": "info"
     }
   },
-
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
     "allow_tf32": false,
     "low_cpu_mem_usage": true
   },
-
   "transcription": {
-    "output_format": "txt",
     "download_audio_only": true,
-
     "url_keep_audio": false,
     "url_audio_ext": "m4a",
     "url_keep_video": false,
     "url_video_ext": "mp4",
-
-    "translate_after_transcription": false
+    "translate_after_transcription": false,
+    "output_formats": [
+      "txt"
+    ]
   },
-
   "translation": {
-    "default_source_language": "auto",
-    "default_target_language": "auto"
+    "source_language": "auto",
+    "target_language": "auto"
   },
-
   "model": {
     "transcription_model": {
-      "engine_name": "auto",
+      "engine_name": "none",
       "quality_preset": "balanced",
       "text_consistency": true,
       "chunk_length_s": 60,
@@ -52,12 +48,10 @@
       "chunk_max_chars": 1200
     }
   },
-
   "downloader": {
     "min_video_height": 144,
     "max_video_height": 4320
   },
-
   "network": {
     "retries": 3,
     "max_bandwidth_kbps": 0,

@@ -45,7 +45,7 @@ _WHISPER_LANGS: Tuple[str, ...] = (
     "is",
     "it",
     "ja",
-    "jw",
+    "jv",
     "ka",
     "kk",
     "km",

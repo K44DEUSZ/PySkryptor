@@ -1,16 +1,16 @@
 # view/views/live_panel.py
-
-
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, Dict, Any, List
+
+BootContext = Dict[str, Any]
 
 from PyQt5 import QtWidgets, QtCore
 
 from model.config.app_config import AppConfig as Config
+from model.io.file_manager import FileManager
 
 from view.utils.translating import tr, Translator
-from controller.tasks.model_loader_task import TranscriptionLoadWorker
 from controller.platform.microphone import list_input_device_names
 from view.views.dialogs import show_no_microphone_dialog
 from controller.tasks.live_transcription_task import LiveTranscriptionWorker
@@ -34,18 +34,21 @@ class LivePanel(QtWidgets.QWidget):
     STATE_LISTENING = "listening"
     STATE_PAUSED = "paused"
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        parent: Optional[QtWidgets.QWidget] = None,
+        boot_ctx: Optional[BootContext] = None,
+    ) -> None:
         super().__init__(parent)
+        self._boot_ctx: Optional[BootContext] = boot_ctx
         self.setObjectName("LivePanel")
 
-        self.pipe = None
-
-        self._model_thread: Optional[QtCore.QThread] = None
-        self._model_worker: Optional[TranscriptionLoadWorker] = None
-        self._pending_start_after_model: bool = False
+        self.pipe = (boot_ctx or {}).get("transcription_pipeline")
 
         self._live_thread: Optional[QtCore.QThread] = None
         self._live_worker: Optional[LiveTranscriptionWorker] = None
+
+        self._model_thread: Optional[QtCore.QThread] = None
 
         self._state: str = self.STATE_STOPPED
         self._has_audio_devices: bool = False
@@ -60,9 +63,7 @@ class LivePanel(QtWidgets.QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(10)
 
-        # =========================
         # Settings section
-        # =========================
         settings_box = QtWidgets.QGroupBox(tr("live.group.settings"))
         s_lay = QtWidgets.QGridLayout(settings_box)
         s_lay.setHorizontalSpacing(12)
@@ -127,9 +128,7 @@ class LivePanel(QtWidgets.QWidget):
         s_lay.addWidget(self.chk_show_source, row, 4)
         row += 1
 
-        # =========================
         # Controls + Spectrum section (one common block)
-        # =========================
         controls_box = QtWidgets.QGroupBox(tr("live.group.controls"))
         c_lay = QtWidgets.QVBoxLayout(controls_box)
         c_lay.setContentsMargins(12, 12, 12, 12)
@@ -207,9 +206,7 @@ class LivePanel(QtWidgets.QWidget):
 
         c_lay.addWidget(save_clear_outer)
 
-        # =========================
         # Output
-        # =========================
         self.txt_out = QtWidgets.QTextEdit()
         self.txt_out.setReadOnly(True)
         self.txt_out.setPlaceholderText(tr("live.placeholder.source"))
@@ -263,56 +260,16 @@ class LivePanel(QtWidgets.QWidget):
             self._set_status(tr("status.idle"))
 
         self._update_buttons()
+    # ----- Model readiness (boot) -----
 
-    # ----- Model loading (auto) -----
-
-    def _start_model_load(self) -> None:
-        if self._model_thread is not None:
-            return
-
-        self._set_status(tr("live.model.loading"))
-
-        self._model_thread = QtCore.QThread(self)
-        self._model_worker = TranscriptionLoadWorker()
-        self._model_worker.moveToThread(self._model_thread)
-
-        self._model_thread.started.connect(self._model_worker.run)
-        self._model_worker.model_ready.connect(self._on_model_ready)
-        self._model_worker.model_error.connect(self._on_model_error)
-
-        self._model_worker.finished.connect(self._model_thread.quit)
-        self._model_worker.finished.connect(self._model_worker.deleteLater)
-        self._model_thread.finished.connect(self._model_thread.deleteLater)
-        self._model_thread.finished.connect(self._on_model_thread_finished)
-
-        self._model_thread.start()
+    def _ensure_model_ready(self) -> bool:
+        """Return True if ASR pipeline is available."""
+        if self.pipe is not None:
+            return True
+        self._set_status(tr("live.model.unavailable"))
         self._update_buttons()
+        return False
 
-    def _on_model_ready(self, pipe) -> None:
-        self.pipe = pipe
-        if self._pending_start_after_model:
-            self._pending_start_after_model = False
-            self._start_live_new_session()
-            return
-
-        if self._has_audio_devices and self._state == self.STATE_STOPPED:
-            self._set_status(tr("status.idle"))
-
-        self._update_buttons()
-
-    def _on_model_error(self, msg: str) -> None:
-        self.pipe = None
-        self._pending_start_after_model = False
-        self._set_status(tr("status.error"))
-        self.txt_out.setPlainText(tr("log.model.error", msg=msg))
-        self._update_buttons()
-
-    def _on_model_thread_finished(self) -> None:
-        self._model_thread = None
-        self._model_worker = None
-        self._update_buttons()
-
-    # ----- Live controls -----
 
     def _on_start_clicked(self) -> None:
         if not self._has_audio_devices:
@@ -369,9 +326,8 @@ class LivePanel(QtWidgets.QWidget):
         self._clear_text()
 
         # Ensure model
-        if self.pipe is None:
-            self._pending_start_after_model = True
-            self._start_model_load()
+        if self.pipe is None and not self._ensure_model_ready():
+            return
             return
 
         self._start_live_worker()
@@ -422,7 +378,6 @@ class LivePanel(QtWidgets.QWidget):
         self._live_thread.start()
 
     def _stop_live(self) -> None:
-        self._pending_start_after_model = False
 
         if self._live_worker is not None:
             try:
@@ -511,8 +466,8 @@ class LivePanel(QtWidgets.QWidget):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             tr("live.ctrl.save_transcript"),
-            "transcript.txt",
-            "Text files (*.txt);;All files (*.*)",
+            FileManager.transcript_filename("txt"),
+            tr("live.save.file_filter"),
         )
         if not path:
             return

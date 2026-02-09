@@ -84,9 +84,11 @@ class TranslationService:
         mdl = snap.model.get("translation_model", {}) if isinstance(snap.model, dict) else {}
         model_path = Config.TRANSLATION_ENGINE_DIR
         use_local = model_path.exists() and model_path.is_dir() and model_path.name != "__missing__"
-        model_ref = str(model_path if use_local else "facebook/m2m100_418M")
+        if not use_local:
+            raise RuntimeError(f"error.model.translation_missing||{model_path}")
+        model_ref = str(model_path)
         dtype_name = str(mdl.get("dtype", "auto") or "auto").strip().lower()
-        local_files_only = bool(use_local)
+        local_files_only = True
         engine_cfg = snap.engine if isinstance(snap.engine, dict) else {}
         low_cpu_mem_usage = bool(engine_cfg.get("low_cpu_mem_usage", True))
         max_new_tokens = int(mdl.get("max_new_tokens", 256))

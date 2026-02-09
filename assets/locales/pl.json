@@ -232,7 +232,9 @@
       "asr": "Model transkrypcji: {engine}",
       "translation": "Model tłumaczenia: {engine}",
       "translation_disabled": "Tłumaczenie: wyłączone",
-      "mode": "Tryb"
+      "mode": "Tryb",
+      "disabled": "Model wyłączony",
+      "missing": "Model nie jest zainstalowany"
     },
     "preview": {
       "open_folder": "Otwórz folder"
@@ -280,7 +282,8 @@
       "label": "Tryb"
     },
     "model": {
-      "loading": "Ładowanie modelu..."
+      "loading": "Ładowanie modelu...",
+      "unavailable": "Model niedostępny"
     },
     "placeholder": {
       "source": "Tutaj pojawi się transkrypcja na żywo...",
@@ -303,7 +306,9 @@
       "start": "Start...",
       "init": "Inicjalizacja…",
       "dirs": "Przygotowywanie folderów…",
-      "ffmpeg": "Sprawdzanie FFmpeg…"
+      "ffmpeg": "Sprawdzanie FFmpeg…",
+      "transcription_model": "Ładowanie modelu transkrypcji",
+      "translation_model": "Ładowanie modelu tłumaczenia"
     },
     "subtitle": "Uruchamianie aplikacji..."
   },
@@ -326,7 +331,8 @@
     },
     "model": {
       "error": "❌ Nie udało się zainicjalizować modelu ASR. Szczegóły: {msg}",
-      "ready": "✅ Model ASR gotowy na urządzeniu {device}."
+      "ready": "✅ Model ASR gotowy na urządzeniu {device}.",
+      "disabled": "ℹ️ Model ASR jest wyłączony w ustawieniach."
     },
     "no_items": "ℹ️ Brak elementów do przetworzenia.",
     "path_not_found": "⚠️ Nie znaleziono ścieżki: {path}",
@@ -507,11 +513,6 @@
       "language": "Język mowy",
       "model": "Silnik transkrypcji",
       "output_format": "Format wyjściowy",
-      "quality": {
-        "accurate": "Dokładnie",
-        "balanced": "Zbalansowane",
-        "fast": "Szybko"
-      },
       "quality_label": "Profil jakości",
       "stride_length_s": "Nakładanie (s)",
       "text_consistency": "Zwiększona spójność tekstu"
@@ -526,11 +527,16 @@
       "max_new_tokens": "Maks. liczba tokenów",
       "target_language": "Język docelowy",
       "quality": {
-        "label": "Profil jakości",
-        "fast": "Szybki",
-        "balanced": "Zbalansowany",
-        "accurate": "Dokładny"
+        "label": "Profil jakości"
       }
+    },
+    "quality": {
+      "fast": "Szybki",
+      "balanced": "Zbalansowany",
+      "accurate": "Dokładny",
+      "fast_tip": "Najszybszy profil, mniejszy wysiłek dekodowania.",
+      "balanced_tip": "Dobry kompromis między szybkością a jakością.",
+      "accurate_tip": "Najwolniejszy profil, najwyższy wysiłek dekodowania."
     }
   },
   "tabs": {
@@ -589,7 +595,7 @@
       "is": "islandzki",
       "it": "włoski",
       "ja": "japoński",
-      "jw": "jw",
+      "jw": "jawajski",
       "ka": "gruziński",
       "kk": "kazachski",
       "km": "khmerski",
@@ -647,7 +653,25 @@
       "vi": "wietnamski",
       "yi": "jidysz",
       "yo": "joruba",
-      "zh": "chiński"
+      "zh": "chiński",
+      "ast": "asturyjski",
+      "ceb": "cebuano",
+      "ff": "fulfulde",
+      "fy": "fryzyjski (zachodni)",
+      "ga": "irlandzki",
+      "gd": "gaelicki szkocki",
+      "ig": "igbo",
+      "ilo": "iloko",
+      "jv": "jawajski",
+      "lg": "luganda",
+      "ns": "sotho północny",
+      "or": "orija (odia)",
+      "ss": "suazi",
+      "tn": "tswana",
+      "wo": "wolof",
+      "xh": "xhosa",
+      "zu": "zulu",
+      "yue": "kantoński"
     }
   },
   "transcription": {
@@ -664,20 +688,20 @@
     }
   },
   "status": {
-    "idle": "Bezczynny",
-    "preparing": "Przygotowywanie...",
-    "downloading": "Pobieranie...",
-    "processing": "Przetwarzanie...",
-    "transcribing": "Transkrypcja...",
-    "translating": "Tłumaczenie...",
-    "saving": "Zapisywanie...",
-    "done": "Gotowe",
-    "error": "Błąd",
-    "listening": "Nasłuchiwanie…",
-    "paused": "Wstrzymano",
-    "stopped": "Zatrzymano",
-    "skipped": "Pominięto",
-    "no_devices": "Brak mikrofonu"
+    "idle": "⏸️ Bezczynny",
+    "preparing": "🧰 Przygotowanie...",
+    "downloading": "⬇️ Pobieranie...",
+    "processing": "⚙️ Przetwarzanie...",
+    "transcribing": "🎙️ Transkrypcja...",
+    "translating": "🌍 Tłumaczenie...",
+    "saving": "💾 Zapisywanie...",
+    "done": "✅ Gotowe",
+    "error": "❌ Błąd",
+    "listening": "🎧 Nasłuchiwanie…",
+    "paused": "⏸️ Wstrzymano",
+    "stopped": "⏹️ Zatrzymano",
+    "skipped": "⏭️ Pominięto",
+    "no_devices": "🎤❌ Brak mikrofonu"
   },
   "meta": {
     "locale": "pl",

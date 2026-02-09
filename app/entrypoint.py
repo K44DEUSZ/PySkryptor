@@ -1,3 +1,5 @@
+# app/entrypoint.py
+
 from __future__ import annotations
 
 import sys
@@ -121,6 +123,8 @@ def run() -> int:
     app.processEvents()
 
     labels = {
+        "asr": Translator.tr("loading.stage.transcription_model"),
+        "tr": Translator.tr("loading.stage.translation_model"),
         "init": Translator.tr("loading.stage.init"),
         "dirs": Translator.tr("loading.stage.dirs"),
         "ffmpeg": Translator.tr("loading.stage.ffmpeg"),
@@ -154,7 +158,7 @@ def run() -> int:
 
         try:
             from view.main_window import MainWindow
-            win = MainWindow()
+            win = MainWindow(boot_ctx=ctx)
             boot_refs["win"] = win
             win.show()
         except Exception as ex:

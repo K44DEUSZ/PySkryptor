@@ -143,6 +143,47 @@ class FileManager:
                     shutil.rmtree(parent, ignore_errors=True)
         except Exception:
             pass
+    @staticmethod
+    def clear_output_dir_contents(output_dir: Path) -> None:
+        """Remove all children of `output_dir` but keep the directory itself."""
+        try:
+            p = Path(output_dir)
+        except Exception:
+            return
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return
+        try:
+            for child in p.iterdir():
+                try:
+                    if child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink(missing_ok=True)  # type: ignore[call-arg]
+                except Exception:
+                    continue
+        except Exception:
+            return
+
+    _TRANSCRIPT_FILENAMES: Dict[str, str] = {
+        "txt": "transcript.txt",
+        "txt_ts": "transcript_ts.txt",
+        "srt": "transcript.srt",
+    }
+
+    @staticmethod
+    def transcript_filename(mode_id: str) -> str:
+        """Return a deterministic transcript filename for a given output mode."""
+        mid = str(mode_id or "txt").strip().lower()
+        if mid in FileManager._TRANSCRIPT_FILENAMES:
+            return FileManager._TRANSCRIPT_FILENAMES[mid]
+
+        mode = Config.get_transcription_output_mode(mid)
+        ext = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
+        safe_mid = sanitize_filename(mid) or "mode"
+        return f"transcript_{safe_mid}.{ext}"
+
 
     @staticmethod
     def transcript_path(

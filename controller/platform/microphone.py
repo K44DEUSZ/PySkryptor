@@ -1,4 +1,4 @@
-# model/io/microphone.py
+# controller/platform/microphone.py
 from __future__ import annotations
 
 from typing import List, Optional, Tuple

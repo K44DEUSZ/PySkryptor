@@ -1,3 +1,5 @@
+# controller/tasks/settings_task.py
+
 """controller/tasks/settings_task.py
 
 Background worker for loading/saving application settings.
@@ -67,31 +69,6 @@ class SettingsWorker(QtCore.QObject):
             msg = f"{ex.key}: {ex}"
         self.error.emit(msg)
 
-    @staticmethod
-    def _cleanup_deprecated_keys(data: Dict[str, Any]) -> None:
-        tr_sec = data.get("transcription")
-        if isinstance(tr_sec, dict):
-            tr_sec.pop("keep_downloaded_files", None)
-            # legacy leftovers
-            tr_sec.pop("mode", None)
-            tr_sec.pop("target_language", None)
-
-        mdl = data.get("model")
-        if isinstance(mdl, dict):
-            # Remove legacy flat keys once nested model config is present.
-            if isinstance(mdl.get("transcription_model"), dict) or isinstance(mdl.get("translation_model"), dict):
-                for k in (
-                    "translation_engine_name",
-                    "ai_engine_name",
-                    "asr_engine_name",
-                    "chunk_length_s",
-                    "stride_length_s",
-                    "ignore_warning",
-                    "default_language",
-                    "low_cpu_mem_usage",
-                ):
-                    mdl.pop(k, None)
-
     def _do_load(self) -> None:
         try:
             svc = SettingsService(Config.ROOT_DIR)
@@ -160,7 +137,6 @@ class SettingsWorker(QtCore.QObject):
                 else:
                     updated[section] = patch
 
-            self._cleanup_deprecated_keys(updated)
 
             tmp_path = settings_path.with_suffix(settings_path.suffix + ".tmp")
             try:

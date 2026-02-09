@@ -60,6 +60,45 @@ def discover_locales(locales_dir: Path) -> Set[str]:
     return available
 
 
+
+def _locale_display_name(locales_dir: Path, code: str) -> str:
+    """Return a human-friendly name for a locale code (from meta.name when available)."""
+    try:
+        locales_dir = Path(locales_dir)
+        p = locales_dir / f"{str(code).lower()}.json"
+        if not p.exists():
+            p = locales_dir / f"{str(code).split('-', 1)[0].lower()}.json"
+        if not p.exists():
+            return str(code)
+
+        data = _read_json(p)
+        meta = data.get("meta") if isinstance(data, dict) else None
+        if isinstance(meta, dict):
+            name = str(meta.get("name") or "").strip()
+            if name:
+                return name
+    except Exception:
+        pass
+    return str(code)
+
+
+def list_locales(locales_dir: Path) -> list[tuple[str, str]]:
+    """List available locales as (code, display_name) sorted by display name."""
+    locales_dir = Path(locales_dir)
+    items: list[tuple[str, str]] = []
+    if not locales_dir.exists():
+        return items
+
+    for p in locales_dir.glob("*.json"):
+        code = p.stem.strip().lower().replace("_", "-")
+        if not code:
+            continue
+        items.append((code, _locale_display_name(locales_dir, code)))
+
+    items.sort(key=lambda x: (x[1].lower(), x[0]))
+    return items
+
+
 def _pick_best(sys_hint: str, available: Set[str], fallback: str = "en") -> str:
     if sys_hint in available:
         return sys_hint

@@ -141,7 +141,7 @@ class TranscriptionService:
         return self._pipe
 
     def build(self, log: Callable[[str], None]) -> None:
-        self._loader.load(log=log)
+        self._loader.load_transcription(log=log)
         self._pipe = self._loader.pipeline
 
     # ----- High-level session API -----
@@ -219,7 +219,8 @@ class TranscriptionService:
             default_lang = override_src if override_src and override_src not in ("auto", "none") else None
             output_mode_ids = list(trans_cfg.get('output_formats') or ('txt',))
 
-            translate_enabled = bool(trans_cfg.get("translate_after_transcription", False))
+            override_translate = (overrides or {}).get("translate_after_transcription")
+            translate_enabled = bool(override_translate) if override_translate is not None else bool(trans_cfg.get("translate_after_transcription", False))
             mdl = Config.SETTINGS.model.get('translation_model', {})
             tr_engine = str(mdl.get("engine_name", "none") or "none").strip().lower()
             translate_enabled = bool(translate_enabled and tr_engine and tr_engine not in ("none", "off", "disabled"))
@@ -274,10 +275,20 @@ class TranscriptionService:
                 except Exception:
                     pass
 
-            def _item_progress_download(k: str, pct: int) -> None:
-                tracker.set_stage(str(k), "download", int(pct))
+            def _norm_pct(p: Any) -> int:
                 try:
-                    item_progress(str(k), int(pct))
+                    v = float(p)
+                except Exception:
+                    return 0
+                if 0.0 <= v <= 1.0:
+                    v *= 100.0
+                return max(0, min(100, int(round(v))))
+
+
+            def _item_progress_download(k: str, pct: int) -> None:
+                tracker.set_stage(str(k), "download", _norm_pct(pct))
+                try:
+                    item_progress(str(k), _norm_pct(pct))
                 except Exception:
                     pass
                 _emit_global()
@@ -331,17 +342,17 @@ class TranscriptionService:
 
 
             def _item_progress_transcribe(k: str, pct: int) -> None:
-                tracker.set_stage(str(k), "transcribe", int(pct))
+                tracker.set_stage(str(k), "transcribe", _norm_pct(pct))
                 try:
-                    item_progress(str(k), int(pct))
+                    item_progress(str(k), _norm_pct(pct))
                 except Exception:
                     pass
                 _emit_global()
 
             def _item_progress_translate(k: str, pct: int) -> None:
-                tracker.set_stage(str(k), "translate", int(pct))
+                tracker.set_stage(str(k), "translate", _norm_pct(pct))
                 try:
-                    item_progress(str(k), int(pct))
+                    item_progress(str(k), _norm_pct(pct))
                 except Exception:
                     pass
                 _emit_global()
@@ -356,8 +367,10 @@ class TranscriptionService:
                 item_status(key, translate("status.preparing"))
                 item_progress(key, 0)
 
+                overwrite_mode = False
+
                 # ----- Resolve output folder conflicts -----
-                out_dir, new_stem, apply_all_action, apply_all_new_stem, apply_all_enabled = self._resolve_output_dir(
+                out_dir, new_stem, apply_all_action, apply_all_new_stem, apply_all_enabled, overwrite_mode = self._resolve_output_dir(
                     stem=stem,
                     translate=translate,
                     conflict_resolver=conflict_resolver,
@@ -382,7 +395,7 @@ class TranscriptionService:
 
                 try:
                     wav_path = FileManager.ensure_tmp_wav(
-                        path,
+                        source=path,
                         log=lambda m: log(str(m)),
                         cancel_check=cancel_check,
                     )
@@ -408,7 +421,7 @@ class TranscriptionService:
                         text_consistency=text_consistency,
                         translate=translate,
                         cancel_check=cancel_check,
-                        item_progress=_item_progress_download,
+                        item_progress=_item_progress_transcribe,
                         bump_chunk_done=_bump_chunk_done,
                     )
 
@@ -470,6 +483,8 @@ class TranscriptionService:
                         log=log,
                         item_status=item_status,
                         transcript_ready=transcript_ready,
+                        item_output_dir_cb=item_output_dir,
+                        item_error_cb=_emit_item_error,
                         cancel_check=cancel_check,
                     )
                     if transcript_path is None:
@@ -631,21 +646,23 @@ class TranscriptionService:
         if apply_all_enabled:
             action = (apply_all_action or "skip").strip().lower()
             if action == "overwrite":
-                return existing, existing.name, apply_all_action, apply_all_new_stem, apply_all_enabled
+                FileManager.delete_output_dir(existing)
+                out = FileManager.ensure_output(stem)
+                return out, out.name, apply_all_action, apply_all_new_stem, apply_all_enabled, False
             if action == "skip":
-                return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled
+                return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled, False
             if action == "new":
                 new_stem = sanitize_filename(apply_all_new_stem) or f"{stem} (2)"
                 out = FileManager.ensure_output(new_stem)
-                return out, out.name, apply_all_action, apply_all_new_stem, apply_all_enabled
-            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled
+                return out, out.name, apply_all_action, apply_all_new_stem, apply_all_enabled, False
+            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled, False
 
         if cancel_check():
-            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled
+            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled, False
 
         action, new_name, apply_all = conflict_resolver(stem, str(existing))
         if cancel_check():
-            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled
+            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled, False
 
         action_n = (action or "skip").strip().lower()
         if apply_all:
@@ -654,15 +671,17 @@ class TranscriptionService:
             apply_all_enabled = True
 
         if action_n == "skip":
-            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled
+            return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled, False
         if action_n == "overwrite":
-            return existing, existing.name, apply_all_action, apply_all_new_stem, apply_all_enabled
+            FileManager.delete_output_dir(existing)
+            out = FileManager.ensure_output(stem)
+            return out, out.name, apply_all_action, apply_all_new_stem, apply_all_enabled, False
         if action_n == "new":
             new_stem = sanitize_filename(str(new_name or "")) or f"{stem} (2)"
             out = FileManager.ensure_output(new_stem)
-            return out, out.name, apply_all_action, apply_all_new_stem, apply_all_enabled
+            return out, out.name, apply_all_action, apply_all_new_stem, apply_all_enabled, False
 
-        return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled
+        return None, stem, apply_all_action, apply_all_new_stem, apply_all_enabled, False
 
     # ----- Entry materialization -----
 
@@ -821,20 +840,26 @@ class TranscriptionService:
         safe_stem = sanitize_filename(title) or "download"
 
         kind = "audio" if bool(Config.SETTINGS.transcription.get("download_audio_only", True)) else "video"
-        item_status(key, translate("status.processing"))
+        item_status(key, translate("status.downloading"))
+        item_progress(key, 0)
+
+        _stage_last: Dict[str, Optional[str]] = {"v": None}
 
         def _progress_hook(d: Dict[str, Any]) -> None:
             if cancel_check():
                 raise DownloadCancelled()
             st = d.get("status")
             if st == "downloading":
-                item_status(key, translate("status.downloading"))
+                if _stage_last["v"] != "downloading":
+                    _stage_last["v"] = "downloading"
+                    item_status(key, translate("status.downloading"))
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
                 downloaded_bytes = d.get("downloaded_bytes") or 0
                 if total:
                     pct = int(downloaded_bytes * 100 / total)
                     item_progress(key, max(0, min(100, pct)))
             elif st == "finished":
+                _stage_last["v"] = "finished"
                 item_progress(key, 100)
 
         try:
@@ -1056,19 +1081,14 @@ class TranscriptionService:
         item_output_dir_cb: Optional[ItemOutputDirFn] = None,
         item_error_cb: Optional[ItemErrorFn] = None,
         cancel_check: CancelCheckFn,
+        overwrite_mode: bool = False,
     ) -> Optional[Path]:
         if cancel_check():
             raise _Cancelled()
 
-        base_name = translate("asset.transcript")
-        if base_name == "asset.transcript":
-            base_name = translate("files.transcript.default_name")
-        base_name = sanitize_filename(str(base_name)) or "Transcript"
-
         primary_path: Optional[Path] = None
         for mode_id in output_mode_ids:
             mode = Config.get_transcription_output_mode(str(mode_id))
-            out_ext = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
             out_text = self._render_transcript(
                 merged_text=merged_text,
                 translated_text=translated_text,
@@ -1078,8 +1098,11 @@ class TranscriptionService:
                 translate=translate,
             )
 
-            out_path = out_dir / f"{base_name}.{out_ext}"
-            out_path = FileManager.ensure_unique_path(out_path)
+            filename = FileManager.transcript_filename(str(mode_id))
+            out_path = out_dir / filename
+            if not overwrite_mode:
+                out_path = FileManager.ensure_unique_path(out_path)
+
             try:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(out_text, encoding="utf-8")
@@ -1098,7 +1121,8 @@ class TranscriptionService:
                     item_output_dir_cb(key, str(out_dir))
 
         return primary_path
-    def _pick_source_language(*, default_lang: Optional[str], merged_text: str) -> str:
+
+    def _pick_source_language(self, *, default_lang: Optional[str], merged_text: str) -> str:
         def _norm(code: Optional[str]) -> str:
             return str(code or "").strip().lower().replace("_", "-").split("-", 1)[0]
 
@@ -1195,12 +1219,12 @@ class TranscriptionService:
             return TextPostprocessor.to_timestamped_plain(use)
 
         merged = TextPostprocessor.clean(merged_text)
-        if out_ext == "txt" and translated_text and translated_text.strip():
-            src_m = translate("live.save.marker.source")
-            tgt_m = translate("live.save.marker.target")
-            src = merged if merged else TextPostprocessor.to_plain(segments)
-            tgt = TextPostprocessor.clean(translated_text)
-            return f"{src_m}\n{src}\n\n{tgt_m}\n{tgt}\n"
+
+        if out_ext == "txt":
+            if translated_text and translated_text.strip():
+                return TextPostprocessor.clean(translated_text)
+            if translated_segments:
+                return TextPostprocessor.to_plain(translated_segments)
 
         if merged:
             return merged

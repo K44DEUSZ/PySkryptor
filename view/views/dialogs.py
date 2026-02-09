@@ -151,7 +151,11 @@ def critical_locales_missing_and_exit(parent: QtWidgets.QWidget | None = None) -
 def critical_config_load_failed_and_exit(parent: QtWidgets.QWidget | None, details: str = "") -> None:
     title = T.tr("dialog.critical.pyskryptor_error.title")
     text = T.tr("dialog.critical.config_load_failed.text")
-    _message_dialog(parent, title=title, message=text, header=title)
+    msg = text
+    d = str(details or "").strip()
+    if d:
+        msg = f"{text}\n\n{d}"
+    _message_dialog(parent, title=title, message=msg, header=title)
 
 
 def info_settings_restored(parent: QtWidgets.QWidget | None = None) -> None:

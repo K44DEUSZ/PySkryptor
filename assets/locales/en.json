@@ -232,7 +232,9 @@
       "asr": "ASR model: {engine}",
       "translation": "Translation model: {engine}",
       "translation_disabled": "Translation: disabled",
-      "mode": "Mode"
+      "mode": "Mode",
+      "disabled": "Model disabled",
+      "missing": "Model not installed"
     },
     "preview": {
       "open_folder": "Open folder"
@@ -280,7 +282,8 @@
       "label": "Mode"
     },
     "model": {
-      "loading": "Loading model..."
+      "loading": "Loading model...",
+      "unavailable": "Model unavailable"
     },
     "placeholder": {
       "source": "Live transcription will appear here...",
@@ -303,7 +306,9 @@
       "start": "Starting...",
       "init": "Initializing…",
       "dirs": "Preparing folders…",
-      "ffmpeg": "Checking FFmpeg…"
+      "ffmpeg": "Checking FFmpeg…",
+      "transcription_model": "Loading transcription model",
+      "translation_model": "Loading translation model"
     },
     "subtitle": "Starting application..."
   },
@@ -326,7 +331,8 @@
     },
     "model": {
       "error": "❌ Failed to initialize ASR model. Details: {msg}",
-      "ready": "✅ ASR model ready on device {device}."
+      "ready": "✅ ASR model ready on device {device}.",
+      "disabled": "ℹ️ ASR model is disabled in settings."
     },
     "no_items": "ℹ️ Nothing to process.",
     "path_not_found": "⚠️ Path not found: {path}",
@@ -507,11 +513,6 @@
       "language": "Speech language",
       "model": "Transcription engine",
       "output_format": "Output format",
-      "quality": {
-        "accurate": "Accurate",
-        "balanced": "Balanced",
-        "fast": "Fast"
-      },
       "quality_label": "Quality preset",
       "stride_length_s": "Stride length (s)",
       "text_consistency": "Enhanced text consistency"
@@ -526,11 +527,16 @@
       "max_new_tokens": "Max new tokens",
       "target_language": "Target language",
       "quality": {
-        "label": "Quality preset",
-        "fast": "Fast",
-        "balanced": "Balanced",
-        "accurate": "Accurate"
+        "label": "Quality preset"
       }
+    },
+    "quality": {
+      "fast": "Fast",
+      "balanced": "Balanced",
+      "accurate": "Accurate",
+      "fast_tip": "Fastest, lower decoding effort.",
+      "balanced_tip": "Good compromise between speed and quality.",
+      "accurate_tip": "Slowest, highest decoding effort."
     }
   },
   "tabs": {
@@ -589,7 +595,7 @@
       "is": "Icelandic",
       "it": "Italian",
       "ja": "Japanese",
-      "jw": "jw",
+      "jw": "Javanese",
       "ka": "Georgian",
       "kk": "Kazakh",
       "km": "Khmer",
@@ -647,7 +653,25 @@
       "vi": "Vietnamese",
       "yi": "Yiddish",
       "yo": "Yoruba",
-      "zh": "Chinese"
+      "zh": "Chinese",
+      "ast": "Asturian",
+      "ceb": "Cebuano",
+      "ff": "Fulah",
+      "fy": "Western Frisian",
+      "ga": "Irish",
+      "gd": "Scottish Gaelic",
+      "ig": "Igbo",
+      "ilo": "Iloko",
+      "jv": "Javanese",
+      "lg": "Luganda",
+      "ns": "Northern Sotho",
+      "or": "Odia",
+      "ss": "Swati",
+      "tn": "Tswana",
+      "wo": "Wolof",
+      "xh": "Xhosa",
+      "zu": "Zulu",
+      "yue": "Cantonese"
     }
   },
   "transcription": {
@@ -664,20 +688,20 @@
     }
   },
   "status": {
-    "idle": "Idle",
-    "preparing": "Preparing...",
-    "downloading": "Downloading...",
-    "processing": "Processing...",
-    "transcribing": "Transcribing...",
-    "translating": "Translating...",
-    "saving": "Saving...",
-    "done": "Done",
-    "error": "Error",
-    "listening": "Listening…",
-    "paused": "Paused",
-    "stopped": "Stopped",
-    "skipped": "Skipped",
-    "no_devices": "No microphone"
+    "idle": "⏸️ Idle",
+    "preparing": "🧰 Preparing...",
+    "downloading": "⬇️ Downloading...",
+    "processing": "⚙️ Processing...",
+    "transcribing": "🎙️ Transcribing...",
+    "translating": "🌍 Translating...",
+    "saving": "💾 Saving...",
+    "done": "✅ Done",
+    "error": "❌ Error",
+    "listening": "🎧 Listening…",
+    "paused": "⏸️ Paused",
+    "stopped": "⏹️ Stopped",
+    "skipped": "⏭️ Skipped",
+    "no_devices": "🎤❌ No microphone"
   },
   "meta": {
     "locale": "en",

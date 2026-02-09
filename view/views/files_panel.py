@@ -18,7 +18,6 @@ from view.widgets.model_runtime_widget import ModelRuntimeWidget
 from view.views.dialogs import ask_cancel, ask_conflict, ask_open_transcripts_folder, show_error, show_info
 from controller.tasks.metadata_task import MetadataWorker
 from controller.tasks.transcription_task import TranscriptionWorker
-from controller.tasks.model_loader_task import TranscriptionLoadWorker
 from controller.tasks.settings_task import SettingsWorker
 
 
@@ -83,8 +82,6 @@ class DropTableWidget(QtWidgets.QTableWidget):
         super().keyPressEvent(e)
 
 
-
-
 class FilesPanel(QtWidgets.QWidget):
     COL_CHECK = 0
     COL_NO = 1
@@ -96,21 +93,24 @@ class FilesPanel(QtWidgets.QWidget):
     COL_STATUS = 7
     COL_PREVIEW = 8
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, boot_ctx: Optional[dict] = None) -> None:
         super().__init__(parent)
         self.setObjectName("FilesPanel")
+
+        self._boot_ctx: dict = boot_ctx if isinstance(boot_ctx, dict) else {}
 
         self._transcribe_thread: Optional[QtCore.QThread] = None
         self._transcribe_worker: Optional[TranscriptionWorker] = None
 
         self._meta_thread: Optional[QtCore.QThread] = None
         self._meta_worker: Optional[MetadataWorker] = None
-
-        self._model_thread: Optional[QtCore.QThread] = None
-        self._model_worker: Optional[TranscriptionLoadWorker] = None
         self._was_cancelled: bool = False
         self._conflict_apply_all_action: Optional[str] = None
         self._conflict_apply_all_new_base: Optional[str] = None
+        self._status_base_by_key: Dict[str, str] = {}
+        self._pct_by_key: Dict[str, int] = {}
+        self._error_by_key: Dict[str, str] = {}
+        self._output_dir_by_key: Dict[str, str] = {}
 
         root = QtWidgets.QVBoxLayout(self)
         base_h = 24
@@ -302,16 +302,22 @@ class FilesPanel(QtWidgets.QWidget):
             self._set_combo_data(self.cmb_audio_ext, aext)
             self._set_combo_data(self.cmb_video_ext, vext)
 
-            translate_after = bool(tcfg.get("translate_after_transcription", False))
-            self.tg_mode.set_first_checked(not translate_after)
-
             tr_mdl = self._get_translation_model_cfg()
             tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
             tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
             self.tg_mode.set_second_enabled(tr_enabled)
 
-            self.cmb_target_lang.set_code("auto")
-            self.cmb_source_lang.set_code("auto")
+            translate_after = bool(tcfg.get("translate_after_transcription", False))
+            # ChoiceToggle keeps the last checked button when exclusive, so we must explicitly
+            # select the second option instead of unchecking the first.
+            if translate_after and tr_enabled:
+                self.tg_mode.set_second_checked(True)
+            else:
+                self.tg_mode.set_first_checked(True)
+
+            trcfg = self._get_translation_cfg()
+            self.cmb_target_lang.set_code(str(trcfg.get("target_language", "auto") or "auto"))
+            self.cmb_source_lang.set_code(str(trcfg.get("source_language", "auto") or "auto"))
 
             output_formats = tcfg.get("output_formats")
             if isinstance(output_formats, str):
@@ -441,7 +447,6 @@ class FilesPanel(QtWidgets.QWidget):
         main_row.addWidget(self.options_group, 3)
         root.addLayout(main_row, 0)
 
-
         self.pipe = None
 
         self._keys: set[str] = set()
@@ -463,7 +468,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._opt_save_worker: Optional[SettingsWorker] = None
         self._opt_save_pending: bool = False
 
-        self._start_model_load()
+        self._apply_boot_model_state()
 
         self.btn_src_add.clicked.connect(self._on_add_clicked)
         self.src_edit.returnPressed.connect(self._on_add_clicked)
@@ -507,10 +512,20 @@ class FilesPanel(QtWidgets.QWidget):
     def _on_target_language_changed(self, *_args) -> None:
         self._session_target_language = str(self.cmb_target_lang.code() or "auto").strip().lower() or "auto"
         self._sync_options_ui()
+        if getattr(self, "_opt_block_save", False):
+            return
+        if self._transcribe_thread is not None:
+            return
+        self._opt_autosave_timer.start()
 
     def _on_source_language_changed(self, *_args) -> None:
         self._session_source_language = str(self.cmb_source_lang.code() or "auto").strip().lower() or "auto"
         self._sync_options_ui()
+        if getattr(self, "_opt_block_save", False):
+            return
+        if self._transcribe_thread is not None:
+            return
+        self._opt_autosave_timer.start()
 
     def _gather_quick_options_patch(self) -> Dict[str, Any]:
         translate_after = bool(not self.tg_mode.is_first_checked())
@@ -546,6 +561,10 @@ class FilesPanel(QtWidgets.QWidget):
 
         payload = {
             "transcription": self._gather_quick_options_patch(),
+            "translation": {
+                "source_language": str(self._session_source_language or "auto").strip().lower() or "auto",
+                "target_language": str(self._session_target_language or "auto").strip().lower() or "auto",
+            },
         }
 
         thread = QtCore.QThread(self)
@@ -576,7 +595,8 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _on_quick_options_saved_snapshot(self, snap: object) -> None:
         try:
-            Config.update_from_snapshot(snap, sections=("transcription", "model"))  # type: ignore[arg-type]
+            Config.update_from_snapshot(snap,
+                                        sections=("transcription", "translation", "model"))  # type: ignore[arg-type]
         except Exception:
             pass
 
@@ -606,13 +626,18 @@ class FilesPanel(QtWidgets.QWidget):
         cfg = getattr(s, "transcription", None) if s is not None else None
         return cfg if isinstance(cfg, dict) else {}
 
+    def _get_translation_cfg(self) -> dict:
+        s = getattr(Config, "SETTINGS", None)
+        cfg = getattr(s, "translation", None) if s is not None else None
+        return cfg if isinstance(cfg, dict) else {}
+
     def _get_transcription_model_cfg(self) -> dict:
-            s = getattr(Config, "SETTINGS", None)
-            mdl = getattr(s, "model", None) if s is not None else None
-            if not isinstance(mdl, dict):
-                return {}
-            cfg = mdl.get("transcription_model", {})
-            return cfg if isinstance(cfg, dict) else {}
+        s = getattr(Config, "SETTINGS", None)
+        mdl = getattr(s, "model", None) if s is not None else None
+        if not isinstance(mdl, dict):
+            return {}
+        cfg = mdl.get("transcription_model", {})
+        return cfg if isinstance(cfg, dict) else {}
 
     def _get_translation_model_cfg(self) -> dict:
         s = getattr(Config, "SETTINGS", None)
@@ -628,21 +653,22 @@ class FilesPanel(QtWidgets.QWidget):
         return bool(eng and eng not in ("none", "off", "disabled"))
 
     def _refresh_mode_badge(self) -> None:
-            # Keep toggle state logic intact, but show model engines in the banner (not the mode).
-            tr_enabled = self._translation_enabled()
+        # Keep toggle state logic intact, but show model engines in the banner (not the mode).
+        tr_enabled = self._translation_enabled()
 
-            t_cfg = self._get_transcription_model_cfg()
-            asr_eng = str(t_cfg.get("engine_name", "auto") or "auto").strip()
+        t_cfg = self._get_transcription_model_cfg()
+        asr_eng = str(t_cfg.get("engine_name", "auto") or "auto").strip()
 
-            x_cfg = self._get_translation_model_cfg()
-            tr_eng = str(x_cfg.get("engine_name", "none") or "none").strip()
+        x_cfg = self._get_translation_model_cfg()
+        tr_eng = str(x_cfg.get("engine_name", "none") or "none").strip()
 
-            self.model_info.set_asr_text(tr("files.model.asr", engine=asr_eng))
+        self.model_info.set_asr_text(tr("files.model.asr", engine=asr_eng))
 
-            if tr_enabled:
-                self.model_info.set_translation_text(tr("files.model.translation", engine=tr_eng))
-            else:
-                self.model_info.set_translation_text(tr("files.model.translation_disabled"))
+        if tr_enabled:
+            self.model_info.set_translation_text(tr("files.model.translation", engine=tr_eng))
+        else:
+            self.model_info.set_translation_text(tr("files.model.translation_disabled"))
+
     def _sync_options_ui(self) -> None:
         running = self._transcribe_thread is not None
 
@@ -986,7 +1012,8 @@ class FilesPanel(QtWidgets.QWidget):
         if not key:
             return False
         if key in self._keys:
-            show_info(self, title=tr("dialog.info.title"), header=tr("dialog.info.header"), message=tr("status.skipped"))
+            show_info(self, title=tr("dialog.info.title"), header=tr("dialog.info.header"),
+                      message=tr("status.skipped"))
             return False
         self._keys.add(key)
         return True
@@ -1101,7 +1128,8 @@ class FilesPanel(QtWidgets.QWidget):
         else:
             p = Path(key)
             if not p.exists() or not p.is_file():
-                show_info(self, title=tr("dialog.info.title"), header=tr("dialog.info.header"), message=tr("log.add.missing"))
+                show_info(self, title=tr("dialog.info.title"), header=tr("dialog.info.header"),
+                          message=tr("log.add.missing"))
                 return
             key = str(p)
             if not self._try_add_key(key):
@@ -1255,14 +1283,25 @@ class FilesPanel(QtWidgets.QWidget):
             else:
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(out_dir)))
         except Exception as e:
-            show_error(self, title=tr("dialog.error.title"), header=tr("dialog.error.header"), message=tr("log.unexpected", msg=str(e)))
+            show_error(self, title=tr("dialog.error.title"), header=tr("dialog.error.header"),
+                       message=tr("log.unexpected", msg=str(e)))
 
     def _on_start_clicked(self) -> None:
         if self._transcribe_worker is not None or self._transcribe_thread is not None:
             return
 
         if not self.pipe:
-            show_info(self, title=tr("dialog.info.title"), header=tr("dialog.info.header"), message=tr("log.pipe_not_ready"))
+            show_info(self, title=tr("dialog.info.title"), header=tr("dialog.info.header"),
+                      message=tr("log.pipe_not_ready"))
+            return
+
+        if getattr(Config, "SETTINGS", None) is None:
+            show_info(
+                self,
+                title=tr("dialog.info.title"),
+                header=tr("dialog.info.header"),
+                message=tr("log.pipe_not_ready"),
+            )
             return
 
         self._reset_url_rows_to_original_keys()
@@ -1282,6 +1321,8 @@ class FilesPanel(QtWidgets.QWidget):
         overrides = {
             "target_language": str(self._session_target_language or "auto").strip().lower() or "auto",
             "source_language": str(self._session_source_language or "auto").strip().lower() or "auto",
+            "translate_after_transcription": bool(
+                (not self.tg_mode.is_first_checked()) and self._translation_enabled()),
         }
         self._transcribe_worker = TranscriptionWorker(pipe=self.pipe, entries=entries, overrides=overrides)
         self._transcribe_worker.moveToThread(self._transcribe_thread)
@@ -1377,6 +1418,9 @@ class FilesPanel(QtWidgets.QWidget):
 
         it = self.tbl.item(row, self.COL_STATUS)
         if it:
+            pct = self._pct_by_key.get(key)
+            if pct is not None and 0 < int(pct) < 100 and '(' not in status:
+                status = f"{base} ({int(pct)}%)"
             it.setText(status)
 
     @QtCore.pyqtSlot(str, int)
@@ -1393,7 +1437,12 @@ class FilesPanel(QtWidgets.QWidget):
 
         base = self._status_base_by_key.get(key) or tr("status.processing")
         text = base
-        if 0 < pct < 100:
+        show_zero_for = {
+            tr("status.downloading"),
+            tr("status.transcribing"),
+            tr("status.saving"),
+        }
+        if pct < 100 and (pct > 0 or base in show_zero_for):
             text = f"{base} ({pct}%)"
 
         it = self.tbl.item(row, self.COL_STATUS)
@@ -1443,6 +1492,15 @@ class FilesPanel(QtWidgets.QWidget):
 
         if old_key in self._audio_lang_by_key:
             self._audio_lang_by_key[new_key] = self._audio_lang_by_key.pop(old_key)
+
+        if old_key in self._status_base_by_key:
+            self._status_base_by_key[new_key] = self._status_base_by_key.pop(old_key)
+        if old_key in self._pct_by_key:
+            self._pct_by_key[new_key] = self._pct_by_key.pop(old_key)
+        if old_key in self._error_by_key:
+            self._error_by_key[new_key] = self._error_by_key.pop(old_key)
+        if old_key in self._output_dir_by_key:
+            self._output_dir_by_key[new_key] = self._output_dir_by_key.pop(old_key)
 
         if src_label:
             self._origin_src_by_key[new_key] = src_label
@@ -1505,25 +1563,31 @@ class FilesPanel(QtWidgets.QWidget):
             QtGui.QDesktopServices.openUrl(QtCore.QUrl(u))
         except Exception:
             pass
-
-    def _start_model_load(self) -> None:
-        if self._model_thread is not None:
+    def _apply_boot_model_state(self) -> None:
+        """Apply model readiness from boot context (no in-panel model loading)."""
+        self.pipe = self._boot_ctx.get("transcription_pipeline")
+        if self.pipe is not None:
+            self._on_model_ready(self.pipe)
             return
 
-        self._model_thread = QtCore.QThread(self)
-        self._model_worker = TranscriptionLoadWorker()
-        self._model_worker.moveToThread(self._model_thread)
+        # No pipeline: model is disabled or not installed.
+        model_cfg = getattr(getattr(Config, "SETTINGS", None), "model", {}) if getattr(Config, "SETTINGS", None) is not None else {}
+        tm = model_cfg.get("transcription_model", {}) if isinstance(model_cfg, dict) else {}
+        engine = str(tm.get("engine_name") or "none").strip().lower()
 
-        self._model_thread.started.connect(self._model_worker.run)
-        self._model_worker.model_ready.connect(self._on_model_ready)
-        self._model_worker.model_error.connect(self._on_model_error)
+        if engine in ("none", "off", "disabled", "", "null"):
+            self.model_info.set_status_text(tr("files.model.disabled"))
+            self.model_info.set_status_icon(self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation))
+        else:
+            self.model_info.set_status_text(tr("files.model.missing"))
+            self.model_info.set_status_icon(self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxCritical))
+            err = str(self._boot_ctx.get("transcription_error") or "").strip()
+            if err:
+                self.model_info.set_asr_text(err)
 
-        self._model_worker.finished.connect(self._model_thread.quit)
-        self._model_worker.finished.connect(self._model_worker.deleteLater)
-        self._model_thread.finished.connect(self._model_thread.deleteLater)
-        self._model_thread.finished.connect(self._on_model_thread_finished)
-
-        self._model_thread.start()
+        self.model_info.set_device_text(tr("files.model.device", device=Config.DEVICE_FRIENDLY_NAME))
+        self._refresh_mode_badge()
+        self._update_buttons()
 
     def _on_model_ready(self, pipe) -> None:
         self.pipe = pipe
@@ -1533,19 +1597,6 @@ class FilesPanel(QtWidgets.QWidget):
         self._refresh_mode_badge()
         self._update_buttons()
 
-    def _on_model_error(self, msg: str) -> None:
-        self.pipe = None
-        self.model_info.set_status_text(tr("files.model.error"))
-        self.model_info.set_status_icon(self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxCritical))
-        self.model_info.set_device_text(tr("files.model.device", device=Config.DEVICE_FRIENDLY_NAME))
-        self._refresh_mode_badge()
-        show_error(self, title=tr("dialog.error.title"), header=tr("dialog.error.header"), message=tr("log.model.error", msg=msg))
-        self._update_buttons()
-
-    def _on_model_thread_finished(self) -> None:
-        self._model_thread = None
-        self._model_worker = None
-        self._update_buttons()
 
     def _update_buttons(self) -> None:
         has_items = self.tbl.rowCount() > 0
