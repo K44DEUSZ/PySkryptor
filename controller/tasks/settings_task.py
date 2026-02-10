@@ -33,7 +33,7 @@ class SettingsWorker(QtCore.QObject):
                 self._do_load()
             elif self._action == "save":
                 self._do_save()
-            elif self._action == "restore_defaults":
+            elif self._action in ("restore_defaults", "restore", "_restore"):
                 self._do_restore_defaults()
             else:
                 msg = tr("error.config.unknown_action", action=self._action)

@@ -620,6 +620,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self._blocking_updates = True
         try:
             self._populate_from_data()
+            self._refresh_runtime_capabilities()
             self._set_dirty(False)
         finally:
             self._blocking_updates = False
@@ -629,6 +630,7 @@ class SettingsPanel(QtWidgets.QWidget):
             self._data = data
             self._loaded_data = dict(data)
             self._populate_from_data()
+            self._refresh_runtime_capabilities()
 
         self._set_dirty(False)
 
@@ -727,7 +729,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_restore_clicked(self) -> None:
         if not dialogs.ask_restore_defaults(self):
             return
-        self._start_worker(action="restore")
+        self._start_worker(action="restore_defaults")
 
     def _on_save_clicked(self) -> None:
         if not dialogs.ask_save_settings(self):

@@ -3,7 +3,7 @@
     "language": "auto",
     "theme": "auto",
     "ui": {
-      "show_advanced_settings": true
+      "show_advanced_settings": false
     },
     "logging": {
       "enabled": true,
@@ -18,7 +18,7 @@
   },
   "model": {
     "transcription_model": {
-      "engine_name": "whisper-turbo",
+      "engine_name": "none",
       "quality_preset": "balanced",
       "text_consistency": true,
       "chunk_length_s": 60,
@@ -27,7 +27,7 @@
       "default_language": null
     },
     "translation_model": {
-      "engine_name": "m2m100",
+      "engine_name": "none",
       "quality_preset": "balanced",
       "max_new_tokens": 256,
       "chunk_max_chars": 1200
@@ -42,11 +42,11 @@
     "url_audio_ext": "m4a",
     "url_keep_video": false,
     "url_video_ext": "mp4",
-    "translate_after_transcription": true
+    "translate_after_transcription": false
   },
   "translation": {
     "source_language": "auto",
-    "target_language": "en"
+    "target_language": "auto"
   },
   "downloader": {
     "min_video_height": 144,
@@ -54,7 +54,7 @@
   },
   "network": {
     "retries": 3,
-    "max_bandwidth_kbps": 0,
+    "max_bandwidth_kbps": null,
     "concurrent_fragments": 2,
     "http_timeout_s": 30
   }

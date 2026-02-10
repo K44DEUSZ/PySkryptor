@@ -1,6 +1,4 @@
 # view/views/live_panel.py
-
-
 from __future__ import annotations
 
 from typing import Optional, Dict, Any, List
@@ -527,6 +525,28 @@ class LivePanel(QtWidgets.QWidget):
                 w.setEnabled(False)
 
             self._set_status(tr("status.no_devices"))
+            return
+
+        # ASR engine disabled/missing: lock the tab (similar to the no-device case).
+        if self.pipe is None:
+            self.btn_refresh_devices.setEnabled(True)
+
+            for w in (
+                self.cmb_device,
+                self.mode_transcribe,
+                self.mode_translate,
+                self.cmb_src_lang,
+                self.cmb_tgt_lang,
+                self.chk_show_source,
+                self.btn_start,
+                self.btn_pause,
+                self.btn_stop,
+                self.btn_save,
+                self.btn_clear,
+            ):
+                w.setEnabled(False)
+
+            self._set_status(tr("live.model.unavailable"))
             return
 
         can_config = self._can_change_settings()

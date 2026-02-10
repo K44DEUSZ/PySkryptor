@@ -503,6 +503,25 @@ class FilesPanel(QtWidgets.QWidget):
         self._sync_options_ui()
         self._update_buttons()
 
+    def showEvent(self, e: QtGui.QShowEvent) -> None:
+        super().showEvent(e)
+        # Settings can change while this tab is hidden. Refresh UI on show.
+        try:
+            self._refresh_mode_badge()
+            self._update_buttons()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _disabled_value() -> str:
+        # Reuse localized "Translation: disabled" value for consistency (extract part after ':').
+        s = tr("files.model.translation_disabled")
+        if ":" in s:
+            return s.split(":", 1)[1].strip()
+        return s.strip() or "disabled"
+
+
+
     def _on_quick_option_changed(self, *_args) -> None:
         self._sync_options_ui()
         if getattr(self, "_opt_block_save", False):
@@ -655,36 +674,70 @@ class FilesPanel(QtWidgets.QWidget):
         return bool(eng and eng not in ("none", "off", "disabled"))
 
     def _refresh_mode_badge(self) -> None:
-        # Keep toggle state logic intact, but show model engines in the banner (not the mode).
-        tr_enabled = self._translation_enabled()
-
+        # Show engine names (or "disabled") in the left runtime widget.
         t_cfg = self._get_transcription_model_cfg()
-        asr_eng = str(t_cfg.get("engine_name", "auto") or "auto").strip()
+        asr_eng_raw = str(t_cfg.get("engine_name", "none") or "none").strip()
+        asr_eng_norm = asr_eng_raw.lower()
+
+        if self.pipe is None or asr_eng_norm in ("none", "off", "disabled", "", "null"):
+            asr_engine = self._disabled_value()
+        else:
+            asr_engine = asr_eng_raw
 
         x_cfg = self._get_translation_model_cfg()
-        tr_eng = str(x_cfg.get("engine_name", "none") or "none").strip()
+        tr_eng_raw = str(x_cfg.get("engine_name", "none") or "none").strip()
+        tr_eng_norm = tr_eng_raw.lower()
 
-        self.model_info.set_asr_text(tr("files.model.asr", engine=asr_eng))
-
-        if tr_enabled:
-            self.model_info.set_translation_text(tr("files.model.translation", engine=tr_eng))
+        if tr_eng_norm in ("none", "off", "disabled", "", "null"):
+            tr_engine = self._disabled_value()
         else:
-            self.model_info.set_translation_text(tr("files.model.translation_disabled"))
+            tr_engine = tr_eng_raw
+
+        self.model_info.set_asr_text(tr("files.model.asr", engine=asr_engine))
+        self.model_info.set_translation_text(tr("files.model.translation", engine=tr_engine))
 
     def _sync_options_ui(self) -> None:
         running = self._transcribe_thread is not None
+        model_ready = self.pipe is not None
 
         tr_enabled = self._translation_enabled()
+
+        # If transcription is unavailable, lock the whole options surface and hide selection "ghosts".
+        if not model_ready:
+            self.lbl_mode.setEnabled(False)
+            self.tg_mode.setEnabled(False)
+            self.tg_mode.set_second_enabled(False)
+            self.tg_mode.clear_selection()
+
+            self.lbl_output.setEnabled(False)
+            self.out_checks_host.setEnabled(False)
+
+            self.lbl_source_lang.setEnabled(False)
+            self.cmb_source_lang.setEnabled(False)
+            self.lbl_target_lang.setEnabled(False)
+            self.cmb_target_lang.setEnabled(False)
+
+            self.opt_download_audio_only.setEnabled(False)
+            self.chk_keep_url_audio.setEnabled(False)
+            self.cmb_audio_ext.setEnabled(False)
+            self.chk_keep_url_video.setEnabled(False)
+            self.cmb_video_ext.setEnabled(False)
+            return
+
         # While running we lock the mode selector. When translation is unavailable we only disable
-        # the second option (Transcribe + Translate) to keep UI consistent with Settings.
+        # the second option (Transcribe + Translate) to keep UI consistent with settings.
         self.tg_mode.setEnabled(not running)
         self.tg_mode.set_second_enabled(bool(tr_enabled and (not running)))
-        if not tr_enabled and not self.tg_mode.is_first_checked():
-            self.tg_mode.set_first_checked(True)
+        if not tr_enabled:
+            if not self.tg_mode.is_first_checked():
+                self.tg_mode.set_first_checked(True)
 
         translate_mode = bool(not self.tg_mode.is_first_checked()) and tr_enabled
         self.lbl_target_lang.setEnabled((not running) and translate_mode)
         self.cmb_target_lang.setEnabled((not running) and translate_mode)
+
+        self.lbl_source_lang.setEnabled(not running)
+        self.cmb_source_lang.setEnabled(not running)
 
         audio_only = bool(self.opt_download_audio_only.isChecked())
 
@@ -696,7 +749,6 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.opt_download_audio_only.setEnabled(not running)
         self.lbl_mode.setEnabled(not running)
-        self.tg_mode.setEnabled(not running)
         self.lbl_output.setEnabled(not running)
         self.out_checks_host.setEnabled(not running)
 
@@ -1606,25 +1658,33 @@ class FilesPanel(QtWidgets.QWidget):
         model_ready = self.pipe is not None
         running = self._transcribe_thread is not None
 
-        self.src_edit.setEnabled(not running)
+        self.src_edit.setEnabled((not running) and model_ready)
 
         self.btn_start.setEnabled(has_items and model_ready and not running)
         self.btn_cancel.setEnabled(running)
 
-        self.btn_clear_list.setEnabled(has_items and not running)
-        self.btn_remove_selected.setEnabled(has_sel and not running)
+        self.btn_clear_list.setEnabled(has_items and not running and model_ready)
+        self.btn_remove_selected.setEnabled(has_sel and not running and model_ready)
 
-        self.btn_src_add.setEnabled(not running)
+        self.btn_src_add.setEnabled(not running and model_ready)
         self.btn_open_output.setEnabled(True)
 
-        self.btn_add_files.setEnabled(not running)
-        self.btn_add_folder.setEnabled(not running)
+        self.btn_add_files.setEnabled(not running and model_ready)
+        self.btn_add_folder.setEnabled(not running and model_ready)
+
+        # Block drag&drop when transcription is unavailable or when running.
+        self.tbl.setEnabled(model_ready and (not running))
+        self.tbl.setAcceptDrops(bool(model_ready and (not running)))
+        if model_ready and (not running):
+            self.tbl.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
+        else:
+            self.tbl.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
 
         for r in range(self.tbl.rowCount()):
             w = self.tbl.cellWidget(r, self.COL_LANG)
             if isinstance(w, QtWidgets.QComboBox):
                 can_choose = bool(w.property("has_choices"))
-                w.setEnabled(bool(can_choose and (not running)))
+                w.setEnabled(bool(can_choose and (not running) and model_ready))
 
         self._sync_options_ui()
 
