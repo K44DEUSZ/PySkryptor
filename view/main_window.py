@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from typing import Optional, Dict, Any
 
+
 BootContext = Dict[str, Any]
 
 from PyQt5 import QtWidgets
 
-from view.utils.translating import tr
+from view.utils.localization import tr
 from view.views.files_panel import FilesPanel
 from view.views.live_panel import LivePanel
 from view.views.downloader_panel import DownloaderPanel

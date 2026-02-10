@@ -30,15 +30,6 @@ class SettingsSnapshot:
 
 
 class SettingsCatalog:
-    TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
-        {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "transcription.output_mode.plain_txt.label"},
-        {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "transcription.output_mode.txt_timestamps.label"},
-        {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "transcription.output_mode.srt.label"},
-    )
-
-    DOWNLOAD_AUDIO_EXTS: Tuple[str, ...] = ("m4a", "mp3", "wav", "flac", "ogg", "opus", "aac")
-    DOWNLOAD_VIDEO_EXTS: Tuple[str, ...] = ("mp4", "webm", "mkv", "mov")
-
     @classmethod
     def transcription_output_modes(cls) -> Tuple[Dict[str, Any], ...]:
         return Config.get_transcription_output_modes()
@@ -49,7 +40,7 @@ class SettingsCatalog:
             sorted(
                 {
                     str(m.get("ext", "")).strip().lower()
-                    for m in cls.TRANSCRIPTION_OUTPUT_MODES
+                    for m in cls.transcription_output_modes()
                     if m.get("ext")
                 }
             )

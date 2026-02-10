@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from PyQt5 import QtCore
 
 from model.services.transcription_service import TranscriptionService
-from view.utils.translating import tr
+from view.utils.localization import tr
 
 GUIEntry = Union[str, Dict[str, Any]]
 

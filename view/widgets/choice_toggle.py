@@ -91,10 +91,10 @@ class ChoiceToggle(QtWidgets.QWidget):
 
     def toggled(self, callback: Callable[[], None]) -> None:
         """Compatibility helper used in SettingsPanel."""
-
         self.changed.connect(callback)
 
     def set_checked(self, checked: bool) -> None:
+        # Binary semantics: True -> first option, False -> second option.
         self.set_first_checked(bool(checked))
 
     def is_checked(self) -> bool:
@@ -109,10 +109,18 @@ class ChoiceToggle(QtWidgets.QWidget):
             self._group.setExclusive(True)
 
     def set_first_checked(self, checked: bool) -> None:
-        self._btn_first.setChecked(bool(checked))
+        # In an exclusive group we shouldn't try to "uncheck" the last checked button.
+        # Instead, interpret False as selecting the other option.
+        if bool(checked):
+            self._btn_first.setChecked(True)
+        else:
+            self._btn_second.setChecked(True)
 
     def set_second_checked(self, checked: bool) -> None:
-        self._btn_second.setChecked(bool(checked))
+        if bool(checked):
+            self._btn_second.setChecked(True)
+        else:
+            self._btn_first.setChecked(True)
 
     def is_first_checked(self) -> bool:
         return bool(self._btn_first.isChecked())

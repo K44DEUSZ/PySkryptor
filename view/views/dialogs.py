@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Tuple, Optional, List
 from PyQt5 import QtCore, QtWidgets
 
-from view.utils.translating import Translator as T
+from view.utils.localization import Translator as T
 
 
 BASE_H = 24

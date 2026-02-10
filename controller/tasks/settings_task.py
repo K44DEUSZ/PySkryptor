@@ -1,13 +1,4 @@
 # controller/tasks/settings_task.py
-
-"""controller/tasks/settings_task.py
-
-Background worker for loading/saving application settings.
-
-Note: `from __future__ import annotations` must be the first import (after this docstring),
-otherwise Python raises a SyntaxError.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,7 +8,7 @@ from PyQt5 import QtCore
 
 from model.config.app_config import AppConfig as Config
 from model.services.settings_service import SettingsService, SettingsError
-from view.utils.translating import tr
+from view.utils.localization import tr
 
 
 class SettingsWorker(QtCore.QObject):
@@ -47,6 +38,9 @@ class SettingsWorker(QtCore.QObject):
             else:
                 msg = tr("error.config.unknown_action", action=self._action)
                 self.error.emit(tr("error.config.generic", detail=msg))
+        except Exception as ex:
+            # Defensive: prevent silent UI fallbacks when an unexpected error occurs.
+            self.error.emit(tr("error.config.generic", detail=str(ex)))
         finally:
             self.finished.emit()
 
@@ -61,6 +55,19 @@ class SettingsWorker(QtCore.QObject):
             "downloader": dict(snap.downloader),
             "network": dict(snap.network),
         }
+
+    @staticmethod
+    def _deep_merge(base: Any, patch: Any) -> Any:
+        """Recursively merge dicts without dropping untouched nested keys."""
+        if isinstance(base, dict) and isinstance(patch, dict):
+            merged: Dict[str, Any] = dict(base)
+            for k, v in patch.items():
+                if k in merged:
+                    merged[k] = SettingsWorker._deep_merge(merged[k], v)
+                else:
+                    merged[k] = v
+            return merged
+        return patch
 
     def _emit_settings_error(self, ex: SettingsError) -> None:
         try:
@@ -131,12 +138,9 @@ class SettingsWorker(QtCore.QObject):
                 base = updated.get(section, {})
                 patch = self._payload[section]
                 if isinstance(base, dict) and isinstance(patch, dict):
-                    merged = dict(base)
-                    merged.update(patch)
-                    updated[section] = merged
+                    updated[section] = self._deep_merge(base, patch)
                 else:
                     updated[section] = patch
-
 
             tmp_path = settings_path.with_suffix(settings_path.suffix + ".tmp")
             try:

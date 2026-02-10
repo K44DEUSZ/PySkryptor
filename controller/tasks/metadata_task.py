@@ -8,8 +8,8 @@ from PyQt5 import QtCore
 
 from model.services.media_metadata import MediaMetadataService
 from view.utils.concurrency import CancellationToken
-from model.io.text import is_url
-from view.utils.translating import tr
+from model.services.media_metadata import is_url_source
+from view.utils.localization import tr
 
 GUIEntry = Union[str, Dict[str, Any]]
 
@@ -57,7 +57,7 @@ class MetadataWorker(QtCore.QObject):
                     value, ty = self._normalize_entry(raw)
 
                     # URLs (or things that look like URLs) → use DownloadService via MediaMetadataService
-                    if ty == "url" or is_url(value):
+                    if ty == "url" or is_url_source(value):
                         self.progress_log.emit(tr("down.log.analyze"))
                         if self._is_cancelled():
                             self.progress_log.emit(tr("log.cancelled"))

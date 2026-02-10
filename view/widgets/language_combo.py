@@ -7,7 +7,7 @@ from typing import Callable, List, Optional, Tuple
 from PyQt5 import QtCore, QtWidgets
 
 from model.services.settings_service import SettingsCatalog
-from view.utils.translating import Translator
+from view.utils.localization import Translator
 
 
 @dataclass(frozen=True)

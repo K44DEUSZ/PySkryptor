@@ -10,7 +10,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from model.config.app_config import AppConfig as Config
 from model.services.app_logging_service import AppLoggingService
 from model.services.settings_service import SettingsService, SettingsError
-from view.utils.translating import Translator
+from view.utils.localization import Translator
 from view.views.dialogs import (
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,

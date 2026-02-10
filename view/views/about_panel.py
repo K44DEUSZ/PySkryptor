@@ -7,7 +7,7 @@ from typing import Optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from model.config.app_config import AppConfig as Config
-from view.utils.translating import tr
+from view.utils.localization import tr
 
 
 class AboutPanel(QtWidgets.QWidget):

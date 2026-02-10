@@ -1,7 +1,10 @@
 # view/views/live_panel.py
+
+
 from __future__ import annotations
 
 from typing import Optional, Dict, Any, List
+
 
 BootContext = Dict[str, Any]
 
@@ -10,7 +13,7 @@ from PyQt5 import QtWidgets, QtCore
 from model.config.app_config import AppConfig as Config
 from model.io.file_manager import FileManager
 
-from view.utils.translating import tr, Translator
+from view.utils.localization import tr, Translator
 from controller.platform.microphone import list_input_device_names
 from view.views.dialogs import show_no_microphone_dialog
 from controller.tasks.live_transcription_task import LiveTranscriptionWorker
@@ -48,6 +51,8 @@ class LivePanel(QtWidgets.QWidget):
         self._live_thread: Optional[QtCore.QThread] = None
         self._live_worker: Optional[LiveTranscriptionWorker] = None
 
+        # Model loading is handled during app boot (StartupWorker). Keep this attribute
+        # for UI state checks only (no model-loader thread is used in this panel).
         self._model_thread: Optional[QtCore.QThread] = None
 
         self._state: str = self.STATE_STOPPED
@@ -63,7 +68,9 @@ class LivePanel(QtWidgets.QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(10)
 
+        # =========================
         # Settings section
+        # =========================
         settings_box = QtWidgets.QGroupBox(tr("live.group.settings"))
         s_lay = QtWidgets.QGridLayout(settings_box)
         s_lay.setHorizontalSpacing(12)
@@ -128,7 +135,9 @@ class LivePanel(QtWidgets.QWidget):
         s_lay.addWidget(self.chk_show_source, row, 4)
         row += 1
 
+        # =========================
         # Controls + Spectrum section (one common block)
+        # =========================
         controls_box = QtWidgets.QGroupBox(tr("live.group.controls"))
         c_lay = QtWidgets.QVBoxLayout(controls_box)
         c_lay.setContentsMargins(12, 12, 12, 12)
@@ -206,7 +215,9 @@ class LivePanel(QtWidgets.QWidget):
 
         c_lay.addWidget(save_clear_outer)
 
+        # =========================
         # Output
+        # =========================
         self.txt_out = QtWidgets.QTextEdit()
         self.txt_out.setReadOnly(True)
         self.txt_out.setPlaceholderText(tr("live.placeholder.source"))

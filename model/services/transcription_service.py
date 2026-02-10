@@ -14,7 +14,8 @@ import numpy as np
 from model.config.app_config import AppConfig as Config
 from model.io.audio_extractor import AudioExtractor
 from model.io.file_manager import FileManager
-from model.io.text import TextPostprocessor, is_url, sanitize_filename
+from model.io.text import TextPostprocessor, sanitize_filename
+from model.services.media_metadata import is_url_source
 from model.services.conflict_service import ConflictService
 from model.services.download_service import DownloadCancelled, DownloadError, DownloadService
 from model.services.model_loader import ModelLoader
@@ -239,13 +240,13 @@ class TranscriptionService:
                         k = str(e).strip()
                         if not k:
                             return
-                        tracker.register(k, has_download=is_url(k), has_translate=has_translate)
+                        tracker.register(k, has_download=is_url_source(k), has_translate=has_translate)
                         return
                     if isinstance(e, dict):
                         k = str(e.get("url") or e.get("link") or e.get("value") or e.get("path") or "").strip()
                         if not k:
                             return
-                        tracker.register(k, has_download=is_url(k), has_translate=has_translate)
+                        tracker.register(k, has_download=is_url_source(k), has_translate=has_translate)
                         return
                 except Exception:
                     return
@@ -495,12 +496,12 @@ class TranscriptionService:
                     tracker.set_stage(key, "save", 100)
                     _emit_global()
 
-                    is_url_source = path in downloaded
+                    from_url_source = path in downloaded
 
                     # Keep intermediate file (replacement behavior):
                     # - URL sources: keep downloaded media (audio or video)
                     # - local sources: keep processed audio WAV used for ASR
-                    if keep_intermediate_files and is_url_source:
+                    if keep_intermediate_files and from_url_source:
                         try:
                             ext = str(path.suffix or "").lower()
                             video_exts = {
@@ -524,7 +525,7 @@ class TranscriptionService:
                             had_errors = True
                             log(translate("log.worker_error", detail=str(e)))
 
-                    if keep_intermediate_files and (not is_url_source) and wav_path is not None:
+                    if keep_intermediate_files and (not from_url_source) and wav_path is not None:
                         try:
                             self._persist_wav_asset(
                                 stem=stem,
@@ -706,7 +707,7 @@ class TranscriptionService:
             raw = entry.strip()
             if not raw:
                 return []
-            if is_url(raw):
+            if is_url_source(raw):
                 return self._materialize_url(
                     url=raw,
                     meta={},
@@ -767,7 +768,7 @@ class TranscriptionService:
 
             raw = str(entry.get("value") or "").strip()
             if raw:
-                if is_url(raw):
+                if is_url_source(raw):
                     return self._materialize_url(
                         url=raw,
                         meta=meta,

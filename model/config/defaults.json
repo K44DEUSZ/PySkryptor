@@ -16,37 +16,37 @@
     "allow_tf32": false,
     "low_cpu_mem_usage": true
   },
+  "model": {
+    "transcription_model": {
+      "engine_name": "whisper-turbo",
+      "quality_preset": "balanced",
+      "text_consistency": true,
+      "chunk_length_s": 60,
+      "stride_length_s": 5,
+      "ignore_warning": false,
+      "default_language": null
+    },
+    "translation_model": {
+      "engine_name": "m2m100",
+      "quality_preset": "balanced",
+      "max_new_tokens": 256,
+      "chunk_max_chars": 1200
+    }
+  },
   "transcription": {
+    "output_formats": [
+      "txt"
+    ],
     "download_audio_only": true,
     "url_keep_audio": false,
     "url_audio_ext": "m4a",
     "url_keep_video": false,
     "url_video_ext": "mp4",
-    "translate_after_transcription": false,
-    "output_formats": [
-      "txt"
-    ]
+    "translate_after_transcription": false
   },
   "translation": {
     "source_language": "auto",
     "target_language": "auto"
-  },
-  "model": {
-    "transcription_model": {
-      "engine_name": "none",
-      "quality_preset": "balanced",
-      "text_consistency": true,
-      "chunk_length_s": 60,
-      "stride_length_s": 5,
-      "ignore_warning": false
-    },
-    "translation_model": {
-      "engine_name": "none",
-      "dtype": "auto",
-      "quality_preset": "balanced",
-      "max_new_tokens": 256,
-      "chunk_max_chars": 1200
-    }
   },
   "downloader": {
     "min_video_height": 144,

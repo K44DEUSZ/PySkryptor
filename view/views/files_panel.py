@@ -10,8 +10,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from model.config.app_config import AppConfig as Config
 from model.services.settings_service import SettingsCatalog
-from model.io.text import is_url
-from view.utils.translating import tr, Translator
+from model.services.media_metadata import is_url_source
+from view.utils.localization import tr, Translator
 from view.widgets.language_combo import LanguageCombo
 from view.widgets.choice_toggle import ChoiceToggle
 from view.widgets.model_runtime_widget import ModelRuntimeWidget
@@ -297,23 +297,25 @@ class FilesPanel(QtWidgets.QWidget):
             self.chk_keep_url_audio.setChecked(bool(tcfg.get("url_keep_audio", False)))
             self.chk_keep_url_video.setChecked(bool(tcfg.get("url_keep_video", False)))
 
-            aext = str(tcfg.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip(".")
-            vext = str(tcfg.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip(".")
-            self._set_combo_data(self.cmb_audio_ext, aext)
-            self._set_combo_data(self.cmb_video_ext, vext)
+            aext_raw = tcfg.get("url_audio_ext")
+            if aext_raw:
+                aext = str(aext_raw).strip().lower().lstrip(".")
+                if aext in Config.AUDIO_EXTS:
+                    self._set_combo_data(self.cmb_audio_ext, aext)
+
+            vext_raw = tcfg.get("url_video_ext")
+            if vext_raw:
+                vext = str(vext_raw).strip().lower().lstrip(".")
+                if vext in Config.VIDEO_EXTS:
+                    self._set_combo_data(self.cmb_video_ext, vext)
+
+            translate_after = bool(tcfg.get("translate_after_transcription", False))
+            self.tg_mode.set_first_checked(not translate_after)
 
             tr_mdl = self._get_translation_model_cfg()
             tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
             tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
             self.tg_mode.set_second_enabled(tr_enabled)
-
-            translate_after = bool(tcfg.get("translate_after_transcription", False))
-            # ChoiceToggle keeps the last checked button when exclusive, so we must explicitly
-            # select the second option instead of unchecking the first.
-            if translate_after and tr_enabled:
-                self.tg_mode.set_second_checked(True)
-            else:
-                self.tg_mode.set_first_checked(True)
 
             trcfg = self._get_translation_cfg()
             self.cmb_target_lang.set_code(str(trcfg.get("target_language", "auto") or "auto"))
@@ -964,7 +966,7 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         try:
-            if is_url(target):
+            if is_url_source(target):
                 if "://" not in target:
                     target = "https://" + target
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl(target))
@@ -994,7 +996,7 @@ class FilesPanel(QtWidgets.QWidget):
             if not key:
                 continue
 
-            if is_url(key):
+            if is_url_source(key):
                 payload: Dict[str, Any] = {"type": "url", "value": key}
                 lang = self._audio_lang_by_key.get(key)
                 if lang:
@@ -1084,7 +1086,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         entries = []
         for k in keys:
-            entries.append({"type": ("url" if is_url(k) else "file"), "value": k})
+            entries.append({"type": ("url" if is_url_source(k) else "file"), "value": k})
 
         self._meta_thread = QtCore.QThread(self)
         self._meta_worker = MetadataWorker(entries)
@@ -1120,7 +1122,7 @@ class FilesPanel(QtWidgets.QWidget):
         if not key:
             return
 
-        if is_url(key):
+        if is_url_source(key):
             if not self._try_add_key(key):
                 return
             self._insert_placeholder_row(key, src_label="URL")

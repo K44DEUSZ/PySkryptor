@@ -8,6 +8,15 @@ from typing import Any, Dict, List, Optional
 from model.io.audio_extractor import AudioExtractor
 from model.services.download_service import DownloadService
 
+import re
+
+_URL_RE = re.compile(r"^(?:https?://|ftp://)", re.IGNORECASE)
+
+
+def is_url_source(value: str) -> bool:
+    """Return True if value looks like an URL."""
+    return bool(value) and bool(_URL_RE.match(value.strip()))
+
 
 @dataclass
 class MediaMetadata:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PyQt5 import QtCore, QtWidgets
 
-from view.utils.translating import tr
+from view.utils.localization import tr
 
 
 class LoadingScreenWidget(QtWidgets.QWidget):

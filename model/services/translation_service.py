@@ -13,7 +13,7 @@ import torch
 
 from model.config.app_config import AppConfig as Config
 from model.constants.m2m100_languages import m2m100_language_codes
-from view.utils.translating import tr
+from view.utils.localization import tr
 
 LogFn = Callable[[str], None]
 
@@ -24,6 +24,16 @@ def _norm(code: str) -> str:
 
 def _supported() -> Set[str]:
     return set(m2m100_language_codes())
+
+
+def _dtype_name(dtype: object) -> str:
+    if dtype is torch.float16:
+        return "float16"
+    if dtype is torch.bfloat16:
+        return "bfloat16"
+    if dtype is torch.float32:
+        return "float32"
+    return "auto"
 
 
 @dataclass
@@ -63,7 +73,6 @@ class TranslationService:
         src = _norm(src_lang)
         tgt = _norm(tgt_lang)
 
-
         if not tgt or tgt == "auto":
             tgt = "en"
             if log:
@@ -87,10 +96,14 @@ class TranslationService:
         if not use_local:
             raise RuntimeError(f"error.model.translation_missing||{model_path}")
         model_ref = str(model_path)
-        dtype_name = str(mdl.get("dtype", "auto") or "auto").strip().lower()
-        local_files_only = True
+
+        # Unified precision: translation follows the global engine precision (Config.DTYPE).
+        dtype_name = _dtype_name(getattr(Config, "DTYPE", torch.float32))
+        device_str = str(getattr(Config, "DEVICE", torch.device("cpu")))
+
         engine_cfg = snap.engine if isinstance(snap.engine, dict) else {}
         low_cpu_mem_usage = bool(engine_cfg.get("low_cpu_mem_usage", True))
+
         max_new_tokens = int(mdl.get("max_new_tokens", 256))
         chunk_max_chars = int(mdl.get("chunk_max_chars", 1200))
         quality_preset = str(mdl.get("quality_preset", "balanced") or "balanced").strip().lower()
@@ -101,6 +114,7 @@ class TranslationService:
             "src": src,
             "tgt": tgt,
             "model_ref": model_ref,
+            "device": device_str,
             "dtype": dtype_name,
             "low_cpu_mem_usage": low_cpu_mem_usage,
             "max_new_tokens": max_new_tokens,
@@ -187,6 +201,7 @@ class TranslationService:
             raise RuntimeError("no response from worker")
         return json.loads(out)
 
+
 # --------------------------------------------------------------------------------------
 # Worker entrypoint
 # --------------------------------------------------------------------------------------
@@ -230,6 +245,16 @@ def _chunk_text(text: str, *, max_chars: int) -> List[str]:
     return parts
 
 
+def _resolve_device(device_str: str) -> torch.device:
+    wanted = str(device_str or "cpu").strip().lower()
+    if wanted.startswith("cuda") and torch.cuda.is_available():
+        try:
+            return torch.device(device_str)
+        except Exception:
+            return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
     if str(device).startswith("cpu"):
         return torch.float32
@@ -240,19 +265,20 @@ def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
         return torch.bfloat16
     if name in ("float32", "fp32"):
         return torch.float32
-    return getattr(Config, "DTYPE", torch.float16)
+    return torch.float16
 
 
 def _load_m2m100(
     *,
     model_ref: str,
+    device_str: str,
     dtype_name: str,
     local_files_only: bool,
     low_cpu_mem_usage: bool,
 ) -> _LoadedM2M100:
     from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer  # type: ignore
 
-    device = getattr(Config, "DEVICE", torch.device("cpu"))
+    device = _resolve_device(device_str)
     dtype = _resolve_dtype(dtype_name, device)
 
     tok = M2M100Tokenizer.from_pretrained(model_ref, local_files_only=local_files_only)
@@ -284,8 +310,8 @@ def _worker_handle(req: Dict) -> Dict:
             src = "en"
 
         model_ref = str(req.get("model_ref") or "facebook/m2m100_418M").strip()
+        device_str = str(req.get("device") or "cpu").strip()
         dtype_name = str(req.get("dtype") or "auto").strip().lower()
-        local_files_only = True
         low_cpu_mem_usage = bool(req.get("low_cpu_mem_usage", True))
         max_new_tokens = int(req.get("max_new_tokens", 256))
         chunk_max_chars = int(req.get("chunk_max_chars", 1200))
@@ -294,11 +320,12 @@ def _worker_handle(req: Dict) -> Dict:
         if preset not in ("fast", "balanced", "accurate"):
             preset = "balanced"
 
-        key = (model_ref, dtype_name, low_cpu_mem_usage)
+        key = (model_ref, device_str, dtype_name, low_cpu_mem_usage)
         loaded = _WORKER_STATE.get(key)
         if loaded is None:
             loaded = _load_m2m100(
                 model_ref=model_ref,
+                device_str=device_str,
                 dtype_name=dtype_name,
                 local_files_only=True,
                 low_cpu_mem_usage=low_cpu_mem_usage,

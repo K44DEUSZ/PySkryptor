@@ -6,15 +6,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import torch
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from controller.tasks.settings_task import SettingsWorker
 from model.config.app_config import AppConfig as Config
-from model.services.settings_service import SettingsCatalog
-from view.utils.translating import tr, list_locales
+from view.utils.localization import tr, list_locales
 from view.views import dialogs
-from view.widgets.language_combo import LanguageCombo
 from view.widgets.choice_toggle import ChoiceToggle
 
 
@@ -826,13 +823,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_tr_max_tokens.setValue(int(x_model.get("max_new_tokens", 256)))
         self.sp_tr_chunk_chars.setValue(int(x_model.get("chunk_max_chars", 1200)))
 
-        self.sp_min_height.setValue(int(dl.get("min_video_height", 144)))
-        self.sp_max_height.setValue(int(dl.get("max_video_height", 4320)))
+        self.sp_min_height.setValue(int(dl.get("min_video_height", Config.VIDEO_MIN_HEIGHT)))
+        self.sp_max_height.setValue(int(dl.get("max_video_height", Config.VIDEO_MAX_HEIGHT)))
 
-        self.sp_retries.setValue(int(net.get("retries", 3)))
-        self.sp_bandwidth.setValue(int(net.get("max_bandwidth_kbps", 0) or 0))
-        self.sp_fragments.setValue(int(net.get("concurrent_fragments", 2)))
-        self.sp_timeout.setValue(int(net.get("http_timeout_s", 30)))
+        self.sp_retries.setValue(int(net.get("retries", Config.NET_RETRIES)))
+        bw = net.get("max_bandwidth_kbps", Config.NET_MAX_KBPS)
+        self.sp_bandwidth.setValue(int(bw or 0))
+        self.sp_fragments.setValue(int(net.get("concurrent_fragments", Config.NET_CONC_FRAG)))
+        self.sp_timeout.setValue(int(net.get("http_timeout_s", Config.NET_TIMEOUT_S)))
 
         self._refresh_auto_option_labels()
 
@@ -954,7 +952,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         # Preferred device "Auto" hint.
         try:
-            auto_dev = "cuda" if torch.cuda.is_available() else "cpu"
+            auto_dev = Config.auto_device_key()
             resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
             idx_auto = self.cb_engine_device.findData("auto")
             if idx_auto >= 0:
@@ -964,7 +962,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         # Precision "Auto" hint.
         try:
-            auto_prec = "float16" if torch.cuda.is_available() else "float32"
+            auto_prec = Config.auto_precision_key()
             resolved_prec = self._short_label(
                 tr("settings.engine.precision.float16") if auto_prec == "float16" else tr(
                     "settings.engine.precision.float32")
@@ -1016,21 +1014,10 @@ class SettingsPanel(QtWidgets.QWidget):
             self.cb_tr_engine.blockSignals(False)
 
     def _refresh_runtime_capabilities(self) -> None:
-        has_cuda = bool(torch.cuda.is_available())
-        bf16_supported = False
-        tf32_supported = False
-        try:
-            if has_cuda and hasattr(torch.cuda, "is_bf16_supported"):
-                bf16_supported = bool(torch.cuda.is_bf16_supported())
-        except Exception:
-            bf16_supported = False
-
-        try:
-            if has_cuda:
-                cap = torch.cuda.get_device_capability()
-                tf32_supported = bool(cap and cap[0] >= 8)
-        except Exception:
-            tf32_supported = False
+        caps = Config.runtime_capabilities()
+        has_cuda = bool(caps.get("has_cuda", False))
+        bf16_supported = bool(caps.get("bf16_supported", False))
+        tf32_supported = bool(caps.get("tf32_supported", False))
 
         # Device: GPU option
         idx_cuda = self.cb_engine_device.findData("cuda")

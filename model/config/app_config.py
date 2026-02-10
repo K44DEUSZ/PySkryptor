@@ -443,3 +443,42 @@ class AppConfig:
                     pass
         except Exception as exc:
             raise ConfigError(str(exc)) from exc
+    @classmethod
+    def has_cuda(cls) -> bool:
+        try:
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    @classmethod
+    def auto_device_key(cls) -> str:
+        return "cuda" if cls.has_cuda() else "cpu"
+
+    @classmethod
+    def auto_precision_key(cls) -> str:
+        return "float16" if cls.has_cuda() else "float32"
+
+    @classmethod
+    def runtime_capabilities(cls) -> Dict[str, bool]:
+        has_cuda = cls.has_cuda()
+        bf16_supported = False
+        tf32_supported = False
+
+        if has_cuda:
+            try:
+                if hasattr(torch.cuda, "is_bf16_supported"):
+                    bf16_supported = bool(torch.cuda.is_bf16_supported())
+            except Exception:
+                bf16_supported = False
+
+            try:
+                cap = torch.cuda.get_device_capability()
+                tf32_supported = bool(cap and cap[0] >= 8)
+            except Exception:
+                tf32_supported = False
+
+        return {
+            "has_cuda": has_cuda,
+            "bf16_supported": bf16_supported,
+            "tf32_supported": tf32_supported,
+        }

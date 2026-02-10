@@ -8,7 +8,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 
 from model.config.app_config import AppConfig as Config
 from model.io.text import format_bytes, format_hms
-from view.utils.translating import tr
+from view.utils.localization import tr
 from view.utils.gui_log import QtHtmlLogSink
 from view.views.dialogs import ask_download_duplicate, ask_open_downloads_folder, info_playlist_not_supported
 from controller.tasks.download_task import DownloadWorker

@@ -9,7 +9,6 @@ from typing import Optional, Any, Dict, List
 
 
 __all__ = [
-    "is_url",
     "sanitize_filename",
     "format_bytes",
     "format_hms",
@@ -17,12 +16,6 @@ __all__ = [
     "TextPostprocessor",
 ]
 
-_URL_RE = re.compile(r"^(?:https?://|ftp://)", re.IGNORECASE)
-
-
-def is_url(value: str) -> bool:
-    """Return True if value looks like an URL."""
-    return bool(value) and bool(_URL_RE.match(value.strip()))
 
 
 def sanitize_filename(name: str, max_len: int = 120) -> str:

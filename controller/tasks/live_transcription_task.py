@@ -17,7 +17,7 @@ from controller.platform.microphone import (
     ensure_supported_format,
     format_is_pcm16_mono_16k,
 )
-from view.utils.translating import tr
+from view.utils.localization import tr
 
 
 class _Cancelled(RuntimeError):
