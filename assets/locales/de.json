@@ -1,0 +1,553 @@
+{
+  "meta": {
+    "locale": "de",
+    "name": "Deutsch"
+  },
+  "about": {
+    "app": {
+      "description": "<b>{name}</b> ({years})<br/>Version: {version}<br/>Autor: {author}"
+    },
+    "license": {
+      "full_link": "Der vollständige Lizenztext befindet sich in der mit der Anwendung gelieferten Datei <a href=\"license\">LICENSE</a>.",
+      "missing": "Die Datei LICENSE wurde nicht gefunden.",
+      "open_failed": "Die Datei LICENSE konnte nicht geöffnet werden.",
+      "summary": "Dieses Programm ist freie Software und wird unter der GNU General Public License Version 3 (GPL-3.0) verbreitet."
+    },
+    "logo": {
+      "placeholder": "PySkryptor"
+    },
+    "section": {
+      "license": "Lizenz 📄"
+    }
+  },
+  "action": {
+    "cancel_now": "Jetzt abbrechen ✖️",
+    "keep_working": "Weiterarbeiten ✅"
+  },
+  "common": {
+    "auto": "Auto",
+    "loading": "Lädt...",
+    "na": "k.A.",
+    "no": "Nein",
+    "yes": "Ja",
+    "edit_menu": {
+      "undo": "Rückgängig",
+      "redo": "Wiederholen",
+      "cut": "Ausschneiden",
+      "copy": "Kopieren",
+      "paste": "Einfügen",
+      "delete": "Löschen",
+      "select_all": "Alles auswählen"
+    },
+    "field": {
+      "mode": "Modus",
+      "source_language": "Quellsprache",
+      "target_language": "Zielsprache"
+    }
+  },
+  "ctrl": {
+    "add": "Hinzufügen",
+    "cancel": "Abbrechen ✖️",
+    "exit": "Beenden",
+    "ok": "OK",
+    "start": "Start ▶️"
+  },
+  "dialog": {
+    "availability": {
+      "downloader_offline": {
+        "text": "Keine Netzwerkverbindung. Der Downloader ist im Offline-Modus nicht verfügbar."
+      },
+      "files_only_url_offline": {
+        "text": "Keine Netzwerkverbindung. Zurzeit können nur lokale Quellen verarbeitet werden. Alle URL-Quellen wurden übersprungen."
+      },
+      "files_url_offline": {
+        "text": "Keine Netzwerkverbindung. URL-Quellen können im Offline-Modus nicht hinzugefügt werden."
+      },
+      "network_offline": {
+        "header": "Offline",
+        "title": "Netzwerk nicht verfügbar"
+      }
+    },
+    "cancel_confirm": "❓ Möchtest du den aktuellen Vorgang abbrechen?",
+    "conflict": {
+      "apply_all": "Diese Entscheidung auf alle Konflikte anwenden",
+      "new_name": "Unter neuem Namen speichern:",
+      "overwrite": "Vorhandenes Transkript überschreiben ♻️",
+      "skip": "Dieses Element überspringen ⏭️",
+      "text": "Ein Transkript mit dem Namen „{name}” ist bereits vorhanden.\nWas möchtest du tun?",
+      "title": "⚠️ Transkript ist bereits vorhanden"
+    },
+    "critical": {
+      "application_error": {
+        "title": "Anwendungsfehler"
+      },
+      "config_load_failed": {
+        "text": "Die Konfiguration konnte nicht geladen werden.\n\nDetails: {detail}"
+      },
+      "defaults_missing": {
+        "text": "Die Datei mit den Standardeinstellungen fehlt oder ist ungültig. Die Anwendung kann nicht gestartet werden."
+      },
+      "locales_missing": {
+        "text": "Die Sprachdateien fehlen oder sind ungültig. Die Anwendung kann nicht gestartet werden."
+      },
+      "localization_error": {
+        "title": "Lokalisierungsfehler"
+      },
+      "pyskryptor_error": {
+        "title": "PySkryptor-Fehler"
+      }
+    },
+    "error": {
+      "details_hidden": "Details nicht verfügbar",
+      "header": "Fehler",
+      "title": "Fehler",
+      "unexpected": "Unerwarteter Fehler: {msg}"
+    },
+    "info": {
+      "cancelled": "Vorgang abgebrochen.",
+      "done": "Fertig.",
+      "downloaded_prefix": "Heruntergeladene Datei:",
+      "header": "Info",
+      "source_missing": "Die ausgewählte Quelle existiert nicht mehr.",
+      "title": "Information"
+    },
+    "restart_required": {
+      "later": "Später",
+      "restart": "Neu starten 🔁",
+      "text": "Einige Einstellungsänderungen erfordern einen Neustart der Anwendung.\n\nJetzt neu starten?",
+      "title": "Neustart erforderlich"
+    },
+    "settings_restore_confirm": "♻️ Standardeinstellungen wiederherstellen?\n\nDadurch werden die aktuellen Einstellungen überschrieben.",
+    "settings_save_confirm": "💾 Möchtest du die Änderungen an den Einstellungen speichern?"
+  },
+  "down": {
+    "dialog": {
+      "exists": {
+        "apply_all": "Diese Entscheidung auf alle Downloads anwenden",
+        "overwrite": "Überschreiben ♻️",
+        "rename": "Unter neuem Namen speichern ✏️",
+        "skip": "Überspringen ⏭️",
+        "text": "Die Datei „{title}“ existiert bereits im Download-Ordner.\nWas möchtest du tun?"
+      },
+      "playlist_not_supported": {
+        "text": "Dieser Link verweist auf eine Playlist (oder ein in einem Playlist-Kontext geöffnetes Video).\nPlaylists werden in dieser Version nicht unterstützt."
+      }
+    },
+    "meta": {
+      "channel": "Kanal",
+      "date": "Veröffentlichungsdatum",
+      "description": "Beschreibung",
+      "duration": "Dauer",
+      "likes": "Likes",
+      "name": "Titel",
+      "service": "Dienst",
+      "size": "Geschätzte Größe",
+      "thumb_placeholder": "Keine Vorschau",
+      "views": "Aufrufe"
+    },
+    "open_folder": "Download-Ordner öffnen 📂",
+    "open_in_browser": "Im Browser öffnen 🌐",
+    "queue": {
+      "formats": "Formate",
+      "outputs": "Ausgaben",
+      "quality": "Qualität"
+    },
+    "select": {
+      "audio_track": {
+        "default": "Standardspur"
+      },
+      "formats": {
+        "placeholder": "Formate auswählen..."
+      },
+      "outputs": {
+        "placeholder": "Ausgaben auswählen..."
+      },
+      "type": {
+        "audio": "Audio",
+        "video": "Video"
+      }
+    },
+    "status": {
+      "done": "Fertig",
+      "downloading": "Wird heruntergeladen...",
+      "error": "Fehler",
+      "offline": "Offline",
+      "postprocessing": "Nachbearbeitung...",
+      "probing": "Analyse...",
+      "queued": "In der Warteschlange"
+    },
+    "url": {
+      "placeholder": "Medien-URL hier einfügen..."
+    }
+  },
+  "error": {
+    "audio": {
+      "ffmpeg_failed": "❌ Die Audio-Konvertierung für „{src}” ist fehlgeschlagen. Details: {detail}",
+      "ffprobe_failed": "❌ Die Audioanalyse ist fehlgeschlagen. Befehl: {cmd}"
+    },
+    "cancelled": "Vorgang abgebrochen.",
+    "config": {
+      "unknown_action": "⚠️ Unbekannte Aktion „{action}”."
+    },
+    "down": {
+      "download_failed": "❌ Download fehlgeschlagen. Details: {detail}",
+      "network_dns_failed": "❌ Der Hostname konnte nicht aufgelöst werden.",
+      "network_offline": "❌ Keine Netzwerkverbindung.",
+      "network_timeout": "❌ Zeitüberschreitung beim Verbinden mit der Quelle.",
+      "network_unreachable": "❌ Das Netzwerk ist nicht erreichbar.",
+      "probe_failed": "❌ Die Medien konnten nicht analysiert werden. Details: {detail}"
+    },
+    "external_tool_failed": "❌ Externes Werkzeug fehlgeschlagen. Befehl: {cmd}",
+    "external_tool_timeout": "❌ Externes Werkzeug hat nach {seconds} s das Zeitlimit überschritten.",
+    "generic": "Fehler: {detail}",
+    "i18n": {
+      "locale_invalid": "⚠️ Die Sprachdatei „{path}” ist ungültig. Details: {detail}",
+      "locale_not_found": "⚠️ Die Sprache „{lang}” wurde in „{path}” nicht gefunden."
+    },
+    "input": {
+      "file_not_found": "⚠️ Datei nicht gefunden: {path}"
+    },
+    "live": {
+      "audio_input_start_failed": "❌ Die Audioeingabe konnte nicht gestartet werden.",
+      "failed": "❌ Live-Transkription fehlgeschlagen. Details: {detail}",
+      "microphone_format_unsupported": "⚠️ Das Format des ausgewählten Mikrofons wird nicht unterstützt."
+    },
+    "media_probe": {
+      "failed": "❌ Die Medienmetadaten konnten nicht gelesen werden. Details: {detail}"
+    },
+    "model": {
+      "not_installed": "⚠️ Das Modell ist nicht installiert.",
+      "transcription_missing": "⚠️ Das Transkriptionsmodell ist nicht installiert.",
+      "translation_missing": "⚠️ Das Übersetzungsmodell ist nicht installiert."
+    },
+    "runtime": {
+      "settings_not_initialized": "⚠️ Die Einstellungen sind nicht initialisiert."
+    },
+    "settings": {
+      "defaults_missing": "⚠️ Die Standarddatei fehlt: {path}",
+      "json_invalid": "⚠️ Die Konfigurationsdatei „{path}” enthält ungültiges JSON. Details: {detail}",
+      "section_invalid": "⚠️ Der Einstellungsabschnitt „{section}” ist ungültig.",
+      "settings_invalid": "⚠️ Die Einstellungsdatei „{path}” ist ungültig. Details: {detail}",
+      "settings_missing": "⚠️ Die Einstellungsdatei fehlt: {path}"
+    },
+    "startup": {
+      "failed": "❌ Der Start der Anwendung ist fehlgeschlagen. Details: {detail}"
+    },
+    "transcription": {
+      "asr_failed": "❌ Die Transkription ist fehlgeschlagen.",
+      "empty_result": "⚠️ Die Transkription hat ein leeres Ergebnis geliefert.",
+      "language_detection_failed": "⚠️ Die Spracherkennung ist fehlgeschlagen.",
+      "language_detection_unsupported": "⚠️ Die Spracherkennung wird vom ausgewählten Modell nicht unterstützt.",
+      "save_failed": "❌ Das Transkript „{name}” konnte nicht gespeichert werden. Details: {detail}",
+      "timestamps_unsupported": "⚠️ Zeitmarken werden vom gewählten Ausgabemodus nicht unterstützt."
+    },
+    "translation": {
+      "empty_result": "⚠️ Die Übersetzung hat ein leeres Ergebnis geliefert.",
+      "language_catalog_unavailable": "⚠️ Der Sprachkatalog für die Übersetzung ist nicht verfügbar.",
+      "missing_source_language": "⚠️ Für die Übersetzung muss eine Quellsprache angegeben werden.",
+      "no_response_from_worker": "❌ Keine Antwort vom Übersetzungs-Worker.",
+      "unsupported_source": "⚠️ Nicht unterstützte Quellsprache: {lang}",
+      "unsupported_target": "⚠️ Nicht unterstützte Zielsprache: {lang}",
+      "worker_error": "❌ Fehler im Übersetzungs-Worker. Details: {detail}",
+      "worker_not_running": "⚠️ Der Übersetzungs-Worker läuft nicht.",
+      "worker_ping_failed": "⚠️ Der Ping zum Übersetzungs-Worker ist fehlgeschlagen.",
+      "worker_protocol_error": "❌ Protokollfehler im Übersetzungs-Worker. Details: {detail}",
+      "worker_start_failed": "❌ Der Übersetzungs-Worker konnte nicht gestartet werden. Details: {detail}"
+    },
+    "type": {
+      "enum": "⚠️ Das Feld „{field}” hat einen ungültigen Wert „{value}”. Zulässig: {allowed}",
+      "int": "⚠️ Das Feld „{field}” muss eine Ganzzahl sein."
+    }
+  },
+  "files": {
+    "add_files": "Dateien hinzufügen... 📁",
+    "add_folder": "Ordner hinzufügen... 📂",
+    "clear": "Liste leeren 🧹",
+    "details": {
+      "col": {
+        "duration": "Dauer",
+        "language": "Sprache",
+        "name": "Name",
+        "path": "Pfad",
+        "preview": "Vorschau",
+        "source": "Quelle",
+        "status": "Status"
+      },
+      "filters": {
+        "audio_video": "Audio / Video"
+      }
+    },
+    "open_output": "Transkript-Ordner öffnen 📂",
+    "options": {
+      "help": {
+        "download_audio_only": "Wenn aktiviert, wird von der URL nur die Audiospur heruntergeladen (schneller und kleiner).",
+        "keep_audio": "Speichert eine Audiodatei neben dem Transkript (kopiert oder aus der Quelle extrahiert).",
+        "keep_video": "Speichert die heruntergeladene Videodatei neben dem Transkript (nur wenn „Nur Audio herunterladen” deaktiviert ist)."
+      },
+      "mode": {
+        "transcribe": "Transkribieren",
+        "transcribe_translate": "Transkribieren und übersetzen"
+      },
+      "output_format": {
+        "label": "Ausgabeformat"
+      },
+      "temp": {
+        "download_audio_only": "Nur Audio herunterladen (URL-Quellen)",
+        "keep_audio": "Heruntergeladenes Audio behalten (URL)",
+        "keep_video": "Heruntergeladenes Video behalten (URL)"
+      }
+    },
+    "placeholder": "Dateipfad oder URL hier einfügen...",
+    "preview": {
+      "open_folder": "Ordner öffnen"
+    },
+    "remove_selected": "Ausgewählte entfernen 🗑️",
+    "runtime": {
+      "asr_label": "Transkriptions-Engine",
+      "device_label": "Gerät",
+      "network_checking": "Wird geprüft...",
+      "network_label": "Netzwerkstatus",
+      "network_offline": "Offline",
+      "network_online": "Online",
+      "status_disabled": "Deaktiviert",
+      "status_label": "Status",
+      "status_loading": "Wird geladen...",
+      "status_missing": "Nicht installiert",
+      "status_ready": "Bereit",
+      "translation_label": "Übersetzungs-Engine",
+      "value_disabled": "Deaktiviert"
+    },
+    "source": {
+      "local": "Lokal",
+      "url": "URL"
+    }
+  },
+  "lang": {
+    "special": {
+      "auto_detect": "Automatische Erkennung",
+      "default_ui": "Standard (App-Sprache)"
+    }
+  },
+  "live": {
+    "ctrl": {
+      "clear": "Löschen",
+      "pause": "Pause ⏸️",
+      "refresh": "Geräte aktualisieren",
+      "save_transcript": "Speichern 💾",
+      "start": "Start ▶️",
+      "stop": "Stopp ⏹️"
+    },
+    "detected_language": "Erkannte Sprache: {lang}",
+    "device": {
+      "label": "Eingabegerät",
+      "none": "Keine Eingabegeräte"
+    },
+    "dialog": {
+      "no_devices": {
+        "text": "Es wurden keine Audioeingabegeräte erkannt.\nSchließe ein Mikrofon an und versuche es erneut (Geräte aktualisieren).",
+        "title": "Kein Mikrofon"
+      }
+    },
+    "model": {
+      "unavailable": "Modell nicht verfügbar"
+    },
+    "placeholder": {
+      "source": "Die Live-Transkription wird hier angezeigt...",
+      "target": "Die Live-Übersetzung wird hier angezeigt..."
+    },
+    "preset": {
+      "balanced": "Ausgewogen",
+      "high_context": "Hoher Kontext",
+      "label": "Voreinstellung",
+      "low_latency": "Niedrige Latenz"
+    },
+    "save": {
+      "file_filter": "Textdateien (*.txt);;Alle Dateien (*.*)"
+    }
+  },
+  "loading": {
+    "stage": {
+      "dirs": "Ordner werden vorbereitet…",
+      "ffmpeg": "FFmpeg wird geprüft…",
+      "init": "Initialisierung…",
+      "start": "Startet...",
+      "transcription_model": "Transkriptionsmodell wird geladen",
+      "translation_model": "Übersetzungsmodell wird geladen"
+    }
+  },
+  "settings": {
+    "advanced": {
+      "toggle": "Erweiterte Einstellungen anzeigen"
+    },
+    "app": {
+      "language": {
+        "label": "Sprache"
+      },
+      "logging": {
+        "enabled": "Protokolle in Datei speichern",
+        "level": {
+          "debug": "Debug",
+          "debug_tip": "Debug: detailed technical information (larger files).",
+          "error": "Fehler",
+          "error_tip": "Fehler: Probleme, die den Abschluss einer Aktion verhindern.",
+          "info": "Info",
+          "info_tip": "Standardprotokolle: Status, Fortschritt und nicht-kritische Ereignisse.",
+          "warning": "Warnung",
+          "warning_tip": "Warnungen: mögliche Probleme und behebbare Störungen."
+        },
+        "level_label": "Protokollstufe",
+        "open_folder": "Protokollordner öffnen"
+      },
+      "theme": {
+        "dark": "Dunkel",
+        "label": "Thema",
+        "light": "Hell"
+      }
+    },
+    "buttons": {
+      "restore_defaults": "Standardwerte wiederherstellen ♻️",
+      "save": "Speichern 💾",
+      "undo": "Rückgängig"
+    },
+    "downloader": {
+      "max_video_height": "Maximale Videohöhe (px)",
+      "min_video_height": "Minimale Videohöhe (px)"
+    },
+    "engine": {
+      "allow_tf32": "TF32 auf der GPU zulassen",
+      "device": {
+        "auto": "Auto",
+        "cpu": "CPU",
+        "gpu": "GPU",
+        "label": "Bevorzugtes Gerät"
+      },
+      "low_cpu_mem_usage": "RAM sparen (Modellladen)",
+      "precision": {
+        "auto": "Auto",
+        "auto_tip": "Die Engine wählt die beste Präzision für dein Gerät.",
+        "bfloat16": "bfloat16 (BF16-fähige GPU)",
+        "bfloat16_tip": "Schnell und stabil auf unterstützten GPUs, guter Kompromiss.",
+        "float16": "Float16 (schneller, weniger Speicher)",
+        "float16_tip": "Schneller auf der GPU, geringerer Speicherverbrauch, eventuell leicht geringere Genauigkeit.",
+        "float32": "Float32 (beste Qualität)",
+        "float32_tip": "Höchste Kompatibilität, langsamer, benötigt mehr Speicher.",
+        "label": "Rechenpräzision"
+      }
+    },
+    "help": {
+      "chunk_length": "Audiolänge der Pipeline-Chunks (Sekunden). Größere Werte können schneller sein, benötigen aber mehr Speicher.",
+      "concurrent_fragments": "Parallele Fragment-Downloads. Höhere Werte können schneller sein, belasten aber die Verbindung stärker.",
+      "device": "Wähle das Gerät für die KI-Inferenz.",
+      "http_timeout_s": "Netzwerk-Timeout für Downloads (Sekunden).",
+      "ignore_warning": "Wenn aktiviert, werden leere Ergebnisse akzeptiert. Das kann bei Stille, sehr leisem Audio oder einer nicht unterstützten Sprache vorkommen.",
+      "logging_enabled": "Aktiviert oder deaktiviert das Schreiben von Protokollen in Dateien.",
+      "logging_level": "Legt fest, wie viele Informationen in die Protokolle geschrieben werden.",
+      "low_cpu_mem_usage": "Reduziert den RAM-Verbrauch beim Laden von Modellen. Kann langsamer sein und mehr Festplatten-I/O verursachen.",
+      "max_bandwidth_kbps": "Begrenzt die Download-Geschwindigkeit. 0 deaktiviert das Limit.",
+      "max_video_height": "Download: obere Begrenzung der Videoauflösung.",
+      "min_video_height": "Download: untere Begrenzung der Videoauflösung.",
+      "precision_hint": "Steuert die numerische Präzision. Niedrigere Präzision kann die Inferenz beschleunigen und den Speicherverbrauch senken; die Verfügbarkeit hängt vom Gerät ab.",
+      "retries": "Wie oft fehlgeschlagene HTTP-Anfragen wiederholt werden.",
+      "stride_length": "Überlappung der Chunks (Sekunden). Mehr Überlappung verbessert die Kontinuität, erhöht aber die Last.",
+      "text_consistency": "Verwendet vorherige Segmente als Kontext, um Namen, Begriffe und Stil konsistent zu halten. Kann frühere Fehler in weitere Segmente forttragen.",
+      "tf32": "NVIDIA Ampere+ (und neuer): beschleunigt FP32-Matrixoperationen mit geringem Verlust an numerischer Präzision.",
+      "theme": "Wähle das Oberflächenthema.",
+      "trans_quality": "Steuert den Dekodieraufwand. Höhere Qualität ist langsamer, kann aber Erkennungsfehler reduzieren.",
+      "transcription_engine": "Wähle das Modell für die Sprach-zu-Text-Transkription.",
+      "translation_chunk_max_chars": "Teilt lange Texte vor der Übersetzung in Blöcke. Kleinere Blöcke sind sicherer, können aber die Kohärenz zwischen Sätzen verringern.",
+      "translation_engine": "Wähle das Modell für die Übersetzung von Text.",
+      "translation_max_new_tokens": "Begrenzt die maximale Länge des generierten Textes. Erhöhe den Wert, wenn Übersetzungen abgeschnitten werden; höhere Werte können langsamer sein.",
+      "translation_quality": "Steuert die Dekodierparameter des Übersetzungsmodells. Höhere Qualität ist langsamer, kann aber die Sprachflüssigkeit verbessern.",
+      "ui_language": "Wähle die Sprache der Benutzeroberfläche."
+    },
+    "msg": {
+      "saved": "✅ Einstellungen wurden gespeichert."
+    },
+    "network": {
+      "concurrent_fragments": "Parallele Fragmente",
+      "http_timeout_s": "HTTP-Timeout (s)",
+      "max_bandwidth_kbps": "Max. Bandbreite (kbps)",
+      "retries": "HTTP-Wiederholungen"
+    },
+    "quality": {
+      "accurate": "Genau",
+      "accurate_tip": "Am langsamsten, höchster Dekodieraufwand.",
+      "balanced": "Ausgewogen",
+      "balanced_tip": "Guter Kompromiss zwischen Geschwindigkeit und Qualität.",
+      "fast": "Schnell",
+      "fast_tip": "Am schnellsten, geringerer Dekodieraufwand."
+    },
+    "section": {
+      "app": "Anwendung 🖥️",
+      "download": "Download & Netzwerk 🌐",
+      "engine": "Engine ⚙️",
+      "transcription": "Transkription 🎙️",
+      "translation": "Übersetzung 🌍"
+    },
+    "transcription": {
+      "chunk_length_s": "Chunk-Länge (s)",
+      "ignore_warning": "Nicht-kritische Warnungen ignorieren",
+      "model": "Transkriptions-Engine",
+      "quality_label": "Qualitätsvorgabe",
+      "stride_length_s": "Stride-Länge (s)",
+      "text_consistency": "Verbesserte Textkonsistenz"
+    },
+    "translation": {
+      "chunk_max_chars": "Max. Zeichen pro Chunk",
+      "engine": {
+        "disabled": "Deaktiviert",
+        "label": "Übersetzungs-Engine"
+      },
+      "max_new_tokens": "Max. neue Tokens",
+      "quality": {
+        "label": "Qualitätsvorgabe"
+      }
+    }
+  },
+  "status": {
+    "done": "✅ Fertig",
+    "downloading": "⬇️ Wird heruntergeladen...",
+    "error": "❌ Fehler",
+    "idle": "⏸️ Leerlauf",
+    "initializing": "🧠 Initialisierung...",
+    "listening": "🎧 Hört zu…",
+    "no_devices": "🎤❌ Kein Mikrofon",
+    "notice": {
+      "metadata_incomplete": "Metadaten unvollständig"
+    },
+    "offline": "Offline",
+    "paused": "⏸️ Pausiert",
+    "postprocessing": "🛠️ Nachbearbeitung...",
+    "probing": "🔎 Analyse...",
+    "processing": "⚙️ Verarbeitung...",
+    "queued": "🕒 In der Warteschlange",
+    "saved": "💾 Gespeichert",
+    "saving": "💾 Speichern...",
+    "skipped": "⏭️ Übersprungen",
+    "stopped": "⏹️ Gestoppt",
+    "transcribing": "🎙️ Transkription...",
+    "translating": "🌍 Übersetzung..."
+  },
+  "tabs": {
+    "about": "Über",
+    "downloader": "Downloader",
+    "files": "Dateien",
+    "live": "Live",
+    "settings": "Einstellungen"
+  },
+  "transcription": {
+    "output_mode": {
+      "plain_txt": {
+        "label": "Text (.txt)"
+      },
+      "srt": {
+        "label": "SubRip-Untertitel (.srt)"
+      },
+      "txt_timestamps": {
+        "label": "Text + Zeitmarken (.txt)"
+      }
+    },
+    "url_audio_ext": "Audioformat",
+    "url_video_ext": "Videoformat"
+  }
+}

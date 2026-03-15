@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FilesPanel</class>
+ <widget class="QWidget" name="FilesPanel">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1260</width><height>820</height></rect>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>8</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <property name="spacing"><number>8</number></property>
+   <item>
+    <widget class="QWidget" name="topSectionHost">
+     <layout class="QGridLayout" name="topGrid">
+      <property name="horizontalSpacing"><number>8</number></property>
+      <property name="verticalSpacing"><number>8</number></property>
+      <item row="0" column="0" colspan="3">
+       <widget class="QLineEdit" name="FilesSourceInput">
+        <property name="placeholderText"><string>Dodaj plik, folder lub link do transkrypcji</string></property>
+       </widget>
+      </item>
+      <item row="0" column="3">
+       <widget class="QWidget" name="topButtonsHost">
+        <layout class="QHBoxLayout" name="topButtonsLayout">
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <property name="spacing"><number>8</number></property>
+         <item><widget class="QPushButton" name="FilesAddSource"><property name="text"><string>Dodaj</string></property></widget></item>
+         <item><widget class="QPushButton" name="FilesOpenOutput"><property name="text"><string>Otwórz folder wyjściowy</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="0"><widget class="QPushButton" name="btn_add_files"><property name="text"><string>Dodaj pliki</string></property></widget></item>
+      <item row="1" column="1"><widget class="QPushButton" name="btn_add_folder"><property name="text"><string>Dodaj folder</string></property></widget></item>
+      <item row="1" column="2"><widget class="QPushButton" name="btn_remove_selected"><property name="text"><string>Usuń zaznaczone</string></property></widget></item>
+      <item row="1" column="3"><widget class="QPushButton" name="btn_clear_list"><property name="text"><string>Wyczyść listę</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="FilesDetailsGroup">
+     <property name="title"><string>Szczegóły źródeł</string></property>
+     <layout class="QVBoxLayout" name="detailsLayout">
+      <item>
+       <widget class="QTableWidget" name="SourcesTable">
+        <column><property name="text"><string/></property></column>
+        <column><property name="text"><string>#</string></property></column>
+        <column><property name="text"><string>Nazwa</string></property></column>
+        <column><property name="text"><string>Czas trwania</string></property></column>
+        <column><property name="text"><string>Źródło</string></property></column>
+        <column><property name="text"><string>Język</string></property></column>
+        <column><property name="text"><string>Ścieżka</string></property></column>
+        <column><property name="text"><string>Status</string></property></column>
+        <column><property name="text"><string>Podgląd</string></property></column>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="FilesActionBar">
+     <layout class="QHBoxLayout" name="filesActionBarLayout">
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <property name="spacing"><number>8</number></property>
+      <item><widget class="QProgressBar" name="progress"><property name="value"><number>0</number></property></widget></item>
+      <item><widget class="QPushButton" name="btn_primary"><property name="text"><string>Start</string></property></widget></item>
+      <item><widget class="QPushButton" name="btn_secondary"><property name="text"><string>Anuluj</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="mainRowHost">
+     <layout class="QHBoxLayout" name="mainRowLayout">
+      <property name="spacing"><number>8</number></property>
+      <item>
+       <widget class="QGroupBox" name="ModelSection">
+        <property name="title"><string>Runtime modeli</string></property>
+        <layout class="QVBoxLayout" name="modelSectionLayout">
+         <item>
+          <widget class="QFrame" name="RuntimeBadgeWidget">
+           <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+           <layout class="QVBoxLayout" name="runtimeBadgePlaceholderLayout">
+            <item><widget class="QLabel" name="runtimeBadgePlaceholder"><property name="text"><string>Placeholder komponentu RuntimeBadgeWidget</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+         <item><spacer name="modelSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="QuickOptions">
+        <property name="title"><string>Szybkie opcje</string></property>
+        <layout class="QGridLayout" name="quickOptionsLayout">
+         <property name="horizontalSpacing"><number>10</number></property>
+         <property name="verticalSpacing"><number>10</number></property>
+         <item row="0" column="0">
+          <widget class="QGroupBox" name="modeHost">
+           <property name="title"><string>Tryb</string></property>
+           <layout class="QVBoxLayout" name="modeLayout">
+            <item><widget class="QWidget" name="tg_mode_placeholder"><layout class="QHBoxLayout" name="tg_mode_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="ChoiceToggleFirst"><property name="text"><string>Transkrypcja</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="ChoiceToggleSecond"><property name="text"><string>Transkrypcja + tłumaczenie</string></property><property name="checkable"><bool>true</bool></property></widget></item></layout></widget></item>
+           </layout>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QGroupBox" name="outHost">
+           <property name="title"><string>Format wyjścia</string></property>
+           <layout class="QVBoxLayout" name="outLayout">
+            <item><widget class="QCheckBox" name="out_txt"><property name="text"><string>TXT</string></property></widget></item>
+            <item><widget class="QCheckBox" name="out_srt"><property name="text"><string>SRT</string></property></widget></item>
+            <item><widget class="QCheckBox" name="out_json"><property name="text"><string>JSON</string></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+         <item row="1" column="0"><widget class="QGroupBox" name="sourceHost"><property name="title"><string>Język źródłowy</string></property><layout class="QVBoxLayout" name="sourceLayout"><item><widget class="QComboBox" name="cmb_source_lang"/></item></layout></widget></item>
+         <item row="1" column="1"><widget class="QGroupBox" name="targetHost"><property name="title"><string>Język docelowy</string></property><layout class="QVBoxLayout" name="targetLayout"><item><widget class="QComboBox" name="cmb_target_lang"/></item></layout></widget></item>
+         <item row="2" column="0" colspan="2">
+          <widget class="QGroupBox" name="tmpHost">
+           <property name="title"><string>Opcje pobierania tymczasowego</string></property>
+           <layout class="QGridLayout" name="tmpGrid">
+            <property name="horizontalSpacing"><number>8</number></property>
+            <property name="verticalSpacing"><number>6</number></property>
+            <item row="0" column="0" colspan="2"><widget class="QCheckBox" name="opt_download_audio_only"><property name="text"><string>Pobieraj tylko audio dla URL</string></property></widget></item>
+            <item row="1" column="0">
+             <widget class="QWidget" name="audioRow">
+              <layout class="QHBoxLayout" name="audioRowLayout">
+               <property name="leftMargin"><number>0</number></property>
+               <property name="topMargin"><number>0</number></property>
+               <property name="rightMargin"><number>0</number></property>
+               <property name="bottomMargin"><number>0</number></property>
+               <item><widget class="QCheckBox" name="chk_keep_url_audio"><property name="text"><string>Zachowaj audio</string></property></widget></item>
+               <item><widget class="QComboBox" name="cmb_audio_ext"/></item>
+              </layout>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QWidget" name="videoRow">
+              <layout class="QHBoxLayout" name="videoRowLayout">
+               <property name="leftMargin"><number>0</number></property>
+               <property name="topMargin"><number>0</number></property>
+               <property name="rightMargin"><number>0</number></property>
+               <property name="bottomMargin"><number>0</number></property>
+               <item><widget class="QCheckBox" name="chk_keep_url_video"><property name="text"><string>Zachowaj wideo</string></property></widget></item>
+               <item><widget class="QComboBox" name="cmb_video_ext"/></item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,14 +1,22 @@
 {
+  "meta": {
+    "locale": "en",
+    "name": "English"
+  },
   "about": {
     "app": {
       "description": "<b>{name}</b> ({years})<br/>Version: {version}<br/>Author: {author}"
     },
     "license": {
       "full_link": "Full license text is available in <a href=\"license\">LICENSE</a> shipped with the application.",
+      "missing": "LICENSE file not found.",
+      "open_failed": "Could not open the LICENSE file.",
       "summary": "This program is free software distributed under the GNU General Public License version 3 (GPL-3.0)."
     },
+    "logo": {
+      "placeholder": "PySkryptor"
+    },
     "section": {
-      "app": "About ℹ️",
       "license": "License 📄"
     }
   },
@@ -16,27 +24,50 @@
     "cancel_now": "Cancel now ✖️",
     "keep_working": "Keep working ✅"
   },
-  "app": {
-    "title": "PySkryptor: Transcription Assistant 🎧"
-  },
-  "assets": {
-    "file": {
-      "audio": "Audio",
-      "transcript": "Transcript",
-      "video": "Video"
-    }
-  },
   "common": {
     "auto": "Auto",
+    "loading": "Loading...",
+    "na": "N/A",
     "no": "No",
-    "yes": "Yes"
+    "yes": "Yes",
+    "edit_menu": {
+      "undo": "Undo",
+      "redo": "Redo",
+      "cut": "Cut",
+      "copy": "Copy",
+      "paste": "Paste",
+      "delete": "Delete",
+      "select_all": "Select all"
+    },
+    "field": {
+      "mode": "Mode",
+      "source_language": "Source language",
+      "target_language": "Target language"
+    }
   },
   "ctrl": {
+    "add": "Add",
     "cancel": "Cancel ✖️",
+    "exit": "Exit",
     "ok": "OK",
     "start": "Start ▶️"
   },
   "dialog": {
+    "availability": {
+      "downloader_offline": {
+        "text": "No network connection. Downloader is unavailable while offline."
+      },
+      "files_only_url_offline": {
+        "text": "No network connection. Only local sources can be processed right now. All queued URL sources were skipped."
+      },
+      "files_url_offline": {
+        "text": "No network connection. URL sources cannot be added while offline."
+      },
+      "network_offline": {
+        "header": "Offline",
+        "title": "Network unavailable"
+      }
+    },
     "cancel_confirm": "❓ Do you want to cancel the current operation?",
     "conflict": {
       "apply_all": "Apply this decision to all conflicts",
@@ -66,6 +97,20 @@
         "title": "PySkryptor Error"
       }
     },
+    "error": {
+      "details_hidden": "details unavailable",
+      "header": "Error",
+      "title": "Error",
+      "unexpected": "Unexpected error: {msg}"
+    },
+    "info": {
+      "cancelled": "Operation cancelled.",
+      "done": "Done.",
+      "downloaded_prefix": "Downloaded file:",
+      "header": "Info",
+      "source_missing": "The selected source no longer exists.",
+      "title": "Information"
+    },
     "restart_required": {
       "later": "Later",
       "restart": "Restart 🔁",
@@ -73,20 +118,12 @@
       "title": "Restart required"
     },
     "settings_restore_confirm": "♻️ Restore default settings?\n\nThis will overwrite current settings.",
-    "settings_restored": "✅ Settings file not found. Defaults restored.",
-    "settings_save_confirm": "💾 Do you want to save settings changes?",
-    "info": {
-      "title": "Information",
-      "header": "Info"
-    },
-    "error": {
-      "title": "Error",
-      "header": "Error"
-    }
+    "settings_save_confirm": "💾 Do you want to save settings changes?"
   },
   "down": {
     "dialog": {
       "exists": {
+        "apply_all": "Apply this decision to all downloads",
         "overwrite": "Overwrite ♻️",
         "rename": "Save with new name ✏️",
         "skip": "Skip ⏭️",
@@ -96,41 +133,48 @@
         "text": "This link points to a playlist (or a video opened in playlist context).\nPlaylists are not supported in this version."
       }
     },
-    "download": "Download ⬇️",
-    "log": {
-      "analyze": "🔍 Analyzing media...",
-      "downloaded_prefix": "✅ Downloaded file:",
-      "downloading": "⬇️ Downloading...",
-      "error": "⚠️ {msg}",
-      "meta_ready": "✅ Metadata loaded.",
-      "playlist_not_supported": "Playlists are not supported in this version."
-    },
     "meta": {
+      "channel": "Channel",
+      "date": "Upload date",
+      "description": "Description",
       "duration": "Duration",
+      "likes": "Likes",
       "name": "Title",
       "service": "Service",
       "size": "Estimated size",
-      "title": "Media info"
+      "thumb_placeholder": "No preview",
+      "views": "Views"
     },
     "open_folder": "Open downloads folder 📂",
     "open_in_browser": "Open in browser 🌐",
-    "probe": "Analyze 🔍",
+    "queue": {
+      "formats": "Formats",
+      "outputs": "Outputs",
+      "quality": "Quality"
+    },
     "select": {
       "audio_track": {
-        "default": "Default track",
-        "label": "Audio track"
+        "default": "Default track"
       },
-      "ext": "Format",
-      "quality": {
-        "auto": "Auto",
-        "label": "Quality"
+      "formats": {
+        "placeholder": "Select formats..."
       },
-      "title": "Download options",
+      "outputs": {
+        "placeholder": "Select outputs..."
+      },
       "type": {
         "audio": "Audio",
-        "video": "Video",
-        "label": "Type"
+        "video": "Video"
       }
+    },
+    "status": {
+      "done": "Done",
+      "downloading": "Downloading...",
+      "error": "Error",
+      "offline": "Offline",
+      "postprocessing": "Post-processing...",
+      "probing": "Analyzing...",
+      "queued": "Queued"
     },
     "url": {
       "placeholder": "Paste media URL here..."
@@ -138,34 +182,84 @@
   },
   "error": {
     "audio": {
-      "ffmpeg_failed": "❌ Audio conversion failed for “{src}”. Details: {detail}"
+      "ffmpeg_failed": "❌ Audio conversion failed for “{src}”. Details: {detail}",
+      "ffprobe_failed": "❌ Audio analysis failed. Command: {cmd}"
     },
+    "cancelled": "Operation cancelled.",
     "config": {
-      "generic": "⚠️ Configuration error. Details: {detail}",
       "unknown_action": "⚠️ Unknown action “{action}”."
     },
     "down": {
       "download_failed": "❌ Download failed. Details: {detail}",
-      "no_output_file": "⚠️ Downloader produced no output file.",
+      "network_dns_failed": "❌ Could not resolve the host name.",
+      "network_offline": "❌ No network connection.",
+      "network_timeout": "❌ Network timeout while contacting the source.",
+      "network_unreachable": "❌ Network is unreachable.",
       "probe_failed": "❌ Failed to analyze media. Details: {detail}"
     },
+    "external_tool_failed": "❌ External tool failed. Command: {cmd}",
+    "external_tool_timeout": "❌ External tool timed out after {seconds} s.",
     "generic": "Error: {detail}",
+    "i18n": {
+      "locale_invalid": "⚠️ Locale file “{path}” is invalid. Details: {detail}",
+      "locale_not_found": "⚠️ Locale “{lang}” was not found in “{path}”."
+    },
+    "input": {
+      "file_not_found": "⚠️ File not found: {path}"
+    },
+    "live": {
+      "audio_input_start_failed": "❌ Failed to start audio input.",
+      "failed": "❌ Live transcription failed. Details: {detail}",
+      "microphone_format_unsupported": "⚠️ The selected microphone format is not supported."
+    },
+    "media_probe": {
+      "failed": "❌ Failed to read media metadata. Details: {detail}"
+    },
+    "model": {
+      "not_installed": "⚠️ Model is not installed.",
+      "transcription_missing": "⚠️ Transcription model is not installed.",
+      "translation_missing": "⚠️ Translation model is not installed."
+    },
+    "runtime": {
+      "settings_not_initialized": "⚠️ Settings are not initialized."
+    },
     "settings": {
       "defaults_missing": "⚠️ Missing defaults file: {path}",
       "json_invalid": "⚠️ Config file “{path}” contains invalid JSON. Details: {detail}",
-      "missing_keys": "⚠️ Settings section “{section}” is missing required keys: {keys}",
       "section_invalid": "⚠️ Settings section “{section}” is invalid.",
       "settings_invalid": "⚠️ Settings file “{path}” is invalid. Details: {detail}",
       "settings_missing": "⚠️ Missing settings file: {path}"
     },
+    "startup": {
+      "failed": "❌ Application startup failed. Details: {detail}"
+    },
+    "transcription": {
+      "asr_failed": "❌ Transcription failed.",
+      "empty_result": "⚠️ Transcription returned an empty result.",
+      "language_detection_failed": "⚠️ Language detection failed.",
+      "language_detection_unsupported": "⚠️ Language detection is not supported by the selected model.",
+      "save_failed": "❌ Failed to save transcript “{name}”. Details: {detail}",
+      "timestamps_unsupported": "⚠️ Timestamps are not supported by the selected output mode."
+    },
+    "translation": {
+      "empty_result": "⚠️ Translation returned an empty result.",
+      "language_catalog_unavailable": "⚠️ Translation language catalog is unavailable.",
+      "missing_source_language": "⚠️ Source language is required for translation.",
+      "no_response_from_worker": "❌ No response from the translation worker.",
+      "unsupported_source": "⚠️ Unsupported source language: {lang}",
+      "unsupported_target": "⚠️ Unsupported target language: {lang}",
+      "worker_error": "❌ Translation worker error. Details: {detail}",
+      "worker_not_running": "⚠️ Translation worker is not running.",
+      "worker_ping_failed": "⚠️ Translation worker ping failed.",
+      "worker_protocol_error": "❌ Translation worker protocol error. Details: {detail}",
+      "worker_start_failed": "❌ Failed to start translation worker. Details: {detail}"
+    },
     "type": {
-      "enum_invalid": "⚠️ Field “{field}” has invalid value “{value}”. Allowed: {allowed}",
-      "int": "⚠️ Field “{field}” must be an integer.",
-      "string_nonempty": "⚠️ Field “{field}” must be a non-empty string."
+      "enum": "⚠️ Field “{field}” has invalid value “{value}”. Allowed: {allowed}",
+      "int": "⚠️ Field “{field}” must be an integer."
     }
   },
   "files": {
-    "add": "Add",
     "add_files": "Add files... 📁",
     "add_folder": "Add folder... 📂",
     "clear": "Clear list 🧹",
@@ -175,93 +269,78 @@
         "language": "Language",
         "name": "Name",
         "path": "Path",
+        "preview": "Preview",
         "source": "Source",
-        "status": "Status",
-        "preview": "Preview"
+        "status": "Status"
       },
       "filters": {
         "audio_video": "Audio / video"
-      },
-      "title": "Sources"
+      }
     },
     "open_output": "Open transcripts folder 📂",
     "options": {
       "help": {
         "download_audio_only": "If enabled, only an audio track will be downloaded from the URL (faster and smaller).",
         "keep_audio": "Saves an audio file next to the transcript (copied or extracted from the source).",
-        "keep_video": "Saves the downloaded video file next to the transcript (only when \"Download audio only\" is off).",
-        "keep_wav": "Saves the processed WAV used for transcription next to the transcript."
+        "keep_video": "Saves the downloaded video file next to the transcript (only when \"Download audio only\" is off)."
       },
       "mode": {
-        "title": "Mode",
         "transcribe": "Transcribe",
         "transcribe_translate": "Transcribe & translate"
       },
       "output_format": {
         "label": "Output format"
       },
-      "target_language": {
-        "label": "Target language",
-        "placeholder": "Select target language…"
-      },
       "temp": {
-        "audio_ext": "Audio format",
         "download_audio_only": "Download audio only (URL sources)",
         "keep_audio": "Keep downloaded audio (URL)",
-        "keep_video": "Keep downloaded video (URL)",
-        "keep_wav": "Keep processed WAV",
-        "title": "Temporary files (URL)",
-        "video_ext": "Video format"
-      },
-      "title": "Options",
-      "source_language": {
-        "label": "Source language",
-        "placeholder": "Auto-detect"
+        "keep_video": "Keep downloaded video (URL)"
       }
     },
     "placeholder": "Paste a file path or URL here...",
-    "remove_selected": "Remove selected 🗑️",
-    "transcript": {
-      "default_name": "Transcript"
-    },
-    "model": {
-      "loading": "Loading model…",
-      "ready": "Model ready",
-      "error": "Model error",
-      "device": "Device: {device}",
-      "asr": "ASR model: {engine}",
-      "translation": "Translation model: {engine}",
-      "translation_disabled": "Translation: disabled",
-      "mode": "Mode",
-      "disabled": "Model disabled",
-      "missing": "Model not installed"
-    },
     "preview": {
       "open_folder": "Open folder"
     },
-    "mode": {
-      "note": {
-        "translate_unavailable": "Translation unavailable"
-      }
+    "remove_selected": "Remove selected 🗑️",
+    "runtime": {
+      "asr_label": "Transcription engine",
+      "device_label": "Device",
+      "network_checking": "Checking...",
+      "network_label": "Network status",
+      "network_offline": "Offline",
+      "network_online": "Online",
+      "status_disabled": "Disabled",
+      "status_label": "Status",
+      "status_loading": "Loading...",
+      "status_missing": "Not installed",
+      "status_ready": "Ready",
+      "translation_label": "Translation engine",
+      "value_disabled": "Disabled"
+    },
+    "source": {
+      "local": "Local",
+      "url": "URL"
     }
   },
-  "icon": {
-    "info": "ℹ️"
+  "lang": {
+    "special": {
+      "auto_detect": "Auto-detect",
+      "default_ui": "Default (app language)"
+    }
   },
   "live": {
     "ctrl": {
       "clear": "Clear",
       "pause": "Pause ⏸️",
-      "refresh_devices": "Refresh devices",
+      "refresh": "Refresh devices",
       "save_transcript": "Save 💾",
       "start": "Start ▶️",
       "stop": "Stop ⏹️"
     },
     "detected_language": "Detected language: {lang}",
     "device": {
-      "none": "No input devices",
-      "unavailable": "No access to audio devices",
-      "label": "Input device"
+      "label": "Input device",
+      "none": "No input devices"
     },
     "dialog": {
       "no_devices": {
@@ -269,92 +348,32 @@
         "title": "No microphone"
       }
     },
-    "group": {
-      "controls": "Controls",
-      "settings": "Settings"
-    },
-    "meter": {
-      "input": "Input level"
-    },
-    "mode": {
-      "transcribe": "Transcribe",
-      "translate": "Translate",
-      "label": "Mode"
-    },
     "model": {
-      "loading": "Loading model...",
       "unavailable": "Model unavailable"
     },
     "placeholder": {
       "source": "Live transcription will appear here...",
       "target": "Live translation will appear here..."
     },
-    "save": {
-      "default_filename": "transcript.txt",
-      "file_filter": "Text files (*.txt);;All files (*.*)",
-      "marker": {
-        "source": "--- SOURCE ---",
-        "target": "--- TARGET ---"
-      }
+    "preset": {
+      "balanced": "Balanced",
+      "high_context": "High context",
+      "label": "Preset",
+      "low_latency": "Low latency"
     },
-    "show_source": "Show source text",
-    "source_language": "Source language",
-    "target_language": "Target language"
+    "save": {
+      "file_filter": "Text files (*.txt);;All files (*.*)"
+    }
   },
   "loading": {
     "stage": {
-      "start": "Starting...",
-      "init": "Initializing…",
       "dirs": "Preparing folders…",
       "ffmpeg": "Checking FFmpeg…",
+      "init": "Initializing…",
+      "start": "Starting...",
       "transcription_model": "Loading transcription model",
       "translation_model": "Loading translation model"
-    },
-    "subtitle": "Starting application..."
-  },
-  "log": {
-    "add": {
-      "missing": "⚠️ File does not exist."
-    },
-    "cancelled": "✖️ Operation cancelled.",
-    "done": "✅ All items have been processed.",
-    "finished_with_errors": "❌ Finished with errors — check the log above.",
-    "live": {
-      "audio": {
-        "format_unsupported": "Unsupported audio format (rate={rate}, channels={channels}, bits={bits}).",
-        "no_devices": "No audio input devices found."
-      },
-      "translate": {
-        "init_failed": "Translation init failed: {detail}",
-        "model_missing": "Translation model is not configured (engine.translation_model_name)."
-      }
-    },
-    "model": {
-      "error": "❌ Failed to initialize ASR model. Details: {msg}",
-      "ready": "✅ ASR model ready on device {device}.",
-      "disabled": "ℹ️ ASR model is disabled in settings."
-    },
-    "no_items": "ℹ️ Nothing to process.",
-    "path_not_found": "⚠️ Path not found: {path}",
-    "pipe_not_ready": "⏳ Model is not ready yet.",
-    "transcript": {
-      "save_failed": "❌ Failed to save transcript for “{name}”. Details: {detail}",
-      "saved_prefix": "✅ Saved transcript:"
-    },
-    "transcription_empty": "Transcription returned an empty text.",
-    "transcription_failed": "❌ Transcription failed for “{name}”. Details: {detail}",
-    "translation": {
-      "failed": {
-        "unsupported_target_language": "❌ Translation failed: unsupported target language '{code}'",
-        "worker_error": "❌ Translation failed: {msg}",
-        "worker_protocol": "❌ Translation failed: worker communication error ({msg})",
-        "worker_start": "❌ Translation failed: worker start error ({msg})"
-      },
-      "target_defaulted": "ℹ️ Target language not set. Using '{code}'.",
-      "worker_ready": "✅ Translation worker ready (model will load on first use)."
-    },
-    "unexpected": "⚠️ Unexpected error: {msg}",
-    "worker_error": "❌ Worker internal error. Details: {detail}"
+    }
   },
   "settings": {
     "advanced": {
@@ -362,30 +381,27 @@
     },
     "app": {
       "language": {
-        "auto": "System (auto)",
         "label": "Language"
       },
       "logging": {
         "enabled": "Save logs to file",
         "level": {
           "debug": "Debug",
-          "error": "Error",
-          "info": "Info",
-          "warning": "Warning",
           "debug_tip": "Debug: detailed technical information (larger files).",
+          "error": "Error",
           "error_tip": "Errors: failures that prevent an action from completing.",
+          "info": "Info",
           "info_tip": "Standard logs: app status, progress, and non-critical events.",
+          "warning": "Warning",
           "warning_tip": "Warnings: potential issues and recoverable problems."
         },
         "level_label": "Log level",
-        "open_folder": "Open logs folder",
-        "open_folder_label": "Logs folder"
+        "open_folder": "Open logs folder"
       },
       "theme": {
-        "auto": "System (auto)",
         "dark": "Dark",
-        "light": "Light",
-        "label": "Theme"
+        "label": "Theme",
+        "light": "Light"
       }
     },
     "buttons": {
@@ -405,45 +421,31 @@
         "gpu": "GPU",
         "label": "Preferred device"
       },
+      "low_cpu_mem_usage": "Save RAM (model loading)",
       "precision": {
         "auto": "Auto",
-        "bfloat16": "bfloat16 (BF16-capable GPU)",
-        "float16": "Float16 (faster, less memory)",
-        "float32": "Float32 (best quality)",
         "auto_tip": "Let the engine pick the best precision for your device.",
+        "bfloat16": "bfloat16 (BF16-capable GPU)",
         "bfloat16_tip": "Fast and stable on supported GPUs, good compromise.",
+        "float16": "Float16 (faster, less memory)",
         "float16_tip": "Faster on GPU, lower memory usage, may reduce accuracy slightly.",
+        "float32": "Float32 (best quality)",
         "float32_tip": "Highest compatibility, slower, uses more memory.",
         "label": "Compute precision"
-      },
-      "translation": {
-        "m2m100": "M2M100 (Facebook/Meta)",
-        "none": "Disabled"
-      },
-      "translation_engine": "Translation model",
-      "low_cpu_mem_usage": "Save RAM (model loading)"
+      }
     },
     "help": {
-      "advanced_toggle": "Shows additional technical settings.",
       "chunk_length": "Audio chunk length for the pipeline (seconds). Larger values can be faster but use more memory.",
       "concurrent_fragments": "Concurrent fragment downloads. Higher can be faster but stresses the connection.",
-      "default_language": "Optional hint for spoken language. Use Auto for automatic detection.",
       "device": "Choose the device used for AI inference.",
-      "download_audio_only": "When transcribing URLs, download audio only instead of full video when possible.",
       "http_timeout_s": "Network timeout for downloads (seconds).",
       "ignore_warning": "When enabled, empty results are accepted. This can happen with silence, very quiet audio, or unsupported language.",
-      "keep_wav_temp": "Keep temporary WAV files created during preprocessing (useful for debugging).",
-      "logging": {
-        "open_folder": "Open the folder where log files are stored."
-      },
       "logging_enabled": "Enable or disable writing logs to files.",
       "logging_level": "Controls how much information is written to logs.",
       "low_cpu_mem_usage": "Reduces RAM usage while loading models. Can be slower and may use more disk I/O.",
       "max_bandwidth_kbps": "Limits download speed. Set to 0 to disable the limit.",
       "max_video_height": "Download: maximum video resolution constraint.",
       "min_video_height": "Download: minimum video resolution constraint.",
-      "model_name": "Select a local model folder from “resources/models”. A restart is required to fully reload the pipeline.",
-      "output_format": "Defines file extension and whether timestamps are included.",
       "precision_hint": "Controls numeric precision. Lower precision can speed up inference and reduce memory usage; availability depends on the device.",
       "retries": "How many times to retry failed HTTP requests.",
       "stride_length": "Chunk overlap (seconds). More overlap improves continuity but increases load.",
@@ -451,42 +453,14 @@
       "tf32": "NVIDIA Ampere+ (and newer): speeds up FP32 matrix operations with a small loss of numerical precision.",
       "theme": "Choose the interface theme.",
       "trans_quality": "Controls decoding effort. Higher quality is slower but can reduce recognition errors.",
+      "transcription_engine": "Choose the model used for transcribing speech to text.",
       "translation_chunk_max_chars": "Splits long text into chunks before translation. Smaller chunks are safer but may reduce coherence between sentences.",
       "translation_engine": "Choose the model used for translating text.",
       "translation_max_new_tokens": "Limits the maximum length of generated text. Increase if translations get cut off; higher values can be slower.",
-      "translation_target_language": "Language to translate transcripts into.",
-      "ui_language": "Choose the interface language.",
-      "transcription_engine": "Choose the model used for transcribing speech to text.",
-      "translation_quality": "Controls decoding parameters for the translation model. Higher quality is slower but can improve fluency."
-    },
-    "model": {
-      "ai_engine_name": "Model name / path",
-      "asr_engine_name": "ASR model (Whisper)",
-      "chunk_length_s": "Chunk length (s)",
-      "default_language": {
-        "label": "Default language (optional)",
-        "placeholder": "auto"
-      },
-      "ignore_warning": "Ignore non-critical warnings",
-      "low_cpu_mem_usage": "Reduce RAM usage",
-      "stride_length_s": "Overlap (s)",
-      "transcription_model": {
-        "engine_name": "Transcription model (Whisper)"
-      },
-      "translation": {
-        "m2m100": "M2M100 (local)",
-        "none": "Disabled"
-      },
-      "translation_engine_name": "Translation model",
-      "translation_model": {
-        "engine_name": "Translation model"
-      },
-      "transcription": {
-        "auto": "Auto"
-      }
+      "translation_quality": "Controls decoding parameters for the translation model. Higher quality is slower but can improve fluency.",
+      "ui_language": "Choose the interface language."
     },
     "msg": {
-      "restart_failed": "❌ Failed to restart the app. Details: {detail}",
       "saved": "✅ Settings have been saved."
     },
     "network": {
@@ -495,24 +469,25 @@
       "max_bandwidth_kbps": "Max bandwidth (kbps)",
       "retries": "HTTP retries"
     },
+    "quality": {
+      "accurate": "Accurate",
+      "accurate_tip": "Slowest, highest decoding effort.",
+      "balanced": "Balanced",
+      "balanced_tip": "Good compromise between speed and quality.",
+      "fast": "Fast",
+      "fast_tip": "Fastest, lower decoding effort."
+    },
     "section": {
       "app": "Application 🖥️",
       "download": "Download & Network 🌐",
-      "downloader": "Download ⬇️",
       "engine": "Engine ⚙️",
-      "model": "Model 🧬",
-      "network": "Network 🌐",
       "transcription": "Transcription 🎙️",
       "translation": "Translation 🌍"
     },
     "transcription": {
       "chunk_length_s": "Chunk length (s)",
-      "download_audio_only": "Download audio only (URL sources)",
       "ignore_warning": "Ignore non-critical warnings",
-      "keep_wav_temp": "Keep temp WAV files",
-      "language": "Speech language",
       "model": "Transcription engine",
-      "output_format": "Output format",
       "quality_label": "Quality preset",
       "stride_length_s": "Stride length (s)",
       "text_consistency": "Enhanced text consistency"
@@ -523,21 +498,35 @@
         "disabled": "Disabled",
         "label": "Translation engine"
       },
-      "low_cpu_mem_usage": "Low CPU memory usage",
       "max_new_tokens": "Max new tokens",
-      "target_language": "Target language",
       "quality": {
         "label": "Quality preset"
       }
-    },
-    "quality": {
-      "fast": "Fast",
-      "balanced": "Balanced",
-      "accurate": "Accurate",
-      "fast_tip": "Fastest, lower decoding effort.",
-      "balanced_tip": "Good compromise between speed and quality.",
-      "accurate_tip": "Slowest, highest decoding effort."
     }
+  },
+  "status": {
+    "done": "✅ Done",
+    "downloading": "⬇️ Downloading...",
+    "error": "❌ Error",
+    "idle": "⏸️ Idle",
+    "initializing": "🧠 Initializing...",
+    "listening": "🎧 Listening…",
+    "no_devices": "🎤❌ No microphone",
+    "notice": {
+      "metadata_incomplete": "Metadata incomplete"
+    },
+    "offline": "Offline",
+    "paused": "⏸️ Paused",
+    "postprocessing": "🛠️ Post-processing...",
+    "probing": "🔎 Analyzing...",
+    "processing": "⚙️ Processing...",
+    "queued": "🕒 Queued",
+    "saved": "💾 Saved",
+    "saving": "💾 Saving...",
+    "skipped": "⏭️ Skipped",
+    "stopped": "⏹️ Stopped",
+    "transcribing": "🎙️ Transcribing...",
+    "translating": "🌍 Translating..."
   },
   "tabs": {
     "about": "About",
@@ -545,134 +534,6 @@
     "files": "Files",
     "live": "Live",
     "settings": "Settings"
-  },
-  "window": {
-    "loading": "Loading…"
-  },
-  "lang": {
-    "special": {
-      "auto_detect": "Auto-detect",
-      "default_ui": "Default (app language)"
-    },
-    "names": {
-      "af": "Afrikaans",
-      "am": "Amharic",
-      "ar": "Arabic",
-      "as": "Assamese",
-      "az": "Azerbaijani",
-      "ba": "Bashkir",
-      "be": "Belarusian",
-      "bg": "Bulgarian",
-      "bn": "Bangla",
-      "bo": "Tibetan",
-      "br": "Breton",
-      "bs": "Bosnian",
-      "ca": "Catalan",
-      "cs": "Czech",
-      "cy": "Welsh",
-      "da": "Danish",
-      "de": "German",
-      "el": "Greek",
-      "en": "English",
-      "es": "Spanish",
-      "et": "Estonian",
-      "eu": "Basque",
-      "fa": "Persian",
-      "fi": "Finnish",
-      "fo": "Faroese",
-      "fr": "French",
-      "gl": "Galician",
-      "gu": "Gujarati",
-      "ha": "Hausa",
-      "haw": "Hawaiian",
-      "he": "Hebrew",
-      "hi": "Hindi",
-      "hr": "Croatian",
-      "ht": "Haitian Creole",
-      "hu": "Hungarian",
-      "hy": "Armenian",
-      "id": "Indonesian",
-      "is": "Icelandic",
-      "it": "Italian",
-      "ja": "Japanese",
-      "jw": "Javanese",
-      "ka": "Georgian",
-      "kk": "Kazakh",
-      "km": "Khmer",
-      "kn": "Kannada",
-      "ko": "Korean",
-      "la": "Latin",
-      "lb": "Luxembourgish",
-      "ln": "Lingala",
-      "lo": "Lao",
-      "lt": "Lithuanian",
-      "lv": "Latvian",
-      "mg": "Malagasy",
-      "mi": "Māori",
-      "mk": "Macedonian",
-      "ml": "Malayalam",
-      "mn": "Mongolian",
-      "mr": "Marathi",
-      "ms": "Malay",
-      "mt": "Maltese",
-      "my": "Burmese",
-      "ne": "Nepali",
-      "nl": "Dutch",
-      "nn": "Norwegian Nynorsk",
-      "no": "Norwegian",
-      "oc": "Occitan",
-      "pa": "Punjabi",
-      "pl": "Polish",
-      "ps": "Pashto",
-      "pt": "Portuguese",
-      "ro": "Romanian",
-      "ru": "Russian",
-      "sa": "Sanskrit",
-      "sd": "Sindhi",
-      "si": "Sinhala",
-      "sk": "Slovak",
-      "sl": "Slovenian",
-      "sn": "Shona",
-      "so": "Somali",
-      "sq": "Albanian",
-      "sr": "Serbian",
-      "su": "Sundanese",
-      "sv": "Swedish",
-      "sw": "Swahili",
-      "ta": "Tamil",
-      "te": "Telugu",
-      "tg": "Tajik",
-      "th": "Thai",
-      "tk": "Turkmen",
-      "tl": "Tagalog",
-      "tr": "Turkish",
-      "tt": "Tatar",
-      "uk": "Ukrainian",
-      "ur": "Urdu",
-      "uz": "Uzbek",
-      "vi": "Vietnamese",
-      "yi": "Yiddish",
-      "yo": "Yoruba",
-      "zh": "Chinese",
-      "ast": "Asturian",
-      "ceb": "Cebuano",
-      "ff": "Fulah",
-      "fy": "Western Frisian",
-      "ga": "Irish",
-      "gd": "Scottish Gaelic",
-      "ig": "Igbo",
-      "ilo": "Iloko",
-      "jv": "Javanese",
-      "lg": "Luganda",
-      "ns": "Northern Sotho",
-      "or": "Odia",
-      "ss": "Swati",
-      "tn": "Tswana",
-      "wo": "Wolof",
-      "xh": "Xhosa",
-      "zu": "Zulu",
-      "yue": "Cantonese"
-    }
   },
   "transcription": {
     "output_mode": {
@@ -685,26 +546,8 @@
       "txt_timestamps": {
         "label": "Text + timestamps (.txt)"
       }
-    }
-  },
-  "status": {
-    "idle": "⏸️ Idle",
-    "preparing": "🧰 Preparing...",
-    "downloading": "⬇️ Downloading...",
-    "processing": "⚙️ Processing...",
-    "transcribing": "🎙️ Transcribing...",
-    "translating": "🌍 Translating...",
-    "saving": "💾 Saving...",
-    "done": "✅ Done",
-    "error": "❌ Error",
-    "listening": "🎧 Listening…",
-    "paused": "⏸️ Paused",
-    "stopped": "⏹️ Stopped",
-    "skipped": "⏭️ Skipped",
-    "no_devices": "🎤❌ No microphone"
-  },
-  "meta": {
-    "locale": "en",
-    "name": "English"
+    },
+    "url_audio_ext": "Audio format",
+    "url_video_ext": "Video format"
   }
 }

@@ -2,9 +2,10 @@
 venv/
 env/
 .idea/
-assets/ai_models/
-assets/ffmpeg/
-data/
 __pycache__/
 *.py[cod]
 *.pyo
+*.zip
+models/
+bin/
+userdata/

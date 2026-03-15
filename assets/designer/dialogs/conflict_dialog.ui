@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ConflictDialog</class>
+ <widget class="QDialog" name="ConflictDialog">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>520</width><height>320</height></rect></property>
+  <property name="windowTitle"><string>PySkryptor</string></property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing"><number>8</number></property>
+   <item><widget class="QLabel" name="titleLabel"><property name="text"><string>Konflikt istniejącego pliku</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QLabel" name="messageLabel"><property name="text"><string>Istnieje już transkrypt o tej nazwie. Wybierz działanie.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QRadioButton" name="rb_skip"><property name="text"><string>Pomiń</string></property><property name="checked"><bool>true</bool></property></widget></item>
+   <item><widget class="QRadioButton" name="rb_over"><property name="text"><string>Nadpisz</string></property></widget></item>
+   <item><widget class="QRadioButton" name="rb_new"><property name="text"><string>Zapisz pod nową nazwą</string></property></widget></item>
+   <item><widget class="QLineEdit" name="name_edit"><property name="placeholderText"><string>Nowa nazwa pliku</string></property></widget></item>
+   <item><widget class="QCheckBox" name="cb_all"><property name="text"><string>Zastosuj do wszystkich</string></property></widget></item>
+   <item><widget class="QDialogButtonBox" name="buttonBox"><property name="standardButtons"><set>QDialogButtonBox::Ok</set></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

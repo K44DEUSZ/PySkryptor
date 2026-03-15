@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1280</width><height>860</height></rect>
+  </property>
+  <property name="minimumSize">
+   <size><width>1120</width><height>760</height></size>
+  </property>
+  <property name="windowTitle">
+   <string>PySkryptor</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="centralwidgetLayout">
+    <property name="leftMargin"><number>12</number></property>
+    <property name="topMargin"><number>12</number></property>
+    <property name="rightMargin"><number>12</number></property>
+    <property name="bottomMargin"><number>12</number></property>
+    <property name="spacing"><number>8</number></property>
+    <item>
+     <widget class="QWidget" name="MainCentral">
+      <layout class="QVBoxLayout" name="MainCentralLayout">
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QTabWidget" name="MainTabs">
+         <widget class="QWidget" name="tab_files">
+          <attribute name="title"><string>Pliki</string></attribute>
+          <layout class="QVBoxLayout" name="tab_files_layout">
+           <property name="leftMargin"><number>0</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>0</number></property>
+           <property name="bottomMargin"><number>0</number></property>
+           <item><widget class="QWidget" name="filesPanelHost"/></item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_live">
+          <attribute name="title"><string>Na żywo</string></attribute>
+          <layout class="QVBoxLayout" name="tab_live_layout">
+           <property name="leftMargin"><number>0</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>0</number></property>
+           <property name="bottomMargin"><number>0</number></property>
+           <item><widget class="QWidget" name="livePanelHost"/></item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_downloader">
+          <attribute name="title"><string>Pobieranie</string></attribute>
+          <layout class="QVBoxLayout" name="tab_downloader_layout">
+           <property name="leftMargin"><number>0</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>0</number></property>
+           <property name="bottomMargin"><number>0</number></property>
+           <item><widget class="QWidget" name="downloaderPanelHost"/></item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_settings">
+          <attribute name="title"><string>Ustawienia</string></attribute>
+          <layout class="QVBoxLayout" name="tab_settings_layout">
+           <property name="leftMargin"><number>0</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>0</number></property>
+           <property name="bottomMargin"><number>0</number></property>
+           <item><widget class="QWidget" name="settingsPanelHost"/></item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_about">
+          <attribute name="title"><string>O programie</string></attribute>
+          <layout class="QVBoxLayout" name="tab_about_layout">
+           <property name="leftMargin"><number>0</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>0</number></property>
+           <property name="bottomMargin"><number>0</number></property>
+           <item><widget class="QWidget" name="aboutPanelHost"/></item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>LoadingScreenWidget</class>
+ <widget class="QWidget" name="LoadingScreen">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>720</width><height>420</height></rect>
+  </property>
+  <layout class="QVBoxLayout" name="outerLayout">
+   <property name="leftMargin"><number>24</number></property>
+   <property name="topMargin"><number>24</number></property>
+   <property name="rightMargin"><number>24</number></property>
+   <property name="bottomMargin"><number>24</number></property>
+   <item>
+    <widget class="QFrame" name="LoadingScreenCard">
+     <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+     <layout class="QVBoxLayout" name="cardLayout">
+      <property name="leftMargin"><number>36</number></property>
+      <property name="topMargin"><number>28</number></property>
+      <property name="rightMargin"><number>36</number></property>
+      <property name="bottomMargin"><number>28</number></property>
+      <property name="spacing"><number>12</number></property>
+      <item><spacer name="topSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>30</height></size></property></spacer></item>
+      <item><widget class="QLabel" name="LoadingTitle"><property name="text"><string>PySkryptor</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+      <item><widget class="QLabel" name="LoadingLogoPlaceholder"><property name="text"><string>[ logo SVG ]</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+      <item><widget class="QProgressBar" name="LoadingProgress"><property name="minimum"><number>0</number></property><property name="maximum"><number>0</number></property><property name="value"><number>-1</number></property></widget></item>
+      <item><widget class="QLabel" name="LoadingStatus"><property name="text"><string>Uruchamianie aplikacji...</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+      <item><spacer name="bottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>50</height></size></property></spacer></item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

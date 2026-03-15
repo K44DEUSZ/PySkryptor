@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DownloaderPanel</class>
+ <widget class="QWidget" name="DownloaderPanel">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1260</width><height>820</height></rect></property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="spacing"><number>8</number></property>
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item>
+    <widget class="QWidget" name="topSectionHost">
+     <layout class="QGridLayout" name="topGrid">
+      <property name="horizontalSpacing"><number>8</number></property>
+      <property name="verticalSpacing"><number>8</number></property>
+      <item row="0" column="0" colspan="3"><widget class="QLineEdit" name="ed_url"><property name="placeholderText"><string>Wklej link do pobrania</string></property></widget></item>
+      <item row="0" column="3"><widget class="QWidget" name="topButtonsHost"><layout class="QHBoxLayout" name="topButtonsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>8</number></property><item><widget class="QPushButton" name="btn_add"><property name="text"><string>Dodaj</string></property></widget></item><item><widget class="QPushButton" name="btn_open_downloads"><property name="text"><string>Otwórz folder pobrań</string></property></widget></item></layout></widget></item>
+      <item row="1" column="1"><widget class="QPushButton" name="btn_open_in_browser"><property name="text"><string>Otwórz w przeglądarce</string></property></widget></item>
+      <item row="1" column="2"><widget class="QPushButton" name="btn_remove_selected"><property name="text"><string>Usuń zaznaczone</string></property></widget></item>
+      <item row="1" column="3"><widget class="QPushButton" name="btn_clear_list"><property name="text"><string>Wyczyść listę</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="DownloaderDetailsGroup">
+     <property name="title"><string>Kolejka pobierania</string></property>
+     <layout class="QVBoxLayout" name="queueLayout">
+      <item>
+       <widget class="QTableWidget" name="DownloaderQueueTable">
+        <column><property name="text"><string/></property></column>
+        <column><property name="text"><string>#</string></property></column>
+        <column><property name="text"><string>Nazwa</string></property></column>
+        <column><property name="text"><string>Ścieżka</string></property></column>
+        <column><property name="text"><string>Wyjścia</string></property></column>
+        <column><property name="text"><string>Jakość</string></property></column>
+        <column><property name="text"><string>Formaty</string></property></column>
+        <column><property name="text"><string>Język</string></property></column>
+        <column><property name="text"><string>Status</string></property></column>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="DownloaderActionBar">
+     <layout class="QHBoxLayout" name="actionBarLayout">
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <property name="spacing"><number>8</number></property>
+      <item><widget class="QProgressBar" name="progress"><property name="value"><number>0</number></property></widget></item>
+      <item><widget class="QPushButton" name="btn_primary"><property name="text"><string>Start</string></property></widget></item>
+      <item><widget class="QPushButton" name="btn_secondary"><property name="text"><string>Anuluj</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="DownloaderMetaGroup">
+     <property name="title"><string>Metadane zaznaczonej pozycji</string></property>
+     <layout class="QHBoxLayout" name="metaRootLayout">
+      <property name="spacing"><number>10</number></property>
+      <item>
+       <widget class="QWidget" name="metaLeftHost">
+        <layout class="QFormLayout" name="metaLeftForm">
+         <item row="0" column="0"><widget class="QLabel" name="lbl_service_title"><property name="text"><string>Serwis</string></property></widget></item>
+         <item row="0" column="1"><widget class="QLabel" name="lbl_service"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="lbl_title_title"><property name="text"><string>Nazwa</string></property></widget></item>
+         <item row="1" column="1"><widget class="QLabel" name="lbl_title"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="lbl_channel_title"><property name="text"><string>Kanał</string></property></widget></item>
+         <item row="2" column="1"><widget class="QLabel" name="lbl_channel"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="3" column="0"><widget class="QLabel" name="lbl_upload_date_title"><property name="text"><string>Data</string></property></widget></item>
+         <item row="3" column="1"><widget class="QLabel" name="lbl_upload_date"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="4" column="0"><widget class="QLabel" name="lbl_duration_title"><property name="text"><string>Czas trwania</string></property></widget></item>
+         <item row="4" column="1"><widget class="QLabel" name="lbl_duration"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="5" column="0"><widget class="QLabel" name="lbl_est_size_title"><property name="text"><string>Rozmiar</string></property></widget></item>
+         <item row="5" column="1"><widget class="QLabel" name="lbl_est_size"><property name="text"><string>n/d</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="metaRightHost">
+        <layout class="QFormLayout" name="metaRightForm">
+         <item row="0" column="0"><widget class="QLabel" name="lbl_views_title"><property name="text"><string>Wyświetlenia</string></property></widget></item>
+         <item row="0" column="1"><widget class="QLabel" name="lbl_views"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="lbl_likes_title"><property name="text"><string>Polubienia</string></property></widget></item>
+         <item row="1" column="1"><widget class="QLabel" name="lbl_likes"><property name="text"><string>n/d</string></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="lbl_description_title"><property name="text"><string>Opis</string></property></widget></item>
+         <item row="2" column="1"><widget class="QLabel" name="DownloaderMetaDescription"><property name="text"><string>n/d</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QFrame" name="DownloaderThumbHost">
+        <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+        <layout class="QVBoxLayout" name="thumbLayout">
+         <item><widget class="QLabel" name="DownloaderThumbnail"><property name="text"><string>Miniatura</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

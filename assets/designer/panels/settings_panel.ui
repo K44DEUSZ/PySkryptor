@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SettingsPanel</class>
+ <widget class="QWidget" name="SettingsPanel">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1260</width><height>860</height></rect></property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="spacing"><number>8</number></property>
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item>
+    <widget class="QScrollArea" name="settingsScrollArea">
+     <property name="widgetResizable"><bool>true</bool></property>
+     <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+     <widget class="QWidget" name="scrollAreaWidgetContents">
+      <property name="geometry"><rect><x>0</x><y>0</y><width>1230</width><height>1200</height></rect></property>
+      <layout class="QVBoxLayout" name="contentLayout">
+       <property name="spacing"><number>8</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QWidget" name="topSectionsHost">
+         <layout class="QHBoxLayout" name="topSectionsLayout">
+          <property name="spacing"><number>8</number></property>
+          <item>
+           <widget class="QGroupBox" name="SettingsAppGroup">
+            <property name="title"><string>Aplikacja</string></property>
+            <layout class="QVBoxLayout" name="appGroupLayout">
+             <item>
+              <layout class="QFormLayout" name="appFormLayout">
+               <item row="0" column="0"><widget class="QLabel" name="lbl_app_language"><property name="text"><string>Język interfejsu</string></property></widget></item>
+               <item row="0" column="1"><widget class="QComboBox" name="cb_app_language"/></item>
+               <item row="1" column="0"><widget class="QLabel" name="lbl_app_theme"><property name="text"><string>Motyw</string></property></widget></item>
+               <item row="1" column="1"><widget class="QComboBox" name="cb_app_theme"/></item>
+               <item row="2" column="0"><widget class="QLabel" name="lbl_log_enabled"><property name="text"><string>Logowanie</string></property></widget></item>
+               <item row="2" column="1"><widget class="QWidget" name="tg_log_enabled_placeholder"><layout class="QHBoxLayout" name="tg_log_enabled_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="tg_log_enabled_yes"><property name="text"><string>Tak</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="tg_log_enabled_no"><property name="text"><string>Nie</string></property><property name="checkable"><bool>true</bool></property></widget></item></layout></widget></item>
+               <item row="3" column="0"><widget class="QLabel" name="lbl_log_level"><property name="text"><string>Poziom logowania</string></property></widget></item>
+               <item row="3" column="1"><widget class="QWidget" name="logLevelRow"><layout class="QHBoxLayout" name="logLevelLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><item><widget class="QComboBox" name="cb_log_level"/></item><item><widget class="QPushButton" name="btn_open_logs"><property name="text"><string>Otwórz folder logów</string></property></widget></item></layout></widget></item>
+              </layout>
+             </item>
+             <item><spacer name="appSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="SettingsEngineGroup">
+            <property name="title"><string>Silnik</string></property>
+            <layout class="QVBoxLayout" name="engineGroupLayout">
+             <item>
+              <layout class="QFormLayout" name="engineFormLayout">
+               <item row="0" column="0"><widget class="QLabel" name="lbl_engine_device"><property name="text"><string>Urządzenie</string></property></widget></item>
+               <item row="0" column="1"><widget class="QComboBox" name="cb_engine_device"/></item>
+               <item row="1" column="0"><widget class="QLabel" name="lbl_engine_precision"><property name="text"><string>Precyzja</string></property></widget></item>
+               <item row="1" column="1"><widget class="QComboBox" name="cb_engine_precision"/></item>
+               <item row="2" column="0"><widget class="QLabel" name="lbl_tf32"><property name="text"><string>Pozwól na TF32</string></property></widget></item>
+               <item row="2" column="1"><widget class="QWidget" name="tg_tf32_placeholder"><layout class="QHBoxLayout" name="tg_tf32_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="tg_tf32_yes"><property name="text"><string>Tak</string></property><property name="checkable"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="tg_tf32_no"><property name="text"><string>Nie</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item></layout></widget></item>
+               <item row="3" column="0"><widget class="QLabel" name="lbl_low_cpu_mem"><property name="text"><string>Niskie użycie CPU/RAM</string></property></widget></item>
+               <item row="3" column="1"><widget class="QWidget" name="tg_low_cpu_mem_placeholder"><layout class="QHBoxLayout" name="tg_low_cpu_mem_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="tg_low_cpu_mem_yes"><property name="text"><string>Tak</string></property><property name="checkable"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="tg_low_cpu_mem_no"><property name="text"><string>Nie</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item></layout></widget></item>
+              </layout>
+             </item>
+             <item><spacer name="engineSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="midSectionsHost">
+         <layout class="QHBoxLayout" name="midSectionsLayout">
+          <property name="spacing"><number>8</number></property>
+          <item>
+           <widget class="QGroupBox" name="SettingsTranscriptionGroup">
+            <property name="title"><string>Transkrypcja</string></property>
+            <layout class="QVBoxLayout" name="transcriptionGroupLayout">
+             <item>
+              <layout class="QFormLayout" name="transcriptionFormLayout">
+               <item row="0" column="0"><widget class="QLabel" name="lbl_trans_engine"><property name="text"><string>Model</string></property></widget></item>
+               <item row="0" column="1"><widget class="QComboBox" name="cb_trans_engine"/></item>
+               <item row="1" column="0"><widget class="QLabel" name="lbl_quality"><property name="text"><string>Jakość</string></property></widget></item>
+               <item row="1" column="1"><widget class="QComboBox" name="cb_quality"/></item>
+               <item row="2" column="0"><widget class="QLabel" name="lbl_text_consistency"><property name="text"><string>Spójność tekstu</string></property></widget></item>
+               <item row="2" column="1"><widget class="QWidget" name="tg_text_consistency_placeholder"><layout class="QHBoxLayout" name="tg_text_consistency_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="tg_text_consistency_yes"><property name="text"><string>Tak</string></property><property name="checkable"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="tg_text_consistency_no"><property name="text"><string>Nie</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item></layout></widget></item>
+               <item row="3" column="0"><widget class="QLabel" name="lbl_chunk_len"><property name="text"><string>Długość chunku [s]</string></property></widget></item>
+               <item row="3" column="1"><widget class="QSpinBox" name="sp_chunk_len"/></item>
+               <item row="4" column="0"><widget class="QLabel" name="lbl_stride_len"><property name="text"><string>Stride [s]</string></property></widget></item>
+               <item row="4" column="1"><widget class="QSpinBox" name="sp_stride_len"/></item>
+               <item row="5" column="0"><widget class="QLabel" name="lbl_ignore_empty"><property name="text"><string>Ignoruj ostrzeżenie</string></property></widget></item>
+               <item row="5" column="1"><widget class="QWidget" name="tg_ignore_empty_placeholder"><layout class="QHBoxLayout" name="tg_ignore_empty_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="tg_ignore_empty_yes"><property name="text"><string>Tak</string></property><property name="checkable"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="tg_ignore_empty_no"><property name="text"><string>Nie</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item></layout></widget></item>
+              </layout>
+             </item>
+             <item><spacer name="transcriptionSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="SettingsTranslationGroup">
+            <property name="title"><string>Tłumaczenie</string></property>
+            <layout class="QVBoxLayout" name="translationGroupLayout">
+             <item>
+              <layout class="QFormLayout" name="translationFormLayout">
+               <item row="0" column="0"><widget class="QLabel" name="lbl_tr_engine"><property name="text"><string>Silnik tłumaczenia</string></property></widget></item>
+               <item row="0" column="1"><widget class="QComboBox" name="cb_tr_engine"/></item>
+               <item row="1" column="0"><widget class="QLabel" name="lbl_tr_quality"><property name="text"><string>Jakość tłumaczenia</string></property></widget></item>
+               <item row="1" column="1"><widget class="QComboBox" name="cb_tr_quality"/></item>
+               <item row="2" column="0"><widget class="QLabel" name="lbl_tr_max_tokens"><property name="text"><string>Max nowych tokenów</string></property></widget></item>
+               <item row="2" column="1"><widget class="QSpinBox" name="sp_tr_max_tokens"/></item>
+               <item row="3" column="0"><widget class="QLabel" name="lbl_tr_chunk_chars"><property name="text"><string>Max znaków chunku</string></property></widget></item>
+               <item row="3" column="1"><widget class="QSpinBox" name="sp_tr_chunk_chars"/></item>
+              </layout>
+             </item>
+             <item><spacer name="translationSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="SettingsDownloadGroup">
+         <property name="title"><string>Pobieranie i sieć</string></property>
+         <layout class="QVBoxLayout" name="downloadGroupLayout">
+          <item>
+           <widget class="QWidget" name="downloadColumnsHost">
+            <layout class="QHBoxLayout" name="downloadColumnsLayout">
+             <property name="spacing"><number>8</number></property>
+             <item>
+              <widget class="QWidget" name="leftDownloadColumn">
+               <layout class="QFormLayout" name="leftDownloadForm">
+                <item row="0" column="0"><widget class="QLabel" name="lbl_min_height"><property name="text"><string>Min wysokość wideo</string></property></widget></item>
+                <item row="0" column="1"><widget class="QSpinBox" name="sp_min_height"/></item>
+                <item row="1" column="0"><widget class="QLabel" name="lbl_max_height"><property name="text"><string>Max wysokość wideo</string></property></widget></item>
+                <item row="1" column="1"><widget class="QSpinBox" name="sp_max_height"/></item>
+                <item row="2" column="0"><widget class="QLabel" name="lbl_retries"><property name="text"><string>Ponowienia</string></property></widget></item>
+                <item row="2" column="1"><widget class="QSpinBox" name="sp_retries"/></item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QWidget" name="rightDownloadColumn">
+               <layout class="QFormLayout" name="rightDownloadForm">
+                <item row="0" column="0"><widget class="QLabel" name="lbl_bandwidth"><property name="text"><string>Max przepustowość [kbps]</string></property></widget></item>
+                <item row="0" column="1"><widget class="QSpinBox" name="sp_bandwidth"/></item>
+                <item row="1" column="0"><widget class="QLabel" name="lbl_fragments"><property name="text"><string>Równoległe fragmenty</string></property></widget></item>
+                <item row="1" column="1"><widget class="QSpinBox" name="sp_fragments"/></item>
+                <item row="2" column="0"><widget class="QLabel" name="lbl_timeout"><property name="text"><string>Timeout HTTP [s]</string></property></widget></item>
+                <item row="2" column="1"><widget class="QSpinBox" name="sp_timeout"/></item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="bottomBarLayout">
+     <property name="spacing"><number>8</number></property>
+     <item><widget class="QCheckBox" name="chk_show_advanced"><property name="text"><string>Pokaż opcje zaawansowane</string></property></widget></item>
+     <item><spacer name="bottomSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+     <item><widget class="QPushButton" name="btn_restore"><property name="text"><string>Przywróć domyślne</string></property></widget></item>
+     <item><widget class="QPushButton" name="btn_undo"><property name="text"><string>Cofnij</string></property></widget></item>
+     <item><widget class="QPushButton" name="btn_save"><property name="text"><string>Zapisz</string></property></widget></item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>LivePanel</class>
+ <widget class="QWidget" name="LivePanel">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1260</width><height>820</height></rect></property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="spacing"><number>8</number></property>
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item>
+    <widget class="QGroupBox" name="LiveSettingsGroup">
+     <property name="title"><string>Ustawienia sesji na żywo</string></property>
+     <layout class="QGridLayout" name="settingsGrid">
+      <property name="horizontalSpacing"><number>10</number></property>
+      <property name="verticalSpacing"><number>10</number></property>
+      <item row="0" column="0" colspan="2">
+       <widget class="QGroupBox" name="deviceHost">
+        <property name="title"><string>Urządzenie wejściowe</string></property>
+        <layout class="QHBoxLayout" name="deviceLayout">
+         <item><widget class="QComboBox" name="cmb_device"/></item>
+         <item><widget class="QPushButton" name="btn_refresh_devices"><property name="text"><string>Odśwież</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QGroupBox" name="modeHost">
+        <property name="title"><string>Tryb</string></property>
+        <layout class="QHBoxLayout" name="modeLayout">
+         <property name="spacing"><number>0</number></property>
+         <item><widget class="QPushButton" name="ChoiceToggleFirst"><property name="text"><string>Transkrypcja</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item>
+         <item><widget class="QPushButton" name="ChoiceToggleSecond"><property name="text"><string>Transkrypcja + tłumaczenie</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="1"><widget class="QGroupBox" name="presetHost"><property name="title"><string>Preset</string></property><layout class="QVBoxLayout" name="presetLayout"><item><widget class="QComboBox" name="cmb_preset"/></item></layout></widget></item>
+      <item row="2" column="0"><widget class="QGroupBox" name="srcLangHost"><property name="title"><string>Język źródłowy</string></property><layout class="QVBoxLayout" name="srcLangLayout"><item><widget class="QComboBox" name="cmb_src_lang"/></item></layout></widget></item>
+      <item row="2" column="1"><widget class="QGroupBox" name="tgtLangHost"><property name="title"><string>Język docelowy</string></property><layout class="QVBoxLayout" name="tgtLangLayout"><item><widget class="QComboBox" name="cmb_tgt_lang"/></item></layout></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="LiveControlsGroup">
+     <property name="title"><string>Sterowanie</string></property>
+     <layout class="QHBoxLayout" name="controlsLayout">
+      <property name="spacing"><number>10</number></property>
+      <item>
+       <widget class="QWidget" name="controlsLeft">
+        <layout class="QVBoxLayout" name="controlsLeftLayout">
+         <item>
+          <widget class="QWidget" name="bigButtonsRow">
+           <layout class="QHBoxLayout" name="bigButtonsLayout">
+            <item><widget class="QPushButton" name="btn_start"><property name="text"><string>Start</string></property></widget></item>
+            <item><widget class="QPushButton" name="btn_pause"><property name="text"><string>Pauza</string></property></widget></item>
+            <item><widget class="QPushButton" name="btn_stop"><property name="text"><string>Stop</string></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="saveClearRow">
+           <layout class="QHBoxLayout" name="saveClearLayout">
+            <item><spacer name="saveLeftSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+            <item><widget class="QPushButton" name="btn_save"><property name="text"><string>Zapisz transkrypcję</string></property></widget></item>
+            <item><widget class="QPushButton" name="btn_clear"><property name="text"><string>Wyczyść</string></property></widget></item>
+            <item><spacer name="saveRightSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="meterHost">
+        <layout class="QVBoxLayout" name="meterLayout">
+         <item><widget class="QLabel" name="lbl_status"><property name="text"><string>Bezczynny</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QFrame" name="spectrumPlaceholder"><property name="frameShape"><enum>QFrame::StyledPanel</enum></property><layout class="QVBoxLayout" name="spectrumPlaceholderLayout"><item><widget class="QLabel" name="spectrumPlaceholderLabel"><property name="text"><string>Placeholder komponentu AudioSpectrumWidget</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item></layout></widget></item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="outputHost">
+     <layout class="QHBoxLayout" name="outputLayout">
+      <property name="spacing"><number>8</number></property>
+      <item><widget class="QTextEdit" name="txt_src"><property name="placeholderText"><string>Transkrypcja źródłowa...</string></property><property name="readOnly"><bool>true</bool></property></widget></item>
+      <item><widget class="QTextEdit" name="txt_tgt"><property name="placeholderText"><string>Tłumaczenie...</string></property><property name="readOnly"><bool>true</bool></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

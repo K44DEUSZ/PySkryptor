@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AboutPanel</class>
+ <widget class="QWidget" name="AboutPanel">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1100</width><height>700</height></rect></property>
+  <layout class="QHBoxLayout" name="rootLayout">
+   <property name="spacing"><number>8</number></property>
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item>
+    <widget class="QWidget" name="leftHost">
+     <layout class="QVBoxLayout" name="leftLayout">
+      <property name="leftMargin"><number>24</number></property>
+      <property name="topMargin"><number>24</number></property>
+      <property name="rightMargin"><number>12</number></property>
+      <property name="bottomMargin"><number>12</number></property>
+      <item><widget class="QLabel" name="AboutLogoPlaceholder"><property name="text"><string>[ logo SVG ]</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+      <item><spacer name="leftSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="rightHost">
+     <layout class="QVBoxLayout" name="rightLayout">
+      <property name="spacing"><number>8</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QGroupBox" name="AboutAppGroup">
+        <property name="title"><string>O aplikacji</string></property>
+        <layout class="QVBoxLayout" name="aboutAppLayout">
+         <item><widget class="QLabel" name="aboutAppLabel"><property name="text"><string>PySkryptor — opis aplikacji, wersja, autor, lata rozwoju.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="AboutLicenseGroup">
+        <property name="title"><string>Licencja</string></property>
+        <layout class="QVBoxLayout" name="aboutLicenseLayout">
+         <item><widget class="QLabel" name="aboutLicenseSummary"><property name="text"><string>Podsumowanie informacji licencyjnych.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QTextBrowser" name="AboutLicenseLink"><property name="html"><string>&lt;html&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;license&quot;&gt;Otwórz pełną treść licencji&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item><spacer name="rightSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
