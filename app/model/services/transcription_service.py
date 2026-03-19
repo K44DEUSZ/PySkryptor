@@ -2,17 +2,15 @@
 from __future__ import annotations
 
 import logging
-import math
-import re
 import shutil
 import time
 import wave
 
+import numpy as np
 import torch
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable
 
 from app.controller.platform.logging import sanitize_url_for_log
 from app.model.config.app_config import AppConfig as Config
@@ -21,31 +19,26 @@ from app.model.helpers.chunking import (
     estimate_chunks,
     iter_wav_mono_chunks,
     normalize_chunk_params,
-    pcm16le_bytes_to_float32,
-    seconds_to_frames,
 )
 from app.model.helpers.output_resolver import OutputResolver
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.io.audio_extractor import AudioExtractor
 from app.model.io.file_manager import FileManager
 from app.model.io.media_probe import is_url_source
-from app.model.io.transcript_writer import TextPostprocessor
+from app.model.io.transcript_writer import TextPostprocessor, TranscriptWriter
 from app.model.services.download_service import DownloadService
 from app.model.services.translation_service import TranslationService
 
 _LOG = logging.getLogger(__name__)
 
-
 # ----- Errors -----
-
 class TranscriptionError(AppError):
     """Key-based error used for i18n-friendly transcription failures."""
 
     def __init__(self, key: str, **params: Any) -> None:
-        super().__init__(key=str(key), params=dict(params or {}))
+        super().__init__(str(key), dict(params or {}))
 
-SourceEntry = Union[str, Dict[str, Any]]
-WorkItem = Tuple[str, Path, Optional[str]]
+SourceEntry = str | dict[str, Any]
 
 ProgressFn = Callable[[int], None]
 CancelCheckFn = Callable[[], bool]
@@ -53,13 +46,11 @@ ItemStatusFn = Callable[[str, str], None]
 ItemProgressFn = Callable[[str, int], None]
 ItemPathUpdateFn = Callable[[str, str], None]
 TranscriptReadyFn = Callable[[str, str], None]
-ItemErrorFn = Callable[[str, str, dict], None]
+ItemErrorFn = Callable[[str, str, dict[str, Any]], None]
 ItemOutputDirFn = Callable[[str, str], None]
-ConflictResolverFn = Callable[[str, str], Tuple[str, str, bool]]
-
+ConflictResolverFn = Callable[[str, str], tuple[str, str, bool]]
 
 # ----- Results -----
-
 @dataclass(frozen=True)
 class SessionResult:
     """Outcome of a transcription session."""
@@ -72,7 +63,7 @@ class SessionResult:
 @dataclass(frozen=True)
 class _SessionOptions:
     """Resolved session options reused across all work items."""
-    output_mode_ids: List[str]
+    output_mode_ids: list[str]
     translate_requested: bool
     want_translate: bool
     want_timestamps: bool
@@ -81,12 +72,56 @@ class _SessionOptions:
     chunk_len_s: int
     stride_len_s: int
     ignore_warning: bool
+    url_download_kind: str
+    url_download_ext: str
+    url_keep_download: bool
+    url_download_quality: str
+
+
+@dataclass(frozen=True)
+class _EntryRequest:
+    """Normalized source entry used before materialization."""
+    source_key: str
+    forced_stem: str | None
+    audio_lang: str | None
+    is_url: bool
+
+
+@dataclass(frozen=True)
+class _MaterializedWorkItem:
+    """Single source resolved to a concrete local path."""
+    source_key: str
+    source_path: Path
+    forced_stem: str | None
+
+
+@dataclass
+class _SessionRuntime:
+    """Session-scoped runtime state shared across all items."""
+    session_dir: str
+    session_id: str
+    options: _SessionOptions
+    tracker: "_ProgressTracker"
+    downloaded_to_delete: set[Path]
+
+
+@dataclass(frozen=True)
+class _SessionCallbacks:
+    """UI and worker callbacks used throughout the session."""
+    item_status: ItemStatusFn
+    item_progress: ItemProgressFn
+    item_path_update: ItemPathUpdateFn
+    transcript_ready: TranscriptReadyFn
+    item_error: ItemErrorFn
+    item_output_dir: ItemOutputDirFn
+    conflict_resolver: ConflictResolverFn
+    cancel_check: CancelCheckFn
 
 
 @dataclass(frozen=True)
 class _MaterializeBatchResult:
     """Materialized work items and control flags for the current session."""
-    work: List[WorkItem]
+    work: list[_MaterializedWorkItem]
     had_errors: bool
     was_cancelled: bool
 
@@ -97,451 +132,15 @@ class _ItemProcessResult:
     processed_any: bool
     had_errors: bool
     was_cancelled: bool
-    apply_all: Optional[Tuple[str, str]]
-
-
-# ----- Live session helpers -----
-@dataclass(frozen=True)
-class LiveUpdate:
-    """Incremental update produced by live transcription."""
-    detected_language: str
-    source_text: str
-    target_text: str
-
-_MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
-
-
-def _normalize_detected_language(lang: str) -> str:
-    lang = str(lang or "").strip().lower().replace("_", "-")
-    lang = lang.split("-", 1)[0]
-    try:
-        from transformers.models.whisper.tokenization_whisper import LANGUAGES  # type: ignore
-
-        inv = {v.lower(): k for k, v in LANGUAGES.items()}
-        return inv.get(lang, lang)
-    except Exception:
-        return lang
-
-
-def _extract_detected_language_from_result(out: Dict[str, Any]) -> str:
-    lang = str(out.get("language") or "").strip().lower()
-    if lang:
-        return _normalize_detected_language(lang)
-
-    chunks = out.get("chunks")
-    if isinstance(chunks, list) and chunks:
-        lang = str(chunks[0].get("language") or "").strip().lower()
-        if lang:
-            return _normalize_detected_language(lang)
-
-    return ""
-
-
-def _debug_source_key(value: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if is_url_source(text):
-        return sanitize_url_for_log(text)
-    try:
-        return Path(text).name or text
-    except Exception:
-        return text
-
-
-def _detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
-    """Detect language from Whisper logits when the pipeline output omits it."""
-    try:
-        fe = getattr(pipe, "feature_extractor", None) or getattr(getattr(pipe, "processor", None), "feature_extractor", None)
-        tok = getattr(pipe, "tokenizer", None) or getattr(getattr(pipe, "processor", None), "tokenizer", None)
-        model = getattr(pipe, "model", None)
-        if fe is None or tok is None or model is None:
-            return ""
-
-        lang_to_id = getattr(tok, "lang_to_id", None)
-        if not isinstance(lang_to_id, dict) or not lang_to_id:
-            vocab = {}
-            try:
-                vocab = tok.get_vocab()
-            except Exception:
-                vocab = getattr(tok, "vocab", {}) or {}
-            if isinstance(vocab, dict):
-                lang_to_id = {}
-                for token, token_id in vocab.items():
-                    if not isinstance(token, str):
-                        continue
-                    if token.startswith("<|") and token.endswith("|>"):
-                        code = token[2:-2].strip().lower().replace("_", "-").split("-", 1)[0]
-                        if code.isalpha() and 2 <= len(code) <= 5:
-                            try:
-                                lang_to_id[code] = int(token_id)
-                            except Exception:
-                                continue
-
-        if not isinstance(lang_to_id, dict) or not lang_to_id:
-            return ""
-
-        inputs = fe(audio, sampling_rate=int(sr), return_tensors="pt")
-        input_features = inputs.get("input_features")
-        if input_features is None:
-            return ""
-
-        device = getattr(model, "device", torch.device("cpu"))
-        try:
-            dtype = next(model.parameters()).dtype
-        except Exception:
-            dtype = torch.float32
-        input_features = input_features.to(device=device, dtype=dtype)
-
-        sot_id = tok.convert_tokens_to_ids("<|startoftranscript|>")
-        decoder_input_ids = torch.tensor([[int(sot_id)]], device=device)
-
-        with torch.no_grad():
-            out = model(input_features=input_features, decoder_input_ids=decoder_input_ids)
-            logits = out.logits[:, -1, :]
-
-        ids = torch.tensor(list(lang_to_id.values()), device=logits.device)
-        scores = logits.index_select(-1, ids)
-        best_idx = int(torch.argmax(scores, dim=-1).item())
-        best_id = int(ids[best_idx].item())
-        inv = {value: key for key, value in lang_to_id.items()}
-        return _normalize_detected_language(inv.get(best_id, ""))
-    except Exception:
-        return ""
-
-
-class LiveSession:
-    """Stateful live transcription session fed with PCM16 audio bytes."""
-
-    def __init__(
-        self,
-        *,
-        pipe: Any,
-        source_language: str,
-        target_language: str,
-        translate_enabled: bool,
-        include_source_in_translate: bool,
-        cancel_check: CancelCheckFn,
-        chunk_length_s: int | None = None,
-        stride_length_s: int | None = None,
-    ) -> None:
-        self._pipe = pipe
-        self._cancel_check = cancel_check
-
-        self._src_lang = Config.normalize_policy_value(source_language)
-        if Config.is_auto_language_value(self._src_lang):
-            self._src_lang = ""
-
-        self._tgt_lang = Config.normalize_policy_value(target_language)
-        self._translate = bool(translate_enabled) and bool(self._tgt_lang) and not Config.is_auto_language_value(self._tgt_lang)
-        self._include_source = bool(include_source_in_translate)
-
-        snap = Config.SETTINGS
-        model_cfg = getattr(snap, "model", {}) if snap is not None else {}
-        if not isinstance(model_cfg, dict):
-            model_cfg = {}
-        tcfg = model_cfg.get("transcription_model", {})
-        if not isinstance(tcfg, dict):
-            tcfg = {}
-
-        self._sr = Config.ASR_SAMPLE_RATE
-        chunk_len_s = int(chunk_length_s) if chunk_length_s is not None else int(tcfg["chunk_length_s"])
-        stride_len_s = int(stride_length_s) if stride_length_s is not None else int(tcfg["stride_length_s"])
-
-        chunk_len_s = max(1, min(chunk_len_s, 30))
-        stride_len_s = max(0, min(stride_len_s, max(0, chunk_len_s - 1)))
-        self._ignore_warning = bool(tcfg["ignore_warning"])
-        self._text_consistency = bool(tcfg.get("text_consistency", True))
-
-        self._chunk_f, self._stride_f, self._step_f = seconds_to_frames(self._sr, chunk_len_s, stride_len_s)
-        self._buf = bytearray()
-        self._silence_level_threshold = 0.04
-        self._silence_reset_after_s = max(0.8, float(chunk_len_s - stride_len_s) * 0.75)
-        self._silent_run_s = 0.0
-        self._stability_passes = 2 if self._text_consistency else 1
-
-        self._post = TextPostprocessor()
-        self._translator = TranslationService()
-
-        self._detected_lang = ""
-        self._merged_source = ""
-        self._merged_target = ""
-        self._pending_source = ""
-        self._pending_target = ""
-        self._pending_hits = 0
-
-    @staticmethod
-    def _normalized_merge_tokens(text: str) -> List[str]:
-        return [tok for tok in _MERGE_TOKEN_RE.findall(str(text or "").lower()) if tok]
-
-    @classmethod
-    def _merge_text(cls, prev: str, cur: str) -> str:
-        if not prev:
-            return cur
-        if not cur:
-            return prev
-
-        prev_norm = cls._normalized_merge_tokens(prev)
-        cur_norm = cls._normalized_merge_tokens(cur)
-        if not prev_norm:
-            return cur
-        if not cur_norm:
-            return prev
-        if prev_norm == cur_norm:
-            return prev if len(prev) >= len(cur) else cur
-
-        prev_words = prev.split()
-        cur_words = cur.split()
-
-        max_k = min(18, len(prev_norm), len(cur_norm), len(prev_words), len(cur_words))
-        for k in range(max_k, 0, -1):
-            if prev_norm[-k:] == cur_norm[:k]:
-                cur_words = cur_words[k:]
-                break
-
-        if not cur_words:
-            return prev
-
-        tail_size = min(len(prev_norm), max(len(cur_norm), 6))
-        prev_tail = " ".join(prev_norm[-tail_size:])
-        cur_text = " ".join(cur_norm)
-        if prev_tail and cur_text and SequenceMatcher(None, prev_tail, cur_text).ratio() >= 0.9:
-            return prev
-
-        return (prev + " " + " ".join(cur_words)).strip()
-
-    @classmethod
-    def _normalized_similarity_text(cls, text: str) -> str:
-        return " ".join(cls._normalized_merge_tokens(text))
-
-    @classmethod
-    def _text_similarity(cls, left: str, right: str) -> float:
-        left_norm = cls._normalized_similarity_text(left)
-        right_norm = cls._normalized_similarity_text(right)
-        if not left_norm and not right_norm:
-            return 1.0
-        if not left_norm or not right_norm:
-            return 0.0
-        if left_norm == right_norm:
-            return 1.0
-        return float(SequenceMatcher(None, left_norm, right_norm).ratio())
-
-    @classmethod
-    def _choose_preferred_text(cls, prev: str, cur: str) -> str:
-        prev = str(prev or "").strip()
-        cur = str(cur or "").strip()
-        if not cur:
-            return prev
-        if not prev:
-            return cur
-        if cls._text_similarity(prev, cur) >= 0.92:
-            return cur if len(cur) >= len(prev) else prev
-        return cur
-
-    @classmethod
-    def _is_same_live_hypothesis(cls, left: str, right: str) -> bool:
-        left = str(left or "").strip()
-        right = str(right or "").strip()
-        if not left or not right:
-            return False
-        if cls._normalized_similarity_text(left) == cls._normalized_similarity_text(right):
-            return True
-        return cls._text_similarity(left, right) >= 0.84
-
-    def _clear_pending(self) -> None:
-        self._pending_source = ""
-        self._pending_target = ""
-        self._pending_hits = 0
-
-    def _commit_live_text(self, source_text: str, target_text: str) -> bool:
-        prev_source = self._merged_source
-        prev_target = self._merged_target
-
-        if source_text:
-            self._merged_source = self._merge_text(self._merged_source, source_text)
-        if target_text:
-            self._merged_target = self._merge_text(self._merged_target, target_text)
-
-        return (self._merged_source != prev_source) or (self._merged_target != prev_target)
-
-    def _commit_pending(self) -> bool:
-        if not (self._pending_source or self._pending_target):
-            return False
-        changed = self._commit_live_text(self._pending_source, self._pending_target)
-        self._clear_pending()
-        return changed
-
-    @classmethod
-    def _compose_display_text(cls, committed: str, pending: str) -> str:
-        committed = str(committed or "").strip()
-        pending = str(pending or "").strip()
-        if not pending:
-            return committed
-        if not committed:
-            return pending
-        return cls._merge_text(committed, pending)
-
-    def _build_update(self, *, include_pending: bool = False) -> LiveUpdate:
-        source_text = self._merged_source
-        target_text = self._merged_target
-        if include_pending:
-            source_text = self._compose_display_text(source_text, self._pending_source)
-            target_text = self._compose_display_text(target_text, self._pending_target)
-        return LiveUpdate(
-            detected_language=self._detected_lang,
-            source_text=source_text,
-            target_text=target_text,
-        )
-
-    def _stage_stable_update(self, source_text: str, target_text: str) -> bool:
-        source_text = str(source_text or "").strip()
-        target_text = str(target_text or "").strip()
-        if not (source_text or target_text):
-            return False
-
-        if not self._text_consistency:
-            return self._commit_live_text(source_text, target_text)
-
-        pending_key = self._pending_source or self._pending_target
-        current_key = source_text or target_text
-
-        if not pending_key:
-            self._pending_source = source_text
-            self._pending_target = target_text
-            self._pending_hits = 1
-        elif self._is_same_live_hypothesis(pending_key, current_key):
-            self._pending_hits += 1
-            self._pending_source = self._choose_preferred_text(self._pending_source, source_text)
-            self._pending_target = self._choose_preferred_text(self._pending_target, target_text)
-        else:
-            self._pending_source = source_text
-            self._pending_target = target_text
-            self._pending_hits = 1
-
-        if self._pending_hits >= self._stability_passes:
-            return self._commit_pending()
-        return False
-
-    def push_pcm16(self, data: bytes, *, level: float | None = None) -> List[LiveUpdate]:
-        if not data or self._cancel_check():
-            return []
-
-        out: List[LiveUpdate] = []
-
-        if self._text_consistency:
-            chunk_seconds = float(len(data)) / float(max(1, self._sr * 2))
-            level_f = max(0.0, float(level or 0.0))
-            if level_f <= self._silence_level_threshold:
-                self._silent_run_s += chunk_seconds
-                if self._silent_run_s >= self._silence_reset_after_s:
-                    if self._commit_pending():
-                        out.append(self._build_update())
-                    self._buf.clear()
-                    self._clear_pending()
-                return out
-            if self._silent_run_s >= self._silence_reset_after_s:
-                if self._commit_pending():
-                    out.append(self._build_update())
-                self._buf.clear()
-                self._clear_pending()
-            self._silent_run_s = 0.0
-
-        self._buf.extend(data)
-        bytes_per_frame = 2
-
-        while len(self._buf) >= self._chunk_f * bytes_per_frame:
-            if self._cancel_check():
-                break
-
-            chunk = bytes(self._buf[: self._chunk_f * bytes_per_frame])
-            del self._buf[: self._step_f * bytes_per_frame]
-
-            audio = pcm16le_bytes_to_float32(chunk)
-            payload = {"array": audio, "sampling_rate": self._sr}
-
-            generate_kwargs: Dict[str, Any] = {"task": "transcribe"}
-            if self._src_lang:
-                generate_kwargs["language"] = self._src_lang
-
-            try:
-                try:
-                    result = self._pipe(
-                        payload,
-                        return_language=True,
-                        return_timestamps=True,
-                        generate_kwargs=generate_kwargs,
-                        ignore_warning=self._ignore_warning,
-                    )
-                except TypeError:
-                    result = self._pipe(
-                        payload,
-                        return_language=True,
-                        return_timestamps=True,
-                        generate_kwargs=generate_kwargs,
-                    )
-            except Exception as exc:
-                _LOG.exception("ASR pipeline call failed.")
-                raise TranscriptionError("error.transcription.asr_failed") from exc
-
-            if not isinstance(result, dict):
-                result = {"text": str(result)}
-
-            language_changed = False
-            if not self._detected_lang:
-                detected = _extract_detected_language_from_result(result)
-                if not detected and (self._translate or not self._src_lang):
-                    detected = _detect_language_from_pipe_runtime(
-                        pipe=self._pipe,
-                        audio=audio,
-                        sr=self._sr,
-                    )
-                    if detected:
-                        result["language"] = detected
-                if detected:
-                    self._detected_lang = detected
-                    language_changed = True
-
-            cur_source = self._post.clean(str(result.get("text") or ""))
-
-            cur_target = ""
-            if self._translate and cur_source:
-                src_lang = self._detected_lang or self._src_lang
-                if not src_lang:
-                    try:
-                        cfg_src = str(Config.translation_cfg_dict().get("source_language") or "").strip().lower()
-                    except Exception:
-                        cfg_src = ""
-                    if cfg_src and not Config.is_translation_source_deferred_value(cfg_src):
-                        src_lang = cfg_src
-                if src_lang:
-                    src_lang = src_lang.replace("_", "-")
-                    if "-" in src_lang:
-                        src_lang = src_lang.split("-", 1)[0]
-                    cur_target = self._translator.translate(
-                        cur_source,
-                        src_lang=src_lang,
-                        tgt_lang=self._tgt_lang,
-                    )
-
-            text_changed = self._stage_stable_update(cur_source, cur_target)
-            if text_changed:
-                out.append(self._build_update())
-            elif cur_source or cur_target:
-                out.append(self._build_update(include_pending=True))
-            elif language_changed:
-                out.append(self._build_update())
-
-        return out
-
+    apply_all: tuple[str, str] | None
 
 # ----- Progress tracking -----
-
 @dataclass
 class _ItemPlan:
     has_download: bool
     has_translate: bool
     weight: float
-    stage_pct: Dict[str, int]
+    stage_pct: dict[str, int]
 
 
 class _ProgressTracker:
@@ -551,7 +150,7 @@ class _ProgressTracker:
 
     def __init__(self, progress_cb: ProgressFn) -> None:
         self._cb = progress_cb
-        self._plans: Dict[str, _ItemPlan] = {}
+        self._plans: dict[str, _ItemPlan] = {}
         self._last_pct = 0
 
     def register(self, key: str, *, has_download: bool, has_translate: bool, weight: float = 1.0) -> None:
@@ -628,9 +227,263 @@ class _ProgressTracker:
         self._last_pct = pct
         self._cb(pct)
 
+# ----- Shared audio / language helpers -----
+def audio_rms_level(audio: Any) -> float:
+    try:
+        arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+    except Exception:
+        return 0.0
+    if arr.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(arr), dtype=np.float64)))
+
+
+def _audio_signal_profile(audio: Any, *, sr: int, floor: float) -> tuple[float, float, float]:
+    try:
+        arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+    except Exception:
+        return 0.0, 0.0, 0.0
+    if arr.size == 0:
+        return 0.0, 0.0, 0.0
+
+    abs_arr = np.abs(arr, dtype=np.float32)
+    active = abs_arr >= max(0.0, float(floor))
+    active_ratio = float(np.mean(active, dtype=np.float64))
+    active_ms = 0.0 if sr <= 0 else (float(np.count_nonzero(active)) / float(sr)) * 1000.0
+    return audio_rms_level(arr), active_ratio, active_ms
+
+
+def audio_has_meaningful_signal(
+    audio: Any,
+    *,
+    sr: int,
+    rms_min: float,
+    activity_floor: float,
+    active_ratio_min: float,
+    active_ms_min: float,
+) -> bool:
+    rms, active_ratio, active_ms = _audio_signal_profile(audio, sr=sr, floor=activity_floor)
+    return bool(
+        rms >= float(rms_min)
+        and active_ratio >= float(active_ratio_min)
+        and active_ms >= float(active_ms_min)
+    )
+
+
+def _normalize_detected_language(lang: str) -> str:
+    lang = str(lang or '').strip().lower().replace('_', '-')
+    lang = lang.split('-', 1)[0]
+    try:
+        from transformers.models.whisper import tokenization_whisper
+
+        languages = getattr(tokenization_whisper, "LANGUAGES", {})
+        inv = {str(value).lower(): str(key) for key, value in dict(languages).items()}
+        return inv.get(lang, lang)
+    except Exception:
+        return lang
+
+
+def _normalize_whisper_language_key(value: Any) -> str:
+    key = str(value or '').strip().lower()
+    if key.startswith('<|') and key.endswith('|>'):
+        key = key[2:-2]
+    key = key.replace('_', '-').split('-', 1)[0]
+    return _normalize_detected_language(key)
+
+
+def extract_detected_language_from_result(out: dict[str, Any]) -> str:
+    lang = str(out.get('language') or '').strip().lower()
+    if lang:
+        return _normalize_detected_language(lang)
+
+    chunks = out.get('chunks')
+    if isinstance(chunks, list) and chunks:
+        lang = str(chunks[0].get('language') or '').strip().lower()
+        if lang:
+            return _normalize_detected_language(lang)
+
+    return ''
+
+
+def _resolve_whisper_runtime(pipe: Any) -> tuple[Any, Any, Any]:
+    fe = getattr(pipe, 'feature_extractor', None) or getattr(getattr(pipe, 'processor', None), 'feature_extractor', None)
+    tok = getattr(pipe, 'tokenizer', None) or getattr(getattr(pipe, 'processor', None), 'tokenizer', None)
+    model = getattr(pipe, 'model', None)
+    return fe, tok, model
+
+
+def _resolve_whisper_language_token_map(tokenizer: Any) -> dict[str, int]:
+    lang_to_id = getattr(tokenizer, 'lang_to_id', None)
+    resolved: dict[str, int] = {}
+
+    if isinstance(lang_to_id, dict) and lang_to_id:
+        for code, token_id in lang_to_id.items():
+            norm = _normalize_whisper_language_key(code)
+            if not norm:
+                continue
+            try:
+                resolved[norm] = int(token_id)
+            except Exception:
+                continue
+        if resolved:
+            return resolved
+
+    try:
+        vocab = tokenizer.get_vocab()
+    except Exception:
+        vocab = getattr(tokenizer, 'vocab', {}) or {}
+
+    if not isinstance(vocab, dict):
+        return resolved
+
+    for token, token_id in vocab.items():
+        if not isinstance(token, str):
+            continue
+        norm = _normalize_whisper_language_key(token)
+        if not norm:
+            continue
+        if not norm.isalpha() or not (2 <= len(norm) <= 5):
+            continue
+        try:
+            resolved[norm] = int(token_id)
+        except Exception:
+            continue
+    return resolved
+
+
+def _build_whisper_input_features(*, feature_extractor: Any, model: Any, audio: Any, sr: int) -> Any:
+    inputs = feature_extractor(audio, sampling_rate=int(sr), return_tensors='pt')
+    input_features = inputs.get('input_features')
+    if input_features is None:
+        return None
+
+    device = getattr(model, 'device', None)
+    try:
+        dtype = next(model.parameters()).dtype
+    except Exception:
+        dtype = None
+
+    if device is None and dtype is None:
+        return input_features
+
+    try:
+        move_kwargs: dict[str, Any] = {}
+        if device is not None:
+            move_kwargs['device'] = device
+        if dtype is not None and torch.is_floating_point(input_features):
+            move_kwargs['dtype'] = dtype
+        return input_features.to(**move_kwargs) if move_kwargs else input_features
+    except Exception:
+        return input_features
+
+
+def _select_language_from_logits(logits: Any, *, lang_to_id: dict[str, int]) -> str:
+    if logits is None or not lang_to_id:
+        return ''
+
+    try:
+        ids = torch.tensor(list(lang_to_id.values()), device=logits.device)
+        if ids.numel() <= 0:
+            return ''
+        scores = logits.index_select(-1, ids)
+        best_idx = int(torch.argmax(scores, dim=-1).item())
+        best_id = int(ids[best_idx].item())
+        inv = {int(token_id): str(code) for code, token_id in lang_to_id.items()}
+        return inv.get(best_id, '')
+    except Exception:
+        best_lang = ''
+        best_score = None
+        for code, token_id in lang_to_id.items():
+            try:
+                score = float(logits[0, int(token_id)].item())
+            except Exception:
+                continue
+            if best_score is None or score > best_score:
+                best_lang = str(code)
+                best_score = score
+        return best_lang
+
+
+def _detect_language_from_decoder_runtime(*, model: Any, tokenizer: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
+    try:
+        sot_id = tokenizer.convert_tokens_to_ids('<|startoftranscript|>')
+        if sot_id is None:
+            return ''
+        decoder_input_ids = torch.tensor([[int(sot_id)]], device=input_features.device)
+        with torch.no_grad():
+            out = model(input_features=input_features, decoder_input_ids=decoder_input_ids)
+            logits = getattr(out, 'logits', None)
+        if logits is None:
+            return ''
+        return _select_language_from_logits(logits[:, -1, :], lang_to_id=lang_to_id)
+    except Exception:
+        return ''
+
+
+def _detect_language_from_encoder_runtime(*, model: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
+    try:
+        encoder = model.get_encoder()
+        proj_out = getattr(model, 'proj_out', None)
+        if encoder is None or proj_out is None:
+            return ''
+        with torch.no_grad():
+            enc = encoder(input_features)
+            hidden = enc.last_hidden_state if hasattr(enc, 'last_hidden_state') else enc
+            logits = proj_out(hidden)
+        return _select_language_from_logits(logits[:, 0, :], lang_to_id=lang_to_id)
+    except Exception:
+        return ''
+
+
+def _debug_source_key(value: str) -> str:
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    if is_url_source(text):
+        return sanitize_url_for_log(text)
+    try:
+        return Path(text).name or text
+    except Exception:
+        return text
+
+
+def detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
+    """Detect language from Whisper logits when the pipeline output omits it."""
+    try:
+        fe, tok, model = _resolve_whisper_runtime(pipe)
+        if fe is None or tok is None or model is None:
+            return ''
+
+        lang_to_id = _resolve_whisper_language_token_map(tok)
+        if not lang_to_id:
+            return ''
+
+        input_features = _build_whisper_input_features(
+            feature_extractor=fe,
+            model=model,
+            audio=audio,
+            sr=sr,
+        )
+        if input_features is None:
+            return ''
+
+        detected = _detect_language_from_decoder_runtime(
+            model=model,
+            tokenizer=tok,
+            input_features=input_features,
+            lang_to_id=lang_to_id,
+        )
+        if not detected:
+            detected = _detect_language_from_encoder_runtime(
+                model=model,
+                input_features=input_features,
+                lang_to_id=lang_to_id,
+            )
+        return _normalize_detected_language(detected)
+    except Exception:
+        return ''
 
 # ----- Transcription service -----
-
 class TranscriptionService:
     """Runs transcription sessions using an already-built ASR pipeline."""
 
@@ -641,7 +494,8 @@ class TranscriptionService:
         self._translator = TranslationService()
         self._post = TextPostprocessor()
 
-    def _estimate_item_weight(self, key: str) -> float:
+    @staticmethod
+    def _estimate_item_weight(key: str) -> float:
         p = str(key or "")
         if not p or is_url_source(p):
             return 15.0
@@ -667,32 +521,45 @@ class TranscriptionService:
     def _entry_source_key(entry: SourceEntry) -> str:
         return str(entry.get("src") if isinstance(entry, dict) else entry)
 
-    def _build_session_options(self, *, overrides: Optional[Dict[str, Any]]) -> _SessionOptions:
-        tr_cfg = Config.SETTINGS.transcription
-        model_cfg = Config.SETTINGS.model["transcription_model"]
-        tl_cfg = Config.SETTINGS.translation
+    @staticmethod
+    def _build_session_options(*, overrides: dict[str, Any] | None) -> _SessionOptions:
+        tr_cfg = Config.transcription_cfg_dict()
+        model_cfg = Config.transcription_model_raw_cfg_dict()
 
         ov = dict(overrides or {})
         ov_src_lang = str(ov.get("source_language") or "").strip().lower()
         ov_tgt_lang = str(ov.get("target_language") or "").strip().lower()
         ov_translate_after = ov.get("translate_after_transcription")
 
-        output_mode_ids = list(tr_cfg["output_formats"] or [])
+        output_mode_ids = list(tr_cfg.get("output_formats") or [])
         output_modes = [Config.get_transcription_output_mode(str(mode_id)) for mode_id in output_mode_ids]
         want_timestamps = any(
             bool(mode.get("timestamps", False)) or str(mode.get("ext", "")).strip().lower() == "srt"
             for mode in output_modes
         )
 
-        translate_requested = bool(ov_translate_after) if ov_translate_after is not None else bool(tr_cfg["translate_after_transcription"])
-        tgt_lang = Config.normalize_policy_value(ov_tgt_lang or tl_cfg["target_language"] or Config.LANGUAGE_AUTO_VALUE)
+        translate_requested = bool(ov_translate_after) if ov_translate_after is not None else bool(
+            tr_cfg.get("translate_after_transcription", False)
+        )
+        tgt_lang = Config.normalize_policy_value(
+            ov_tgt_lang or Config.translation_target_language() or Config.LANGUAGE_DEFAULT_UI_VALUE
+        )
         want_translate = bool(translate_requested and tgt_lang and not Config.is_auto_language_value(tgt_lang))
 
         default_lang = Config.normalize_policy_value(
             ov_src_lang
-            or model_cfg["default_language"]
-            or tl_cfg["source_language"]
+            or str(model_cfg.get("default_language") or "")
+            or Config.translation_source_language()
             or Config.LANGUAGE_AUTO_VALUE
+        )
+
+        download_audio_only = bool(tr_cfg.get("download_audio_only", False))
+        url_download_kind = "audio" if download_audio_only else "video"
+        url_download_ext = str(
+            tr_cfg.get("url_audio_ext" if download_audio_only else "url_video_ext") or ""
+        ).strip().lower()
+        url_keep_download = bool(
+            tr_cfg.get("url_keep_audio" if download_audio_only else "url_keep_video", False)
         )
 
         return _SessionOptions(
@@ -702,12 +569,109 @@ class TranscriptionService:
             want_timestamps=want_timestamps,
             tgt_lang=tgt_lang,
             default_lang=default_lang,
-            chunk_len_s=int(model_cfg["chunk_length_s"]),
-            stride_len_s=int(model_cfg["stride_length_s"]),
-            ignore_warning=bool(model_cfg["ignore_warning"]),
+            chunk_len_s=int(model_cfg.get("chunk_length_s", 30)),
+            stride_len_s=int(model_cfg.get("stride_length_s", 5)),
+            ignore_warning=bool(model_cfg.get("ignore_warning", False)),
+            url_download_kind=url_download_kind,
+            url_download_ext=url_download_ext,
+            url_keep_download=url_keep_download,
+            url_download_quality=Config.URL_DOWNLOAD_DEFAULT_QUALITY,
         )
 
-    def _count_session_sources(self, *, entries: List[SourceEntry]) -> Tuple[int, int]:
+    @staticmethod
+    def _build_entry_request(entry: SourceEntry) -> _EntryRequest:
+        if isinstance(entry, dict):
+            source_key = str(entry.get("src") or "")
+            forced_stem = str(entry.get("stem") or "").strip() or None
+            audio_lang = str(entry.get("audio_lang") or "").strip() or None
+            if (audio_lang or "").lower() in set(Config.DOWNLOAD_AUDIO_LANG_AUTO_VALUES):
+                audio_lang = None
+        else:
+            source_key = str(entry or "")
+            forced_stem = None
+            audio_lang = None
+
+        return _EntryRequest(
+            source_key=source_key,
+            forced_stem=forced_stem,
+            audio_lang=audio_lang,
+            is_url=is_url_source(source_key),
+        )
+
+    def _prepare_session_runtime(
+        self,
+        *,
+        entries: list[SourceEntry],
+        overrides: dict[str, Any] | None,
+        progress: ProgressFn,
+    ) -> _SessionRuntime:
+        session_dir = FileManager.plan_session()
+        session_id = Path(session_dir).name
+        options = self._build_session_options(overrides=overrides)
+        tracker = _ProgressTracker(progress)
+        self._register_session_tracker(
+            tracker=tracker,
+            entries=entries,
+            want_translate=options.want_translate,
+        )
+        return _SessionRuntime(
+            session_dir=str(session_dir),
+            session_id=session_id,
+            options=options,
+            tracker=tracker,
+            downloaded_to_delete=set(),
+        )
+
+    def _finish_session(
+        self,
+        *,
+        runtime: _SessionRuntime,
+        processed_any: bool,
+        had_errors: bool,
+        was_cancelled: bool,
+    ) -> SessionResult:
+        self._cleanup_downloaded_sources(downloaded_to_delete=runtime.downloaded_to_delete)
+        if not processed_any:
+            FileManager.rollback_session_if_empty()
+        FileManager.end_session()
+        _LOG.info(
+            "Transcription session finished. processed=%s errors=%s cancelled=%s",
+            processed_any,
+            had_errors,
+            was_cancelled,
+        )
+        _LOG.debug(
+            "Transcription session summary. session_id=%s processed=%s errors=%s cancelled=%s cleanup_downloads=%s",
+            runtime.session_id,
+            bool(processed_any),
+            bool(had_errors),
+            bool(was_cancelled),
+            len(runtime.downloaded_to_delete),
+        )
+        return SessionResult(str(runtime.session_dir), processed_any, had_errors, was_cancelled)
+
+    @staticmethod
+    def _emit_materialize_error(
+        *,
+        request: _EntryRequest,
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+        error: Exception,
+    ) -> None:
+        _LOG.debug(
+            "Transcription materialize failed. session_id=%s source_key=%s detail=%s",
+            runtime.session_id,
+            _debug_source_key(request.source_key),
+            str(error),
+        )
+        err_key = getattr(error, "key", None)
+        err_params = getattr(error, "params", None)
+        if err_key:
+            callbacks.item_error(request.source_key, str(err_key), dict(err_params or {}))
+            return
+        callbacks.item_error(request.source_key, "error.generic", {"detail": str(error)})
+
+    def _count_session_sources(self, *, entries: list[SourceEntry]) -> tuple[int, int]:
         local_count = 0
         url_count = 0
         for entry in entries:
@@ -718,7 +682,7 @@ class TranscriptionService:
                 local_count += 1
         return local_count, url_count
 
-    def _register_session_tracker(self, *, tracker: _ProgressTracker, entries: List[SourceEntry], want_translate: bool) -> None:
+    def _register_session_tracker(self, *, tracker: _ProgressTracker, entries: list[SourceEntry], want_translate: bool) -> None:
         for entry in entries:
             key = self._entry_source_key(entry)
             tracker.register(
@@ -731,34 +695,25 @@ class TranscriptionService:
     def _materialize_work_items(
         self,
         *,
-        entries: List[SourceEntry],
-        cancel_check: CancelCheckFn,
-        item_status: ItemStatusFn,
-        item_progress: ItemProgressFn,
-        item_path_update: ItemPathUpdateFn,
-        item_error: ItemErrorFn,
-        tracker: _ProgressTracker,
-        downloaded_to_delete: Set[Path],
-        session_id: str,
+        entries: list[SourceEntry],
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
     ) -> _MaterializeBatchResult:
-        work: List[WorkItem] = []
+        work: list[_MaterializedWorkItem] = []
         had_errors = False
         was_cancelled = False
 
         for entry in entries:
-            if cancel_check():
+            request = self._build_entry_request(entry)
+            if callbacks.cancel_check():
                 was_cancelled = True
                 break
             try:
                 work.append(
                     self._materialize_entry(
-                        entry=entry,
-                        cancel_check=cancel_check,
-                        item_status=item_status,
-                        item_progress=item_progress,
-                        item_path_update=item_path_update,
-                        tracker=tracker,
-                        downloaded_to_delete=downloaded_to_delete,
+                        request=request,
+                        runtime=runtime,
+                        callbacks=callbacks,
                     )
                 )
             except OperationCancelled:
@@ -766,14 +721,12 @@ class TranscriptionService:
                 break
             except Exception as ex:
                 had_errors = True
-                key = self._entry_source_key(entry)
-                _LOG.debug(
-                    "Transcription materialize failed. session_id=%s source_key=%s detail=%s",
-                    session_id,
-                    _debug_source_key(key),
-                    str(ex),
+                self._emit_materialize_error(
+                    request=request,
+                    runtime=runtime,
+                    callbacks=callbacks,
+                    error=ex,
                 )
-                item_error(key, "error.generic", {"detail": str(ex)})
 
         return _MaterializeBatchResult(work=work, had_errors=had_errors, was_cancelled=was_cancelled)
 
@@ -783,8 +736,8 @@ class TranscriptionService:
         self,
         *,
         pipe: Any,
-        entries: List[SourceEntry],
-        overrides: Optional[Dict[str, Any]] = None,
+        entries: list[SourceEntry],
+        overrides: dict[str, Any] | None = None,
         progress: ProgressFn,
         item_status: ItemStatusFn,
         item_progress: ItemProgressFn,
@@ -795,84 +748,100 @@ class TranscriptionService:
         conflict_resolver: ConflictResolverFn,
         cancel_check: CancelCheckFn,
     ) -> SessionResult:
-        session_dir = FileManager.plan_session()
-        processed_any = False
-        had_errors = False
-        was_cancelled = False
-
-        options = self._build_session_options(overrides=overrides)
-        downloaded_to_delete: Set[Path] = set()
-        tracker = _ProgressTracker(progress)
-
         entries = list(entries or [])
-        session_id = Path(session_dir).name
+        callbacks = _SessionCallbacks(
+            item_status=item_status,
+            item_progress=item_progress,
+            item_path_update=item_path_update,
+            transcript_ready=transcript_ready,
+            item_error=item_error,
+            item_output_dir=item_output_dir,
+            conflict_resolver=conflict_resolver,
+            cancel_check=cancel_check,
+        )
+        runtime = self._prepare_session_runtime(
+            entries=entries,
+            overrides=overrides,
+            progress=progress,
+        )
+
         local_count, url_count = self._count_session_sources(entries=entries)
 
         _LOG.info("Transcription session started. items=%d", len(entries))
         _LOG.debug(
             "Transcription session planned. session_id=%s items=%s local_count=%s url_count=%s translate_requested=%s translate_effective=%s source_language=%s target_language=%s output_modes=%s",
-            session_id,
+            runtime.session_id,
             len(entries),
             local_count,
             url_count,
-            bool(options.translate_requested),
-            bool(options.want_translate),
-            options.default_lang or Config.LANGUAGE_AUTO_VALUE,
-            options.tgt_lang or Config.LANGUAGE_AUTO_VALUE,
-            ",".join(options.output_mode_ids),
-        )
-
-        self._register_session_tracker(
-            tracker=tracker,
-            entries=entries,
-            want_translate=options.want_translate,
+            bool(runtime.options.translate_requested),
+            bool(runtime.options.want_translate),
+            runtime.options.default_lang or Config.LANGUAGE_AUTO_VALUE,
+            runtime.options.tgt_lang or Config.LANGUAGE_AUTO_VALUE,
+            ",".join(runtime.options.output_mode_ids),
         )
 
         materialized = self._materialize_work_items(
             entries=entries,
-            cancel_check=cancel_check,
-            item_status=item_status,
-            item_progress=item_progress,
-            item_path_update=item_path_update,
-            item_error=item_error,
-            tracker=tracker,
-            downloaded_to_delete=downloaded_to_delete,
-            session_id=session_id,
+            runtime=runtime,
+            callbacks=callbacks,
         )
+        processed_any = False
         had_errors = bool(materialized.had_errors)
         was_cancelled = bool(materialized.was_cancelled)
 
         if was_cancelled or not materialized.work:
             _LOG.debug(
                 "Transcription session ended early. session_id=%s cancelled=%s work_items=%s errors=%s",
-                session_id,
+                runtime.session_id,
                 bool(was_cancelled),
                 len(materialized.work),
                 bool(had_errors),
             )
-            self._cleanup_downloaded_sources(downloaded_to_delete=downloaded_to_delete)
-            FileManager.rollback_session_if_empty()
-            FileManager.end_session()
-            return SessionResult(str(session_dir), False, had_errors, was_cancelled)
+            return self._finish_session(
+                runtime=runtime,
+                processed_any=False,
+                had_errors=had_errors,
+                was_cancelled=was_cancelled,
+            )
 
-        apply_all: Optional[Tuple[str, str]] = None
-        for key, src_path, forced_stem in materialized.work:
-            item_result = self._process_work_item(
-                session_id=session_id,
+        processed_any, had_errors, was_cancelled = self._process_materialized_work_items(
+            pipe=pipe,
+            work_items=materialized.work,
+            runtime=runtime,
+            callbacks=callbacks,
+            processed_any=processed_any,
+            had_errors=had_errors,
+            was_cancelled=was_cancelled,
+        )
+
+        return self._finish_session(
+            runtime=runtime,
+            processed_any=processed_any,
+            had_errors=had_errors,
+            was_cancelled=was_cancelled,
+        )
+
+    def _process_materialized_work_items(
+        self,
+        *,
+        pipe: Any,
+        work_items: list[_MaterializedWorkItem],
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+        processed_any: bool,
+        had_errors: bool,
+        was_cancelled: bool,
+    ) -> tuple[bool, bool, bool]:
+        apply_all: tuple[str, str] | None = None
+
+        for work_item in work_items:
+            item_result = self._process_materialized_work_item(
                 pipe=pipe,
-                key=key,
-                src_path=src_path,
-                forced_stem=forced_stem,
+                work_item=work_item,
                 apply_all=apply_all,
-                options=options,
-                conflict_resolver=conflict_resolver,
-                tracker=tracker,
-                item_status=item_status,
-                item_progress=item_progress,
-                transcript_ready=transcript_ready,
-                item_error=item_error,
-                item_output_dir=item_output_dir,
-                cancel_check=cancel_check,
+                runtime=runtime,
+                callbacks=callbacks,
             )
             processed_any = bool(processed_any or item_result.processed_any)
             had_errors = bool(had_errors or item_result.had_errors)
@@ -881,117 +850,93 @@ class TranscriptionService:
                 was_cancelled = True
                 break
 
-        self._cleanup_downloaded_sources(downloaded_to_delete=downloaded_to_delete)
+        return processed_any, had_errors, was_cancelled
 
-        if not processed_any:
-            FileManager.rollback_session_if_empty()
-
-        FileManager.end_session()
-        _LOG.info(
-            "Transcription session finished. processed=%s errors=%s cancelled=%s",
-            processed_any,
-            had_errors,
-            was_cancelled,
-        )
-        _LOG.debug(
-            "Transcription session summary. session_id=%s processed=%s errors=%s cancelled=%s cleanup_downloads=%s",
-            session_id,
-            bool(processed_any),
-            bool(had_errors),
-            bool(was_cancelled),
-            len(downloaded_to_delete),
-        )
-        return SessionResult(str(session_dir), processed_any, had_errors, was_cancelled)
-
-    def _process_work_item(
+    def _process_materialized_work_item(
         self,
         *,
-        session_id: str,
         pipe: Any,
-        key: str,
-        src_path: Path,
-        forced_stem: Optional[str],
-        apply_all: Optional[Tuple[str, str]],
-        options: _SessionOptions,
-        conflict_resolver: ConflictResolverFn,
-        tracker: _ProgressTracker,
-        item_status: ItemStatusFn,
-        item_progress: ItemProgressFn,
-        transcript_ready: TranscriptReadyFn,
-        item_error: ItemErrorFn,
-        item_output_dir: ItemOutputDirFn,
-        cancel_check: CancelCheckFn,
+        work_item: _MaterializedWorkItem,
+        apply_all: tuple[str, str] | None,
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
     ) -> _ItemProcessResult:
-        if cancel_check():
+        key = work_item.source_key
+        src_path = work_item.source_path
+        forced_stem = work_item.forced_stem
+
+        if callbacks.cancel_check():
             return _ItemProcessResult(False, False, True, apply_all)
 
         stem = sanitize_filename(forced_stem or src_path.stem)
-        resolved = self._resolve_output_dir(
+        resolution = OutputResolver.resolve_directory(
             stem=stem,
-            conflict_resolver=conflict_resolver,
+            conflict_resolver=callbacks.conflict_resolver,
             apply_all=apply_all,
         )
-        if resolved is None:
+        if resolution.skipped or resolution.output_dir is None:
             _LOG.debug(
                 "Transcription output conflict resolved. session_id=%s source_key=%s action=skip",
-                session_id,
+                runtime.session_id,
                 _debug_source_key(key),
             )
-            item_status(key, "status.skipped")
-            tracker.mark_done(key)
+            callbacks.item_status(key, "status.skipped")
+            runtime.tracker.mark_done(key)
             return _ItemProcessResult(False, False, False, apply_all)
 
-        out_dir, stem, apply_all = resolved
+        out_dir = resolution.output_dir
+        stem = resolution.stem
+        apply_all = resolution.apply_all
         _LOG.debug(
             "Transcription output directory resolved. session_id=%s source_key=%s out_dir=%s stem=%s",
-            session_id,
+            runtime.session_id,
             _debug_source_key(key),
             Path(out_dir).name,
             stem,
         )
-        item_output_dir(key, str(out_dir))
+        callbacks.item_output_dir(key, str(out_dir))
 
-        tmp_wav: Optional[Path] = None
+        tmp_wav: Path | None = None
         try:
-            item_status(key, "status.processing")
-            tracker.update(key, "preprocess", 0)
+            callbacks.item_status(key, "status.processing")
+            runtime.tracker.update(key, "preprocess", 0)
             preprocess_started = time.perf_counter()
-            tmp_wav = FileManager.ensure_tmp_wav(src_path, cancel_check=cancel_check)
-            tracker.update(key, "preprocess", 100)
+            tmp_wav = FileManager.ensure_tmp_wav(src_path, cancel_check=callbacks.cancel_check)
+            runtime.tracker.update(key, "preprocess", 100)
 
             with wave.open(str(tmp_wav), "rb") as wav_file:
                 frames = wav_file.getnframes()
                 rate = wav_file.getframerate()
                 dur_s = (float(frames) / float(rate)) if rate > 0 else 0.0
 
-            tracker.set_weight(key, weight=float(max(15.0, min(3600.0, dur_s))))
+            runtime.tracker.set_weight(key, weight=float(max(15.0, min(3600.0, dur_s))))
             _LOG.debug(
                 "Transcription stage finished. session_id=%s source_key=%s stage=preprocess duration_ms=%s tmp_name=%s duration_s=%s",
-                session_id,
+                runtime.session_id,
                 _debug_source_key(key),
                 int((time.perf_counter() - preprocess_started) * 1000.0),
                 tmp_wav.name if tmp_wav is not None else "",
                 round(dur_s, 2),
             )
 
-            item_status(key, "status.transcribing")
+            callbacks.item_status(key, "status.transcribing")
             transcribe_started = time.perf_counter()
             merged_text, segments, detected_lang = self._transcribe_wav(
                 pipe=pipe,
                 wav_path=tmp_wav,
                 key=key,
-                chunk_len_s=options.chunk_len_s,
-                stride_len_s=options.stride_len_s,
-                want_timestamps=options.want_timestamps,
-                ignore_warning=options.ignore_warning,
-                tracker=tracker,
-                item_progress=item_progress,
-                cancel_check=cancel_check,
-                require_language=options.want_translate,
+                chunk_len_s=runtime.options.chunk_len_s,
+                stride_len_s=runtime.options.stride_len_s,
+                want_timestamps=runtime.options.want_timestamps,
+                ignore_warning=runtime.options.ignore_warning,
+                tracker=runtime.tracker,
+                item_progress=callbacks.item_progress,
+                cancel_check=callbacks.cancel_check,
+                require_language=runtime.options.want_translate,
             )
             _LOG.debug(
                 "Transcription stage finished. session_id=%s source_key=%s stage=transcribe duration_ms=%s text_chars=%s segments=%s detected_lang=%s",
-                session_id,
+                runtime.session_id,
                 _debug_source_key(key),
                 int((time.perf_counter() - transcribe_started) * 1000.0),
                 len(merged_text),
@@ -1000,20 +945,15 @@ class TranscriptionService:
             )
 
             translated_text, translated_segments, translate_had_errors = self._translate_item_if_needed(
-                session_id=session_id,
                 key=key,
                 merged_text=merged_text,
                 segments=segments,
                 detected_lang=detected_lang,
-                options=options,
-                tracker=tracker,
-                item_status=item_status,
-                item_progress=item_progress,
-                item_error=item_error,
-                cancel_check=cancel_check,
+                runtime=runtime,
+                callbacks=callbacks,
             )
 
-            item_status(key, "status.saving")
+            callbacks.item_status(key, "status.saving")
             save_started = time.perf_counter()
             primary = self._write_outputs(
                 key=key,
@@ -1023,17 +963,17 @@ class TranscriptionService:
                 translated_text=translated_text,
                 translated_segments=translated_segments,
                 segments=segments,
-                output_mode_ids=options.output_mode_ids,
-                transcript_ready=transcript_ready,
-                item_output_dir_cb=item_output_dir,
-                item_error_cb=item_error,
-                cancel_check=cancel_check,
+                output_mode_ids=runtime.options.output_mode_ids,
+                transcript_ready=callbacks.transcript_ready,
+                item_output_dir_cb=callbacks.item_output_dir,
+                item_error_cb=callbacks.item_error,
+                cancel_check=callbacks.cancel_check,
             )
-            tracker.update(key, "save", 100)
-            tracker.mark_done(key)
+            runtime.tracker.update(key, "save", 100)
+            runtime.tracker.mark_done(key)
             _LOG.debug(
                 "Transcription stage finished. session_id=%s source_key=%s stage=save duration_ms=%s output_dir=%s primary_saved=%s",
-                session_id,
+                runtime.session_id,
                 _debug_source_key(key),
                 int((time.perf_counter() - save_started) * 1000.0),
                 Path(out_dir).name,
@@ -1041,10 +981,10 @@ class TranscriptionService:
             )
 
             if primary is not None:
-                item_status(key, "status.done")
+                callbacks.item_status(key, "status.done")
                 return _ItemProcessResult(True, bool(translate_had_errors), False, apply_all)
 
-            item_status(key, "status.error")
+            callbacks.item_status(key, "status.error")
             return _ItemProcessResult(False, True, False, apply_all)
         except OperationCancelled:
             return _ItemProcessResult(False, False, True, apply_all)
@@ -1052,10 +992,10 @@ class TranscriptionService:
             err_key = getattr(ex, "key", None)
             err_params = getattr(ex, "params", None)
             if err_key:
-                item_error(key, str(err_key), dict(err_params or {}))
+                callbacks.item_error(key, str(err_key), dict(err_params or {}))
             else:
-                item_error(key, "error.generic", {"detail": str(ex)})
-            item_status(key, "status.error")
+                callbacks.item_error(key, "error.generic", {"detail": str(ex)})
+            callbacks.item_status(key, "status.error")
             return _ItemProcessResult(False, True, False, apply_all)
         finally:
             self._cleanup_tmp_wav(tmp_wav=tmp_wav, src_path=src_path)
@@ -1063,69 +1003,68 @@ class TranscriptionService:
     def _translate_item_if_needed(
         self,
         *,
-        session_id: str,
         key: str,
         merged_text: str,
-        segments: List[Dict[str, Any]],
+        segments: list[dict[str, Any]],
         detected_lang: str,
-        options: _SessionOptions,
-        tracker: _ProgressTracker,
-        item_status: ItemStatusFn,
-        item_progress: ItemProgressFn,
-        item_error: ItemErrorFn,
-        cancel_check: CancelCheckFn,
-    ) -> Tuple[str, Optional[List[Dict[str, Any]]], bool]:
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+    ) -> tuple[str, list[dict[str, Any]] | None, bool]:
         translated_text = ""
-        translated_segments: Optional[List[Dict[str, Any]]] = None
+        translated_segments: list[dict[str, Any]] | None = None
         had_errors = False
 
-        if not options.want_translate:
-            tracker.update(key, "translate", 100)
-            item_progress(key, 100)
+        if not runtime.options.want_translate:
+            runtime.tracker.update(key, "translate", 100)
+            callbacks.item_progress(key, 100)
             return translated_text, translated_segments, had_errors
 
-        item_status(key, "status.translating")
+        callbacks.item_status(key, "status.translating")
         translate_started = time.perf_counter()
-        src_lang = self._pick_source_language(default_lang=options.default_lang, detected_lang=detected_lang)
+        src_lang = self._pick_source_language(default_lang=runtime.options.default_lang, detected_lang=detected_lang)
         _LOG.debug(
             "Translation source language resolved. session_id=%s source_key=%s default_lang=%s detected_lang=%s resolved=%s",
-            session_id,
+            runtime.session_id,
             _debug_source_key(key),
-            options.default_lang or "",
+            runtime.options.default_lang or "",
             detected_lang or "",
             src_lang or "",
         )
 
         if not src_lang:
             had_errors = True
-            item_error(key, "error.translation.missing_source_language", {})
+            callbacks.item_error(key, "error.translation.missing_source_language", {})
         else:
             try:
                 translated_text = self._translator.translate(
                     merged_text,
                     src_lang=src_lang,
-                    tgt_lang=options.tgt_lang,
+                    tgt_lang=runtime.options.tgt_lang,
                     log=None,
                 )
             except AppError as ex:
                 had_errors = True
-                item_error(key, str(getattr(ex, "key", "error.generic")), dict(getattr(ex, "params", {}) or {}))
+                callbacks.item_error(key, str(getattr(ex, "key", "error.generic")), dict(getattr(ex, "params", {}) or {}))
                 translated_text = ""
             else:
-                if options.want_timestamps and segments:
+                if runtime.options.want_timestamps and segments:
+                    def _report_translate_progress(pct: int) -> None:
+                        runtime.tracker.update(key, "translate", pct)
+                        callbacks.item_progress(key, int(pct))
+
                     translated_segments = self._translate_segments(
                         segments=segments,
                         src_lang=src_lang,
-                        tgt_lang=options.tgt_lang,
-                        cancel_check=cancel_check,
-                        progress_cb=lambda pct: (tracker.update(key, "translate", pct), item_progress(key, int(pct))),
+                        tgt_lang=runtime.options.tgt_lang,
+                        cancel_check=callbacks.cancel_check,
+                        progress_cb=_report_translate_progress,
                     )
 
-        tracker.update(key, "translate", 100)
-        item_progress(key, 100)
+        runtime.tracker.update(key, "translate", 100)
+        callbacks.item_progress(key, 100)
         _LOG.debug(
             "Transcription stage finished. session_id=%s source_key=%s stage=translate duration_ms=%s text_chars=%s segments=%s",
-            session_id,
+            runtime.session_id,
             _debug_source_key(key),
             int((time.perf_counter() - translate_started) * 1000.0),
             len(translated_text),
@@ -1134,7 +1073,7 @@ class TranscriptionService:
         return translated_text, translated_segments, had_errors
 
     @staticmethod
-    def _cleanup_tmp_wav(*, tmp_wav: Optional[Path], src_path: Path) -> None:
+    def _cleanup_tmp_wav(*, tmp_wav: Path | None, src_path: Path) -> None:
         try:
             if tmp_wav is not None and tmp_wav != src_path and tmp_wav.suffix.lower() == ".wav":
                 tmp_wav.unlink(missing_ok=True)
@@ -1142,7 +1081,7 @@ class TranscriptionService:
             pass
 
     @staticmethod
-    def _cleanup_downloaded_sources(*, downloaded_to_delete: Set[Path]) -> None:
+    def _cleanup_downloaded_sources(*, downloaded_to_delete: set[Path]) -> None:
         for path in downloaded_to_delete:
             try:
                 path.unlink(missing_ok=True)
@@ -1159,156 +1098,92 @@ class TranscriptionService:
 
     # ----- Cleanup / materialization -----
 
-    def _resolve_output_dir(
-        self,
-        *,
-        stem: str,
-        conflict_resolver: ConflictResolverFn,
-        apply_all: Optional[Tuple[str, str]],
-    ) -> Optional[Tuple[str, str, Optional[Tuple[str, str]]]]:
-        stem = sanitize_filename(stem)
-        existing = OutputResolver.existing_dir(stem)
-
-        if not existing:
-            out_dir = FileManager.ensure_output(stem)
-            return str(out_dir), stem, apply_all
-
-        if apply_all is None:
-            action, new_stem, set_all = conflict_resolver(stem, str(existing))
-            action = str(action or "skip").strip().lower()
-            new_stem = sanitize_filename(new_stem or "")
-            if set_all:
-                apply_all = (action, new_stem)
-        else:
-            action, new_stem = apply_all
-
-        if action == "skip":
-            return None
-
-        if action == "overwrite":
-            FileManager.delete_output_dir(Path(existing))
-            out_dir = FileManager.ensure_output(stem)
-            return str(out_dir), stem, apply_all
-
-        if action == "new":
-            candidate = sanitize_filename(new_stem or f"{stem}-copy")
-            out_dir = FileManager.ensure_output(candidate)
-            return str(out_dir), candidate, apply_all
-
-        return None
-
     def _materialize_entry(
         self,
         *,
-        entry: SourceEntry,
-        cancel_check: CancelCheckFn,
-        item_status: ItemStatusFn,
-        item_progress: ItemProgressFn,
-        item_path_update: ItemPathUpdateFn,
-        tracker: _ProgressTracker,
-        downloaded_to_delete: Set[Path],
-    ) -> WorkItem:
-        if isinstance(entry, dict):
-            src = str(entry.get("src") or "")
-            stem = str(entry.get("stem") or "").strip() or None
-            audio_lang = str(entry.get("audio_lang") or "").strip() or None
-            if (audio_lang or "").lower() in set(Config.DOWNLOAD_AUDIO_LANG_AUTO_VALUES):
-                audio_lang = None
-        else:
-            src = str(entry or "")
-            stem = None
-            audio_lang = None
-
-        if is_url_source(src):
+        request: _EntryRequest,
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+    ) -> _MaterializedWorkItem:
+        if request.is_url:
             return self._materialize_url(
-                url=src,
-                forced_stem=stem,
-                audio_lang=audio_lang,
-                cancel_check=cancel_check,
-                item_status=item_status,
-                item_progress=item_progress,
-                item_path_update=item_path_update,
-                tracker=tracker,
-                downloaded_to_delete=downloaded_to_delete,
+                request=request,
+                runtime=runtime,
+                callbacks=callbacks,
             )
 
-        p = Path(src).expanduser()
+        p = Path(request.source_key).expanduser()
         if not p.exists():
             raise TranscriptionError("error.input.file_not_found", path=str(p))
-        return src, p, stem
+        return _MaterializedWorkItem(
+            source_key=request.source_key,
+            source_path=p,
+            forced_stem=request.forced_stem,
+        )
 
     def _materialize_url(
         self,
         *,
-        url: str,
-        forced_stem: Optional[str],
-        audio_lang: Optional[str],
-        cancel_check: CancelCheckFn,
-        item_status: ItemStatusFn,
-        item_progress: ItemProgressFn,
-        item_path_update: ItemPathUpdateFn,
-        tracker: _ProgressTracker,
-        downloaded_to_delete: Set[Path],
-    ) -> WorkItem:
-        old_key = str(url)
-        safe_url = sanitize_url_for_log(url)
+        request: _EntryRequest,
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+    ) -> _MaterializedWorkItem:
+        old_key = str(request.source_key)
+        safe_url = sanitize_url_for_log(request.source_key)
 
-        item_status(old_key, "status.processing")
+        callbacks.item_status(old_key, "status.processing")
         download_started = time.perf_counter()
-        meta = self._download.probe(url)
+        meta = self._download.probe(request.source_key)
         dur = meta.get("duration")
         if isinstance(dur, (int, float)) and dur > 0:
-            tracker.set_weight(old_key, weight=max(15.0, min(3600.0, float(dur))))
+            runtime.tracker.set_weight(old_key, weight=max(15.0, min(3600.0, float(dur))))
 
         title = sanitize_filename(str(meta.get("title") or "").strip())
-        stem = forced_stem or title or Config.DOWNLOAD_DEFAULT_STEM
+        stem = request.forced_stem or title or Config.DOWNLOAD_DEFAULT_STEM
 
-        tr_cfg = Config.SETTINGS.transcription
-        download_audio_only = bool(tr_cfg["download_audio_only"])
-        quality = Config.URL_DOWNLOAD_DEFAULT_QUALITY
-        if download_audio_only:
-            kind = "audio"
-            ext = str(tr_cfg.get("url_audio_ext") or "")
-            keep = bool(tr_cfg.get("url_keep_audio"))
-        else:
-            kind = "video"
-            ext = str(tr_cfg.get("url_video_ext") or "")
-            keep = bool(tr_cfg.get("url_keep_video"))
+        kind = runtime.options.url_download_kind
+        ext = runtime.options.url_download_ext
+        keep = runtime.options.url_keep_download
+        quality = runtime.options.url_download_quality
 
-        _LOG.debug("Transcription URL materialization started. source_key=%s kind=%s ext=%s keep_download=%s audio_lang=%s", safe_url, kind, ext, bool(keep), audio_lang or "")
+        _LOG.debug("Transcription URL materialization started. source_key=%s kind=%s ext=%s keep_download=%s audio_lang=%s", safe_url, kind, ext, bool(keep), request.audio_lang or "")
 
         def on_dl(pct: int, _stage: str = "") -> None:
-            tracker.update(old_key, "download", pct)
-            item_progress(old_key, pct)
+            runtime.tracker.update(old_key, "download", pct)
+            callbacks.item_progress(old_key, pct)
 
-        item_status(old_key, "status.downloading")
+        callbacks.item_status(old_key, "status.downloading")
         out_dir = FileManager.downloads_dir() if keep else FileManager.url_tmp_dir()
         dst = self._download.download(
-            url=url,
+            url=request.source_key,
             kind=kind,
             quality=quality,
             ext=ext,
             out_dir=out_dir,
             progress_cb=on_dl,
-            audio_lang=audio_lang,
+            audio_lang=request.audio_lang,
             file_stem=stem,
-            cancel_check=cancel_check,
+            cancel_check=callbacks.cancel_check,
             purpose=Config.DOWNLOAD_PURPOSE_TRANSCRIPTION,
             keep_output=keep,
             meta=meta,
         )
         if not dst:
-            raise AppError(key="error.down.download_failed", params={"detail": "download returned no file path"})
+            raise AppError("error.down.download_failed", {"detail": "download returned no file path"})
         if not keep:
-            downloaded_to_delete.add(dst)
+            runtime.downloaded_to_delete.add(dst)
 
         new_key = str(dst)
-        item_path_update(old_key, new_key)
-        tracker.rename_key(old_key, new_key)
-        tracker.update(new_key, "download", 100)
-        item_progress(new_key, 100)
+        callbacks.item_path_update(old_key, new_key)
+        runtime.tracker.rename_key(old_key, new_key)
+        runtime.tracker.update(new_key, "download", 100)
+        callbacks.item_progress(new_key, 100)
         _LOG.debug("Transcription URL materialization finished. source_key=%s new_key=%s duration_ms=%s", safe_url, _debug_source_key(new_key), int((time.perf_counter() - download_started) * 1000.0))
-        return new_key, dst, stem
+        return _MaterializedWorkItem(
+            source_key=new_key,
+            source_path=dst,
+            forced_stem=stem,
+        )
 
     # ----- Transcription / translation -----
 
@@ -1326,7 +1201,7 @@ class TranscriptionService:
         item_progress: ItemProgressFn,
         cancel_check: CancelCheckFn,
         require_language: bool,
-    ) -> Tuple[str, List[Dict[str, Any]], str]:
+    ) -> tuple[str, list[dict[str, Any]], str]:
         with wave.open(str(wav_path), "rb") as w:
             frames = w.getnframes()
             rate = w.getframerate()
@@ -1335,8 +1210,8 @@ class TranscriptionService:
         n_chunks = estimate_chunks(dur_s, chunk_len_s, stride_len_s)
         _LOG.debug("Transcription wav started. source_key=%s duration_s=%s chunks=%s require_language=%s timestamps=%s", _debug_source_key(key), round(dur_s, 2), n_chunks, bool(require_language), bool(want_timestamps))
 
-        merged_parts: List[str] = []
-        segments: List[Dict[str, Any]] = []
+        merged_parts: list[str] = []
+        segments: list[dict[str, Any]] = []
         detected_lang = ""
 
         for i, ch in enumerate(iter_wav_mono_chunks(wav_path, chunk_len_s=chunk_len_s, stride_len_s=stride_len_s), start=1):
@@ -1347,10 +1222,25 @@ class TranscriptionService:
                 tracker.update(key, "transcribe", 5)
                 item_progress(key, 5)
 
+            if not audio_has_meaningful_signal(
+                ch.audio,
+                sr=ch.sr,
+                rms_min=0.014,
+                activity_floor=0.006,
+                active_ratio_min=0.02,
+                active_ms_min=60.0,
+            ):
+                pct = int(round((i / float(n_chunks)) * 100))
+                if n_chunks <= 1:
+                    pct = min(95, max(0, pct))
+                tracker.update(key, "transcribe", pct)
+                item_progress(key, pct)
+                continue
+
             out = self._pipe_call(pipe=pipe, audio=ch.audio, sr=ch.sr, ignore_warning=ignore_warning, require_language=require_language)
 
             if not detected_lang:
-                detected_lang = _extract_detected_language_from_result(out)
+                detected_lang = extract_detected_language_from_result(out)
 
             text = self._post.plain_from_result(out)
             if text:
@@ -1366,14 +1256,15 @@ class TranscriptionService:
             item_progress(key, pct)
 
         merged_text = "\n".join([p for p in merged_parts if p]).strip()
-        if not merged_text and not bool(Config.SETTINGS.model["transcription_model"]["ignore_warning"]):
+        if not merged_text and not bool(ignore_warning):
             raise TranscriptionError("error.transcription.empty_result")
 
         tracker.update(key, "transcribe", 100)
         _LOG.debug("Transcription wav finished. source_key=%s text_chars=%s segments=%s detected_lang=%s", _debug_source_key(key), len(merged_text), len(segments), detected_lang or "")
         return merged_text, segments, detected_lang
 
-    def _pipe_call(self, *, pipe: Any, audio: Any, sr: int, ignore_warning: bool, require_language: bool) -> Dict[str, Any]:
+    @staticmethod
+    def _pipe_call(*, pipe: Any, audio: Any, sr: int, ignore_warning: bool, require_language: bool) -> dict[str, Any]:
         try:
             payload = {"array": audio, "sampling_rate": int(sr)}
             try:
@@ -1402,9 +1293,9 @@ class TranscriptionService:
             out = {"text": str(out)}
 
         if bool(require_language):
-            lang = _extract_detected_language_from_result(out)
+            lang = extract_detected_language_from_result(out)
             if not lang:
-                lang = _detect_language_from_pipe_runtime(pipe=pipe, audio=audio, sr=sr)
+                lang = detect_language_from_pipe_runtime(pipe=pipe, audio=audio, sr=sr)
                 if lang:
                     out["language"] = lang
             if not lang:
@@ -1412,7 +1303,8 @@ class TranscriptionService:
 
         return out
 
-    def _pick_source_language(self, *, default_lang: Optional[str], detected_lang: str) -> str:
+    @staticmethod
+    def _pick_source_language(*, default_lang: str | None, detected_lang: str) -> str:
         src = str(default_lang or "").strip().lower().replace("_", "-")
         src = src.split("-", 1)[0]
         if src and not Config.is_auto_language_value(src):
@@ -1420,40 +1312,21 @@ class TranscriptionService:
         return _normalize_detected_language(detected_lang)
 
     @staticmethod
-    def _extract_segments(result: Dict[str, Any], *, offset_s: float) -> List[Dict[str, Any]]:
+    def _extract_segments(result: dict[str, Any], *, offset_s: float) -> list[dict[str, Any]]:
         raw = TextPostprocessor.segments_from_result(result)
-        if not raw:
-            return []
-        out: List[Dict[str, Any]] = []
-        for seg in raw:
-            try:
-                start = float(seg.get("start", 0.0) or 0.0) + float(offset_s)
-            except Exception:
-                start = float(offset_s)
-            try:
-                end = float(seg.get("end", start) or start) + float(offset_s)
-            except Exception:
-                end = start
-            out.append(
-                {
-                    "start": start,
-                    "end": end,
-                    "text": str(seg.get("text") or "").strip(),
-                }
-            )
-        return out
+        return TranscriptWriter.offset_segments(raw, offset_s=offset_s)
 
     def _translate_segments(
         self,
         *,
-        segments: List[Dict[str, Any]],
+        segments: list[dict[str, Any]],
         src_lang: str,
         tgt_lang: str,
         cancel_check: CancelCheckFn,
-        progress_cb: Optional[Callable[[int], None]] = None,
-    ) -> Optional[List[Dict[str, Any]]]:
+        progress_cb: Callable[[int], None] | None = None,
+    ) -> list[dict[str, Any]] | None:
         total = max(1, len(segments))
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
 
         for i, seg in enumerate(segments, start=1):
             if cancel_check():
@@ -1474,92 +1347,55 @@ class TranscriptionService:
 
     # ----- Output rendering / writeback -----
 
-    def _render_transcript(
-        self,
-        *,
-        merged_text: str,
-        translated_text: str,
-        translated_segments: Optional[List[Dict[str, Any]]],
-        segments: List[Dict[str, Any]],
-        mode: Dict[str, Any],
-    ) -> str:
-        """Render a single transcript output for a selected output mode."""
-        out_ext = str(mode.get("ext", Config.TRANSCRIPT_DEFAULT_EXT) or Config.TRANSCRIPT_DEFAULT_EXT).strip().lower().lstrip(".")
-        if not out_ext:
-            out_ext = Config.TRANSCRIPT_DEFAULT_EXT
-        timestamps_output = bool(mode.get("timestamps", False))
-
-        if out_ext not in ("txt", "srt", "sub"):
-            out_ext = Config.TRANSCRIPT_DEFAULT_EXT
-
-        if out_ext == "srt":
-            use = translated_segments if translated_segments else segments
-            return TextPostprocessor.to_srt(use)
-
-        if out_ext == Config.TRANSCRIPT_DEFAULT_EXT and timestamps_output:
-            use = translated_segments if translated_segments else segments
-            return TextPostprocessor.to_timestamped_plain(use)
-
-        if translated_text and translated_text.strip():
-            return TextPostprocessor.clean(translated_text)
-
-        merged = TextPostprocessor.clean(merged_text)
-        if merged:
-            return merged
-
-        use = translated_segments if translated_segments else segments
-        return TextPostprocessor.to_plain(use)
-
+    @staticmethod
     def _write_outputs(
-        self,
         *,
         key: str,
         stem: str,
         out_dir: Path,
         merged_text: str,
         translated_text: str,
-        translated_segments: Optional[List[Dict[str, Any]]],
-        segments: List[Dict[str, Any]],
-        output_mode_ids: List[str],
+        translated_segments: list[dict[str, Any]] | None,
+        segments: list[dict[str, Any]],
+        output_mode_ids: list[str],
         transcript_ready: TranscriptReadyFn,
-        item_output_dir_cb: Optional[ItemOutputDirFn],
-        item_error_cb: Optional[ItemErrorFn],
+        item_output_dir_cb: ItemOutputDirFn | None,
+        item_error_cb: ItemErrorFn | None,
         cancel_check: CancelCheckFn,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         if cancel_check():
             raise OperationCancelled()
 
-        primary_path: Optional[Path] = None
-        total_modes = max(1, len(output_mode_ids))
-
-        for i, mode_id in enumerate(output_mode_ids):
-            mode = Config.get_transcription_output_mode(str(mode_id))
-            out_text = self._render_transcript(
+        try:
+            written_paths = TranscriptWriter.write_mode_outputs(
+                out_dir=out_dir,
+                output_mode_ids=output_mode_ids,
+                mode_resolver=Config.get_transcription_output_mode,
+                filename_resolver=FileManager.transcript_filename,
+                unique_path_resolver=FileManager.ensure_unique_path,
                 merged_text=merged_text,
                 translated_text=translated_text,
                 translated_segments=translated_segments,
                 segments=segments,
-                mode=mode,
             )
+        except Exception as e:
+            _LOG.error("Transcript save failed. name=%s detail=%s", stem, str(e))
+            if item_error_cb is not None:
+                item_error_cb(key, "error.transcription.save_failed", {"name": stem, "detail": str(e)})
+            return None
 
-            filename = FileManager.transcript_filename(str(mode_id))
-            out_path = out_dir / filename
-            out_path = FileManager.ensure_unique_path(out_path)
+        primary_path: Path | None = written_paths[0] if written_paths else None
+        if primary_path is not None:
+            transcript_ready(key, str(primary_path))
+            if item_output_dir_cb is not None:
+                item_output_dir_cb(key, str(out_dir))
 
-            try:
-                out_dir.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(out_text, encoding="utf-8")
-                _LOG.debug("Transcript output saved. source_key=%s mode=%s file_name=%s", _debug_source_key(key), mode_id, out_path.name)
-            except Exception as e:
-                _LOG.error("Transcript save failed. name=%s detail=%s", stem, str(e))
-                if item_error_cb is not None:
-                    item_error_cb(key, "error.transcription.save_failed", {"name": stem, "detail": str(e)})
-                return None
-
-            if primary_path is None:
-                primary_path = out_path
-                transcript_ready(key, str(out_path))
-                if item_output_dir_cb is not None:
-                    item_output_dir_cb(key, str(out_dir))
+        for mode_id, out_path in zip(output_mode_ids, written_paths):
+            _LOG.debug(
+                "Transcript output saved. source_key=%s mode=%s file_name=%s",
+                _debug_source_key(key),
+                mode_id,
+                out_path.name,
+            )
 
         return primary_path

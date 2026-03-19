@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any
 
 from PyQt5 import QtCore
 
 from app.model.helpers.errors import AppError
 
-_MESSAGES: Dict[str, str] = {}
+_MESSAGES: dict[str, str] = {}
 _CURRENT_LANG: str = "en"
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
+def _read_json(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
@@ -24,9 +24,9 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return data
 
 
-def _flatten(d: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
+def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, str]:
     """Flatten nested dicts into dot-separated keys (e.g., tabs.files)."""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in d.items():
         if not isinstance(k, str):
             continue
@@ -49,8 +49,8 @@ def system_lang_hint() -> str:
     return f"{lang}-{region}" if region else lang
 
 
-def discover_locales(locales_dir: Path) -> Set[str]:
-    available: Set[str] = set()
+def discover_locales(locales_dir: Path) -> set[str]:
+    available: set[str] = set()
     if not locales_dir.exists():
         return available
     for p in locales_dir.glob("*.json"):
@@ -68,7 +68,8 @@ def _locale_display_name(locales_dir: Path, code: str) -> str:
         locales_dir = Path(locales_dir)
         p = locales_dir / f"{str(code).lower()}.json"
         if not p.exists():
-            p = locales_dir / f"{str(code).split('-', 1)[0].lower()}.json"
+            base_code = str(code).split("-", 1)[0].lower()
+            p = locales_dir / f"{base_code}.json"
         if not p.exists():
             return str(code)
 
@@ -100,7 +101,7 @@ def list_locales(locales_dir: Path) -> list[tuple[str, str]]:
     return items
 
 
-def _pick_best(sys_hint: str, available: Set[str], fallback: str = "en") -> str:
+def _pick_best(sys_hint: str, available: set[str], fallback: str = "en") -> str:
     if sys_hint in available:
         return sys_hint
     base = sys_hint.split("-", 1)[0]
@@ -119,9 +120,10 @@ def load(locales_dir: Path, lang: str) -> None:
     locales_dir = Path(locales_dir)
 
     exact = locales_dir / f"{lang.lower()}.json"
-    base = locales_dir / f"{lang.split('-', 1)[0].lower()}.json"
+    base_lang = lang.split("-", 1)[0].lower()
+    base = locales_dir / f"{base_lang}.json"
 
-    path: Optional[Path] = exact if exact.exists() else (base if base.exists() else None)
+    path: Path | None = exact if exact.exists() else (base if base.exists() else None)
     if path is None:
         raise AppError(key="error.i18n.locale_not_found", params={"lang": str(lang), "path": str(locales_dir)})
 
@@ -152,8 +154,8 @@ def _normalize_display_lang_code(code: str) -> str:
     return str(code or "").strip().lower().replace("_", "-")
 
 
-def language_display_name(code: str, *, ui_lang: Optional[str] = None) -> str:
-    """Return a user-facing language label, e.g. 'polski (pl)'."""
+def language_display_name(code: str, *, ui_lang: str | None = None) -> str:
+    """Return a user-facing language label, e.g. "polski (pl)"."""
     norm = _normalize_display_lang_code(code)
     if not norm:
         return ""
@@ -177,14 +179,14 @@ def language_display_name(code: str, *, ui_lang: Optional[str] = None) -> str:
 
 
 def build_language_options(
-    codes: list[str] | tuple[str, ...] | Set[str],
+    codes: list[str] | tuple[str, ...] | set[str],
     *,
-    special_first: Optional[tuple[str, str]] = None,
-    ui_lang: Optional[str] = None,
+    special_first: tuple[str, str] | None = None,
+    ui_lang: str | None = None,
 ) -> list[tuple[str, str]]:
     """Build sorted (code, label) pairs for plain language combo boxes."""
     items: list[tuple[str, str]] = []
-    seen: Set[str] = set()
+    seen: set[str] = set()
 
     if special_first is not None:
         label_key, raw_code = special_first

@@ -1,22 +1,22 @@
 # app/view/components/runtime_badge.py
 from __future__ import annotations
 
-from typing import Optional
-
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.support.localization import tr
+from app.view.support.widget_effects import repolish_widget
 from app.view.ui_config import ui
 
 _VALID_RUNTIME_STATES = {"ready", "loading", "offline", "disabled", "missing", "neutral"}
 
+
 class RuntimeBadgeWidget(QtWidgets.QFrame):
     """Compact runtime information badge for the Files tab."""
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         cfg = ui(self)
-        row_spacing = int(getattr(cfg, "inline_spacing", cfg.spacing))
+        row_spacing = int(cfg.space_s)
         self.setObjectName("RuntimeBadgeWidget")
         self.setFrameShape(QtWidgets.QFrame.NoFrame)
         self.setFrameShadow(QtWidgets.QFrame.Plain)
@@ -34,14 +34,14 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
 
         self.lbl_summary_value = QtWidgets.QLabel(tr("files.runtime.status_loading"))
         self.lbl_summary_value.setObjectName("RuntimeSummaryValue")
-        self.lbl_summary_value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self.lbl_summary_value.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
 
         summary_box = QtWidgets.QHBoxLayout()
         summary_box.setContentsMargins(0, 0, 0, 0)
         summary_box.setSpacing(int(cfg.spacing))
-        summary_box.addWidget(self.ico, 0, QtCore.Qt.AlignVCenter)
-        summary_box.addWidget(self.lbl_summary_label, 0, QtCore.Qt.AlignVCenter)
-        summary_box.addWidget(self.lbl_summary_value, 0, QtCore.Qt.AlignVCenter)
+        summary_box.addWidget(self.ico, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
+        summary_box.addWidget(self.lbl_summary_label, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
+        summary_box.addWidget(self.lbl_summary_value, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
         summary_box.addStretch(1)
 
         self.lbl_device_label, self.lbl_device_value = self._build_line(
@@ -68,7 +68,7 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
         details_grid = QtWidgets.QGridLayout()
         details_grid.setContentsMargins(0, 0, 0, 0)
         details_grid.setHorizontalSpacing(row_spacing)
-        details_grid.setVerticalSpacing(int(cfg.option_spacing))
+        details_grid.setVerticalSpacing(int(cfg.space_s))
         details_grid.setColumnStretch(0, 0)
         details_grid.setColumnStretch(1, 1)
 
@@ -101,10 +101,7 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
         if str(label.property("runtimeState") or "") == norm:
             return
         label.setProperty("runtimeState", norm)
-        style = label.style()
-        style.unpolish(label)
-        style.polish(label)
-        label.update()
+        repolish_widget(label)
 
     @staticmethod
     def _build_line(
@@ -115,13 +112,13 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
     ) -> tuple[QtWidgets.QLabel, QtWidgets.QLabel]:
         label = QtWidgets.QLabel(tr(label_key))
         label.setObjectName(label_object_name)
-        label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
 
         value = QtWidgets.QLabel(tr("common.na"))
         value.setObjectName(value_object_name)
         value.setWordWrap(True)
-        value.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        value.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
+        value.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         value.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         value.setMinimumWidth(0)
 

@@ -2,22 +2,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Any
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
 
 from app.controller.support.localization import tr
 from app.model.config.app_config import AppConfig as Config
 
-from app.view.ui_config import (
-    UIConfig,
-    app_icon,
-    enable_styled_background,
-    apply_windows_dark_titlebar,
-    normalize_network_status,
-    ui,
-)
-
+from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
+from app.view.support.view_runtime import normalize_network_status
+from app.view.support.widget_effects import enable_styled_background
+from app.view.ui_config import UIConfig, ui
 from app.view.panels.files_panel import FilesPanel
 from app.view.panels.live_panel import LivePanel
 from app.view.panels.downloader_panel import DownloaderPanel
@@ -25,7 +20,7 @@ from app.view.panels.settings_panel import SettingsPanel
 from app.view.panels.about_panel import AboutPanel
 
 _LOG = logging.getLogger(__name__)
-BootContext = Dict[str, Any]
+BootContext = dict[str, Any]
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window hosting the primary panels."""
@@ -34,17 +29,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(
         self,
-        parent: Optional[QtWidgets.QWidget] = None,
-        boot_ctx: Optional[BootContext] = None,
-        ui_cfg: Optional[UIConfig] = None,
+        parent: QtWidgets.QWidget | None = None,
+        boot_ctx: BootContext | None = None,
+        ui_cfg: UIConfig | None = None,
     ) -> None:
         super().__init__(parent)
 
-        self._boot_ctx: Optional[BootContext] = boot_ctx
+        self._boot_ctx: BootContext | None = boot_ctx
         self._ui = ui_cfg if ui_cfg is not None else ui(self)
         self._network_status: str = "checking"
-        self._network_cfg_manager: Optional[QtCore.QObject] = None
-        self._network_access_manager: Optional[QtNetwork.QNetworkAccessManager] = None
+        self._network_cfg_manager: QtCore.QObject | None = None
+        self._network_access_manager: QtNetwork.QNetworkAccessManager | None = None
 
         self.setObjectName("MainWindow")
         self.setWindowTitle(Config.APP_NAME)
@@ -57,18 +52,18 @@ class MainWindow(QtWidgets.QMainWindow):
         central = QtWidgets.QWidget(self)
         central.setObjectName("MainCentral")
         enable_styled_background(central)
-        central.setFocusPolicy(QtCore.Qt.ClickFocus)
+        central.setFocusPolicy(QtCore.Qt.FocusPolicy.ClickFocus)
         self.setCentralWidget(central)
 
         root = QtWidgets.QVBoxLayout(central)
         root.setContentsMargins(self._ui.margin, self._ui.margin, self._ui.margin, self._ui.margin)
         root.setSpacing(self._ui.spacing)
 
-        self.files_panel: Optional[QtWidgets.QWidget] = None
-        self.live_panel: Optional[QtWidgets.QWidget] = None
-        self.down_panel: Optional[QtWidgets.QWidget] = None
-        self.settings_panel: Optional[QtWidgets.QWidget] = None
-        self.about_panel: Optional[QtWidgets.QWidget] = None
+        self.files_panel: QtWidgets.QWidget | None = None
+        self.live_panel: QtWidgets.QWidget | None = None
+        self.downloader_panel: QtWidgets.QWidget | None = None
+        self.settings_panel: QtWidgets.QWidget | None = None
+        self.about_panel: QtWidgets.QWidget | None = None
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setObjectName("MainTabs")
@@ -79,13 +74,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.files_panel = FilesPanel(self, boot_ctx=self._boot_ctx)
         self.live_panel = LivePanel(self, boot_ctx=self._boot_ctx)
-        self.down_panel = DownloaderPanel(self)
+        self.downloader_panel = DownloaderPanel(self)
         self.settings_panel = SettingsPanel(self)
         self.about_panel = AboutPanel(self)
 
         self.tabs.addTab(self.files_panel, tr("tabs.files"))
         self.tabs.addTab(self.live_panel, tr("tabs.live"))
-        self.tabs.addTab(self.down_panel, tr("tabs.downloader"))
+        self.tabs.addTab(self.downloader_panel, tr("tabs.downloader"))
         self.tabs.addTab(self.settings_panel, tr("tabs.settings"))
         self.tabs.addTab(self.about_panel, tr("tabs.about"))
 
@@ -175,7 +170,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if nam is not None:
             try:
                 accessible = nam.networkAccessible()
-                if accessible == QtNetwork.QNetworkAccessManager.NotAccessible:
+                net_accessibility = getattr(QtNetwork.QNetworkAccessManager, "NetworkAccessibility", None)
+                not_accessible = getattr(
+                    net_accessibility,
+                    "NotAccessible",
+                    getattr(QtNetwork.QNetworkAccessManager, "NotAccessible", None),
+                )
+                if accessible == not_accessible:
                     self._set_network_status("offline")
                 else:
                     self._set_network_status("online")
@@ -186,14 +187,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_network_status("online")
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if event.type() == QtCore.QEvent.MouseButtonPress:
+        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
             self._clear_transient_editor_focus(obj)
         return super().eventFilter(obj, event)
 
     def _clear_transient_editor_focus(self, target_obj: QtCore.QObject) -> None:
-        app = QtWidgets.QApplication.instance()
-        if app is None:
+        app_obj = QtWidgets.QApplication.instance()
+        if not isinstance(app_obj, QtWidgets.QApplication):
             return
+        app = app_obj
 
         focus_w = app.focusWidget()
         if not isinstance(focus_w, QtWidgets.QWidget):
@@ -222,7 +224,7 @@ class MainWindow(QtWidgets.QMainWindow):
         focus_w.clearFocus()
         central = self.centralWidget()
         if central is not None:
-            central.setFocus(QtCore.Qt.MouseFocusReason)
+            central.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
 
     def closeEvent(self, e: QtGui.QCloseEvent) -> None:
         try:
@@ -238,8 +240,8 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
 
         try:
-            if hasattr(self.down_panel, "on_parent_close"):
-                self.down_panel.on_parent_close()
+            if hasattr(self.downloader_panel, "on_parent_close"):
+                self.downloader_panel.on_parent_close()
         except Exception:
             pass
 

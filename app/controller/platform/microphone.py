@@ -1,31 +1,31 @@
 # app/controller/platform/microphone.py
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
 
-def _qtmm():
+def _qt_multimedia() -> Any:
     from PyQt5 import QtMultimedia
     return QtMultimedia
 
 
-def list_input_devices() -> List[object]:
-    """Returns list of QtMultimedia.QAudioDeviceInfo for audio inputs."""
-    QtMultimedia = _qtmm()
+def list_input_devices() -> list[Any]:
+    """Return a list of QtMultimedia.QAudioDeviceInfo for audio inputs."""
+    qt_multimedia = _qt_multimedia()
     try:
-        return list(QtMultimedia.QAudioDeviceInfo.availableDevices(QtMultimedia.QAudio.AudioInput))
+        return list(qt_multimedia.QAudioDeviceInfo.availableDevices(qt_multimedia.QAudio.AudioInput))
     except Exception:
         return []
 
 
-def _device_base_name(dev: object) -> str:
+def _device_base_name(dev: Any) -> str:
     try:
         return str(dev.deviceName() or "").strip()
     except Exception:
         return ""
 
 
-def _device_realm(dev: object) -> str:
+def _device_realm(dev: Any) -> str:
     try:
         fn = getattr(dev, "realm", None)
         if callable(fn):
@@ -35,7 +35,7 @@ def _device_realm(dev: object) -> str:
     return ""
 
 
-def _format_signature(fmt: object) -> Tuple[int, int, int, str, int, int]:
+def _format_signature(fmt: Any) -> tuple[int, int, int, str, int, int]:
     try:
         sample_rate = int(fmt.sampleRate() or 0)
     except Exception:
@@ -66,10 +66,10 @@ def _format_signature(fmt: object) -> Tuple[int, int, int, str, int, int]:
     except Exception:
         byte_order = -1
 
-    return (sample_rate, channel_count, sample_size, codec, sample_type, byte_order)
+    return sample_rate, channel_count, sample_size, codec, sample_type, byte_order
 
 
-def _device_signature(dev: object) -> Tuple[object, ...]:
+def _device_signature(dev: Any) -> tuple[Any, ...]:
     try:
         preferred_fmt = dev.preferredFormat()
     except Exception:
@@ -82,7 +82,7 @@ def _device_signature(dev: object) -> Tuple[object, ...]:
     )
 
 
-def _supported_value_count(dev: object, method_name: str) -> int:
+def _supported_value_count(dev: Any, method_name: str) -> int:
     try:
         values = list(getattr(dev, method_name)())
     except Exception:
@@ -90,7 +90,7 @@ def _supported_value_count(dev: object, method_name: str) -> int:
     return len(values)
 
 
-def _device_score(dev: object, default_dev: Optional[object]) -> Tuple[int, int, int, int, int]:
+def _device_score(dev: Any, default_dev: Any | None) -> tuple[int, int, int, int, int]:
     desired_fmt = make_pcm16_mono_format(sample_rate=16000)
 
     try:
@@ -115,11 +115,11 @@ def _device_score(dev: object, default_dev: Optional[object]) -> Tuple[int, int,
     sample_rates = _supported_value_count(dev, "supportedSampleRates")
     channels = _supported_value_count(dev, "supportedChannelCounts")
 
-    return (is_default, exact_supported, preferred_exact, sample_rates, channels)
+    return is_default, exact_supported, preferred_exact, sample_rates, channels
 
 
-def _group_input_devices() -> Dict[str, List[object]]:
-    groups: Dict[str, List[object]] = {}
+def _group_input_devices() -> dict[str, list[Any]]:
+    groups: dict[str, list[Any]] = {}
     for dev in list_input_devices():
         base = _device_base_name(dev)
         if not base:
@@ -128,18 +128,18 @@ def _group_input_devices() -> Dict[str, List[object]]:
     return groups
 
 
-def _pick_input_device(devices: List[object]) -> Optional[object]:
+def _pick_input_device(devices: list[Any]) -> Any | None:
     if not devices:
         return None
 
-    QtMultimedia = _qtmm()
+    qt_multimedia = _qt_multimedia()
     try:
-        default_dev = QtMultimedia.QAudioDeviceInfo.defaultInputDevice()
+        default_dev = qt_multimedia.QAudioDeviceInfo.defaultInputDevice()
     except Exception:
         default_dev = None
 
-    best_dev: Optional[object] = None
-    best_score: Optional[Tuple[int, int, int, int, int]] = None
+    best_dev: Any | None = None
+    best_score: tuple[int, int, int, int, int] | None = None
 
     for dev in devices:
         score = _device_score(dev, default_dev)
@@ -150,17 +150,17 @@ def _pick_input_device(devices: List[object]) -> Optional[object]:
     return best_dev or devices[0]
 
 
-def list_input_device_names() -> List[str]:
+def list_input_device_names() -> list[str]:
     groups = _group_input_devices()
     return list(groups.keys())
 
 
-def resolve_input_device(device_name: str = "") -> Tuple[object, Optional[object]]:
+def resolve_input_device(device_name: str = "") -> tuple[Any, Any | None]:
     """Resolve a QtMultimedia input device by name, or return default."""
-    QtMultimedia = _qtmm()
+    qt_multimedia = _qt_multimedia()
     devices = list_input_devices()
     if not devices:
-        return QtMultimedia, None
+        return qt_multimedia, None
 
     wanted = str(device_name or "").strip()
     if wanted:
@@ -168,28 +168,28 @@ def resolve_input_device(device_name: str = "") -> Tuple[object, Optional[object
         matches = groups.get(wanted, [])
         picked = _pick_input_device(matches)
         if picked is not None:
-            return QtMultimedia, picked
+            return qt_multimedia, picked
 
     try:
-        return QtMultimedia, QtMultimedia.QAudioDeviceInfo.defaultInputDevice()
+        return qt_multimedia, qt_multimedia.QAudioDeviceInfo.defaultInputDevice()
     except Exception:
-        return QtMultimedia, devices[0]
+        return qt_multimedia, devices[0]
 
 
-def make_pcm16_mono_format(*, sample_rate: int = 16000) -> object:
+def make_pcm16_mono_format(*, sample_rate: int = 16000) -> Any:
     """Build desired QAudioFormat: 16kHz, mono, signed 16-bit PCM little endian."""
-    QtMultimedia = _qtmm()
-    fmt = QtMultimedia.QAudioFormat()
+    qt_multimedia = _qt_multimedia()
+    fmt = qt_multimedia.QAudioFormat()
     fmt.setSampleRate(int(sample_rate))
     fmt.setChannelCount(1)
     fmt.setSampleSize(16)
     fmt.setCodec("audio/pcm")
-    fmt.setByteOrder(QtMultimedia.QAudioFormat.LittleEndian)
-    fmt.setSampleType(QtMultimedia.QAudioFormat.SignedInt)
+    fmt.setByteOrder(qt_multimedia.QAudioFormat.LittleEndian)
+    fmt.setSampleType(qt_multimedia.QAudioFormat.SignedInt)
     return fmt
 
 
-def ensure_supported_format(dev: object, desired_fmt: object) -> Tuple[bool, object]:
+def ensure_supported_format(dev: Any, desired_fmt: Any) -> tuple[bool, Any]:
     """Ensure device supports desired format; if not, try nearestFormat."""
     try:
         if dev.isFormatSupported(desired_fmt):
@@ -200,15 +200,15 @@ def ensure_supported_format(dev: object, desired_fmt: object) -> Tuple[bool, obj
         return False, desired_fmt
 
 
-def format_is_pcm16_mono_16k(fmt: object, *, sample_rate: int = 16000) -> bool:
+def format_is_pcm16_mono_16k(fmt: Any, *, sample_rate: int = 16000) -> bool:
     """Strict check: must be exactly 16kHz, mono, signed 16-bit PCM."""
-    QtMultimedia = _qtmm()
+    qt_multimedia = _qt_multimedia()
     try:
         return (
             int(fmt.sampleRate()) == int(sample_rate)
             and int(fmt.channelCount()) == 1
             and int(fmt.sampleSize()) == 16
-            and fmt.sampleType() == QtMultimedia.QAudioFormat.SignedInt
+            and fmt.sampleType() == qt_multimedia.QAudioFormat.SignedInt
         )
     except Exception:
         return False

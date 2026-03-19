@@ -1,16 +1,20 @@
 # app/view/components/section_group.py
 from __future__ import annotations
 
-from typing import Optional, Literal
+from typing import Literal
 
 from PyQt5 import QtWidgets
 
-from app.view.ui_config import setup_layout, ui
+from app.view.support.widget_setup import setup_layout
+from app.view.ui_config import ui
+
 
 class SectionGroup(QtWidgets.QGroupBox):
+    root: QtWidgets.QVBoxLayout | QtWidgets.QHBoxLayout | QtWidgets.QGridLayout
+
     def __init__(
         self,
-        parent: Optional[QtWidgets.QWidget] = None,
+        parent: QtWidgets.QWidget | None = None,
         *,
         object_name: str | None = None,
         role: str | None = None,

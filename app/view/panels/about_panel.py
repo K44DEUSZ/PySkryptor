@@ -6,30 +6,39 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from app.view.ui_config import LogoSvgLabel, enable_styled_background, logo_svg_path, open_local_path, setup_layout, ui
-from app.view import dialogs
-from app.view.components.section_group import SectionGroup
 
+from app.view.components.section_group import SectionGroup
 from app.model.config.app_config import AppConfig as Config
 from app.controller.support.localization import tr
+from app.view.components import dialogs
+from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
+from app.view.support.view_runtime import open_local_path
+from app.view.support.widget_effects import enable_styled_background
+from app.view.support.widget_setup import setup_layout
+from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
+
+_ABOUT_LOGO_WIDTH_RATIO = 0.42
+_ABOUT_LOGO_HEIGHT_RATIO = 0.55
+_ABOUT_LEFT_PANEL_MAX_RATIO = 0.45
+
 
 class AboutPanel(QtWidgets.QWidget):
     """About view with app metadata, scalable logo and local license link."""
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("AboutPanel")
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
-        self._license_browser: Optional[QtWidgets.QTextBrowser] = None
-        self._logo: Optional[LogoSvgLabel] = None
-        self._left: Optional[QtWidgets.QWidget] = None
+        self._license_browser: QtWidgets.QTextBrowser | None = None
+        self._logo: LogoSvgLabel | None = None
+        self._left: QtWidgets.QWidget | None = None
         self._build_ui()
         self._wire_signals()
         self._restore_initial_state()
@@ -51,12 +60,16 @@ class AboutPanel(QtWidgets.QWidget):
         if path is not None:
             logo = LogoSvgLabel(path, object_name="AboutLogo")
             self._logo = logo
-            left_layout.addWidget(logo, 0, QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            left_layout.addWidget(
+                logo,
+                0,
+                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
+            )
             left_layout.addStretch(1)
         else:
             placeholder = QtWidgets.QLabel(tr("about.logo.placeholder"))
             placeholder.setObjectName("AboutLogoPlaceholder")
-            placeholder.setAlignment(QtCore.Qt.AlignCenter)
+            placeholder.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             placeholder.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
             left_layout.addWidget(placeholder)
             left_layout.addStretch(1)
@@ -69,33 +82,33 @@ class AboutPanel(QtWidgets.QWidget):
 
         app_group = SectionGroup(self, object_name="AboutAppGroup")
         app_group.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        app_layout = app_group.root
+        app_layout = cast(QtWidgets.QVBoxLayout, app_group.root)
         setup_layout(app_layout, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
 
         app_label = QtWidgets.QLabel()
-        app_label.setTextFormat(QtCore.Qt.RichText)
+        app_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         app_label.setWordWrap(True)
-        app_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        app_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         app_html = tr("about.app.description").format(
             name=Config.APP_NAME,
             version=Config.APP_VERSION,
             author=Config.APP_AUTHOR,
             years=Config.APP_DEVELOPMENT_YEARS,
         )
-        app_label.setText(f'<div style="line-height:1.35">{app_html}</div>')
+        app_label.setText(f"<div style='line-height:1.35'>{app_html}</div>")
         app_layout.addWidget(app_label)
         right_layout.addWidget(app_group)
 
         license_group = SectionGroup(self, object_name="AboutLicenseGroup")
         license_group.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        license_layout = license_group.root
+        license_layout = cast(QtWidgets.QVBoxLayout, license_group.root)
         setup_layout(license_layout, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
 
         summary = html.escape(tr("about.license.summary")).replace("\n", "<br>")
-        summary_label = QtWidgets.QLabel(f'<div style="line-height:1.35">{summary}</div>')
-        summary_label.setTextFormat(QtCore.Qt.RichText)
+        summary_label = QtWidgets.QLabel(f"<div style='line-height:1.35'>{summary}</div>")
+        summary_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         summary_label.setWordWrap(True)
-        summary_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        summary_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         license_layout.addWidget(summary_label)
 
         browser = QtWidgets.QTextBrowser()
@@ -104,9 +117,9 @@ class AboutPanel(QtWidgets.QWidget):
         browser.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         browser.setOpenExternalLinks(False)
         browser.setOpenLinks(False)
-        browser.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        browser.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        browser.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
+        browser.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        browser.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        browser.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.NoContextMenu)
         browser.setObjectName("AboutLicenseLink")
         browser.document().setDocumentMargin(0)
         browser.setHtml(tr("about.license.full_link"))
@@ -157,7 +170,7 @@ class AboutPanel(QtWidgets.QWidget):
             h = 0.0
 
         fm = b.fontMetrics()
-        pad = int(self._ui.about_text_browser_height_pad)
+        pad = int(self._ui.pad_y_m)
         need = int(max(float(fm.height()), h) + float(pad))
         b.setFixedHeight(max(1, need))
 
@@ -166,18 +179,23 @@ class AboutPanel(QtWidgets.QWidget):
             return
 
         cfg = self._ui
-        max_w = max(min(int(self.width() * cfg.about_logo_max_w_ratio), int(cfg.about_logo_max_w_cap)), int(cfg.about_logo_max_w_floor))
-        max_h = max(min(int(self.height() * cfg.about_logo_max_h_ratio), int(cfg.about_logo_max_h_cap)), int(cfg.about_logo_max_h_floor))
+        max_w = max(
+            min(int(self.width() * _ABOUT_LOGO_WIDTH_RATIO), int(cfg.control_min_w * 4 + cfg.margin * 5)),
+            int(cfg.control_min_w * 2),
+        )
+        max_h = max(
+            min(int(self.height() * _ABOUT_LOGO_HEIGHT_RATIO), int(cfg.window_min_h - (cfg.button_big_h * 6 + cfg.pad_y_m * 4))),
+            int(cfg.button_big_h * 4 + cfg.pad_y_l * 2),
+        )
 
         self._logo.update_for_bounds(max_w, max_h)
-        self._left.setMaximumWidth(min(int(self.width() * cfg.about_left_panel_max_w_ratio), self._logo.width() + cfg.margin * 4))
+        self._left.setMaximumWidth(min(int(self.width() * _ABOUT_LEFT_PANEL_MAX_RATIO), self._logo.width() + cfg.margin * 4))
 
-    def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
-        del url
+    def _on_anchor_clicked(self, _url: QtCore.QUrl) -> None:
         self._open_license_file()
 
     @staticmethod
-    def _resolve_license_path() -> Optional[Path]:
+    def _resolve_license_path() -> Path | None:
         path = Path(Config.LICENSE_FILE)
         if path.exists():
             return path
@@ -209,7 +227,7 @@ class AboutPanel(QtWidgets.QWidget):
         )
 
     @staticmethod
-    def _open_local_file(path: Optional[Path]) -> bool:
+    def _open_local_file(path: Path | None) -> bool:
         if path is None:
             return False
 

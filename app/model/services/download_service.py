@@ -7,7 +7,7 @@ import shutil
 import socket
 import tempfile
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Any, Callable
 
 import yt_dlp
 
@@ -17,7 +17,6 @@ from app.model.helpers.errors import AppError, OperationCancelled
 from app.model.helpers.string_utils import sanitize_filename, normalize_lang_code, is_youtube_url
 
 _LOG = logging.getLogger(__name__)
-
 
 # ----- yt-dlp logger adapter -----
 
@@ -69,7 +68,6 @@ _JS_RUNTIME_ERROR_MARKERS: tuple[str, ...] = (
     "ejs",
 )
 
-
 def _is_noisy(msg: str, extra_noise: tuple[str, ...] = ()) -> bool:
     text = str(msg)
     for k in _NOISE_PATTERNS:
@@ -113,7 +111,7 @@ class DownloadError(AppError):
     """Error with i18n key and params to be localized by UI."""
 
     def __init__(self, key: str, **params: Any) -> None:
-        super().__init__(key=str(key), params=dict(params or {}))
+        super().__init__(str(key), dict(params or {}))
 
 
 class DownloadService:
@@ -146,7 +144,7 @@ class DownloadService:
         )
 
     @staticmethod
-    def _pick_thumbnail_url(info: Dict[str, Any]) -> str:
+    def _pick_thumbnail_url(info: dict[str, Any]) -> str:
         direct = info.get("thumbnail")
         if isinstance(direct, str) and direct.strip():
             return direct.strip()
@@ -161,14 +159,14 @@ class DownloadService:
         return ""
 
     @staticmethod
-    def _collect_audio_tracks(info: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _collect_audio_tracks(info: dict[str, Any]) -> list[dict[str, Any]]:
         formats = info.get("formats") or []
-        by_lang: Dict[str, Dict[str, Any]] = {}
+        by_lang: dict[str, dict[str, Any]] = {}
 
-        def _from_text(val: Any) -> Optional[str]:
+        def _from_text(val: Any) -> str | None:
             if not isinstance(val, str) or not val:
                 return None
-            m = re.search(r"\[([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?)\]", val)
+            m = re.search(r"\[([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?)]", val)
             if not m:
                 return None
             return m.group(1)
@@ -211,7 +209,7 @@ class DownloadService:
         return []
 
     @staticmethod
-    def _js_runtimes_for(url: str) -> Optional[Dict[str, Any]]:
+    def _js_runtimes_for(url: str) -> dict[str, Any] | None:
         if not is_youtube_url(url):
             return None
 
@@ -222,7 +220,7 @@ class DownloadService:
         return None
 
     @staticmethod
-    def _without_js_runtime_opts(opts: Dict[str, Any]) -> Dict[str, Any]:
+    def _without_js_runtime_opts(opts: dict[str, Any]) -> dict[str, Any]:
         clean = dict(opts or {})
         clean.pop("js_runtimes", None)
         clean.pop("remote_components", None)
@@ -238,14 +236,14 @@ class DownloadService:
     @staticmethod
     def _make_probe_diag(
         *,
-        info: Optional[Dict[str, Any]],
-        audio_tracks: List[Dict[str, Any]],
+        info: dict[str, Any] | None,
+        audio_tracks: list[dict[str, Any]],
         js_runtime_fallback: bool,
         js_runtime_detail: str,
-    ) -> Dict[str, Any]:
-        warnings: List[str] = []
-        errors: List[str] = []
-        details: Dict[str, Any] = {}
+    ) -> dict[str, Any]:
+        warnings: list[str] = []
+        errors: list[str] = []
+        details: dict[str, Any] = {}
 
         formats = DownloadService._formats(info)
         audio_formats = [fmt for fmt in formats if DownloadService._has_audio(fmt)]
@@ -289,7 +287,12 @@ class DownloadService:
         }
 
     @staticmethod
-    def _extract_info_with_fallback(*, url: str, ydl_opts: Dict[str, Any], download: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def _extract_info_with_fallback(
+        *,
+        url: str,
+        ydl_opts: dict[str, Any],
+        download: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         diag = {
             "js_runtime_fallback": False,
             "js_runtime_error": "",
@@ -319,7 +322,7 @@ class DownloadService:
     @staticmethod
     # ----- Format / selector helpers -----
 
-    def _parse_video_quality_height(quality: str) -> Optional[int]:
+    def _parse_video_quality_height(quality: str) -> int | None:
         q = str(quality or "").strip().lower()
         if not q or q == "auto":
             return None
@@ -330,13 +333,13 @@ class DownloadService:
 
         try:
             value = int(m.group(1))
-        except Exception:
+        except ValueError:
             return None
 
         return value if value > 0 else None
 
     @staticmethod
-    def _height_filter(*, min_h: Optional[int] = None, max_h: Optional[int] = None) -> str:
+    def _height_filter(*, min_h: int | None = None, max_h: int | None = None) -> str:
         parts: list[str] = []
 
         if isinstance(min_h, int) and min_h > 0:
@@ -348,7 +351,7 @@ class DownloadService:
         return "".join(parts)
 
     @staticmethod
-    def _video_format_selector(*, min_h: Optional[int], max_h: Optional[int], target_h: Optional[int], lang_base: str) -> str:
+    def _video_format_selector(*, min_h: int | None, max_h: int | None, target_h: int | None, lang_base: str) -> str:
         if isinstance(target_h, int) and target_h > 0:
             video_filter = DownloadService._height_filter(max_h=target_h)
             video_sel = f"bv*{video_filter}"
@@ -364,20 +367,20 @@ class DownloadService:
         return f"{video_sel}+ba/{merged_sel}"
 
     @staticmethod
-    def _has_audio(fmt: Dict[str, Any]) -> bool:
+    def _has_audio(fmt: dict[str, Any]) -> bool:
         return fmt.get("acodec") not in (None, "none")
 
     @staticmethod
-    def _has_video(fmt: Dict[str, Any]) -> bool:
+    def _has_video(fmt: dict[str, Any]) -> bool:
         return fmt.get("vcodec") not in (None, "none")
 
     @staticmethod
-    def _formats(info: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _formats(info: dict[str, Any] | None) -> list[dict[str, Any]]:
         raw = [] if not isinstance(info, dict) else list(info.get("formats") or [])
         return [f for f in raw if isinstance(f, dict)]
 
     @staticmethod
-    def _has_audio_only_ext(info: Optional[Dict[str, Any]], *exts: str) -> bool:
+    def _has_audio_only_ext(info: dict[str, Any] | None, *exts: str) -> bool:
         wanted = {str(x or '').strip().lower() for x in exts if str(x or '').strip()}
         if not wanted:
             return False
@@ -389,7 +392,7 @@ class DownloadService:
         return False
 
     @staticmethod
-    def _has_combined_ext(info: Optional[Dict[str, Any]], ext: str) -> bool:
+    def _has_combined_ext(info: dict[str, Any] | None, ext: str) -> bool:
         wanted = str(ext or '').strip().lower()
         if not wanted:
             return False
@@ -401,7 +404,7 @@ class DownloadService:
         return False
 
     @staticmethod
-    def _has_video_only_ext(info: Optional[Dict[str, Any]], ext: str) -> bool:
+    def _has_video_only_ext(info: dict[str, Any] | None, ext: str) -> bool:
         wanted = str(ext or '').strip().lower()
         if not wanted:
             return False
@@ -412,10 +415,9 @@ class DownloadService:
                 return True
         return False
 
-
     @staticmethod
-    def _audio_selector(*, lang_base: str, exts: Tuple[str, ...] = ()) -> str:
-        selectors: List[str] = []
+    def _audio_selector(*, lang_base: str, exts: tuple[str, ...] = ()) -> str:
+        selectors: list[str] = []
         if exts:
             for ext in exts:
                 ext_l = str(ext or '').strip().lower()
@@ -432,16 +434,16 @@ class DownloadService:
     @staticmethod
     def _video_target_selector(
         *,
-        min_h: Optional[int],
-        max_h: Optional[int],
-        target_h: Optional[int],
+        min_h: int | None,
+        max_h: int | None,
+        target_h: int | None,
         target_ext: str,
         lang_base: str,
-        audio_exts: Tuple[str, ...] = (),
+        audio_exts: tuple[str, ...] = (),
     ) -> str:
         target_ext_l = str(target_ext or '').strip().lower()
         audio_sel = DownloadService._audio_selector(lang_base=lang_base, exts=tuple(audio_exts or ()))
-        selectors: List[str] = []
+        selectors: list[str] = []
 
         def _append(video_filter: str) -> None:
             video_sel = f"bv*[ext={target_ext_l}]{video_filter}"
@@ -460,18 +462,18 @@ class DownloadService:
     @staticmethod
     def _build_audio_plan(
         *,
-        info: Optional[Dict[str, Any]],
+        info: dict[str, Any] | None,
         quality: str,
         ext_l: str,
         lang_base: str,
         purpose: str,
         keep_output: bool,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         profile = Config.download_audio_format_profile(ext_l)
         selector_exts = tuple(profile.get("selector_exts") or ())
         preferred_codec = str(profile.get("preferredcodec") or ext_l or "").strip().lower()
 
-        plan: Dict[str, Any] = {
+        plan: dict[str, Any] = {
             "format": DownloadService._audio_selector(lang_base=lang_base),
             "format_sort": ["acodec", "abr:desc", "tbr:desc"],
             "postprocessors": [],
@@ -496,15 +498,15 @@ class DownloadService:
     @staticmethod
     def _build_video_plan(
         *,
-        info: Optional[Dict[str, Any]],
+        info: dict[str, Any] | None,
         quality: str,
         ext_l: str,
         lang_base: str,
         purpose: str,
         keep_output: bool,
-        min_h: Optional[int],
-        max_h: Optional[int],
-    ) -> Dict[str, Any]:
+        min_h: int | None,
+        max_h: int | None,
+    ) -> dict[str, Any]:
         target_h = DownloadService._parse_video_quality_height(quality)
         profile = Config.download_video_format_profile(ext_l)
         video_exts = tuple(profile.get("video_exts") or ())
@@ -512,7 +514,7 @@ class DownloadService:
         strategy = str(profile.get("strategy") or "").strip().lower()
         strict_final_ext = bool(profile.get("strict_final_ext"))
 
-        plan: Dict[str, Any] = {
+        plan: dict[str, Any] = {
             "format": DownloadService._video_format_selector(
                 min_h=min_h,
                 max_h=max_h,
@@ -594,7 +596,7 @@ class DownloadService:
         return False
 
     @staticmethod
-    def _stage_files(stage_dir: Path) -> List[Path]:
+    def _stage_files(stage_dir: Path) -> list[Path]:
         try:
             matches = [
                 p for p in stage_dir.iterdir()
@@ -610,8 +612,8 @@ class DownloadService:
         )
 
     @staticmethod
-    def _candidate_paths_from_info(info: Dict[str, Any]) -> List[Path]:
-        candidates: List[Path] = []
+    def _candidate_paths_from_info(info: dict[str, Any]) -> list[Path]:
+        candidates: list[Path] = []
 
         def _add(value: Any) -> None:
             if not value:
@@ -629,8 +631,8 @@ class DownloadService:
         return list(dict.fromkeys(candidates))
 
     @staticmethod
-    def _requested_component_paths(info: Dict[str, Any], stage_dir: Path) -> List[Path]:
-        paths: List[Path] = []
+    def _requested_component_paths(info: dict[str, Any], stage_dir: Path) -> list[Path]:
+        paths: list[Path] = []
         req = info.get("requested_downloads") or []
         if not isinstance(req, list):
             return paths
@@ -652,7 +654,7 @@ class DownloadService:
         return list(dict.fromkeys(paths))
 
     @staticmethod
-    def _select_matching_ext(paths: List[Path], ext_l: str) -> Optional[Path]:
+    def _select_matching_ext(paths: list[Path], ext_l: str) -> Path | None:
         if not ext_l:
             return None
         for path in paths:
@@ -663,12 +665,12 @@ class DownloadService:
     @staticmethod
     def _resolve_stage_artifact(
         *,
-        info: Dict[str, Any],
+        info: dict[str, Any],
         stage_dir: Path,
         stem: str,
         requested_ext: str,
         artifact_policy: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         requested_ext_l = DownloadService._normalize_ext(requested_ext)
         info_ext_l = DownloadService._normalize_ext(info.get("ext"))
         safe_stem = sanitize_filename(stem) or Config.DOWNLOAD_DEFAULT_STEM
@@ -684,7 +686,7 @@ class DownloadService:
         ]
         exact_stem = [p for p in stage_files if p.stem == safe_stem]
 
-        def _prefer_non_component(paths: List[Path]) -> List[Path]:
+        def _prefer_non_component(paths: list[Path]) -> list[Path]:
             preferred = [p for p in paths if p not in component_paths]
             return preferred or list(paths)
 
@@ -761,7 +763,7 @@ class DownloadService:
         return dst
 
     @staticmethod
-    def _cleanup_stage_dir(stage_dir: Optional[Path]) -> None:
+    def _cleanup_stage_dir(stage_dir: Path | None) -> None:
         if not stage_dir:
             return
         shutil.rmtree(stage_dir, ignore_errors=True)
@@ -769,20 +771,22 @@ class DownloadService:
     @staticmethod
     # ----- yt-dlp option builders -----
 
-    def _base_ydl_opts(*, url: str, quiet: bool, skip_download: bool) -> Dict[str, Any]:
-        opts: Dict[str, Any] = {
+    def _base_ydl_opts(*, url: str, quiet: bool, skip_download: bool) -> dict[str, Any]:
+        max_bandwidth_kbps = Config.network_max_bandwidth_kbps()
+        concurrent_fragments = Config.network_concurrent_fragments()
+        opts: dict[str, Any] = {
             "quiet": bool(quiet),
             "skip_download": bool(skip_download),
-            "nocheckcertificate": bool(Config.NET_NO_CHECK_CERT),
+            "nocheckcertificate": bool(Config.network_no_check_certificate()),
             "logger": YtdlpLogger(_LOG),
-            "retries": Config.NET_RETRIES,
-            "socket_timeout": Config.NET_TIMEOUT_S,
+            "retries": Config.network_retries(),
+            "socket_timeout": Config.network_http_timeout_s(),
             "noprogress": True,
         }
-        if Config.NET_MAX_KBPS:
-            opts["ratelimit"] = int(Config.NET_MAX_KBPS) * 1024
-        if Config.NET_CONC_FRAG:
-            opts["concurrent_fragment_downloads"] = int(Config.NET_CONC_FRAG)
+        if max_bandwidth_kbps:
+            opts["ratelimit"] = int(max_bandwidth_kbps) * 1024
+        if concurrent_fragments:
+            opts["concurrent_fragment_downloads"] = int(concurrent_fragments)
 
         ffmpeg_dir = Config.FFMPEG_BIN_DIR
         if isinstance(ffmpeg_dir, Path) and ffmpeg_dir.exists():
@@ -797,9 +801,9 @@ class DownloadService:
 
     # ----- Public API: probe -----
 
-    def probe(self, url: str) -> Dict[str, Any]:
+    def probe(self, url: str) -> dict[str, Any]:
         safe_url = sanitize_url_for_log(url)
-        ydl_opts: Dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=True)
+        ydl_opts: dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=True)
         _LOG.debug("Download probe started. url=%s quiet=%s", safe_url, bool(ydl_opts.get("quiet", False)))
 
         try:
@@ -869,17 +873,17 @@ class DownloadService:
         quality: str,
         ext: str,
         out_dir: Path,
-        progress_cb=None,
-        audio_lang: Optional[str] = None,
-        file_stem: Optional[str] = None,
-        cancel_check=None,
+        progress_cb: Callable[[int, str], None] | None = None,
+        audio_lang: str | None = None,
+        file_stem: str | None = None,
+        cancel_check: Callable[[], bool] | None = None,
         purpose: str = Config.DOWNLOAD_DEFAULT_PURPOSE,
         keep_output: bool = True,
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Path]:
+        meta: dict[str, Any] | None = None,
+    ) -> Path | None:
 
-        min_h = Config.VIDEO_MIN_HEIGHT
-        max_h = Config.VIDEO_MAX_HEIGHT
+        min_h = Config.downloader_min_video_height()
+        max_h = Config.downloader_max_video_height()
         ext_l = (ext or "").lower().strip().lstrip(".")
         purpose_l = str(purpose or Config.DOWNLOAD_DEFAULT_PURPOSE).strip().lower()
         contract = Config.resolve_download_contract(
@@ -932,7 +936,7 @@ class DownloadService:
             except Exception:
                 return
 
-        def _download_pct(d: Dict[str, Any]) -> int:
+        def _download_pct(d: dict[str, Any]) -> int:
             raw_pct = str(d.get("_percent_str") or "").strip().replace("%", "")
             if raw_pct:
                 try:
@@ -949,7 +953,7 @@ class DownloadService:
                 pass
             return 0
 
-        def _hook(d: Dict[str, Any]) -> None:
+        def _hook(d: dict[str, Any]) -> None:
             if cancel_check and cancel_check():
                 raise OperationCancelled()
 
@@ -960,7 +964,7 @@ class DownloadService:
             if status == "finished":
                 _emit_progress(100, "downloaded")
 
-        def _post_hook(d: Dict[str, Any]) -> None:
+        def _post_hook(d: dict[str, Any]) -> None:
             if cancel_check and cancel_check():
                 raise OperationCancelled()
 
@@ -975,7 +979,7 @@ class DownloadService:
         stage_dir = self._create_download_stage(stem=stem)
         outtmpl = self._build_stage_outtmpl(stage_dir=stage_dir, stem=stem)
 
-        ydl_opts: Dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=False)
+        ydl_opts: dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=False)
         ydl_opts.update({
             "format": plan.get("format") or (Config.DOWNLOAD_FALLBACK_AUDIO_SELECTOR if kind == "audio" else Config.DOWNLOAD_FALLBACK_VIDEO_SELECTOR),
             "outtmpl": outtmpl,
@@ -1013,7 +1017,7 @@ class DownloadService:
             },
         )
 
-        info: Optional[Dict[str, Any]] = None
+        info: dict[str, Any] | None = None
         try:
             info, download_runtime = self._extract_info_with_fallback(url=url, ydl_opts=ydl_opts, download=True)
             if download_runtime.get("js_runtime_fallback"):

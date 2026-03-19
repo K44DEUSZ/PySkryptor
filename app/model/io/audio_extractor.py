@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Optional, Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.errors import AppError, OperationCancelled
@@ -13,12 +14,11 @@ from app.model.io.command_runner import CommandRunner
 
 _LOG = logging.getLogger(__name__)
 
-
 class AudioError(AppError):
     """Audio error carrying a translation key + params (UI will localize)."""
 
-    def __init__(self, key: str, **params) -> None:
-        super().__init__(key=str(key), params=dict(params or {}))
+    def __init__(self, key: str, **params: Any) -> None:
+        super().__init__(str(key), dict(params or {}))
 
 
 class AudioExtractor:
@@ -60,7 +60,7 @@ class AudioExtractor:
         dst: Path,
         *,
         args: Iterable[str],
-        cancel_check: Optional[Callable[[], bool]] = None,
+        cancel_check: Callable[[], bool] | None = None,
         log_label: str,
     ) -> None:
         cmd = [
@@ -91,7 +91,7 @@ class AudioExtractor:
         src: Path,
         dst: Path,
         *,
-        cancel_check: Optional[Callable[[], bool]] = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         """Convert audio to a target container/codec based on dst suffix."""
         AudioExtractor._run_ffmpeg(
@@ -107,7 +107,7 @@ class AudioExtractor:
         src: Path,
         dst: Path,
         *,
-        cancel_check: Optional[Callable[[], bool]] = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         """Convert any media to WAV PCM 16kHz mono (overwrite if exists)."""
         AudioExtractor._run_ffmpeg(
@@ -127,7 +127,7 @@ class AudioExtractor:
         )
 
     @staticmethod
-    def probe_audio_stream(path: Path) -> dict:
+    def probe_audio_stream(path: Path) -> dict[str, Any]:
         """Return basic audio-stream metadata from ffprobe; empty dict on failure."""
         cmd = [
             AudioExtractor._tool_exe("ffprobe"),
@@ -147,7 +147,7 @@ class AudioExtractor:
         try:
             res = CommandRunner.run(cmd, timeout_s=Config.AUDIO_PROBE_TIMEOUT_S, error_key="error.audio.ffprobe_failed")
             payload = json.loads(str(res.stdout or "{}") or "{}")
-        except Exception:
+        except (AppError, JSONDecodeError, TypeError, ValueError):
             return {}
 
         streams = payload.get("streams") or []
@@ -156,11 +156,11 @@ class AudioExtractor:
 
         try:
             sample_rate = int(stream.get("sample_rate") or 0)
-        except Exception:
+        except (TypeError, ValueError):
             sample_rate = 0
         try:
             channels = int(stream.get("channels") or 0)
-        except Exception:
+        except (TypeError, ValueError):
             channels = 0
 
         return {
@@ -193,7 +193,7 @@ class AudioExtractor:
         return True
 
     @staticmethod
-    def probe_duration(path: Path) -> Optional[float]:
+    def probe_duration(path: Path) -> float | None:
         """Return media duration in seconds using ffprobe."""
         cmd = [
             AudioExtractor._tool_exe("ffprobe"),
@@ -210,5 +210,5 @@ class AudioExtractor:
             res = CommandRunner.run(cmd, timeout_s=Config.AUDIO_PROBE_TIMEOUT_S, error_key="error.audio.ffprobe_failed")
             out = str(res.stdout or "").strip()
             return float(out) if out else None
-        except Exception:
+        except (AppError, TypeError, ValueError):
             return None

@@ -5,43 +5,45 @@ import copy
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from app.view.ui_config import (
-    build_layout_host,
-    enable_styled_background,
-    open_local_path,
-    setup_button,
-    setup_combo,
-    setup_layout,
-    setup_spinbox,
-    system_theme_key,
-    ui,
-)
+
 from app.view.components.hint_popup import InfoButton
 from app.view.components.popup_combo import PopupComboBox, set_combo_data
 
 from app.controller.tasks.settings_task import SettingsWorker
 from app.model.config.app_config import AppConfig as Config
+from app.model.services.settings_service import SettingsSnapshot
 from app.controller.support.localization import tr, list_locales
-from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
+from app.view.components import dialogs
 from app.view.components.section_group import SectionGroup
 from app.controller.support.task_thread_runner import TaskThreadRunner
 from app.controller.support.options_autosave_controller import OptionsAutosaveController
-from app.model.services.ai_models_service import local_model_names_for_task
+from app.view.support.theme_runtime import system_theme_key
+from app.view.support.view_runtime import open_local_path
+from app.view.support.widget_effects import enable_styled_background, repolish_widget
+from app.view.support.widget_setup import (
+    build_layout_host,
+    setup_button,
+    setup_combo,
+    setup_layout,
+    setup_spinbox,
+)
+from app.view.ui_config import ui
+
 
 class _YesNoToggle(ChoiceToggle):
     """Convenience yes/no toggle."""
 
     def __init__(
-            self,
-            *,
-            yes_text: str,
-            no_text: str,
-            height: int,
-            parent: Optional[QtWidgets.QWidget] = None,
+        self,
+        *,
+        yes_text: str,
+        no_text: str,
+        height: int,
+        parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(
             first_text=yes_text,
@@ -50,10 +52,11 @@ class _YesNoToggle(ChoiceToggle):
             parent=parent,
         )
 
+
 class SettingsPanel(QtWidgets.QWidget):
     """Settings page with app, engine and downloader configuration."""
 
-    _RESTART_SENSITIVE_KEYS: Tuple[Tuple[str, ...], ...] = (
+    _RESTART_SENSITIVE_KEYS: tuple[tuple[str, ...], ...] = (
         ("app", "language"),
         ("app", "theme"),
         ("app", "logging", "enabled"),
@@ -65,7 +68,7 @@ class SettingsPanel(QtWidgets.QWidget):
         ("model", "translation_model", "engine_name"),
     )
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsPanel")
         self.setProperty("uiRole", "page")
@@ -80,20 +83,20 @@ class SettingsPanel(QtWidgets.QWidget):
     # ----- Initialization / build -----
 
     def _init_state(self) -> None:
-        self._data: Dict[str, Any] = {}
-        self._loaded_data: Optional[Dict[str, Any]] = None
+        self._data: dict[str, Any] = {}
+        self._loaded_data: dict[str, Any] | None = None
         self._runner = TaskThreadRunner(self)
 
         self._dirty = False
         self._blocking_updates = False
         self._pending_restart_prompt = False
-        self._restore_baseline_data: Optional[Dict[str, Any]] = None
+        self._restore_baseline_data: dict[str, Any] | None = None
 
-        self._advanced_rows: List[QtWidgets.QWidget] = []
-        self._label_widgets: List[QtWidgets.QLabel] = []
-        self._dirty_row_specs: List[Tuple[QtWidgets.QWidget, QtWidgets.QWidget, Tuple[Tuple[str, ...], ...]]] = []
-        self.btn_save: Optional[QtWidgets.QPushButton] = None
-        self.btn_undo: Optional[QtWidgets.QPushButton] = None
+        self._advanced_rows: list[QtWidgets.QWidget] = []
+        self._label_widgets: list[QtWidgets.QLabel] = []
+        self._dirty_row_specs: list[tuple[QtWidgets.QWidget, QtWidgets.QWidget, tuple[tuple[str, ...], ...]]] = []
+        self.btn_save: QtWidgets.QPushButton | None = None
+        self.btn_undo: QtWidgets.QPushButton | None = None
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -141,7 +144,7 @@ class SettingsPanel(QtWidgets.QWidget):
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(content)
         return scroll
 
@@ -173,7 +176,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.btn_undo.setEnabled(bool(self._dirty))
         self.btn_save.setEnabled(bool(self._dirty))
 
-        bottom.addWidget(self.chk_show_advanced, 0, QtCore.Qt.AlignLeft)
+        bottom.addWidget(self.chk_show_advanced, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
         bottom.addStretch(1)
         bottom.addWidget(self.btn_restore)
         bottom.addWidget(self.btn_undo)
@@ -183,6 +186,8 @@ class SettingsPanel(QtWidgets.QWidget):
     # ----- Signal wiring -----
 
     def _wire_signals(self) -> None:
+        assert self.btn_undo is not None
+        assert self.btn_save is not None
         self.chk_show_advanced.stateChanged.connect(self._on_toggle_advanced)
         self.btn_restore.clicked.connect(self._on_restore_clicked)
         self.btn_undo.clicked.connect(self._on_undo_clicked)
@@ -227,7 +232,8 @@ class SettingsPanel(QtWidgets.QWidget):
         """Keep paired Settings sections visually 50/50 by equalizing minimum widths."""
         self._equalize_section_widths()
 
-    def _section_header(self, text: str) -> QtWidgets.QLabel:
+    @staticmethod
+    def _section_header(text: str) -> QtWidgets.QLabel:
         lbl = QtWidgets.QLabel(text)
         lbl.setProperty("role", "sectionTitle")
         lbl.setWordWrap(True)
@@ -241,7 +247,7 @@ class SettingsPanel(QtWidgets.QWidget):
         w = QtWidgets.QWidget()
         g = QtWidgets.QGridLayout(w)
         g.setContentsMargins(0, 0, 0, 0)
-        g.setHorizontalSpacing(cfg.grid_hspacing)
+        g.setHorizontalSpacing(cfg.space_l)
         g.setVerticalSpacing(0)
 
         if advanced:
@@ -253,7 +259,7 @@ class SettingsPanel(QtWidgets.QWidget):
         cfg = self._ui
 
         lbl = QtWidgets.QLabel(text)
-        lbl.setMinimumWidth(cfg.settings_label_min_w)
+        lbl.setMinimumWidth(int(cfg.control_min_w + cfg.space_l * 10))
         lbl.setWordWrap(True)
         lbl.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Preferred)
 
@@ -353,23 +359,11 @@ class SettingsPanel(QtWidgets.QWidget):
         for lbl in labels:
             lbl.setFixedWidth(max_w)
 
-    def _repolish(self, widget: Optional[QtWidgets.QWidget]) -> None:
-        if widget is None:
-            return
-        try:
-            style = widget.style()
-            if style is not None:
-                style.unpolish(widget)
-                style.polish(widget)
-        except Exception:
-            pass
-        widget.update()
-
     def _track_dirty_row(
         self,
         row: QtWidgets.QWidget,
-        *paths: Tuple[str, ...],
-        value_widget: Optional[QtWidgets.QWidget] = None,
+        *paths: tuple[str, ...],
+        value_widget: QtWidgets.QWidget | None = None,
     ) -> QtWidgets.QWidget:
         control = value_widget if isinstance(value_widget, QtWidgets.QWidget) else getattr(row, "_setting_control", None)
         if isinstance(control, QtWidgets.QWidget) and paths:
@@ -379,13 +373,14 @@ class SettingsPanel(QtWidgets.QWidget):
                 self._set_dirty_marker(control, False)
         return row
 
-    def _set_dirty_marker(self, control: QtWidgets.QWidget, dirty: bool) -> None:
+    @staticmethod
+    def _set_dirty_marker(control: QtWidgets.QWidget, dirty: bool) -> None:
         dirty = bool(dirty)
         if isinstance(control, ChoiceToggle):
             control.set_dirty_value(dirty)
             return
 
-        widgets: List[QtWidgets.QWidget] = [control]
+        widgets: list[QtWidgets.QWidget] = [control]
         if isinstance(control, QtWidgets.QAbstractSpinBox):
             line_edit = control.lineEdit()
             if line_edit is not None:
@@ -398,7 +393,7 @@ class SettingsPanel(QtWidgets.QWidget):
         for widget in widgets:
             if widget.property("dirtyValue") != dirty:
                 widget.setProperty("dirtyValue", dirty)
-                self._repolish(widget)
+                repolish_widget(widget)
 
     def _refresh_dirty_markers(self) -> None:
         baseline = self._loaded_data if isinstance(self._loaded_data, dict) else None
@@ -419,8 +414,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
     def _prepare_section_layout(self, group: SectionGroup, *, title_key: str) -> QtWidgets.QVBoxLayout:
         cfg = self._ui
-        lay = group.root
-        setup_layout(lay, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.grid_vspacing)
+        lay = cast(QtWidgets.QVBoxLayout, group.root)
+        setup_layout(lay, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.space_s)
         lay.addWidget(self._section_header(tr(title_key)))
         return lay
 
@@ -428,14 +423,15 @@ class SettingsPanel(QtWidgets.QWidget):
         self,
         layout: QtWidgets.QBoxLayout,
         row: QtWidgets.QWidget,
-        *paths: Tuple[str, ...],
-        value_widget: Optional[QtWidgets.QWidget] = None,
+        *paths: tuple[str, ...],
+        value_widget: QtWidgets.QWidget | None = None,
     ) -> QtWidgets.QWidget:
         tracked = self._track_dirty_row(row, *paths, value_widget=value_widget)
         layout.addWidget(tracked)
         return tracked
 
-    def _new_combo(self, base_h: int) -> PopupComboBox:
+    @staticmethod
+    def _new_combo(base_h: int) -> PopupComboBox:
         combo = PopupComboBox()
         setup_combo(combo, min_h=base_h)
         return combo
@@ -447,13 +443,13 @@ class SettingsPanel(QtWidgets.QWidget):
             height=self._ui.control_min_h,
         )
 
+    @staticmethod
     def _new_spinbox(
-        self,
         base_h: int,
         minimum: int,
         maximum: int,
         *,
-        step: Optional[int] = None,
+        step: int | None = None,
     ) -> QtWidgets.QSpinBox:
         spin = QtWidgets.QSpinBox()
         spin.setRange(minimum, maximum)
@@ -462,25 +458,25 @@ class SettingsPanel(QtWidgets.QWidget):
         setup_spinbox(spin, min_h=base_h)
         return spin
 
+    @staticmethod
     def _add_combo_option(
-        self,
         combo: QtWidgets.QComboBox,
         label_key: str,
         data: Any,
         *,
-        tooltip_key: Optional[str] = None,
+        tooltip_key: str | None = None,
     ) -> None:
         combo.addItem(tr(label_key), data)
         if tooltip_key:
             idx = combo.count() - 1
-            combo.setItemData(idx, tr(tooltip_key), QtCore.Qt.ToolTipRole)
+            combo.setItemData(idx, tr(tooltip_key), QtCore.Qt.ItemDataRole.ToolTipRole)
 
     def _connect_mark_dirty(self, *signals: Any) -> None:
         for signal in signals:
             signal.connect(self._mark_dirty)
 
     @staticmethod
-    def _section_dict(data: Dict[str, Any], key: str) -> Dict[str, Any]:
+    def _section_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
         value = data.get(key)
         return value if isinstance(value, dict) else {}
 
@@ -489,7 +485,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _build_logging_level_row(self, cfg: Any) -> QtWidgets.QWidget:
         log_level_row = QtWidgets.QWidget()
         log_level_lay = QtWidgets.QHBoxLayout(log_level_row)
-        setup_layout(log_level_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.inline_spacing)
+        setup_layout(log_level_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
         log_level_lay.addWidget(self.cb_log_level, 1)
         log_level_lay.addWidget(self.btn_open_logs, 1)
         return log_level_row
@@ -546,13 +542,14 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._log_level_row = self._add_tracked_row(
             lay,
-            self._row(
-                tr("settings.app.logging.level_label"),
-                self._build_logging_level_row(self._ui),
-                tr("settings.help.logging_level"),
+            self._build_labeled_row(
+                label=tr("settings.app.logging.level_label"),
+                control=self.cb_log_level,
+                tooltip=tr("settings.help.logging_level"),
+                control_host=self._build_logging_level_row(self._ui),
+                advanced=True,
             ),
             ("app", "logging", "level"),
-            value_widget=self.cb_log_level,
         )
 
         lay.addStretch(1)
@@ -562,7 +559,7 @@ class SettingsPanel(QtWidgets.QWidget):
             self.cb_app_theme.currentIndexChanged,
             self.cb_log_level.currentIndexChanged,
         )
-        self.tg_log_enabled.toggled(self._on_logging_toggle)
+        self.tg_log_enabled.changed.connect(self._on_logging_toggle)
         self._on_logging_toggle()
 
     def _build_engine_section(self, base_h: int) -> None:
@@ -636,7 +633,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.tg_text_consistency = self._new_toggle()
         self.sp_chunk_len = self._new_spinbox(base_h, 5, 3600, step=5)
         self.sp_stride_len = self._new_spinbox(base_h, 0, 120, step=1)
-        self.tg_ignore_empty = self._new_toggle()
+        self.tg_ignore_warning = self._new_toggle()
 
         self._add_tracked_row(
             lay,
@@ -681,7 +678,7 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row_toggle(
                 tr("settings.transcription.ignore_warning"),
-                self.tg_ignore_empty,
+                self.tg_ignore_warning,
                 tr("settings.help.ignore_warning"),
                 advanced=True,
             ),
@@ -696,7 +693,7 @@ class SettingsPanel(QtWidgets.QWidget):
             self.tg_text_consistency.changed,
             self.sp_chunk_len.valueChanged,
             self.sp_stride_len.valueChanged,
-            self.tg_ignore_empty.changed,
+            self.tg_ignore_warning.changed,
         )
 
     def _build_translation_section(self, base_h: int) -> None:
@@ -763,7 +760,7 @@ class SettingsPanel(QtWidgets.QWidget):
         lay = self._prepare_section_layout(self.grp_download, title_key="settings.section.download")
 
         cols = QtWidgets.QHBoxLayout()
-        cols.setSpacing(cfg.grid_hspacing)
+        cols.setSpacing(cfg.space_l)
         lay.addLayout(cols)
 
         self._left_col_host = QtWidgets.QWidget()
@@ -772,8 +769,8 @@ class SettingsPanel(QtWidgets.QWidget):
         right = QtWidgets.QVBoxLayout(self._right_col_host)
         left.setContentsMargins(0, 0, 0, 0)
         right.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(cfg.spacing)
-        right.setSpacing(cfg.spacing)
+        left.setSpacing(cfg.space_s)
+        right.setSpacing(cfg.space_s)
         cols.addWidget(self._left_col_host, 1)
         cols.addWidget(self._right_col_host, 1)
 
@@ -844,8 +841,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
     # ----- Worker flow -----
 
-
-    def _start_worker(self, *, action: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def _start_worker(self, *, action: str, payload: dict[str, Any] | None = None) -> None:
         if self._runner.is_running():
             return
 
@@ -874,15 +870,17 @@ class SettingsPanel(QtWidgets.QWidget):
         self._refresh_dirty_markers()
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
 
-    def _on_settings_loaded_snapshot(self, snap: object) -> None:
+    @staticmethod
+    def _on_settings_loaded_snapshot(snap: object) -> None:
         try:
-            Config.initialize_from_snapshot(snap)
+            Config.initialize_from_snapshot(cast(SettingsSnapshot, snap))
         except Exception:
             pass
 
-    def _on_saved_snapshot(self, snap: object) -> None:
+    @staticmethod
+    def _on_saved_snapshot(snap: object) -> None:
         try:
-            Config.initialize_from_snapshot(snap)
+            Config.initialize_from_snapshot(cast(SettingsSnapshot, snap))
         except Exception:
             pass
 
@@ -914,7 +912,7 @@ class SettingsPanel(QtWidgets.QWidget):
         else:
             dialogs.show_info(self, title=tr("dialog.info.title"), message=tr("settings.msg.saved"), header=tr("dialog.info.header"))
 
-    def _on_error(self, key: str, params: dict) -> None:
+    def _on_error(self, key: str, params: dict[str, Any]) -> None:
         dialogs.show_error(self, key, params or {})
 
     # ----- Dirty state / advanced UI -----
@@ -939,16 +937,34 @@ class SettingsPanel(QtWidgets.QWidget):
             return
         self._adv_autosave.trigger()
 
+    @staticmethod
+    def _set_row_control_enabled(
+        row: QtWidgets.QWidget | None,
+        enabled: bool,
+        *,
+        control: QtWidgets.QWidget | None = None,
+    ) -> None:
+        if row is None:
+            return
+
+        target = control if isinstance(control, QtWidgets.QWidget) else getattr(row, "_setting_control", None)
+        if isinstance(target, QtWidgets.QWidget):
+            target.setEnabled(bool(enabled))
+
+        label = getattr(row, "_setting_label", None)
+        if isinstance(label, QtWidgets.QWidget):
+            label.setEnabled(bool(enabled))
+
     def _on_logging_toggle(self) -> None:
-        enabled = bool(self.tg_log_enabled.is_checked())
-        self._log_level_row.setVisible(enabled)
+        enabled = bool(self.tg_log_enabled.is_first_checked())
+        self._set_row_control_enabled(self._log_level_row, enabled)
         self._mark_dirty()
 
     def _apply_advanced_visibility(self, show: bool) -> None:
         for w in self._advanced_rows:
             w.setVisible(bool(show))
 
-    def _build_advanced_payload(self) -> Dict[str, Any]:
+    def _build_advanced_payload(self) -> dict[str, Any]:
         return {
             "app": {
                 "ui": {
@@ -957,9 +973,10 @@ class SettingsPanel(QtWidgets.QWidget):
             }
         }
 
-    def _on_advanced_saved_snapshot(self, snap: object) -> None:
+    @staticmethod
+    def _on_advanced_saved_snapshot(snap: object) -> None:
         try:
-            Config.update_from_snapshot(snap, sections=("app",))
+            Config.update_from_snapshot(cast(SettingsSnapshot, snap), sections=("app",))
         except Exception:
             pass
 
@@ -991,10 +1008,12 @@ class SettingsPanel(QtWidgets.QWidget):
         self._pending_restart_prompt = self._needs_restart(payload)
         self._start_worker(action="save", payload=payload)
 
-    def _restart_application(self) -> None:
+    @staticmethod
+    def _restart_application() -> None:
         os.execl(sys.executable, sys.executable, *sys.argv)
 
-    def _open_logs_folder(self) -> None:
+    @staticmethod
+    def _open_logs_folder() -> None:
         path = Config.LOGS_DIR
         if isinstance(path, Path):
             open_local_path(path)
@@ -1026,7 +1045,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self._refresh_auto_option_labels()
         self._refresh_dirty_markers()
 
-    def _populate_app_settings(self, app: Dict[str, Any]) -> None:
+    def _populate_app_settings(self, app: dict[str, Any]) -> None:
         set_combo_data(self.cb_app_language, str(app.get("language", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
         set_combo_data(self.cb_app_theme, str(app.get("theme", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
 
@@ -1038,17 +1057,17 @@ class SettingsPanel(QtWidgets.QWidget):
         self._apply_advanced_visibility(show_adv)
 
         log_cfg = self._section_dict(app, "logging")
-        self.tg_log_enabled.set_checked(bool(log_cfg.get("enabled", True)))
+        self.tg_log_enabled.set_first_checked(bool(log_cfg.get("enabled", True)))
         set_combo_data(self.cb_log_level, str(log_cfg.get("level", "warning")), fallback_data="warning")
         self._on_logging_toggle()
 
-    def _populate_engine_settings(self, eng: Dict[str, Any]) -> None:
+    def _populate_engine_settings(self, eng: dict[str, Any]) -> None:
         set_combo_data(self.cb_engine_device, str(eng.get("preferred_device", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
         set_combo_data(self.cb_engine_precision, str(eng.get("precision", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
-        self.tg_tf32.set_checked(bool(eng.get("allow_tf32", True)))
-        self.tg_low_cpu_mem.set_checked(bool(eng.get("low_cpu_mem_usage", True)))
+        self.tg_tf32.set_first_checked(bool(eng.get("allow_tf32", True)))
+        self.tg_low_cpu_mem.set_first_checked(bool(eng.get("low_cpu_mem_usage", True)))
 
-    def _populate_model_settings(self, model: Dict[str, Any]) -> None:
+    def _populate_model_settings(self, model: dict[str, Any]) -> None:
         t_model = self._section_dict(model, "transcription_model")
         x_model = self._section_dict(model, "translation_model")
 
@@ -1059,10 +1078,10 @@ class SettingsPanel(QtWidgets.QWidget):
             trans_engine_name = str(t_model.get("engine_name", "none"))
         set_combo_data(self.cb_trans_engine, trans_engine_name, fallback_data="none")
         set_combo_data(self.cb_quality, str(t_model.get("quality_preset", "balanced")), fallback_data="balanced")
-        self.tg_text_consistency.set_checked(bool(t_model.get("text_consistency", True)))
+        self.tg_text_consistency.set_first_checked(bool(t_model.get("text_consistency", True)))
         self.sp_chunk_len.setValue(int(t_model.get("chunk_length_s", 60)))
         self.sp_stride_len.setValue(int(t_model.get("stride_length_s", 5)))
-        self.tg_ignore_empty.set_checked(bool(t_model.get("ignore_warning", False)))
+        self.tg_ignore_warning.set_first_checked(bool(t_model.get("ignore_warning", False)))
 
         tr_engine_name = Config.resolve_translation_engine_name(model)
         if tr_engine_name == Config.MISSING_VALUE:
@@ -1072,16 +1091,17 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_tr_max_tokens.setValue(int(x_model.get("max_new_tokens", 256)))
         self.sp_tr_chunk_chars.setValue(int(x_model.get("chunk_max_chars", 1200)))
 
-    def _populate_download_settings(self, downloader: Dict[str, Any], network: Dict[str, Any]) -> None:
-        self.sp_min_height.setValue(int(downloader.get("min_video_height", Config.VIDEO_MIN_HEIGHT)))
-        self.sp_max_height.setValue(int(downloader.get("max_video_height", Config.VIDEO_MAX_HEIGHT)))
+    def _populate_download_settings(self, downloader: dict[str, Any], network: dict[str, Any]) -> None:
+        self.sp_min_height.setValue(int(downloader.get("min_video_height", Config.downloader_min_video_height())))
+        self.sp_max_height.setValue(int(downloader.get("max_video_height", Config.downloader_max_video_height())))
 
-        self.sp_retries.setValue(int(network.get("retries", Config.NET_RETRIES)))
-        bw = network.get("max_bandwidth_kbps", Config.NET_MAX_KBPS)
+        self.sp_retries.setValue(int(network.get("retries", Config.network_retries())))
+        bw = network.get("max_bandwidth_kbps", Config.network_max_bandwidth_kbps())
         self.sp_bandwidth.setValue(int(bw or 0))
-        self.sp_fragments.setValue(int(network.get("concurrent_fragments", Config.NET_CONC_FRAG)))
-        self.sp_timeout.setValue(int(network.get("http_timeout_s", Config.NET_TIMEOUT_S)))
-    def _collect_payload(self) -> Dict[str, Any]:
+        self.sp_fragments.setValue(int(network.get("concurrent_fragments", Config.network_concurrent_fragments())))
+        self.sp_timeout.setValue(int(network.get("http_timeout_s", Config.network_http_timeout_s())))
+
+    def _collect_payload(self) -> dict[str, Any]:
         return {
             "app": self._collect_app_payload(),
             "engine": self._collect_engine_payload(),
@@ -1090,7 +1110,7 @@ class SettingsPanel(QtWidgets.QWidget):
             "network": self._collect_network_payload(),
         }
 
-    def _collect_app_payload(self) -> Dict[str, Any]:
+    def _collect_app_payload(self) -> dict[str, Any]:
         return {
             "language": str(self.cb_app_language.currentData() or Config.LANGUAGE_AUTO_VALUE),
             "theme": str(self.cb_app_theme.currentData() or Config.LANGUAGE_AUTO_VALUE),
@@ -1098,28 +1118,28 @@ class SettingsPanel(QtWidgets.QWidget):
                 "show_advanced_settings": bool(self.chk_show_advanced.isChecked()),
             },
             "logging": {
-                "enabled": bool(self.tg_log_enabled.is_checked()),
+                "enabled": bool(self.tg_log_enabled.is_first_checked()),
                 "level": str(self.cb_log_level.currentData() or "warning"),
             },
         }
 
-    def _collect_engine_payload(self) -> Dict[str, Any]:
+    def _collect_engine_payload(self) -> dict[str, Any]:
         return {
             "preferred_device": str(self.cb_engine_device.currentData() or Config.LANGUAGE_AUTO_VALUE),
             "precision": str(self.cb_engine_precision.currentData() or Config.LANGUAGE_AUTO_VALUE),
-            "allow_tf32": bool(self.tg_tf32.is_checked()),
-            "low_cpu_mem_usage": bool(self.tg_low_cpu_mem.is_checked()),
+            "allow_tf32": bool(self.tg_tf32.is_first_checked()),
+            "low_cpu_mem_usage": bool(self.tg_low_cpu_mem.is_first_checked()),
         }
 
-    def _collect_model_payload(self) -> Dict[str, Any]:
+    def _collect_model_payload(self) -> dict[str, Any]:
         return {
             "transcription_model": {
                 "engine_name": str(self.cb_trans_engine.currentData() or "none"),
                 "quality_preset": str(self.cb_quality.currentData() or "balanced"),
-                "text_consistency": bool(self.tg_text_consistency.is_checked()),
+                "text_consistency": bool(self.tg_text_consistency.is_first_checked()),
                 "chunk_length_s": int(self.sp_chunk_len.value()),
                 "stride_length_s": int(self.sp_stride_len.value()),
-                "ignore_warning": bool(self.tg_ignore_empty.is_checked()),
+                "ignore_warning": bool(self.tg_ignore_warning.is_first_checked()),
             },
             "translation_model": {
                 "engine_name": str(self.cb_tr_engine.currentData() or "none"),
@@ -1129,13 +1149,13 @@ class SettingsPanel(QtWidgets.QWidget):
             },
         }
 
-    def _collect_downloader_payload(self) -> Dict[str, Any]:
+    def _collect_downloader_payload(self) -> dict[str, Any]:
         return {
             "min_video_height": int(self.sp_min_height.value()),
             "max_video_height": int(self.sp_max_height.value()),
         }
 
-    def _collect_network_payload(self) -> Dict[str, Any]:
+    def _collect_network_payload(self) -> dict[str, Any]:
         bandwidth = int(self.sp_bandwidth.value())
         return {
             "retries": int(self.sp_retries.value()),
@@ -1143,17 +1163,18 @@ class SettingsPanel(QtWidgets.QWidget):
             "concurrent_fragments": int(self.sp_fragments.value()),
             "http_timeout_s": int(self.sp_timeout.value()),
         }
-    def _needs_restart(self, payload: Dict[str, Any]) -> bool:
+
+    def _needs_restart(self, payload: dict[str, Any]) -> bool:
         return self._needs_restart_between(self._data or {}, payload)
 
-    def _needs_restart_between(self, current: Dict[str, Any], updated: Dict[str, Any]) -> bool:
+    def _needs_restart_between(self, current: dict[str, Any], updated: dict[str, Any]) -> bool:
         for path in self._RESTART_SENSITIVE_KEYS:
             if self._get_nested(current, path) != self._get_nested(updated, path):
                 return True
         return False
 
     @staticmethod
-    def _get_nested(d: Dict[str, Any], path: Tuple[str, ...]) -> Any:
+    def _get_nested(d: dict[str, Any], path: tuple[str, ...]) -> Any:
         cur: Any = d
         for key in path:
             if not isinstance(cur, dict):
@@ -1173,7 +1194,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _refresh_auto_option_labels(self) -> None:
         try:
             sys_hint = QtCore.QLocale.system().name().split("_", 1)[0].lower()
-            available: Dict[str, str] = {}
+            available: dict[str, str] = {}
             for i in range(self.cb_app_language.count()):
                 code = str(self.cb_app_language.itemData(i) or "").strip().lower()
                 if code and code != Config.LANGUAGE_AUTO_VALUE:
@@ -1186,7 +1207,9 @@ class SettingsPanel(QtWidgets.QWidget):
             pass
 
         try:
-            theme = system_theme_key(QtWidgets.QApplication.instance())
+            app_obj = QtWidgets.QApplication.instance()
+            app = app_obj if isinstance(app_obj, QtWidgets.QApplication) else None
+            theme = system_theme_key(app)
             resolved_theme = tr("settings.app.theme.dark") if theme == "dark" else tr("settings.app.theme.light")
             idx_auto = self.cb_app_theme.findData(Config.LANGUAGE_AUTO_VALUE)
             if idx_auto >= 0:
@@ -1216,8 +1239,8 @@ class SettingsPanel(QtWidgets.QWidget):
             pass
 
     def _populate_model_engines(self) -> None:
-        trans_names = local_model_names_for_task("transcription")
-        tr_names = local_model_names_for_task("translation")
+        trans_names = Config.local_model_names_for_task("transcription")
+        tr_names = Config.local_model_names_for_task("translation")
 
         self.cb_trans_engine.blockSignals(True)
         try:
@@ -1254,7 +1277,7 @@ class SettingsPanel(QtWidgets.QWidget):
         idx_cuda = self.cb_engine_device.findData("cuda")
         if idx_cuda >= 0:
             model = self.cb_engine_device.model()
-            if model is not None:
+            if isinstance(model, QtGui.QStandardItemModel):
                 item = model.item(idx_cuda)
                 if item is not None:
                     item.setEnabled(has_cuda)
@@ -1263,7 +1286,7 @@ class SettingsPanel(QtWidgets.QWidget):
             set_combo_data(self.cb_engine_device, Config.LANGUAGE_AUTO_VALUE, fallback_data=Config.LANGUAGE_AUTO_VALUE)
 
         prec_model = self.cb_engine_precision.model()
-        if prec_model is not None:
+        if isinstance(prec_model, QtGui.QStandardItemModel):
             idx_f16 = self.cb_engine_precision.findData("float16")
             if idx_f16 >= 0:
                 item = prec_model.item(idx_f16)
@@ -1285,17 +1308,7 @@ class SettingsPanel(QtWidgets.QWidget):
         cur_dev = str(self.cb_engine_device.currentData() or Config.LANGUAGE_AUTO_VALUE)
         tf32_enable_allowed = bool(
             has_cuda and tf32_supported and cur_dev in (Config.LANGUAGE_AUTO_VALUE, "cuda") and cur_prec in (Config.LANGUAGE_AUTO_VALUE, "float32"))
-        self.tg_tf32.setEnabled(tf32_enable_allowed)
-
-        tf32_row_label = None
-        try:
-            tf32_row = getattr(self, "_row_tf32", None)
-            tf32_row_label = getattr(tf32_row, "_setting_label", None) if tf32_row is not None else None
-        except Exception:
-            tf32_row_label = None
-
-        if tf32_row_label is not None:
-            tf32_row_label.setEnabled(tf32_enable_allowed)
+        self._set_row_control_enabled(getattr(self, "_row_tf32", None), tf32_enable_allowed, control=self.tg_tf32)
 
         if not tf32_enable_allowed:
             self.tg_tf32.clear_selection()

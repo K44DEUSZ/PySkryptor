@@ -9,8 +9,9 @@ import sys
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import Any, TextIO
 from urllib.parse import urlsplit, urlunsplit
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -39,7 +40,7 @@ def sanitize_url_for_log(url: str, *, max_len: int = 96) -> str:
         return ""
     try:
         parts = urlsplit(raw)
-    except Exception:
+    except ValueError:
         parts = None
     if parts is None or not (parts.scheme or parts.netloc):
         text = raw
@@ -47,7 +48,7 @@ def sanitize_url_for_log(url: str, *, max_len: int = 96) -> str:
         netloc = parts.hostname or ""
         if parts.port:
             netloc = f"{netloc}:{parts.port}"
-        text = urlunsplit((parts.scheme, netloc, parts.path or "", "", ""))
+        text = str(urlunsplit((parts.scheme, netloc, parts.path or "", "", "")))
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
@@ -67,14 +68,14 @@ class LoggingSetup:
 
     @staticmethod
     def read_bootstrap_settings(defaults_path: Path, settings_path: Path) -> tuple[bool, str]:
-        def _load_json(path: Path) -> dict:
+        def _load_json(path: Path) -> dict[str, Any]:
             try:
                 data = json.loads(Path(path).read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, JSONDecodeError, TypeError, ValueError):
                 return {}
             return data if isinstance(data, dict) else {}
 
-        def _extract_logging_cfg(doc: dict) -> dict:
+        def _extract_logging_cfg(doc: dict[str, Any]) -> dict[str, Any]:
             app_cfg = doc.get("app")
             if not isinstance(app_cfg, dict):
                 return {}
@@ -135,10 +136,7 @@ class LoggingSetup:
         LoggingSetup._write_startup_header(root)
         LoggingSetup._install_excepthook(root, crash_log_path)
 
-        try:
-            logging.getLogger("transformers").setLevel(logging.ERROR)
-        except Exception:
-            pass
+        logging.getLogger("transformers").setLevel(logging.ERROR)
 
         if enable_faulthandler:
             LoggingSetup._enable_faulthandler(crash_log_path, logger=root)
@@ -187,7 +185,7 @@ class LoggingSetup:
         return logging.Formatter(LOG_FORMAT)
 
     @staticmethod
-    def _find_named_handler(logger: logging.Logger, name: str) -> Optional[logging.Handler]:
+    def _find_named_handler(logger: logging.Logger, name: str) -> logging.Handler | None:
         for handler in list(logger.handlers):
             if getattr(handler, "get_name", None) and handler.get_name() == name:
                 return handler
@@ -201,7 +199,7 @@ class LoggingSetup:
         try:
             logger.removeHandler(handler)
             handler.close()
-        except Exception:
+        except (OSError, ValueError):
             pass
 
     @staticmethod
@@ -253,7 +251,7 @@ class LoggingSetup:
                 f.write(str(text or ""))
                 if text and not str(text).endswith("\n"):
                     f.write("\n")
-        except Exception:
+        except OSError:
             pass
 
     @staticmethod
@@ -271,7 +269,7 @@ class LoggingSetup:
         sys.excepthook = _hook
 
     @staticmethod
-    def _enable_faulthandler(crash_log_path: Path, *, logger: Optional[logging.Logger] = None) -> None:
+    def _enable_faulthandler(crash_log_path: Path, *, logger: logging.Logger | None = None) -> None:
         try:
             import faulthandler
 
@@ -281,13 +279,13 @@ class LoggingSetup:
             def _close() -> None:
                 try:
                     f.close()
-                except Exception:
+                except OSError:
                     pass
 
             atexit.register(_close)
             if logger:
                 logger.debug("Faulthandler enabled. path=%s", crash_log_path)
-        except Exception as ex:
+        except (ImportError, OSError, RuntimeError, AttributeError, TypeError, ValueError) as ex:
             if logger:
                 logger.warning("Faulthandler enable failed. detail=%s", ex)
 
@@ -329,7 +327,7 @@ class LoggingSetup:
                     qt_critical = 2
                     qt_fatal = 3
 
-                crash_title: Optional[str] = None
+                crash_title: str | None = None
                 if mode == qt_debug:
                     logger.debug("[qt] %s%s", msg, origin)
                 elif qt_info is not None and mode == qt_info:

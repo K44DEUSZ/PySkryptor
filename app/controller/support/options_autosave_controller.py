@@ -1,7 +1,7 @@
 # app/controller/support/options_autosave_controller.py
 from __future__ import annotations
 
-from typing import Callable, Optional, Any, Dict
+from typing import Any, Callable
 
 from PyQt5 import QtCore
 
@@ -16,9 +16,9 @@ class OptionsAutosaveController(QtCore.QObject):
         self,
         parent: QtCore.QObject,
         *,
-        build_payload: Callable[[], Dict[str, Any]],
+        build_payload: Callable[[], dict[str, Any]],
         apply_snapshot: Callable[[object], None],
-        on_error: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        on_error: Callable[[str, dict[str, Any]], None] | None = None,
         is_busy: Callable[[], bool],
         interval_ms: int = 1200,
         pending_delay_ms: int = 300,

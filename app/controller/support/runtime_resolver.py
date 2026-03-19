@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Optional, List
+from typing import Any, Iterable
 
 from urllib.parse import urlparse, parse_qs
 
@@ -22,12 +22,12 @@ def is_url(value: str) -> bool:
 
 # ----- Language resolution -----
 
-def translation_language_codes() -> List[str]:
+def translation_language_codes() -> list[str]:
     """Return supported translation language codes as a sorted list."""
     return sorted(SettingsCatalog.translation_language_codes())
 
 
-def transcription_language_codes() -> List[str]:
+def transcription_language_codes() -> list[str]:
     """Return supported transcription language codes as a sorted list."""
     return sorted(SettingsCatalog.transcription_language_codes())
 
@@ -42,12 +42,12 @@ def resolve_translation_target(
     *,
     ui_language: str,
     cfg_target: str | None = None,
-    supported: Optional[Iterable[str]] = None,
+    supported: Iterable[str] | None = None,
 ) -> str:
     """Resolve translation target language code."""
-    raw = (target_code  or "").strip().lower()
-    cfg = (cfg_target   or "").strip().lower()
-    ui  = (ui_language  or "").strip().lower()
+    raw = Config.normalize_language_choice_value(target_code)
+    cfg = Config.normalize_language_choice_value(cfg_target)
+    ui = (ui_language or "").strip().lower()
     sup = set(supported) if supported is not None else supported_translation_lang_codes()
 
     def _is_auto(v: str) -> bool:
@@ -77,35 +77,35 @@ def build_files_transcription_patch(
     url_audio_ext: str,
     url_keep_video: bool,
     url_video_ext: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a minimal transcription patch for FilesPanel quick options."""
     fmts = [str(x).strip().lower() for x in (output_formats or []) if str(x).strip()]
     if not fmts:
-        fmts = ["txt"]
+        fmts = list(Config.transcription_output_mode_ids())
 
-    aext = str(url_audio_ext or "m4a").strip().lower().lstrip(".") or "m4a"
-    vext = str(url_video_ext or "mp4").strip().lower().lstrip(".") or "mp4"
+    audio_ext = str(url_audio_ext or Config.transcription_url_audio_ext()).strip().lower().lstrip(".")
+    video_ext = str(url_video_ext or Config.transcription_url_video_ext()).strip().lower().lstrip(".")
 
     return {
         "translate_after_transcription": bool(translate_after_transcription),
-        "output_formats":               fmts,
-        "download_audio_only":          bool(download_audio_only),
-        "url_keep_audio":              bool(url_keep_audio),
-        "url_audio_ext":               aext,
-        "url_keep_video":              bool(url_keep_video) and (not bool(download_audio_only)),
-        "url_video_ext":               vext,
+        "output_formats": fmts,
+        "download_audio_only": bool(download_audio_only),
+        "url_keep_audio": bool(url_keep_audio),
+        "url_audio_ext": audio_ext or Config.transcription_url_audio_ext(),
+        "url_keep_video": bool(url_keep_video) and (not bool(download_audio_only)),
+        "url_video_ext": video_ext or Config.transcription_url_video_ext(),
     }
 
 
 def build_files_quick_options_payload(
     *,
-    transcription_patch: Dict[str, Any],
+    transcription_patch: dict[str, Any],
     source_language: str,
     target_language: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a SettingsWorker payload for FilesPanel quick options."""
-    src = str(source_language or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
-    tgt = str(target_language or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
+    src = Config.normalize_language_choice_value(source_language or Config.LANGUAGE_AUTO_VALUE) or Config.LANGUAGE_AUTO_VALUE
+    tgt = Config.normalize_language_choice_value(target_language or Config.LANGUAGE_DEFAULT_UI_VALUE) or Config.LANGUAGE_DEFAULT_UI_VALUE
     return {
         "transcription": dict(transcription_patch or {}),
         "translation": {
@@ -113,6 +113,70 @@ def build_files_quick_options_payload(
             "target_language": tgt,
         },
     }
+
+
+@dataclass(frozen=True)
+class TranscriptionRuntimeOverrides:
+    """Resolved runtime overrides for a transcription worker run."""
+    source_language: str
+    target_language: str
+    translate_after_transcription: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "translate_after_transcription": self.translate_after_transcription,
+        }
+
+
+def resolve_source_language(source_code: str) -> str:
+    """Resolve a source language override for runtime use."""
+    src = normalize_lang_code(source_code or "", drop_region=True) if source_code else ""
+    return "" if src in ("", Config.LANGUAGE_AUTO_VALUE) else src
+
+
+def build_transcription_runtime_overrides(
+    *,
+    source_language: str,
+    target_language: str,
+    translate_after_transcription: bool,
+    ui_language: str,
+    cfg_target: str | None = None,
+    supported: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Build normalized worker overrides for a transcription session."""
+    tgt_raw = str(target_language or "").strip().lower()
+    tgt_resolved = resolve_translation_target(
+        tgt_raw,
+        ui_language=ui_language,
+        cfg_target=cfg_target,
+        supported=supported,
+    )
+    return TranscriptionRuntimeOverrides(
+        source_language=resolve_source_language(source_language),
+        target_language=normalize_lang_code(tgt_resolved, drop_region=True) if tgt_resolved else "",
+        translate_after_transcription=bool(translate_after_transcription),
+    ).as_dict()
+
+
+def translation_runtime_available(
+    *,
+    boot_ctx: dict[str, Any] | None = None,
+    model_cfg: dict[str, Any] | None = None,
+) -> bool:
+    """Return True when translation runtime is available for UI actions."""
+    if bool(str((boot_ctx or {}).get("translation_error_key") or "").strip()):
+        return False
+
+    engine_dir = getattr(Config, "TRANSLATION_ENGINE_DIR", None)
+    engine_dir_name = str(getattr(engine_dir, "name", "") or "").strip()
+    if not engine_dir_name or engine_dir_name == Config.MISSING_VALUE:
+        return False
+
+    cfg = model_cfg if isinstance(model_cfg, dict) else Config.translation_model_raw_cfg_dict()
+    eng = str(cfg.get("engine_name", "") or "").strip().lower()
+    return not Config.is_disabled_engine_name(eng)
 
 
 @dataclass(frozen=True)
@@ -126,23 +190,20 @@ def build_live_quick_options_payload(
     *,
     mode: str,
     preset: str,
+    output_mode: str,
     device_name: str,
     show_source: bool,
     source_language: str,
     target_language: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a SettingsWorker payload for LivePanel quick options."""
-    m = str(mode or "transcribe").strip().lower()
-    if m not in ("transcribe", "transcribe_translate"):
-        m = "transcribe"
-
-    p = str(preset or "balanced").strip().lower()
-    if p not in ("low_latency", "balanced", "high_context"):
-        p = "balanced"
+    m = Config.normalize_live_ui_mode(mode or Config.live_ui_mode())
+    p = Config.normalize_live_preset(preset or Config.live_ui_preset())
+    out_mode = Config.normalize_live_output_mode(output_mode or Config.live_ui_output_mode())
 
     dev = str(device_name or "").strip()
-    src = str(source_language or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
-    tgt = str(target_language or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
+    src = Config.normalize_language_choice_value(source_language or Config.LANGUAGE_AUTO_VALUE) or Config.LANGUAGE_AUTO_VALUE
+    tgt = Config.normalize_language_choice_value(target_language or Config.LANGUAGE_DEFAULT_UI_VALUE) or Config.LANGUAGE_DEFAULT_UI_VALUE
 
     return {
         "app": {
@@ -150,6 +211,7 @@ def build_live_quick_options_payload(
                 "live": {
                     "mode": m,
                     "preset": p,
+                    "output_mode": out_mode,
                     "device_name": dev,
                     "show_source": bool(show_source),
                 },
@@ -168,7 +230,7 @@ def compute_translation_runtime(
     target_code: str,
     ui_language: str,
     cfg_target: str | None = None,
-    supported: Optional[Iterable[str]] = None,
+    supported: Iterable[str] | None = None,
 ) -> TranslationRuntime:
     """Compute final translation enablement and target language."""
     if not requested_enabled:
@@ -190,39 +252,36 @@ def is_playlist_url(url: str) -> bool:
     if not u:
         return False
 
-    try:
-        parsed = urlparse(u)
-        qs = parse_qs(parsed.query or "")
-        if qs.get("list"):
-            return True
-        if "playlist" in (parsed.path or "").lower():
-            return True
-        if "list=" in (parsed.fragment or ""):
-            return True
-    except Exception:
-        pass
+    parsed = urlparse(u)
+    qs = parse_qs(parsed.query or "")
+    if qs.get("list"):
+        return True
+    if "playlist" in (parsed.path or "").lower():
+        return True
+    if "list=" in (parsed.fragment or ""):
+        return True
     return False
 
 
 # ----- Source helpers -----
 
-def _files_media_supported_exts() -> List[str]:
+def _files_media_supported_extensions() -> list[str]:
     return list(Config.files_media_input_file_exts())
 
 
-def parse_source_input(raw: str) -> Dict[str, Any]:
+def parse_source_input(raw: str) -> dict[str, Any]:
     """Parse a raw source input from the Files panel."""
     return FileManager.parse_source_input(
         raw,
-        supported_exts=_files_media_supported_exts(),
+        supported_exts=_files_media_supported_extensions(),
     )
 
 
-def collect_media_files(paths: List[str]) -> List[str]:
+def collect_media_files(paths: list[str]) -> list[str]:
     """Collect media files from the given paths for the Files panel."""
     return FileManager.collect_media_files(
         list(paths),
-        supported_exts=_files_media_supported_exts(),
+        supported_exts=_files_media_supported_extensions(),
     )
 
 
@@ -232,7 +291,7 @@ def normalize_source_key(raw: str) -> str:
 
 
 def try_add_source_key(existing: set[str], raw: str) -> tuple[bool, str, bool]:
-    """Try add a source key, returning (ok, normalized_key, duplicate)."""
+    """Try to add a source key, returning (ok, normalized_key, duplicate)."""
     key = normalize_source_key(raw)
     if not key:
         return False, "", False
@@ -242,14 +301,14 @@ def try_add_source_key(existing: set[str], raw: str) -> tuple[bool, str, bool]:
     return True, key, False
 
 
-def build_entries(keys: Iterable[str], audio_lang_by_key: Dict[str, str | None]) -> list[Dict[str, Any]]:
+def build_entries(keys: Iterable[str], audio_lang_by_key: dict[str, str | None]) -> list[dict[str, Any]]:
     """Build worker input entries for the given sources."""
-    out: list[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for k in keys:
         src = normalize_source_key(k)
         if not src:
             continue
-        payload: Dict[str, Any] = {"src": src}
+        payload: dict[str, Any] = {"src": src}
         if is_url_source(src):
             lang = audio_lang_by_key.get(src)
             if lang:

@@ -1,7 +1,7 @@
 # app/controller/support/task_thread_runner.py
 from __future__ import annotations
 
-from typing import Callable, Optional, TypeVar
+from typing import Callable, TypeVar, cast
 
 from PyQt5 import QtCore
 
@@ -11,20 +11,20 @@ TWorker = TypeVar("TWorker", bound=QtCore.QObject)
 class TaskThreadRunner(QtCore.QObject):
     """Small helper that standardizes QThread + Worker wiring."""
 
-    def __init__(self, parent: Optional[QtCore.QObject] = None) -> None:
+    def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self._thread: Optional[QtCore.QThread] = None
-        self._worker: Optional[QtCore.QObject] = None
-        self._on_finished: Optional[Callable[[], None]] = None
+        self._thread: QtCore.QThread | None = None
+        self._worker: QtCore.QObject | None = None
+        self._on_finished: Callable[[], None] | None = None
 
     # ----- State -----
 
     @property
-    def thread(self) -> Optional[QtCore.QThread]:
+    def thread(self) -> QtCore.QThread | None:
         return self._thread
 
     @property
-    def worker(self) -> Optional[QtCore.QObject]:
+    def worker(self) -> QtCore.QObject | None:
         return self._worker
 
     def is_running(self) -> bool:
@@ -46,12 +46,22 @@ class TaskThreadRunner(QtCore.QObject):
         except Exception:
             pass
 
+    def stop(self) -> None:
+        wk = self._worker
+        try:
+            if wk is not None and hasattr(wk, "stop"):
+                getattr(wk, "stop")()
+                return
+        except Exception:
+            pass
+        self.cancel()
+
     def start(
         self,
         worker: TWorker,
         *,
-        connect: Optional[Callable[[TWorker], None]] = None,
-        on_finished: Optional[Callable[[], None]] = None,
+        connect: Callable[[TWorker], None] | None = None,
+        on_finished: Callable[[], None] | None = None,
     ) -> TWorker:
         if self.is_running():
             return worker
@@ -63,6 +73,9 @@ class TaskThreadRunner(QtCore.QObject):
             connect(worker)
 
         self._on_finished = on_finished
+        run = getattr(worker, "run", None)
+        if not callable(run):
+            raise TypeError("TaskThreadRunner worker must define a callable run() method.")
 
         if hasattr(worker, "finished"):
             try:
@@ -73,7 +86,7 @@ class TaskThreadRunner(QtCore.QObject):
 
         th.finished.connect(th.deleteLater)
         th.finished.connect(self._cleanup)
-        th.started.connect(getattr(worker, "run"))
+        th.started.connect(run)
 
         self._thread = th
         self._worker = worker
@@ -89,5 +102,6 @@ class TaskThreadRunner(QtCore.QObject):
         self._worker = None
         self._on_finished = None
 
-        if callback is not None:
-            callback()
+        if callback is None:
+            return
+        cast(Callable[[], None], callback)()

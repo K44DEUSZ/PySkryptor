@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from app.view.ui_config import (
-    LogoSvgLabel,
+
+from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
+from app.view.support.widget_effects import (
     apply_floating_shadow,
     enable_styled_background,
     floating_shadow_margins,
-    logo_svg_path,
     sync_progress_text_role,
-    ui,
 )
+from app.view.ui_config import ui
 
 from app.controller.support.localization import tr
 from app.model.config.app_config import AppConfig as Config
+
+_LOADING_LOGO_WIDTH_RATIO = 0.74
+_LOADING_LOGO_HEIGHT_RATIO = 0.34
+
 
 class LoadingScreenWidget(QtWidgets.QWidget):
     """Splash-like loading screen shown during app startup."""
@@ -25,13 +29,16 @@ class LoadingScreenWidget(QtWidgets.QWidget):
         enable_styled_background(self)
 
         self.setObjectName("LoadingScreen")
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
-        self.setFixedSize(cfg.loading_min_w, cfg.loading_min_h)
-        self.setWindowFlag(QtCore.Qt.FramelessWindowHint, True)
-        self.setWindowFlag(QtCore.Qt.WindowContextHelpButtonHint, False)
-        self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, False)
-        self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint, False)
-        self.setWindowFlag(QtCore.Qt.WindowCloseButtonHint, False)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(
+            int(cfg.control_min_w * 6),
+            int(cfg.control_min_h * 13 + max(0, cfg.space_s - 1)),
+        )
+        self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowContextHelpButtonHint, False)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowMinimizeButtonHint, False)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowMaximizeButtonHint, False)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, False)
         self._allow_close = False
 
         path = logo_svg_path()
@@ -41,7 +48,7 @@ class LoadingScreenWidget(QtWidgets.QWidget):
         else:
             title = QtWidgets.QLabel(Config.APP_NAME)
             title.setObjectName("LoadingTitle")
-            title.setAlignment(QtCore.Qt.AlignHCenter)
+            title.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
             brand = title
 
         self._brand = brand
@@ -49,9 +56,14 @@ class LoadingScreenWidget(QtWidgets.QWidget):
         self._status = QtWidgets.QLabel(self._normalize_status_text(tr("loading.stage.start")))
         self._status.setObjectName("LoadingStatus")
         self._status.setWordWrap(False)
-        self._status.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._status.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter | QtCore.Qt.AlignmentFlag.AlignVCenter)
         self._status.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self._status.setFixedHeight(max(self._status.fontMetrics().lineSpacing() + cfg.spacing + 6, 30))
+        self._status.setFixedHeight(
+            max(
+                self._status.fontMetrics().lineSpacing() + cfg.spacing + cfg.pad_y_m,
+                int(cfg.control_min_h - 2),
+            )
+        )
 
         self._progress = QtWidgets.QProgressBar()
         self._progress.setObjectName("LoadingProgress")
@@ -70,7 +82,7 @@ class LoadingScreenWidget(QtWidgets.QWidget):
         card_layout.setContentsMargins(cfg.margin * 3, cfg.margin * 2, cfg.margin * 3, cfg.margin * 2)
         card_layout.setSpacing(cfg.spacing * 2)
         card_layout.addStretch(1)
-        card_layout.addWidget(self._brand, 0, QtCore.Qt.AlignHCenter)
+        card_layout.addWidget(self._brand, 0, QtCore.Qt.AlignmentFlag.AlignHCenter)
         card_layout.addSpacing(cfg.spacing)
         card_layout.addWidget(self._progress)
         card_layout.addWidget(self._status)
@@ -137,6 +149,13 @@ class LoadingScreenWidget(QtWidgets.QWidget):
         brand = self._brand
         if not isinstance(brand, LogoSvgLabel):
             return
-        max_w = max(min(int(self.width() * 0.74), 660), 360)
-        max_h = max(min(int(self.height() * 0.34), 220), 128)
+        cfg = ui(self)
+        max_w = max(
+            min(int(self.width() * _LOADING_LOGO_WIDTH_RATIO), int(cfg.control_min_w * 5 + cfg.control_min_h * 2 - max(0, cfg.space_s - 1))),
+            int(cfg.control_min_w * 3),
+        )
+        max_h = max(
+            min(int(self.height() * _LOADING_LOGO_HEIGHT_RATIO), int(cfg.control_min_h * 6 + cfg.pad_y_l * 3 + cfg.space_s - 1)),
+            int(cfg.control_min_h * 4),
+        )
         brand.update_for_bounds(max_w, max_h)

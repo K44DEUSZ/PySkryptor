@@ -1,20 +1,18 @@
 # app/model/io/media_probe.py
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.model.io.audio_extractor import AudioExtractor
 from app.model.services.download_service import DownloadService
 
-import re
-
 _URL_RE = re.compile(r"^(?:https?://|ftp://)", re.IGNORECASE)
 
-
 def is_url_source(value: str) -> bool:
-    """Return True if value looks like an URL."""
+    """Return True if value looks like a URL."""
     return bool(value) and bool(_URL_RE.match(value.strip()))
 
 
@@ -25,15 +23,15 @@ class MediaProbe:
     source: str
     title: str
     path: str
-    duration: Optional[float]
-    size: Optional[int]
+    duration: float | None
+    size: int | None
 
-    service: Optional[str] = None
-    formats: Optional[List[Dict[str, Any]]] = None
-    audio_langs: Optional[List[Dict[str, Any]]] = None
-    probe_diag: Optional[Dict[str, Any]] = None
+    service: str | None = None
+    formats: list[dict[str, Any]] | None = None
+    audio_langs: list[dict[str, Any]] | None = None
+    probe_diag: dict[str, Any] | None = None
 
-    def as_files_row(self) -> Dict[str, Any]:
+    def as_files_row(self) -> dict[str, Any]:
         """Row shape expected by Files table."""
         return {
             "name": self.title,
@@ -49,7 +47,7 @@ class MediaProbe:
 class MediaProbeService:
     """Central place for building MediaProbe from local files and URLs."""
 
-    def __init__(self, down: Optional[DownloadService] = None) -> None:
+    def __init__(self, down: DownloadService | None = None) -> None:
         self._down = down or DownloadService()
 
     # ----- URL / remote -----
@@ -77,7 +75,8 @@ class MediaProbeService:
 
     # ----- Local file -----
 
-    def from_local(self, path: Path) -> Optional[MediaProbe]:
+    @staticmethod
+    def from_local(path: Path) -> MediaProbe | None:
         """Build metadata for a local media file; returns None if file is invalid."""
         p = Path(path)
         if not p.exists() or not p.is_file():
@@ -85,7 +84,7 @@ class MediaProbeService:
 
         try:
             size = p.stat().st_size
-        except Exception:
+        except OSError:
             size = None
 
         dur = AudioExtractor.probe_duration(p)

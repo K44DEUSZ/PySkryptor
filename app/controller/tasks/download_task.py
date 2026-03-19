@@ -5,7 +5,6 @@ import hashlib
 import logging
 import threading
 from pathlib import Path
-from typing import Optional, Dict, Any
 
 from PyQt5 import QtCore
 
@@ -35,19 +34,19 @@ class DownloadWorker(BaseWorker):
         *,
         action: str,
         url: str,
-        kind: Optional[str] = None,
-        quality: Optional[str] = None,
-        ext: Optional[str] = None,
-        audio_lang: Optional[str] = None,
-        cancel_token: Optional[CancellationToken] = None,
+        kind: str | None = None,
+        quality: str | None = None,
+        ext: str | None = None,
+        audio_lang: str | None = None,
+        cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
-        self._action = str(action or '').strip().lower()
-        self._url = str(url or '').strip()
+        self._action = str(action or "").strip().lower()
+        self._url = str(url or "").strip()
 
-        self._kind = str(kind or '').strip().lower()
-        self._quality = str(quality or '').strip().lower()
-        self._ext = str(ext or '').strip().lower()
+        self._kind = str(kind or "").strip().lower()
+        self._quality = str(quality or "").strip().lower()
+        self._ext = str(ext or "").strip().lower()
         self._audio_lang = audio_lang
 
         self._duplicate_decision = PendingDecision(default_action="skip")
@@ -59,12 +58,12 @@ class DownloadWorker(BaseWorker):
             self._cancel_pending_decision(self._duplicate_decision)
 
     @QtCore.pyqtSlot(str, str)
-    def on_duplicate_decided(self, action: str, new_name: str = '') -> None:
+    def on_duplicate_decided(self, action: str, new_name: str = "") -> None:
         with self._duplicate_lock:
             self._set_pending_decision(
                 self._duplicate_decision,
-                action=str(action or '').strip().lower(),
-                value=str(new_name or '').strip(),
+                action=str(action or "").strip().lower(),
+                value=str(new_name or "").strip(),
             )
 
     # ----- Errors -----
@@ -77,44 +76,44 @@ class DownloadWorker(BaseWorker):
 
     def _execute(self) -> None:
         if not self._url:
-            self.download_error.emit('error.generic', {'detail': 'missing url'})
+            self.download_error.emit("error.generic", {"detail": "missing url"})
             return
 
         svc = DownloadService()
 
-        if self._action == 'probe':
+        if self._action == "probe":
             meta = svc.probe(self._url)
             if isinstance(meta, dict):
                 self.meta_ready.emit(meta)
             return
 
-        if self._action != 'download':
-            self.download_error.emit('error.generic', {'detail': f'unsupported action: {self._action}'})
+        if self._action != "download":
+            self.download_error.emit("error.generic", {"detail": f"unsupported action: {self._action}"})
             return
 
         if not self._kind or not self._quality or not self._ext:
-            self.download_error.emit('error.generic', {'detail': 'missing download options'})
+            self.download_error.emit("error.generic", {"detail": "missing download options"})
             return
 
         meta = svc.probe(self._url)
-        title = str(meta.get('title') or meta.get('id') or 'download')
-        extractor = str(meta.get('extractor') or '').strip()
-        source_id = str(meta.get('id') or '').strip()
+        title = str(meta.get("title") or meta.get("id") or "download")
+        extractor = str(meta.get("extractor") or "").strip()
+        source_id = str(meta.get("id") or "").strip()
 
         if extractor and source_id:
-            key = f'{extractor}-{source_id}'
+            key = f"{extractor}-{source_id}"
         else:
-            h = hashlib.sha1(self._url.encode('utf-8', errors='ignore')).hexdigest()[:10]
-            key = f'url-{h}'
+            h = hashlib.sha1(self._url.encode("utf-8", errors="ignore")).hexdigest()[:10]
+            key = f"url-{h}"
 
-        title_stem = sanitize_filename(title) or 'download'
+        title_stem = sanitize_filename(title) or "download"
         key_stem = sanitize_filename(key) or key
-        file_stem = f'{title_stem} [{key_stem}]'
+        file_stem = f"{title_stem} [{key_stem}]"
 
         out_dir = Config.DOWNLOADS_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        expected = out_dir / f'{file_stem}.{self._ext}'
+        expected = out_dir / f"{file_stem}.{self._ext}"
         final_stem = self._resolve_duplicate(title, expected)
 
         if not final_stem or self._cancel.is_cancelled:
@@ -122,12 +121,12 @@ class DownloadWorker(BaseWorker):
 
         def _progress_cb(pct: int, status: str) -> None:
             try:
-                st = str(status or '').strip().lower()
-                if st == 'postprocessing':
-                    self.stage_changed.emit('postprocessing')
+                st = str(status or "").strip().lower()
+                if st == "postprocessing":
+                    self.stage_changed.emit("postprocessing")
                     return
-                if st == 'postprocessed':
-                    self.stage_changed.emit('postprocessed')
+                if st == "postprocessed":
+                    self.stage_changed.emit("postprocessed")
                     return
                 v = int(max(0, min(100, int(pct))))
                 self.progress_pct.emit(v)
@@ -166,7 +165,7 @@ class DownloadWorker(BaseWorker):
 
     def _resolve_duplicate(self, title: str, expected: Path) -> str:
         if self._cancel.is_cancelled:
-            return ''
+            return ""
 
         if not expected.exists():
             return expected.stem
@@ -177,23 +176,23 @@ class DownloadWorker(BaseWorker):
         action, new_name = self._wait_for_pending_decision(self._duplicate_decision)
 
         if self.cancel_check():
-            return ''
+            return ""
 
-        action = str(action or '').strip().lower()
-        if action == 'skip':
-            return ''
+        action = str(action or "").strip().lower()
+        if action == "skip":
+            return ""
 
-        if action == 'overwrite':
+        if action == "overwrite":
             self._remove_existing(expected)
             return expected.stem
 
-        if action == 'rename':
-            cand = sanitize_filename(new_name) if new_name else ''
-            cand_path = expected.with_name(f'{cand or expected.stem}{expected.suffix}')
+        if action == "rename":
+            cand = sanitize_filename(new_name) if new_name else ""
+            cand_path = expected.with_name(f"{cand or expected.stem}{expected.suffix}")
             unique = FileManager.ensure_unique_path(cand_path)
             return unique.stem
 
-        return ''
+        return ""
 
     @staticmethod
     def _remove_existing(path: Path) -> None:
@@ -203,7 +202,7 @@ class DownloadWorker(BaseWorker):
         except Exception:
             pass
 
-        part = Path(str(path) + '.part')
+        part = Path(str(path) + ".part")
         try:
             if part.exists():
                 part.unlink()

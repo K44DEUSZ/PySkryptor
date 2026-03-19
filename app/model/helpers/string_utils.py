@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
-from typing import Optional
 
 __all__ = [
     "format_bytes",
@@ -15,7 +14,7 @@ __all__ = [
 ]
 
 
-def normalize_lang_code(code: Optional[str], *, drop_region: bool = True) -> str:
+def normalize_lang_code(code: str | None, *, drop_region: bool = True) -> str:
     """Normalize language codes (e.g. 'EN_us' -> 'en')."""
     s = str(code or "").strip().lower().replace("_", "-")
     if not s:
@@ -54,12 +53,12 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
     return n or "file"
 
 
-def is_youtube_url(url: Optional[str]) -> bool:
+def is_youtube_url(url: str | None) -> bool:
     s = str(url or "").lower()
     return "youtube.com" in s or "youtu.be" in s
 
 
-def format_bytes(num: Optional[int]) -> str:
+def format_bytes(num: int | None) -> str:
     """Return human-readable file size."""
     if not num or num <= 0:
         return "-"
@@ -75,7 +74,7 @@ def format_bytes(num: Optional[int]) -> str:
 
 
 def format_hms(
-    seconds: Optional[float],
+    seconds: float | None,
     *,
     blank_for_none: bool = False,
     always_hours: bool = True,
@@ -87,7 +86,7 @@ def format_hms(
 
     try:
         sec_f = float(seconds)
-    except Exception:
+    except (TypeError, ValueError):
         return "" if blank_for_none else "-"
 
     if sec_f < 0:

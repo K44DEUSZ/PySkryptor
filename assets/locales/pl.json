@@ -46,7 +46,7 @@
     }
   },
   "ctrl": {
-    "add": "Dodaj",
+    "add": "Dodaj +",
     "cancel": "Anuluj ✖️",
     "exit": "Wyjdź",
     "ok": "OK",
@@ -330,9 +330,9 @@
   },
   "live": {
     "ctrl": {
-      "clear": "Wyczyść",
+      "clear": "Wyczyść 🧹",
       "pause": "Pauza ⏸️",
-      "refresh": "Odśwież urządzenia",
+      "refresh": "Odśwież 🔄",
       "save_transcript": "Zapisz 💾",
       "start": "Start ▶️",
       "stop": "Stop ⏹️"
@@ -344,7 +344,7 @@
     },
     "dialog": {
       "no_devices": {
-        "text": "Nie wykryto urządzeń wejścia audio.\nPodłącz mikrofon i spróbuj ponownie (Odśwież urządzenia).",
+        "text": "Nie wykryto urządzeń wejścia audio.\nPodłącz mikrofon i spróbuj ponownie (Odśwież 🔄).",
         "title": "Brak mikrofonu"
       }
     },
@@ -359,10 +359,22 @@
       "balanced": "Zbalansowany",
       "high_context": "Wysoki kontekst",
       "label": "Preset",
-      "low_latency": "Niskie opóźnienie"
+      "low_latency": "Niskie opóźnienie",
+      "help": {
+        "low_latency": "Najniższe opóźnienie i najszybsze odświeżanie kosztem krótszego kontekstu.",
+        "balanced": "Zbalansowany kompromis między szybkością odświeżania a stabilnością tekstu.",
+        "high_context": "Większy kontekst dla stabilniejszej treści kosztem wyższego opóźnienia."
+      }
     },
     "save": {
       "file_filter": "Pliki tekstowe (*.txt);;Wszystkie pliki (*.*)"
+    },
+    "status_label": "Status:",
+    "detected_language_label": "Wykryty język:",
+    "output_mode": {
+      "label": "Tryb tekstu",
+      "stream": "Transkrypcja strumieniowa",
+      "cumulative": "Transkrypcja zbiorcza"
     }
   },
   "loading": {

@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 
 from PyQt5 import QtCore
 
@@ -17,14 +17,13 @@ _LOG = logging.getLogger(__name__)
 _ROOT = logging.getLogger()
 
 ProgressCb = Callable[[int], None]
-TaskFn = Callable[["_StartupRuntime", ProgressCb, Dict[str, Any]], None]
+TaskFn = Callable[["_StartupRuntime", ProgressCb, dict[str, Any]], None]
 
 
 @dataclass(frozen=True)
 class _StartupRuntime:
     config_cls: Any
     snap: Any
-
 
 @dataclass(frozen=True)
 class StartupTask:
@@ -34,12 +33,12 @@ class StartupTask:
     fn: TaskFn
     runtime: _StartupRuntime
 
-    def run(self, progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+    def run(self, progress: ProgressCb, ctx: dict[str, Any]) -> None:
         self.fn(self.runtime, progress, ctx)
 
 
 # ----- Startup steps -----
-def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict[str, Any]) -> None:
+def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, ctx: dict[str, Any]) -> None:
     config_cls = runtime.config_cls
     snap = runtime.snap
 
@@ -67,8 +66,7 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict
     progress(100)
 
 
-def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict[str, Any]) -> None:
-    del ctx
+def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, _ctx: dict[str, Any]) -> None:
     config_cls = runtime.config_cls
     config_cls.ensure_dirs()
     try:
@@ -86,15 +84,14 @@ def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict[
     progress(100)
 
 
-def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict[str, Any]) -> None:
-    del ctx
+def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, _ctx: dict[str, Any]) -> None:
     RuntimeConfigService.setup_ffmpeg_on_path(runtime.config_cls)
     _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", getattr(runtime.config_cls, "FFMPEG_BIN_DIR", ""))
     progress(100)
 
 
 def _warmup_model_runtime(
-    ctx: Dict[str, Any],
+    ctx: dict[str, Any],
     *,
     name: str,
     enabled: bool,
@@ -132,8 +129,7 @@ def _warmup_model_runtime(
         )
 
 
-def _task_load_transcription_model(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict[str, Any]) -> None:
-    del runtime
+def _task_load_transcription_model(_runtime: _StartupRuntime, progress: ProgressCb, ctx: dict[str, Any]) -> None:
     svc = AIModelsService()
     _warmup_model_runtime(
         ctx,
@@ -149,8 +145,7 @@ def _task_load_transcription_model(runtime: _StartupRuntime, progress: ProgressC
     progress(100)
 
 
-def _task_warmup_translation_model(runtime: _StartupRuntime, progress: ProgressCb, ctx: Dict[str, Any]) -> None:
-    del runtime
+def _task_warmup_translation_model(_runtime: _StartupRuntime, progress: ProgressCb, ctx: dict[str, Any]) -> None:
     svc = AIModelsService()
     _warmup_model_runtime(
         ctx,
@@ -165,7 +160,7 @@ def _task_warmup_translation_model(runtime: _StartupRuntime, progress: ProgressC
     progress(100)
 
 
-def build_startup_tasks(config_cls: Any, snap: Any, labels: Dict[str, str]) -> List[StartupTask]:
+def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> list[StartupTask]:
     runtime = _StartupRuntime(config_cls=config_cls, snap=snap)
     return [
         StartupTask(label=labels["init"], weight=2, min_display_ms=300, fn=_task_init_runtime, runtime=runtime),
@@ -176,7 +171,7 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: Dict[str, str]) -> L
     ]
 
 
-def _build_initial_context() -> Dict[str, Any]:
+def _build_initial_context() -> dict[str, Any]:
     return {
         "settings_snapshot": None,
         "transcription_pipeline": None,
@@ -193,10 +188,10 @@ class StartupWorker(BaseWorker):
     status = QtCore.pyqtSignal(str)
     ready = QtCore.pyqtSignal(dict)
 
-    def __init__(self, tasks: List[StartupTask]) -> None:
+    def __init__(self, tasks: list[StartupTask]) -> None:
         super().__init__()
         self._tasks = tasks
-        self._ctx: Dict[str, Any] = _build_initial_context()
+        self._ctx: dict[str, Any] = _build_initial_context()
 
     def _execute(self) -> None:
         total = sum(max(1, int(t.weight)) for t in self._tasks) or 1

@@ -8,7 +8,8 @@
         "mode": "transcribe",
         "preset": "balanced",
         "device_name": "",
-        "show_source": true
+        "show_source": true,
+        "output_mode": "cumulative"
       }
     },
     "logging": {
@@ -52,7 +53,7 @@
   },
   "translation": {
     "source_language": "auto",
-    "target_language": "auto"
+    "target_language": "default_ui"
   },
   "downloader": {
     "min_video_height": 144,
@@ -62,6 +63,7 @@
     "retries": 3,
     "max_bandwidth_kbps": 0,
     "concurrent_fragments": 2,
-    "http_timeout_s": 30
+    "http_timeout_s": 30,
+    "no_check_certificate": true
   }
 }

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any
 
 from PyQt5 import QtCore
 
@@ -15,7 +15,6 @@ from app.model.helpers.errors import AppError, OperationCancelled
 
 class _WorkerMeta(type(QtCore.QObject), ABCMeta):
     pass
-
 
 @dataclass
 class PendingDecision:
@@ -45,7 +44,7 @@ class BaseWorker(QtCore.QObject, metaclass=_WorkerMeta):
     failed = QtCore.pyqtSignal(str, dict)
     cancelled = QtCore.pyqtSignal()
 
-    def __init__(self, *, cancel_token: Optional[CancellationToken] = None) -> None:
+    def __init__(self, *, cancel_token: CancellationToken | None = None) -> None:
         super().__init__()
         self._cancel = cancel_token or CancellationToken()
         self._log = logging.getLogger(self.__class__.__module__)
@@ -63,33 +62,34 @@ class BaseWorker(QtCore.QObject, metaclass=_WorkerMeta):
         try:
             th = QtCore.QThread.currentThread()
             return bool(th is not None and th.isInterruptionRequested())
-        except Exception:
+        except (AttributeError, RuntimeError):
             return False
 
-    def _exception_to_i18n(self, ex: BaseException) -> Tuple[str, Dict[str, Any]]:
+    @staticmethod
+    def _exception_to_i18n(ex: BaseException) -> tuple[str, dict[str, Any]]:
         key = getattr(ex, "key", None)
         params = getattr(ex, "params", None)
         if key:
-            return (str(key), dict(params or {}))
+            return str(key), dict(params or {})
 
         msg = str(ex)
-        return ("error.generic", {"detail": msg})
+        return "error.generic", {"detail": msg}
 
-    def _emit_failure(self, key: str, params: Optional[Dict[str, Any]] = None, *signals: QtCore.pyqtBoundSignal) -> None:
+    def _emit_failure(self, key: str, params: dict[str, Any] | None = None, *signals: QtCore.pyqtBoundSignal) -> None:
         payload = dict(params or {})
         self.failed.emit(str(key), dict(payload))
         for signal in signals:
             try:
                 signal.emit(str(key), dict(payload))
-            except Exception:
+            except (RuntimeError, TypeError):
                 continue
 
     def _handle_failure(self, ex: BaseException) -> None:
         key, params = self._exception_to_i18n(ex)
         self._emit_failure(str(key), dict(params or {}))
 
+    @staticmethod
     def _set_pending_decision(
-        self,
         pending: PendingDecision,
         *,
         action: str,
@@ -99,7 +99,8 @@ class BaseWorker(QtCore.QObject, metaclass=_WorkerMeta):
         pending.value = str(value or "")
         pending.event.set()
 
-    def _cancel_pending_decision(self, pending: PendingDecision) -> None:
+    @staticmethod
+    def _cancel_pending_decision(pending: PendingDecision) -> None:
         pending.action = str(pending.default_action or "")
         pending.value = str(pending.default_value or "")
         pending.event.set()
@@ -109,7 +110,7 @@ class BaseWorker(QtCore.QObject, metaclass=_WorkerMeta):
         pending: PendingDecision,
         *,
         poll_interval_ms: int = 150,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         timeout_s = max(0.01, float(int(poll_interval_ms)) / 1000.0)
 
         while not pending.event.wait(timeout_s):
@@ -140,8 +141,8 @@ class BaseWorker(QtCore.QObject, metaclass=_WorkerMeta):
                     self._log.warning(
                         "%s failed. key=%s params=%s",
                         self.__class__.__name__,
-                        getattr(ex, 'key', 'error.generic'),
-                        dict(getattr(ex, 'params', {}) or {}),
+                        getattr(ex, "key", "error.generic"),
+                        dict(getattr(ex, "params", {}) or {}),
                     )
                 else:
                     self._log.exception("%s failed.", self.__class__.__name__)

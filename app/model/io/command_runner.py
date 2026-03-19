@@ -5,18 +5,17 @@ import logging
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Callable, Sequence
 
 from app.model.helpers.errors import AppError
 
 _LOG = logging.getLogger(__name__)
 
-
 @dataclass
 class CommandResult:
     """Result of a completed command execution."""
 
-    cmd: List[str]
+    cmd: list[str]
     returncode: int
     stdout: str
     stderr: str
@@ -29,10 +28,10 @@ class CommandRunner:
     def run(
         cmd: Sequence[str],
         *,
-        cwd: Optional[Union[str, os.PathLike]] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout_s: Optional[float] = None,
-        cancel_check: Optional[Callable[[], bool]] = None,
+        cwd: str | os.PathLike[str] | None = None,
+        env: dict[str, str] | None = None,
+        timeout_s: float | None = None,
+        cancel_check: Callable[[], bool] | None = None,
         error_key: str = "error.external_tool_failed",
     ) -> CommandResult:
         cmd_list = [str(x) for x in cmd]
@@ -59,26 +58,26 @@ class CommandRunner:
 
             if res.returncode != 0:
                 raise AppError(
-                    key=error_key,
-                    params={"code": res.returncode, "cmd": " ".join(cmd_list), "stderr": res.stderr[-8000:]},
+                    error_key,
+                    {"code": res.returncode, "cmd": " ".join(cmd_list), "stderr": res.stderr[-8000:]},
                 )
 
             return res
         except AppError:
             raise
-        except Exception as ex:
-            raise AppError(key=error_key, params={"cmd": " ".join(cmd_list)}, cause=ex)
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError) as ex:
+            raise AppError(error_key, {"cmd": " ".join(cmd_list)}, cause=ex)
 
     @staticmethod
     def _communicate(
         proc: subprocess.Popen,
         *,
-        timeout_s: Optional[float],
-        cancel_check: Optional[Callable[[], bool]],
+        timeout_s: float | None,
+        cancel_check: Callable[[], bool] | None,
     ) -> tuple[str, str]:
         if timeout_s is None and cancel_check is None:
             out, err = proc.communicate()
-            return (str(out or ""), str(err or ""))
+            return str(out or ""), str(err or "")
 
         poll_interval_s = 0.1
         waited_s = 0.0
@@ -87,20 +86,20 @@ class CommandRunner:
             if cancel_check is not None and bool(cancel_check()):
                 try:
                     proc.kill()
-                except Exception:
+                except OSError:
                     pass
-                raise AppError(key="error.cancelled", params={})
+                raise AppError("error.cancelled", {})
 
             if timeout_s is not None and waited_s >= float(timeout_s):
                 try:
                     proc.kill()
-                except Exception:
+                except OSError:
                     pass
-                raise AppError(key="error.external_tool_timeout", params={"seconds": float(timeout_s)})
+                raise AppError("error.external_tool_timeout", {"seconds": float(timeout_s)})
 
             if proc.poll() is not None:
                 out, err = proc.communicate()
-                return (str(out or ""), str(err or ""))
+                return str(out or ""), str(err or "")
 
             try:
                 proc.wait(timeout=poll_interval_s)

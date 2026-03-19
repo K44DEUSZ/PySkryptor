@@ -1,46 +1,15 @@
 # app/controller/tasks/transcription_task.py
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict, List, Tuple, Union, Optional
+from typing import Any
 
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
 from app.controller.tasks.base_worker import BaseWorker, PendingDecision
-from app.model.helpers.string_utils import normalize_lang_code
 from app.model.services.transcription_service import TranscriptionService
-from app.controller.support.runtime_resolver import resolve_translation_target
-from app.controller.support.localization import Translator
 
-_LOG = logging.getLogger(__name__)
-
-SourceEntry = Union[str, Dict[str, Any]]
-
-
-def build_overrides(
-    *,
-    source_language: str,
-    target_language: str,
-    translate_after_transcription: bool,
-) -> Dict[str, Any]:
-    src = normalize_lang_code(source_language, drop_region=True) if source_language else ''
-
-    tgt_raw = str(target_language or '').strip().lower()
-    tgt_resolved = resolve_translation_target(
-        tgt_raw,
-        ui_language=Translator.current_language(),
-        cfg_target=None,
-        supported=None,
-    )
-
-    tgt = normalize_lang_code(tgt_resolved, drop_region=True) if tgt_resolved else ''
-
-    return {
-        'source_language': '' if src in ('', 'auto') else src,
-        'target_language': tgt,
-        'translate_after_transcription': bool(translate_after_transcription),
-    }
+SourceEntry = str | dict[str, Any]
 
 
 class TranscriptionWorker(BaseWorker):
@@ -60,9 +29,9 @@ class TranscriptionWorker(BaseWorker):
         self,
         *,
         pipe: Any,
-        entries: List[SourceEntry],
-        overrides: Optional[Dict[str, Any]] = None,
-        cancel_token: Optional[CancellationToken] = None,
+        entries: list[SourceEntry],
+        overrides: dict[str, Any] | None = None,
+        cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
         self._pipe = pipe
@@ -82,41 +51,41 @@ class TranscriptionWorker(BaseWorker):
         self._cancel_pending_decision(self._conflict_decision)
 
     @QtCore.pyqtSlot(str, str)
-    def on_conflict_decided(self, action: str, new_stem: str = '') -> None:
+    def on_conflict_decided(self, action: str, new_stem: str = "") -> None:
         self._set_pending_decision(
             self._conflict_decision,
-            action=str(action or 'skip').strip().lower(),
-            value=str(new_stem or '').strip(),
+            action=str(action or "skip").strip().lower(),
+            value=str(new_stem or "").strip(),
         )
 
     # ----- Internals -----
 
-    def _conflict_resolver(self, stem: str, existing_dir: str) -> Tuple[str, str, bool]:
+    def _conflict_resolver(self, stem: str, existing_dir: str) -> tuple[str, str, bool]:
         self._conflict_decision.reset()
 
         self.conflict_check.emit(str(stem), str(existing_dir))
         action, new_stem = self._wait_for_pending_decision(self._conflict_decision)
 
         if self.cancel_check():
-            return ('skip', '', False)
+            return "skip", "", False
 
-        action = str(action or 'skip').strip().lower()
-        new_stem = str(new_stem or '').strip()
-        return (action, new_stem, False)
+        action = str(action or "skip").strip().lower()
+        new_stem = str(new_stem or "").strip()
+        return action, new_stem, False
 
     # ----- Run -----
 
     def _on_failed(self, err_key: str, params: dict) -> None:
         if self._session_reported:
             return
-        self.item_error.emit('', str(err_key), dict(params or {}))
-        self.session_done.emit('', False, True, False)
+        self.item_error.emit("", str(err_key), dict(params or {}))
+        self.session_done.emit("", False, True, False)
         self._session_reported = True
 
     def _on_cancelled(self) -> None:
         if self._session_reported:
             return
-        self.session_done.emit('', False, False, True)
+        self.session_done.emit("", False, False, True)
         self._session_reported = True
 
     def _execute(self) -> None:

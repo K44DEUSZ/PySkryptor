@@ -1,15 +1,24 @@
 # app/model/helpers/chunking.py
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Tuple
 
 import numpy as np
 import wave
 
+from app.model.helpers.errors import AppError
 
-def normalize_chunk_params(chunk_len_s: int, stride_len_s: int) -> Tuple[int, int, int]:
+
+class ChunkingError(AppError):
+    """Chunking/runtime audio validation error surfaced through the standard dialog path."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__("dialog.error.unexpected", {"msg": str(detail or "")})
+
+
+def normalize_chunk_params(chunk_len_s: int, stride_len_s: int) -> tuple[int, int, int]:
     chunk = max(1, int(chunk_len_s))
     stride = max(0, int(stride_len_s))
     if stride >= chunk:
@@ -18,7 +27,7 @@ def normalize_chunk_params(chunk_len_s: int, stride_len_s: int) -> Tuple[int, in
     return chunk, stride, step
 
 
-def seconds_to_frames(sr: int, chunk_len_s: int, stride_len_s: int) -> Tuple[int, int, int]:
+def seconds_to_frames(sr: int, chunk_len_s: int, stride_len_s: int) -> tuple[int, int, int]:
     chunk_s, stride_s, step_s = normalize_chunk_params(chunk_len_s, stride_len_s)
     sr_i = max(1, int(sr))
     chunk_f = max(1, int(chunk_s * sr_i))
@@ -40,7 +49,7 @@ def pcm16le_bytes_to_float32(data: bytes) -> np.ndarray:
 def estimate_chunks(total_dur_s: float, chunk_len_s: int, stride_len_s: int) -> int:
     try:
         dur = float(total_dur_s)
-    except Exception:
+    except (TypeError, ValueError):
         dur = 0.0
     if dur <= 0:
         return 1
@@ -58,7 +67,7 @@ def _pcm_bytes_to_float32(frames: bytes, sampwidth: int) -> np.ndarray:
     sw = int(sampwidth)
 
     if sw == 1:
-        # 8-bit PCM is unsigned [0..255] -> centered [-128..127]
+        # Normalize unsigned PCM8 samples around zero.
         a = np.frombuffer(frames, dtype=np.uint8).astype(np.float32)
         return (a - 128.0) / 128.0
 
@@ -67,7 +76,7 @@ def _pcm_bytes_to_float32(frames: bytes, sampwidth: int) -> np.ndarray:
         return a / 32768.0
 
     if sw == 3:
-        # 24-bit little-endian signed PCM: 3 bytes per sample.
+        # Rebuild signed PCM24 values from packed 3-byte frames.
         b = np.frombuffer(frames, dtype=np.uint8)
         if b.size % 3 != 0:
             b = b[: b.size - (b.size % 3)]
@@ -78,15 +87,15 @@ def _pcm_bytes_to_float32(frames: bytes, sampwidth: int) -> np.ndarray:
         x = (b[:, 0].astype(np.int32) |
              (b[:, 1].astype(np.int32) << 8) |
              (b[:, 2].astype(np.int32) << 16))
-        # Sign-extend from 24-bit
+        # Sign-extend packed 24-bit values before scaling.
         x = (x << 8) >> 8
-        return x.astype(np.float32) / 8388608.0  # 2^23
+        return x.astype(np.float32) / 8388608.0
 
     if sw == 4:
         a = np.frombuffer(frames, dtype=np.int32).astype(np.float32)
-        return a / 2147483648.0  # 2^31
+        return a / 2147483648.0
 
-    raise ValueError(f"unsupported-sample-width; got {sw}")
+    raise ChunkingError(f"unsupported-sample-width; got {sw}")
 
 
 @dataclass(frozen=True)
@@ -109,15 +118,15 @@ def iter_wav_mono_chunks(
     with wave.open(str(wav_path), "rb") as wf:
         n_channels = int(wf.getnchannels() or 0)
         if n_channels != 1:
-            raise ValueError(f"expected-mono-wav; channels={n_channels}")
+            raise ChunkingError(f"expected-mono-wav; channels={n_channels}")
 
         sr = int(wf.getframerate() or 0)
         if sr <= 0:
-            raise ValueError(f"invalid-sample-rate; sr={sr}")
+            raise ChunkingError(f"invalid-sample-rate; sr={sr}")
 
         sampwidth = int(wf.getsampwidth() or 0)
         if sampwidth <= 0:
-            raise ValueError(f"invalid-sample-width; sampwidth={sampwidth}")
+            raise ChunkingError(f"invalid-sample-width; sampwidth={sampwidth}")
 
         n_frames = int(wf.getnframes() or 0)
         duration_s = float(n_frames) / float(sr) if n_frames > 0 else 0.0
@@ -127,7 +136,7 @@ def iter_wav_mono_chunks(
 
         for i in range(n_chunks):
             start = int(i * step_frames)
-            if start >= n_frames and n_frames > 0:
+            if 0 < n_frames <= start:
                 break
 
             wf.setpos(min(max(0, start), max(0, n_frames)))

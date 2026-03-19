@@ -6,36 +6,34 @@ import os
 import logging
 import re
 from dataclasses import dataclass
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any
 
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.errors import AppError
 from app.model.helpers.string_utils import normalize_lang_code
-from app.model.services.ai_models_service import is_disabled_engine_name, local_model_descriptor
 
 _LOG = logging.getLogger(__name__)
-
 
 # ----- Errors -----
 class SettingsError(AppError):
     def __init__(self, key: str, **params: Any) -> None:
-        super().__init__(key=str(key), params=dict(params or {}))
-
+        super().__init__(str(key), dict(params or {}))
 
 # ----- Snapshot -----
 @dataclass(frozen=True)
 class SettingsSnapshot:
-    app: Dict[str, Any]
-    engine: Dict[str, Any]
-    model: Dict[str, Any]
-    transcription: Dict[str, Any]
-    translation: Dict[str, Any]
-    downloader: Dict[str, Any]
-    network: Dict[str, Any]
+    app: dict[str, Any]
+    engine: dict[str, Any]
+    model: dict[str, Any]
+    transcription: dict[str, Any]
+    translation: dict[str, Any]
+    downloader: dict[str, Any]
+    network: dict[str, Any]
 
 
-def snapshot_to_dict(snap: SettingsSnapshot) -> Dict[str, Any]:
+def snapshot_to_dict(snap: SettingsSnapshot) -> dict[str, Any]:
     """Serialize a validated settings snapshot back to a plain dict."""
 
     return {
@@ -48,17 +46,16 @@ def snapshot_to_dict(snap: SettingsSnapshot) -> Dict[str, Any]:
         "network": dict(snap.network),
     }
 
-
 # ----- Catalog -----
 class SettingsCatalog:
     """Lightweight catalog of user-facing options sourced from AppConfig."""
 
     @classmethod
-    def transcription_output_modes(cls) -> Tuple[Dict[str, Any], ...]:
+    def transcription_output_modes(cls) -> tuple[dict[str, Any], ...]:
         return Config.get_transcription_output_modes()
 
     @classmethod
-    def transcript_extensions(cls) -> Tuple[str, ...]:
+    def transcript_extensions(cls) -> tuple[str, ...]:
         return tuple(
             sorted(
                 {
@@ -70,32 +67,32 @@ class SettingsCatalog:
         )
 
     @classmethod
-    def download_audio_exts(cls) -> Tuple[str, ...]:
+    def download_audio_exts(cls) -> tuple[str, ...]:
         return tuple(Config.DOWNLOAD_AUDIO_OUTPUT_EXTS)
 
     @classmethod
-    def download_video_exts(cls) -> Tuple[str, ...]:
+    def download_video_exts(cls) -> tuple[str, ...]:
         return tuple(Config.DOWNLOAD_VIDEO_OUTPUT_EXTS)
 
     # ----- Language catalogs -----
-    _LANG_CACHE: Dict[str, Tuple[float, Set[str]]] = {}
+    _LANG_CACHE: dict[str, tuple[float, set[str]]] = {}
 
     @staticmethod
     def _file_mtime(path: Path) -> float:
         try:
             return float(path.stat().st_mtime)
-        except Exception:
+        except OSError:
             return 0.0
 
     @staticmethod
-    def _read_json(path: Path) -> Dict[str, Any]:
+    def _read_json(path: Path) -> dict[str, Any]:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, JSONDecodeError, TypeError, ValueError):
             return {}
 
     @classmethod
-    def _cache_get(cls, key: str, mtime: float) -> Set[str] | None:
+    def _cache_get(cls, key: str, mtime: float) -> set[str] | None:
         cur = cls._LANG_CACHE.get(key)
         if not cur:
             return None
@@ -105,13 +102,13 @@ class SettingsCatalog:
         return None
 
     @classmethod
-    def _cache_put(cls, key: str, mtime: float, codes: Set[str]) -> Set[str]:
+    def _cache_put(cls, key: str, mtime: float, codes: set[str]) -> set[str]:
         out = {c for c in (codes or set()) if c}
         cls._LANG_CACHE[key] = (float(mtime), set(out))
         return set(out)
 
     @classmethod
-    def _m2m100_language_codes(cls) -> Set[str]:
+    def _m2m100_language_codes(cls) -> set[str]:
         path = Config.translation_model_tokenizer_path()
         if not path.exists():
             return set()
@@ -126,7 +123,7 @@ class SettingsCatalog:
         raw = data.get("additional_special_tokens")
         tokens = raw if isinstance(raw, list) else []
 
-        codes: Set[str] = set()
+        codes: set[str] = set()
         for t in tokens:
             s = str(t or "").strip()
             if len(s) >= 4 and s.startswith("__") and s.endswith("__"):
@@ -138,7 +135,7 @@ class SettingsCatalog:
         return cls._cache_put(cache_key, mtime, codes)
 
     @classmethod
-    def _whisper_language_codes(cls) -> Set[str]:
+    def _whisper_language_codes(cls) -> set[str]:
         path = Config.transcription_model_tokenizer_path()
         if not path.exists():
             return set()
@@ -153,7 +150,7 @@ class SettingsCatalog:
         raw = data.get("additional_special_tokens")
         tokens = raw if isinstance(raw, list) else []
 
-        codes: Set[str] = set()
+        codes: set[str] = set()
         for t in tokens:
             s = str(t or "").strip()
             if len(s) >= 6 and s.startswith("<|") and s.endswith("|>"):
@@ -167,29 +164,28 @@ class SettingsCatalog:
         return cls._cache_put(cache_key, mtime, codes)
 
     @classmethod
-    def translation_language_codes(cls) -> Set[str]:
+    def translation_language_codes(cls) -> set[str]:
         """Return supported translation language codes."""
 
         return cls._m2m100_language_codes()
 
     @classmethod
-    def translation_target_allowed(cls) -> Set[str]:
+    def translation_target_allowed(cls) -> set[str]:
         return cls.translation_language_codes() | {Config.LANGUAGE_AUTO_VALUE}
 
     @classmethod
-    def transcription_language_codes(cls) -> Set[str]:
+    def transcription_language_codes(cls) -> set[str]:
         """Return supported transcription language codes."""
 
         return cls._whisper_language_codes()
 
     @classmethod
-    def transcription_language_allowed(cls) -> Set[str]:
+    def transcription_language_allowed(cls) -> set[str]:
         return cls.transcription_language_codes() | {Config.LANGUAGE_AUTO_VALUE}
 
     @classmethod
-    def transcription_source_allowed(cls) -> Set[str]:
+    def transcription_source_allowed(cls) -> set[str]:
         return cls.transcription_language_allowed()
-
 
 # ----- Runtime bridge -----
 class RuntimeConfigService:
@@ -202,7 +198,7 @@ class RuntimeConfigService:
         config_cls: Any,
         snap: "SettingsSnapshot",
         *,
-        sections: Tuple[str, ...] = ("transcription", "translation"),
+        sections: tuple[str, ...] = ("transcription", "translation"),
     ) -> None:
         config_cls.update_from_snapshot(snap, sections=sections)
 
@@ -232,7 +228,6 @@ class RuntimeConfigService:
         if ffprobe_exe.exists():
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
-
 # ----- Service -----
 class SettingsService:
     _LANG_CODE_RE = re.compile(r"^[a-z]{2,3}([_-][a-z]{2,4})?$", re.IGNORECASE)
@@ -240,41 +235,41 @@ class SettingsService:
     def __init__(
         self,
         *,
-        defaults_path: Optional[Path] = None,
-        settings_path: Optional[Path] = None,
+        defaults_path: Path | None = None,
+        settings_path: Path | None = None,
     ) -> None:
         self._defaults_path = Path(defaults_path) if defaults_path else Config.DEFAULTS_FILE
         self._settings_path = Path(settings_path) if settings_path else Config.SETTINGS_FILE
 
     @staticmethod
-    def _read_json(path: Path) -> Dict[str, Any]:
+    def _read_json(path: Path) -> dict[str, Any]:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as ex:
+        except (OSError, JSONDecodeError, TypeError, ValueError) as ex:
             raise SettingsError("error.settings.json_invalid", path=str(path), detail=str(ex))
         if not isinstance(data, dict):
             raise SettingsError("error.settings.section_invalid", section="root")
         return data
 
     @staticmethod
-    def _write_json(path: Path, data: Dict[str, Any]) -> None:
+    def _write_json(path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
-    def _ensure_dict(obj: Any, section: str) -> Dict[str, Any]:
+    def _ensure_dict(obj: Any, section: str) -> dict[str, Any]:
         if not isinstance(obj, dict):
             raise SettingsError("error.settings.section_invalid", section=section)
         return obj
 
     @staticmethod
-    def _merge(src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge(src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         out = dict(schema)
         out.update(src)
         return out
 
     @staticmethod
-    def _enum_str(val: Any, allowed: Tuple[str, ...], field: str) -> str:
+    def _enum_str(val: Any, allowed: tuple[str, ...], field: str) -> str:
         s = str(val).strip().lower()
         if s not in allowed:
             raise SettingsError("error.type.enum", field=field, allowed=", ".join(allowed))
@@ -287,10 +282,19 @@ class SettingsService:
         return int(val)
 
     @staticmethod
-    def _translation_enabled(model_cfg: Dict[str, Any]) -> bool:
+    def _schema_value(src: dict[str, Any], schema: dict[str, Any], key: str, default: Any) -> Any:
+        value = src.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+        if value not in (None, ""):
+            return value
+        return schema.get(key, default)
+
+    @staticmethod
+    def _translation_enabled(model_cfg: dict[str, Any]) -> bool:
         cfg = (model_cfg.get("translation_model") or {}) if isinstance(model_cfg.get("translation_model"), dict) else {}
         eng = str(cfg.get("engine_name", "none") or "none").strip().lower()
-        return not is_disabled_engine_name(eng)
+        return not Config.is_disabled_engine_name(eng)
 
     @classmethod
     def _looks_like_lang_code(cls, s: str) -> bool:
@@ -302,36 +306,49 @@ class SettingsService:
         return norm or ""
 
     # ----- Validators -----
-    def _validate_app(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_app(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
         logging_cfg = src.get("logging", {}) if isinstance(src.get("logging"), dict) else {}
         logging_schema = schema.get("logging", {}) if isinstance(schema.get("logging"), dict) else {}
         logging_cfg = self._merge(logging_cfg, logging_schema)
 
-        level = str(logging_cfg.get("level", "warning") or "warning").strip().lower()
+        level = str(self._schema_value(logging_cfg, logging_schema, "level", "warning") or "warning").strip().lower()
         if level not in ("debug", "info", "warning", "error"):
-            level = "warning"
+            level = str(logging_schema.get("level", "warning") or "warning").strip().lower()
 
         ui_cfg = src.get("ui", {}) if isinstance(src.get("ui"), dict) else {}
         ui_schema = schema.get("ui", {}) if isinstance(schema.get("ui"), dict) else {}
         ui_cfg = self._merge(ui_cfg, ui_schema)
 
-        show_adv = bool(ui_cfg.get("show_advanced_settings", False))
+        show_adv = bool(self._schema_value(ui_cfg, ui_schema, "show_advanced_settings", False))
         live_cfg = ui_cfg.get("live", {}) if isinstance(ui_cfg.get("live"), dict) else {}
         live_schema = ui_schema.get("live", {}) if isinstance(ui_schema.get("live"), dict) else {}
         live_cfg = self._merge(live_cfg, live_schema)
 
-        live_mode = self._enum_str(live_cfg.get("mode", "transcribe"), ("transcribe", "transcribe_translate"), "app.ui.live.mode")
-        live_preset = self._enum_str(live_cfg.get("preset", "balanced"), ("low_latency", "balanced", "high_context"), "app.ui.live.preset")
-        live_device = str(live_cfg.get("device_name", "") or "").strip()
-        live_show_source = bool(live_cfg.get("show_source", True))
+        live_mode = self._enum_str(
+            self._schema_value(live_cfg, live_schema, "mode", "transcribe"),
+            ("transcribe", "transcribe_translate"),
+            "app.ui.live.mode",
+        )
+        live_preset = self._enum_str(
+            self._schema_value(live_cfg, live_schema, "preset", "balanced"),
+            ("low_latency", "balanced", "high_context"),
+            "app.ui.live.preset",
+        )
+        live_output_mode = self._enum_str(
+            self._schema_value(live_cfg, live_schema, "output_mode", "cumulative"),
+            ("stream", "cumulative"),
+            "app.ui.live.output_mode",
+        )
+        live_device = str(self._schema_value(live_cfg, live_schema, "device_name", "") or "").strip()
+        live_show_source = bool(self._schema_value(live_cfg, live_schema, "show_source", True))
 
         return {
-            "language": str(src.get("language", "auto") or "auto"),
-            "theme": self._enum_str(src.get("theme", "auto"), ("auto", "light", "dark"), "app.theme"),
+            "language": str(self._schema_value(src, schema, "language", "auto") or "auto"),
+            "theme": self._enum_str(self._schema_value(src, schema, "theme", "auto"), ("auto", "light", "dark"), "app.theme"),
             "logging": {
-                "enabled": bool(logging_cfg.get("enabled", True)),
+                "enabled": bool(self._schema_value(logging_cfg, logging_schema, "enabled", True)),
                 "level": level,
             },
             "ui": {
@@ -339,33 +356,34 @@ class SettingsService:
                 "live": {
                     "mode": live_mode,
                     "preset": live_preset,
+                    "output_mode": live_output_mode,
                     "device_name": live_device,
                     "show_source": live_show_source,
                 },
             },
         }
 
-    def _validate_engine(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_engine(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
         return {
             "preferred_device": self._enum_str(
-                src.get("preferred_device", "auto"),
+                self._schema_value(src, schema, "preferred_device", "auto"),
                 ("auto", "cpu", "cuda"),
                 "engine.preferred_device",
             ),
             "precision": self._enum_str(
-                src.get("precision", "auto"),
+                self._schema_value(src, schema, "precision", "auto"),
                 ("auto", "float32", "float16", "bfloat16"),
                 "engine.precision",
             ),
-            "allow_tf32": bool(src.get("allow_tf32", True)),
-            "low_cpu_mem_usage": bool(src.get("low_cpu_mem_usage", True)),
+            "allow_tf32": bool(self._schema_value(src, schema, "allow_tf32", True)),
+            "low_cpu_mem_usage": bool(self._schema_value(src, schema, "low_cpu_mem_usage", True)),
         }
 
-    def _validate_model(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_model(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
-        def _d(v: Any) -> Dict[str, Any]:
+        def _d(v: Any) -> dict[str, Any]:
             return v if isinstance(v, dict) else {}
 
         t_schema = _d(schema.get("transcription_model"))
@@ -375,7 +393,7 @@ class SettingsService:
         x = self._merge(_d(src.get("translation_model")), x_schema)
 
         default_lang_raw = t.get("default_language", None)
-        default_lang: Optional[str] = None
+        default_lang: str | None = None
         if default_lang_raw is not None:
             s = str(default_lang_raw).strip().lower()
             if s and s != "auto":
@@ -387,27 +405,27 @@ class SettingsService:
                     )
                 default_lang = s
 
-        preset = str(t.get("quality_preset", "balanced") or "balanced").strip().lower()
+        preset = str(self._schema_value(t, t_schema, "quality_preset", "balanced") or "balanced").strip().lower()
         if preset not in ("fast", "balanced", "accurate"):
-            preset = "balanced"
+            preset = str(t_schema.get("quality_preset", "balanced") or "balanced").strip().lower()
 
-        preset_tr = str(x.get("quality_preset", "balanced") or "balanced").strip().lower()
+        preset_tr = str(self._schema_value(x, x_schema, "quality_preset", "balanced") or "balanced").strip().lower()
         if preset_tr not in ("fast", "balanced", "accurate"):
-            preset_tr = "balanced"
+            preset_tr = str(x_schema.get("quality_preset", "balanced") or "balanced").strip().lower()
 
-        def _engine_meta(cfg: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        def _engine_meta(cfg: dict[str, Any]) -> dict[str, str | None]:
             engine_name = str(cfg.get("engine_name", "none") or "none").strip()
             low = engine_name.lower()
             model_type = str(cfg.get("engine_model_type", "") or "").strip().lower() or None
             signature = str(cfg.get("engine_signature", "") or "").strip().lower() or None
 
-            if is_disabled_engine_name(low) or low == "auto":
+            if Config.is_disabled_engine_name(low) or low == "auto":
                 return {
                     "engine_model_type": None,
                     "engine_signature": None,
                 }
 
-            desc = local_model_descriptor(engine_name)
+            desc = Config.local_model_descriptor(engine_name)
             if desc:
                 model_type = str(desc.get("model_type", model_type or "") or "").strip().lower() or None
                 signature = str(desc.get("signature", signature or "") or "").strip().lower() or None
@@ -422,38 +440,43 @@ class SettingsService:
 
         return {
             "transcription_model": {
-                "engine_name": str(t.get("engine_name", "none") or "none").strip(),
+                "engine_name": str(self._schema_value(t, t_schema, "engine_name", "none") or "none").strip(),
                 "engine_model_type": t_meta["engine_model_type"],
                 "engine_signature": t_meta["engine_signature"],
                 "quality_preset": preset,
-                "text_consistency": bool(t.get("text_consistency", True)),
-                "chunk_length_s": int(t.get("chunk_length_s", 60)),
-                "stride_length_s": int(t.get("stride_length_s", 5)),
-                "ignore_warning": bool(t.get("ignore_warning", False)),
+                "text_consistency": bool(self._schema_value(t, t_schema, "text_consistency", True)),
+                "chunk_length_s": int(self._schema_value(t, t_schema, "chunk_length_s", 60)),
+                "stride_length_s": int(self._schema_value(t, t_schema, "stride_length_s", 5)),
+                "ignore_warning": bool(self._schema_value(t, t_schema, "ignore_warning", False)),
                 "default_language": default_lang,
             },
             "translation_model": {
-                "engine_name": str(x.get("engine_name", "none") or "none").strip(),
+                "engine_name": str(self._schema_value(x, x_schema, "engine_name", "none") or "none").strip(),
                 "engine_model_type": x_meta["engine_model_type"],
                 "engine_signature": x_meta["engine_signature"],
-                "dtype": str(x.get("dtype", "auto") or "auto").strip().lower(),
-                "max_new_tokens": int(x.get("max_new_tokens", 256)),
-                "chunk_max_chars": int(x.get("chunk_max_chars", 1200)),
+                "dtype": str(self._schema_value(x, x_schema, "dtype", "auto") or "auto").strip().lower(),
+                "max_new_tokens": int(self._schema_value(x, x_schema, "max_new_tokens", 256)),
+                "chunk_max_chars": int(self._schema_value(x, x_schema, "chunk_max_chars", 1200)),
                 "quality_preset": preset_tr,
             },
         }
 
-    def _validate_transcription(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_transcription(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
         mode_ids = [str(m.get("id", "")).strip().lower() for m in SettingsCatalog.transcription_output_modes()]
         mode_ids = [m for m in mode_ids if m]
+        schema_formats = schema.get("output_formats")
+        if isinstance(schema_formats, (list, tuple)):
+            default_selected = [str(x or "").strip().lower() for x in schema_formats if str(x or "").strip()]
+        else:
+            default_selected = ["txt"]
 
         raw_formats = src.get("output_formats")
         if isinstance(raw_formats, (list, tuple)):
             selected = [str(x or "").strip().lower() for x in raw_formats if str(x or "").strip()]
         else:
-            selected = ["txt"]
+            selected = list(default_selected)
 
         norm: list[str] = []
         seen: set[str] = set()
@@ -462,51 +485,56 @@ class SettingsService:
                 norm.append(mid)
                 seen.add(mid)
         if not norm:
-            norm = ["txt"]
+            norm = default_selected[:1] if default_selected else ["txt"]
 
         return {
             "output_formats": tuple(norm),
-            "download_audio_only": bool(src.get("download_audio_only", True)),
-            "url_keep_audio": bool(src.get("url_keep_audio", False)),
+            "download_audio_only": bool(self._schema_value(src, schema, "download_audio_only", True)),
+            "url_keep_audio": bool(self._schema_value(src, schema, "url_keep_audio", False)),
             "url_audio_ext": self._enum_str(
-                str(src.get("url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."),
+                str(self._schema_value(src, schema, "url_audio_ext", "m4a") or "m4a").strip().lower().lstrip("."),
                 SettingsCatalog.download_audio_exts(),
                 "transcription.url_audio_ext",
             ),
-            "url_keep_video": bool(src.get("url_keep_video", False)),
+            "url_keep_video": bool(self._schema_value(src, schema, "url_keep_video", False)),
             "url_video_ext": self._enum_str(
-                str(src.get("url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."),
+                str(self._schema_value(src, schema, "url_video_ext", "mp4") or "mp4").strip().lower().lstrip("."),
                 SettingsCatalog.download_video_exts(),
                 "transcription.url_video_ext",
             ),
-            "translate_after_transcription": bool(src.get("translate_after_transcription", False)),
+            "translate_after_transcription": bool(self._schema_value(src, schema, "translate_after_transcription", False)),
         }
 
     def _validate_translation(
         self,
-        src: Dict[str, Any],
-        schema: Dict[str, Any],
+        src: dict[str, Any],
+        schema: dict[str, Any],
         *,
         translation_enabled: bool,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         src = self._merge(src, schema)
 
-        src_lang_raw = Config.normalize_policy_value(src.get("source_language", "") or Config.LANGUAGE_AUTO_VALUE)
-        tgt_lang_raw = Config.normalize_policy_value(src.get("target_language", "") or Config.LANGUAGE_AUTO_VALUE)
+        src_lang_raw = Config.normalize_language_choice_value(
+            src.get("source_language", "") or Config.LANGUAGE_AUTO_VALUE
+        )
+        tgt_lang_raw = Config.normalize_language_choice_value(
+            src.get("target_language", "") or Config.LANGUAGE_DEFAULT_UI_VALUE
+        )
+        deferred_target = Config.LANGUAGE_DEFAULT_UI_VALUE
 
         if not translation_enabled:
             return {
                 "source_language": Config.LANGUAGE_AUTO_VALUE
                 if Config.is_auto_language_value(src_lang_raw)
                 else (self._coerce_lang_code(src_lang_raw) or Config.LANGUAGE_AUTO_VALUE),
-                "target_language": Config.LANGUAGE_DEFAULT_VALUE
+                "target_language": deferred_target
                 if Config.is_translation_target_deferred_value(tgt_lang_raw)
-                else (self._coerce_lang_code(tgt_lang_raw) or Config.LANGUAGE_DEFAULT_VALUE),
+                else (self._coerce_lang_code(tgt_lang_raw) or deferred_target),
             }
 
         src_allowed = set(SettingsCatalog.transcription_source_allowed())
         tgt_codes = set(SettingsCatalog.translation_language_codes())
-        tgt_allowed = set(tgt_codes) | {Config.LANGUAGE_DEFAULT_VALUE, Config.LANGUAGE_AUTO_VALUE}
+        tgt_allowed = set(tgt_codes) | {deferred_target, Config.LANGUAGE_AUTO_VALUE}
 
         src_lang = Config.LANGUAGE_AUTO_VALUE
         if not Config.is_auto_language_value(src_lang_raw):
@@ -514,21 +542,21 @@ class SettingsService:
             if norm and (norm in src_allowed or (src_allowed == {Config.LANGUAGE_AUTO_VALUE} and self._looks_like_lang_code(norm))):
                 src_lang = norm
 
-        tgt_lang = Config.LANGUAGE_DEFAULT_VALUE
+        tgt_lang = deferred_target
         if not Config.is_translation_target_deferred_value(tgt_lang_raw):
             norm = self._coerce_lang_code(tgt_lang_raw)
             if not norm:
-                tgt_lang = Config.LANGUAGE_DEFAULT_VALUE
+                tgt_lang = deferred_target
             elif tgt_codes:
-                tgt_lang = norm if norm in tgt_allowed else Config.LANGUAGE_DEFAULT_VALUE
+                tgt_lang = norm if norm in tgt_allowed else deferred_target
             else:
-                tgt_lang = norm if self._looks_like_lang_code(norm) else Config.LANGUAGE_DEFAULT_VALUE
+                tgt_lang = norm if self._looks_like_lang_code(norm) else deferred_target
 
-        if (not Config.is_translation_target_deferred_value(tgt_lang_raw)) and tgt_lang == Config.LANGUAGE_DEFAULT_VALUE:
+        if (not Config.is_translation_target_deferred_value(tgt_lang_raw)) and tgt_lang == deferred_target:
             _LOG.warning(
                 "Invalid translation.target_language=%r; falling back to %r.",
                 tgt_lang_raw,
-                Config.LANGUAGE_DEFAULT_VALUE,
+                deferred_target,
             )
 
         return {
@@ -536,14 +564,14 @@ class SettingsService:
             "target_language": tgt_lang,
         }
 
-    def _validate_downloader(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_downloader(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
         return {
             "min_video_height": self._as_int(src.get("min_video_height"), "downloader.min_video_height"),
             "max_video_height": self._as_int(src.get("max_video_height"), "downloader.max_video_height"),
         }
 
-    def _validate_network(self, src: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_network(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
         bw = src.get("max_bandwidth_kbps")
         if bw is not None and not isinstance(bw, int):
@@ -553,6 +581,7 @@ class SettingsService:
             "retries": self._as_int(src.get("retries"), "network.retries"),
             "concurrent_fragments": self._as_int(src.get("concurrent_fragments"), "network.concurrent_fragments"),
             "http_timeout_s": self._as_int(src.get("http_timeout_s"), "network.http_timeout_s"),
+            "no_check_certificate": bool(self._schema_value(src, schema, "no_check_certificate", True)),
         }
 
     # ----- IO -----
@@ -609,7 +638,7 @@ class SettingsService:
             network=self._validate_network(network, schema_network),
         )
 
-    def load_or_restore(self) -> Tuple[SettingsSnapshot, bool, str]:
+    def load_or_restore(self) -> tuple[SettingsSnapshot, bool, str]:
         try:
             snap = self.load()
             return snap, False, ""
@@ -624,13 +653,13 @@ class SettingsService:
     @staticmethod
     def _deep_merge(base: Any, patch: Any) -> Any:
         if isinstance(base, dict) and isinstance(patch, dict):
-            out: Dict[str, Any] = dict(base)
+            out: dict[str, Any] = dict(base)
             for k, v in patch.items():
                 out[k] = SettingsService._deep_merge(out.get(k), v) if k in out else v
             return out
         return patch
 
-    def save(self, payload: Dict[str, Any]) -> SettingsSnapshot:
+    def save(self, payload: dict[str, Any]) -> SettingsSnapshot:
         if not self._settings_path.exists():
             raise SettingsError("error.settings.settings_missing", path=str(self._settings_path))
 
@@ -674,7 +703,7 @@ class SettingsService:
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)
-            except Exception:
+            except OSError:
                 pass
 
         return self.load()
@@ -693,6 +722,6 @@ class SettingsService:
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)
-            except Exception:
+            except OSError:
                 pass
         return self.load()

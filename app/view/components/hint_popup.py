@@ -1,13 +1,35 @@
 # app/view/components/hint_popup.py
 from __future__ import annotations
 
-from typing import Optional
-
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.ui_config import apply_floating_shadow, enable_styled_background, floating_shadow_margins, ui
+from app.view.support.widget_effects import (
+    apply_floating_shadow,
+    enable_styled_background,
+    floating_shadow_margins,
+    overlay_edge_gap,
+)
+from app.view.ui_config import ui
 
-_SHARED_HINT_POPUP: Optional["HintPopup"] = None
+_SHARED_HINT_POPUP: HintPopup | None = None
+_HINT_MAX_TEXT_W = 360
+
+
+def _hint_anchor_gap_x(cfg) -> int:
+    return max(2, int(cfg.space_l) - 1)
+
+
+def _hint_left_gap_x(cfg) -> int:
+    return max(8, int(cfg.pad_x_l) + int(cfg.space_s) - 1)
+
+
+def _hint_avoid_gap_x(cfg) -> int:
+    return int(cfg.pad_x_m)
+
+
+def _hint_icon_size(cfg) -> int:
+    return max(12, int(cfg.radius_l) + 4)
+
 
 def hint_popup() -> "HintPopup":
     global _SHARED_HINT_POPUP
@@ -15,13 +37,14 @@ def hint_popup() -> "HintPopup":
         _SHARED_HINT_POPUP = HintPopup()
     return _SHARED_HINT_POPUP
 
+
 class HintPopup(QtWidgets.QWidget):
     """Rounded hint popup used by info buttons."""
 
     def __init__(self) -> None:
-        super().__init__(None, QtCore.Qt.ToolTip | QtCore.Qt.FramelessWindowHint)
-        self.setAttribute(QtCore.Qt.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        super().__init__(None, QtCore.Qt.WindowType.ToolTip | QtCore.Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setProperty("role", "hintPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
@@ -37,28 +60,28 @@ class HintPopup(QtWidgets.QWidget):
         body_lay.setContentsMargins(0, 0, 0, 0)
         body_lay.setSpacing(0)
 
-        cfg = ui(self)
-
         self._label = QtWidgets.QLabel(self._body)
         self._label.setProperty("role", "hintPopupText")
         self._label.setWordWrap(True)
-        self._label.setMaximumWidth(int(cfg.hint_popup_max_text_w))
+        self._label.setMaximumWidth(int(_HINT_MAX_TEXT_W))
         body_lay.addWidget(self._label)
 
         root.addWidget(self._body)
 
     def show_for(self, anchor: QtWidgets.QWidget, text: str) -> None:
         global_rect = QtCore.QRect(anchor.mapToGlobal(QtCore.QPoint(0, 0)), anchor.size())
+        cfg = ui(self)
         self.show_at(
-            global_rect.topRight() + QtCore.QPoint(int(ui(self).hint_popup_anchor_gap_x), max(0, global_rect.height() // 2)),
+            global_rect.topRight() + QtCore.QPoint(_hint_anchor_gap_x(cfg), max(0, global_rect.height() // 2)),
             text,
             avoid_rect=global_rect,
         )
 
     def show_for_rect(self, host: QtWidgets.QWidget, rect: QtCore.QRect, text: str) -> None:
         global_rect = QtCore.QRect(host.mapToGlobal(rect.topLeft()), rect.size())
+        cfg = ui(self)
         self.show_at(
-            global_rect.topRight() + QtCore.QPoint(int(ui(self).hint_popup_anchor_gap_x), max(0, global_rect.height() // 2)),
+            global_rect.topRight() + QtCore.QPoint(_hint_anchor_gap_x(cfg), max(0, global_rect.height() // 2)),
             text,
             avoid_rect=global_rect,
         )
@@ -68,7 +91,7 @@ class HintPopup(QtWidgets.QWidget):
         pos: QtCore.QPoint,
         text: str,
         *,
-        avoid_rect: Optional[QtCore.QRect] = None,
+        avoid_rect: QtCore.QRect | None = None,
     ) -> None:
         self._label.setText(str(text or "").strip())
         self.adjustSize()
@@ -79,12 +102,12 @@ class HintPopup(QtWidgets.QWidget):
         screen = QtWidgets.QApplication.screenAt(pos) or QtWidgets.QApplication.primaryScreen()
         if screen is not None:
             cfg = ui(self)
-            edge = int(cfg.hint_popup_edge_margin)
+            edge = overlay_edge_gap(cfg)
             avail = screen.availableGeometry()
             if geom.right() > avail.right() - edge:
-                left_anchor = pos.x() - geom.width() - int(cfg.hint_popup_left_gap_x)
+                left_anchor = pos.x() - geom.width() - _hint_left_gap_x(cfg)
                 if avoid_rect is not None:
-                    left_anchor = avoid_rect.left() - geom.width() - int(cfg.hint_popup_avoid_gap_x)
+                    left_anchor = avoid_rect.left() - geom.width() - _hint_avoid_gap_x(cfg)
                 geom.moveLeft(max(avail.left() + edge, left_anchor))
             if geom.bottom() > avail.bottom() - edge:
                 geom.moveTop(max(avail.top() + edge, avail.bottom() - geom.height() - edge))
@@ -98,18 +121,19 @@ class HintPopup(QtWidgets.QWidget):
 class InfoButton(QtWidgets.QToolButton):
     """Tooltip hint button used next to settings controls."""
 
-    _popup: Optional[HintPopup] = None
+    _popup: HintPopup | None = None
 
-    def __init__(self, tooltip: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, tooltip: str, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self._tooltip_text = str(tooltip or "").strip()
         self.setProperty("role", "hint")
-        self.setCursor(QtCore.Qt.ArrowCursor)
-        self.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setAutoRaise(True)
         self.setText("")
         cfg = ui(self)
-        self.setIconSize(QtCore.QSize(int(cfg.hint_icon_size), int(cfg.hint_icon_size)))
+        icon_size = _hint_icon_size(cfg)
+        self.setIconSize(QtCore.QSize(int(icon_size), int(icon_size)))
 
     @classmethod
     def _popup_widget(cls) -> HintPopup:
@@ -130,7 +154,7 @@ class InfoButton(QtWidgets.QToolButton):
         self._hide_hint()
 
     def event(self, event: QtCore.QEvent) -> bool:  # type: ignore[override]
-        if event.type() == QtCore.QEvent.ToolTip:
+        if event.type() == QtCore.QEvent.Type.ToolTip:
             self._show_hint()
             return True
         return super().event(event)

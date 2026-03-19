@@ -46,7 +46,7 @@
     }
   },
   "ctrl": {
-    "add": "Add",
+    "add": "Add +",
     "cancel": "Cancel ✖️",
     "exit": "Exit",
     "ok": "OK",
@@ -330,9 +330,9 @@
   },
   "live": {
     "ctrl": {
-      "clear": "Clear",
+      "clear": "Clear 🧹",
       "pause": "Pause ⏸️",
-      "refresh": "Refresh devices",
+      "refresh": "Refresh 🔄",
       "save_transcript": "Save 💾",
       "start": "Start ▶️",
       "stop": "Stop ⏹️"
@@ -344,7 +344,7 @@
     },
     "dialog": {
       "no_devices": {
-        "text": "No audio input devices detected.\nConnect a microphone and try again (Refresh devices).",
+        "text": "No audio input devices detected.\nConnect a microphone and try again (Refresh 🔄).",
         "title": "No microphone"
       }
     },
@@ -359,10 +359,22 @@
       "balanced": "Balanced",
       "high_context": "High context",
       "label": "Preset",
-      "low_latency": "Low latency"
+      "low_latency": "Low latency",
+      "help": {
+        "low_latency": "Lowest latency and fastest refresh at the cost of shorter context.",
+        "balanced": "Balanced trade-off between refresh speed and text stability.",
+        "high_context": "Larger context for more stable text at the cost of higher latency."
+      }
     },
     "save": {
       "file_filter": "Text files (*.txt);;All files (*.*)"
+    },
+    "status_label": "Status:",
+    "detected_language_label": "Detected language:",
+    "output_mode": {
+      "label": "Text mode",
+      "stream": "Streaming transcription",
+      "cumulative": "Cumulative transcription"
     }
   },
   "loading": {

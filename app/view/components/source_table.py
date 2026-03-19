@@ -1,14 +1,39 @@
 # app/view/components/source_table.py
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.support.localization import tr
-from app.view.ui_config import build_layout_host, repolish_widget, setup_button, setup_combo, ui
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.model.helpers.string_utils import normalize_lang_code
+from app.view.support.widget_effects import repolish_widget
+from app.view.support.widget_setup import build_layout_host, setup_button, setup_combo
+from app.view.ui_config import ui
+
+
+def _source_row_height(cfg) -> int:
+    return max(int(cfg.control_min_h) + int(cfg.space_s) * 2, 40)
+
+
+def _source_base_col_width(cfg) -> int:
+    return max(36, int(cfg.control_min_h) + 8)
+
+
+def _source_number_col_width(cfg, raw_width: int | None = None) -> int:
+    width = int(_source_base_col_width(cfg) + 6 if raw_width is None else raw_width)
+    return max(_source_base_col_width(cfg), width)
+
+
+def _source_header_check_width(cfg, *, indicator_size: int) -> int:
+    return max(_source_base_col_width(cfg), int(indicator_size) + int(cfg.pad_x_l) + int(cfg.space_s) + 1)
+
+
+def _source_cell_margins(cfg) -> tuple[int, int, int, int]:
+    margin_x = max(2, int(cfg.space_s) - 1)
+    margin_y = max(1, int(cfg.space_s) // 2)
+    return margin_x, margin_y, margin_x, margin_y
 
 
 class SourceTable(QtWidgets.QTableWidget):
@@ -46,20 +71,20 @@ class SourceTable(QtWidgets.QTableWidget):
         self._header_checkbox.setObjectName("SourceTableHeaderCheckbox")
         self._header_checkbox.setText("")
         self._header_checkbox.setTristate(True)
-        self._header_checkbox.setFocusPolicy(QtCore.Qt.NoFocus)
-        self._header_checkbox.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self._header_checkbox.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self._header_checkbox.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self._configure_table_checkbox(self._header_checkbox)
         self._header_checkbox.clicked.connect(self._on_header_checkbox_clicked)
         self._header_checkbox.hide()
 
         self.itemSelectionChanged.connect(self._sync_embedded_selection_state)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setShowGrid(True)
-        self.setGridStyle(QtCore.Qt.SolidLine)
+        self.setGridStyle(QtCore.Qt.PenStyle.SolidLine)
         vheader = self.verticalHeader()
         cfg = ui(self)
-        row_h = max(int(cfg.control_min_h) + int(cfg.source_table_row_extra_h), int(cfg.source_table_row_min_h))
+        row_h = _source_row_height(cfg)
         vheader.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         vheader.setDefaultSectionSize(row_h)
         vheader.setMinimumSectionSize(row_h)
@@ -96,18 +121,18 @@ class SourceTable(QtWidgets.QTableWidget):
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if isinstance(obj, QtWidgets.QWidget):
-            if event.type() == QtCore.QEvent.MouseButtonPress:
+            if event.type() == QtCore.QEvent.Type.MouseButtonPress:
                 row = self._row_for_widget(obj)
                 if row >= 0:
                     self.selectRow(int(row))
-                    self.setFocus(QtCore.Qt.MouseFocusReason)
-            elif event.type() == QtCore.QEvent.FocusIn:
+                    self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+            elif event.type() == QtCore.QEvent.Type.FocusIn:
                 row = self._row_for_widget(obj)
                 if row >= 0:
                     self.selectRow(int(row))
-            elif event.type() == QtCore.QEvent.KeyPress:
+            elif event.type() == QtCore.QEvent.Type.KeyPress:
                 ke = event  # type: ignore[assignment]
-                if isinstance(ke, QtGui.QKeyEvent) and ke.key() == QtCore.Qt.Key_Delete:
+                if isinstance(ke, QtGui.QKeyEvent) and ke.key() == QtCore.Qt.Key.Key_Delete:
                     self.delete_pressed.emit()
                     ke.accept()
                     return True
@@ -121,7 +146,8 @@ class SourceTable(QtWidgets.QTableWidget):
         idx = self.indexAt(pt)
         return int(idx.row()) if idx.isValid() else -1
 
-    def _apply_selected_row_state(self, widget: QtWidgets.QWidget | None, row_selected: bool) -> None:
+    @staticmethod
+    def _apply_selected_row_state(widget: QtWidgets.QWidget | None, row_selected: bool) -> None:
         if widget is None:
             return
         if bool(widget.property("selectedRow")) == bool(row_selected):
@@ -150,7 +176,7 @@ class SourceTable(QtWidgets.QTableWidget):
     # ----- Selection / drag-and-drop / keyboard -----
 
     def mousePressEvent(self, e: QtGui.QMouseEvent) -> None:
-        if e.button() == QtCore.Qt.LeftButton:
+        if e.button() == QtCore.Qt.MouseButton.LeftButton:
             idx = self.indexAt(e.pos())
             if not idx.isValid():
                 self.clearSelection()
@@ -169,7 +195,7 @@ class SourceTable(QtWidgets.QTableWidget):
         super().dragMoveEvent(e)
 
     def dropEvent(self, e: QtGui.QDropEvent) -> None:
-        paths: List[str] = []
+        paths: list[str] = []
         for u in e.mimeData().urls():
             p = u.toLocalFile()
             if p:
@@ -182,7 +208,7 @@ class SourceTable(QtWidgets.QTableWidget):
         e.acceptProposedAction()
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
-        if e.key() == QtCore.Qt.Key_Delete:
+        if e.key() == QtCore.Qt.Key.Key_Delete:
             self.delete_pressed.emit()
             e.accept()
             return
@@ -198,15 +224,15 @@ class SourceTable(QtWidgets.QTableWidget):
 
     def viewportEvent(self, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         handled = super().viewportEvent(event)
-        if event.type() == QtCore.QEvent.Paint:
+        if event.type() == QtCore.QEvent.Type.Paint:
             self._mask_last_visible_gridline()
         return handled
 
     # ----- Header checkbox / width mode helpers -----
 
     def _checkbox_indicator_size(self) -> int:
-        width = max(14, int(self.style().pixelMetric(QtWidgets.QStyle.PM_IndicatorWidth, None, self)))
-        height = max(14, int(self.style().pixelMetric(QtWidgets.QStyle.PM_IndicatorHeight, None, self)))
+        width = max(14, int(self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_IndicatorWidth, None, self)))
+        height = max(14, int(self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_IndicatorHeight, None, self)))
         return max(int(width), int(height))
 
     def _configure_table_checkbox(self, checkbox: QtWidgets.QCheckBox) -> None:
@@ -222,7 +248,12 @@ class SourceTable(QtWidgets.QTableWidget):
 
     def _header_check_width(self) -> int:
         cfg = ui(self)
-        return max(int(cfg.source_table_header_check_min_w), int(self._header_checkbox_widget_size() + int(cfg.source_table_header_check_pad_x)))
+        return _source_header_check_width(cfg, indicator_size=int(self._header_checkbox_widget_size()))
+
+    def _header_number_width(self, state: dict[str, Any] | None = None) -> int:
+        cfg = ui(self)
+        raw_width = int((state or {}).get("number_width", _source_number_col_width(cfg)))
+        return _source_number_col_width(cfg, raw_width)
 
     def _target_layout_width(self) -> int:
         return max(0, int(self._viewport_width()))
@@ -245,7 +276,8 @@ class SourceTable(QtWidgets.QTableWidget):
         if mode == self._width_mode:
             return
         self._width_mode = mode
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded if overflow else QtCore.Qt.ScrollBarAlwaysOff)
+        policy = QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded if overflow else QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        self.setHorizontalScrollBarPolicy(policy)
         self.viewport().update()
 
     def _mask_last_visible_gridline(self) -> None:
@@ -289,7 +321,7 @@ class SourceTable(QtWidgets.QTableWidget):
                 if isinstance(delegate, QtWidgets.QStyledItemDelegate):
                     delegate.initStyleOption(option, index)
                 option.rect = strip
-                self.style().drawPrimitive(QtWidgets.QStyle.PE_PanelItemViewItem, option, painter, self)
+                self.style().drawPrimitive(QtWidgets.QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, self)
         finally:
             painter.end()
 
@@ -310,12 +342,17 @@ class SourceTable(QtWidgets.QTableWidget):
         def add(col: int | None, *, allow_manual: bool) -> None:
             if col is None:
                 return
-            column = int(col)
-            if column < 0 or column >= self.columnCount() or column in candidates or column not in visible_columns:
+            candidate_col = int(col)
+            if (
+                candidate_col < 0
+                or candidate_col >= self.columnCount()
+                or candidate_col in candidates
+                or candidate_col not in visible_columns
+            ):
                 return
-            if (not allow_manual) and column in manual_set:
+            if (not allow_manual) and candidate_col in manual_set:
                 return
-            candidates.append(column)
+            candidates.append(candidate_col)
 
         fill_column = state.get("fill_column")
         add(fill_column, allow_manual=include_manual)
@@ -339,7 +376,7 @@ class SourceTable(QtWidgets.QTableWidget):
         if column == int(state.get("check_col", 0)):
             return int(self._header_check_width())
         if column == int(state.get("number_col", 1)):
-            return max(40, int(state.get("number_width", 46)))
+            return int(self._header_number_width(state))
         if column in fixed_widths:
             return int(fixed_widths[column])
         if column in self._resizable_columns(state):
@@ -475,20 +512,20 @@ class SourceTable(QtWidgets.QTableWidget):
 
         enabled = bool(self._header_checkbox_enabled and checkboxes and any(cb.isEnabled() for cb in checkboxes))
         if not checkboxes:
-            state = int(QtCore.Qt.Unchecked)
+            state = QtCore.Qt.CheckState.Unchecked
         else:
             checked = sum(1 for cb in checkboxes if cb.isChecked())
             if checked <= 0:
-                state = int(QtCore.Qt.Unchecked)
+                state = QtCore.Qt.CheckState.Unchecked
             elif checked >= len(checkboxes):
-                state = int(QtCore.Qt.Checked)
+                state = QtCore.Qt.CheckState.Checked
             else:
-                state = int(QtCore.Qt.PartiallyChecked)
+                state = QtCore.Qt.CheckState.PartiallyChecked
 
-        blocker = QtCore.QSignalBlocker(self._header_checkbox)
+        _blocker = QtCore.QSignalBlocker(self._header_checkbox)
         self._header_checkbox.setEnabled(enabled)
         self._header_checkbox.setCheckState(state)
-        del blocker
+        del _blocker
         self._update_header_checkbox_geometry()
 
     def _on_header_checkbox_clicked(self, checked: bool) -> None:
@@ -503,16 +540,19 @@ class SourceTable(QtWidgets.QTableWidget):
 
     # ----- Header width distribution -----
 
-    def _resizable_columns(self, state: dict[str, Any] | None) -> list[int]:
+    @staticmethod
+    def _resizable_columns(state: dict[str, Any] | None) -> list[int]:
         if not state:
             return []
         return [int(col) for col in (state.get("resizable_columns") or [])]
 
-    def _column_min_width(self, state: dict[str, Any], col: int) -> int:
+    @staticmethod
+    def _column_min_width(state: dict[str, Any], col: int) -> int:
         min_widths = {int(k): int(v) for k, v in (state.get("min_widths") or {}).items()}
         return max(72, int(min_widths.get(int(col), 0)))
 
-    def _column_max_width(self, state: dict[str, Any], col: int) -> int | None:
+    @staticmethod
+    def _column_max_width(state: dict[str, Any], col: int) -> int | None:
         max_widths = {int(k): int(v) for k, v in (state.get("max_widths") or {}).items()}
         width = int(max_widths.get(int(col), 0))
         return width if width > 0 else None
@@ -532,7 +572,6 @@ class SourceTable(QtWidgets.QTableWidget):
         fixed_total: int,
         preferred_widths: dict[int, int] | None = None,
         stretch_weights: dict[int, int] | None = None,
-        fill_column: int | None = None,
     ) -> dict[int, int]:
         preferred = {int(k): int(v) for k, v in (preferred_widths or {}).items()}
         weights = {int(k): int(v) for k, v in (stretch_weights or {}).items()}
@@ -602,6 +641,51 @@ class SourceTable(QtWidgets.QTableWidget):
 
         return widths
 
+    def _apply_fixed_header_columns(
+        self,
+        *,
+        header: QtWidgets.QHeaderView,
+        check_col: int,
+        number_col: int,
+        check_width: int,
+        number_width: int,
+        fixed_widths: dict[int, int],
+    ) -> int:
+        fixed_total = int(check_width) + int(number_width)
+        header.setSectionResizeMode(int(check_col), QtWidgets.QHeaderView.Fixed)
+        self.setColumnWidth(int(check_col), int(check_width))
+        header.setSectionResizeMode(int(number_col), QtWidgets.QHeaderView.Fixed)
+        self.setColumnWidth(int(number_col), int(number_width))
+
+        for col, width in fixed_widths.items():
+            header.setSectionResizeMode(int(col), QtWidgets.QHeaderView.Fixed)
+            self.setColumnWidth(int(col), int(width))
+            fixed_total += int(width)
+
+        return int(fixed_total)
+
+    def _apply_resizable_header_columns(
+        self,
+        *,
+        state: dict[str, Any],
+        header: QtWidgets.QHeaderView,
+        resizable_columns: list[int],
+        fixed_total: int,
+        preferred_widths: dict[int, int] | None = None,
+        stretch_weights: dict[int, int] | None = None,
+    ) -> None:
+        widths = self._distribute_resizable_widths(
+            state=state,
+            resizable_columns=resizable_columns,
+            fixed_total=fixed_total,
+            preferred_widths=preferred_widths,
+            stretch_weights=stretch_weights,
+        )
+        for col in resizable_columns:
+            self.setColumnWidth(int(col), int(widths.get(int(col), self._column_min_width(state, int(col)))))
+            header.setSectionResizeMode(int(col), QtWidgets.QHeaderView.Interactive)
+        self._align_applied_column_widths(state)
+
     def schedule_populated_header_refresh(
         self,
         *,
@@ -639,12 +723,13 @@ class SourceTable(QtWidgets.QTableWidget):
         weights: dict[int, int],
         min_widths: dict[int, int] | None = None,
         fixed_widths: dict[int, int] | None = None,
-        number_width: int = 46,
+        number_width: int | None = None,
         fill_column: int | None = None,
     ) -> None:
         header = self.horizontalHeader()
         header.setStretchLastSection(False)
         self._set_header_checkbox_column(check_col)
+        cfg = ui(self)
 
         self._header_layout_auto_fit = True
         self._header_layout_state = {
@@ -654,7 +739,7 @@ class SourceTable(QtWidgets.QTableWidget):
             "weights": {int(k): int(v) for k, v in weights.items()},
             "min_widths": {int(k): int(v) for k, v in (min_widths or {}).items()},
             "fixed_widths": {int(k): int(v) for k, v in (fixed_widths or {}).items()},
-            "number_width": int(number_width),
+            "number_width": int(number_width if number_width is not None else _source_number_col_width(cfg)),
             "fill_column": int(fill_column) if fill_column is not None else None,
             "resizable_columns": [
                 int(col)
@@ -677,13 +762,14 @@ class SourceTable(QtWidgets.QTableWidget):
         min_widths: dict[int, int] | None = None,
         max_widths: dict[int, int] | None = None,
         fixed_widths: dict[int, int] | None = None,
-        number_width: int = 46,
+        number_width: int | None = None,
         fit_padding: int = 18,
         fill_column: int | None = None,
     ) -> None:
         header = self.horizontalHeader()
         header.setStretchLastSection(False)
         self._set_header_checkbox_column(check_col)
+        cfg = ui(self)
 
         explicit_preferred = {int(k): int(v) for k, v in (preferred_widths or {}).items()}
         resizable_columns: list[int] = []
@@ -708,16 +794,13 @@ class SourceTable(QtWidgets.QTableWidget):
             "min_widths": {int(k): int(v) for k, v in (min_widths or {}).items()},
             "max_widths": {int(k): int(v) for k, v in (max_widths or {}).items()},
             "fixed_widths": {int(k): int(v) for k, v in (fixed_widths or {}).items()},
-            "number_width": int(number_width),
+            "number_width": int(number_width if number_width is not None else _source_number_col_width(cfg)),
             "fit_padding": int(fit_padding),
             "fill_column": int(fill_column) if fill_column is not None else None,
             "resizable_columns": resizable_columns,
         }
         self.reapply_header_layout()
         self._schedule_header_layout_reapply()
-
-    def reapply_weighted_header_layout(self) -> None:
-        self.reapply_header_layout()
 
     def reapply_header_layout(self) -> None:
         state = self._header_layout_state or {}
@@ -747,7 +830,7 @@ class SourceTable(QtWidgets.QTableWidget):
         else:
             total = int(self._minimum_columns_width(state))
         total += int(self.frameWidth()) * 2
-        total += max(0, int(self.style().pixelMetric(QtWidgets.QStyle.PM_ScrollBarExtent, None, self)))
+        total += max(0, int(self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent, None, self)))
         return int(total)
 
     def _reapply_weighted_header_layout(self, state: dict[str, Any]) -> None:
@@ -756,38 +839,30 @@ class SourceTable(QtWidgets.QTableWidget):
         number_col = int(state.get("number_col", 1))
         weights = dict(state.get("weights") or {})
         fixed_widths = {int(k): int(v) for k, v in (state.get("fixed_widths") or {}).items()}
-        number_width = max(40, int(state.get("number_width", 46)))
+        number_width = int(self._header_number_width(state))
         check_width = self._header_check_width()
 
         header = self.horizontalHeader()
         resizable_columns = self._resizable_columns(state)
-        fixed = int(check_width) + int(number_width)
-        for width in fixed_widths.values():
-            fixed += int(width)
 
         self._header_layout_applying = True
         try:
-            header.setSectionResizeMode(int(check_col), QtWidgets.QHeaderView.Fixed)
-            self.setColumnWidth(int(check_col), int(check_width))
-            header.setSectionResizeMode(int(number_col), QtWidgets.QHeaderView.Fixed)
-            self.setColumnWidth(int(number_col), int(number_width))
-
-            for col, width in fixed_widths.items():
-                header.setSectionResizeMode(int(col), QtWidgets.QHeaderView.Fixed)
-                self.setColumnWidth(int(col), int(width))
-
-            widths = self._distribute_resizable_widths(
+            fixed_total = self._apply_fixed_header_columns(
+                header=header,
+                check_col=check_col,
+                number_col=number_col,
+                check_width=check_width,
+                number_width=number_width,
+                fixed_widths=fixed_widths,
+            )
+            self._apply_resizable_header_columns(
                 state=state,
+                header=header,
                 resizable_columns=resizable_columns,
-                fixed_total=fixed,
+                fixed_total=fixed_total,
                 preferred_widths=None,
                 stretch_weights={int(col): int(weight) for col, weight in weights.items() if int(col) in resizable_columns},
-                fill_column=state.get("fill_column"),
             )
-            for col in resizable_columns:
-                self.setColumnWidth(int(col), int(widths.get(int(col), self._column_min_width(state, int(col)))))
-                header.setSectionResizeMode(int(col), QtWidgets.QHeaderView.Interactive)
-            self._align_applied_column_widths(state)
         finally:
             self._header_layout_applying = False
         self._schedule_header_checkbox_sync()
@@ -801,25 +876,23 @@ class SourceTable(QtWidgets.QTableWidget):
         explicit_preferred = {int(k): int(v) for k, v in (state.get("preferred_widths") or {}).items()}
         fixed_widths = {int(k): int(v) for k, v in (state.get("fixed_widths") or {}).items()}
         fit_padding = int(state.get("fit_padding", 18))
-        number_width = max(40, int(state.get("number_width", 46)))
+        number_width = int(self._header_number_width(state))
         check_width = self._header_check_width()
 
         header = self.horizontalHeader()
         resizable_columns = self._resizable_columns(state)
-        fixed = int(check_width) + int(number_width)
         preferred_widths = {int(k): int(v) for k, v in explicit_preferred.items()}
 
         self._header_layout_applying = True
         try:
-            header.setSectionResizeMode(int(check_col), QtWidgets.QHeaderView.Fixed)
-            self.setColumnWidth(int(check_col), int(check_width))
-            header.setSectionResizeMode(int(number_col), QtWidgets.QHeaderView.Fixed)
-            self.setColumnWidth(int(number_col), int(number_width))
-
-            for col, width in fixed_widths.items():
-                header.setSectionResizeMode(int(col), QtWidgets.QHeaderView.Fixed)
-                self.setColumnWidth(int(col), int(width))
-                fixed += int(width)
+            fixed_total = self._apply_fixed_header_columns(
+                header=header,
+                check_col=check_col,
+                number_col=number_col,
+                check_width=check_width,
+                number_width=number_width,
+                fixed_widths=fixed_widths,
+            )
 
             for col in fit_columns:
                 column = int(col)
@@ -833,18 +906,14 @@ class SourceTable(QtWidgets.QTableWidget):
                     int(self._clamp_resizable_width(state, column, int(preferred_width))),
                 )
 
-            widths = self._distribute_resizable_widths(
+            self._apply_resizable_header_columns(
                 state=state,
+                header=header,
                 resizable_columns=resizable_columns,
-                fixed_total=fixed,
+                fixed_total=fixed_total,
                 preferred_widths=preferred_widths,
                 stretch_weights={int(col): int(weight) for col, weight in stretch_weights.items() if int(col) in resizable_columns},
-                fill_column=state.get("fill_column"),
             )
-            for col in resizable_columns:
-                self.setColumnWidth(int(col), int(widths.get(int(col), self._column_min_width(state, int(col)))))
-                header.setSectionResizeMode(int(col), QtWidgets.QHeaderView.Interactive)
-            self._align_applied_column_widths(state)
         finally:
             self._header_layout_applying = False
         self._schedule_header_checkbox_sync()
@@ -866,20 +935,20 @@ class SourceTable(QtWidgets.QTableWidget):
         it = self.item(row, col)
         if not it:
             return ""
-        v = it.data(QtCore.Qt.UserRole)
+        v = it.data(QtCore.Qt.ItemDataRole.UserRole)
         if v:
             return str(v).strip()
         return (it.text() or "").strip()
 
-    def checked_rows(self, col: int) -> List[int]:
-        rows: List[int] = []
+    def checked_rows(self, col: int) -> list[int]:
+        rows: list[int] = []
         for r in range(self.rowCount()):
             cb = self.checkbox_at(r, col)
             if cb is not None and cb.isChecked():
                 rows.append(r)
         return rows
 
-    def selected_rows(self) -> List[int]:
+    def selected_rows(self) -> list[int]:
         sm = self.selectionModel()
         if sm is None:
             return []
@@ -892,7 +961,7 @@ class SourceTable(QtWidgets.QTableWidget):
                 out.add(int(r))
         return sorted(out)
 
-    def rows_for_removal(self, checkbox_col: int) -> List[int]:
+    def rows_for_removal(self, checkbox_col: int) -> list[int]:
         rows = self.checked_rows(int(checkbox_col))
         return rows if rows else self.selected_rows()
 
@@ -917,25 +986,31 @@ class SourceTable(QtWidgets.QTableWidget):
                 continue
 
             try:
-                host.ensurePolished()
+                cast(QtWidgets.QWidget, host).ensurePolished()
             except Exception:
                 pass
 
-            hints = [int(host.minimumSizeHint().width()), int(host.sizeHint().width()), int(host.minimumWidth())]
+            widget_host = cast(QtWidgets.QWidget, host)
+            hints = [int(widget_host.minimumSizeHint().width()), int(widget_host.sizeHint().width()), int(widget_host.minimumWidth())]
             layout = host.layout()
             margin_width = 0
             if layout is not None:
                 margins = layout.contentsMargins()
                 margin_width = int(margins.left() + margins.right())
 
-            for child in host.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindDirectChildrenOnly):
+            child_widgets = cast(
+                list[QtWidgets.QWidget],
+                host.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindChildOption.FindDirectChildrenOnly),
+            )
+            for child in child_widgets:
                 try:
-                    child.ensurePolished()
+                    cast(QtWidgets.QWidget, child).ensurePolished()
                 except Exception:
                     pass
-                hints.append(int(child.minimumSizeHint().width()) + margin_width)
-                hints.append(int(child.sizeHint().width()) + margin_width)
-                hints.append(int(child.minimumWidth()) + margin_width)
+                widget_child = cast(QtWidgets.QWidget, child)
+                hints.append(int(widget_child.minimumSizeHint().width()) + margin_width)
+                hints.append(int(widget_child.sizeHint().width()) + margin_width)
+                hints.append(int(widget_child.minimumWidth()) + margin_width)
 
             width = max([value for value in hints if int(value) > 0], default=0)
             if pad:
@@ -951,7 +1026,7 @@ class SourceTable(QtWidgets.QTableWidget):
         w = self.control_at(row, col, PopupMultiSelectField)
         return w if isinstance(w, PopupMultiSelectField) else None
 
-    def audio_lang_code_at(self, row: int, col: int) -> Optional[str]:
+    def audio_lang_code_at(self, row: int, col: int) -> str | None:
         w = self.combo_at(row, col)
         if not isinstance(w, QtWidgets.QComboBox):
             return None
@@ -964,8 +1039,8 @@ class SourceTable(QtWidgets.QTableWidget):
 
     # ----- Cell widget factories -----
 
+    @staticmethod
     def _make_center_cell_host(
-        self,
         control: QtWidgets.QWidget,
         *,
         margins: tuple[int, int, int, int] = (0, 0, 0, 0),
@@ -976,7 +1051,7 @@ class SourceTable(QtWidgets.QTableWidget):
             hspacing=0,
             vspacing=0,
         )
-        lay.addWidget(control, 0, 0, QtCore.Qt.AlignCenter)
+        lay.addWidget(control, 0, 0, QtCore.Qt.AlignmentFlag.AlignCenter)
         return host
 
     def _make_stretch_cell_host(
@@ -986,12 +1061,7 @@ class SourceTable(QtWidgets.QTableWidget):
         margins: tuple[int, int, int, int] | None = None,
     ) -> QtWidgets.QWidget:
         cfg = ui(self)
-        resolved_margins = margins or (
-            int(cfg.source_table_cell_margin_x),
-            int(cfg.source_table_cell_margin_y),
-            int(cfg.source_table_cell_margin_x),
-            int(cfg.source_table_cell_margin_y),
-        )
+        resolved_margins = margins or _source_cell_margins(cfg)
         host, lay = build_layout_host(
             layout="hbox",
             margins=resolved_margins,
@@ -1001,21 +1071,21 @@ class SourceTable(QtWidgets.QTableWidget):
         control.setMinimumWidth(0)
         host.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         control.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        for child in control.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindDirectChildrenOnly):
+        for child in control.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindChildOption.FindDirectChildrenOnly):
             try:
-                child.setMinimumWidth(0)
+                cast(QtWidgets.QWidget, child).setMinimumWidth(0)
             except Exception:
                 pass
         lay.addWidget(control, 1)
-        lay.setAlignment(control, QtCore.Qt.AlignVCenter)
+        lay.setAlignment(control, QtCore.Qt.AlignmentFlag.AlignVCenter)
         return host
 
-    def make_checkbox_cell(self, *, on_changed: Optional[Callable[[], None]] = None) -> QtWidgets.QWidget:
+    def make_checkbox_cell(self, *, on_changed: Callable[[], None] | None = None) -> QtWidgets.QWidget:
         cb = QtWidgets.QCheckBox()
         cb.setTristate(False)
         cb.setText("")
-        cb.setFocusPolicy(QtCore.Qt.NoFocus)
-        cb.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        cb.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        cb.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         cb.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         self._configure_table_checkbox(cb)
         cb.setContentsMargins(0, 0, 0, 0)
@@ -1029,7 +1099,7 @@ class SourceTable(QtWidgets.QTableWidget):
         *,
         internal_key: str,
         items: list[str],
-        on_changed: Optional[Callable[[int], None]] = None,
+        on_changed: Callable[[int], None] | None = None,
         enabled: bool = True,
     ) -> QtWidgets.QWidget:
         cb = PopupComboBox()
@@ -1050,7 +1120,7 @@ class SourceTable(QtWidgets.QTableWidget):
         items: list[str],
         selected: list[str] | None = None,
         placeholder: str = "",
-        on_changed: Optional[Callable[[list[str]], None]] = None,
+        on_changed: Callable[[list[str]], None] | None = None,
     ) -> QtWidgets.QWidget:
         field = PopupMultiSelectField()
         field.setProperty("internal_key", str(internal_key))
@@ -1073,20 +1143,15 @@ class SourceTable(QtWidgets.QTableWidget):
         cfg = ui(self)
         btn_w = max(int(cfg.control_min_h) + 18, 54)
         setup_button(btn, min_h=cfg.control_min_h, min_w=btn_w)
-        btn.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
-        btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
+        btn.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DirOpenIcon))
         btn.setToolTip(str(tooltip or ""))
         btn.setEnabled(bool(enabled))
         btn.setProperty("internal_key", str(internal_key))
         btn.clicked.connect(lambda: self._emit_preview(btn))
         return self._make_center_cell_host(
             btn,
-            margins=(
-                int(cfg.source_table_cell_margin_x),
-                int(cfg.source_table_cell_margin_y),
-                int(cfg.source_table_cell_margin_x),
-                int(cfg.source_table_cell_margin_y),
-            ),
+            margins=_source_cell_margins(cfg),
         )
 
     def _emit_preview(self, btn: QtWidgets.QAbstractButton) -> None:
@@ -1101,7 +1166,7 @@ class SourceTable(QtWidgets.QTableWidget):
         *,
         internal_key: str,
         default_text: str,
-        on_changed: Optional[Callable[[int], None]] = None,
+        on_changed: Callable[[int], None] | None = None,
         enabled: bool = False,
     ) -> QtWidgets.QWidget:
         cb = PopupComboBox()
@@ -1140,12 +1205,12 @@ class SourceTable(QtWidgets.QTableWidget):
 
         prev_idx = int(w.currentIndex())
         prev_codes = list(w.property("lang_codes") or [None])
-        prev_sel = None
+        prev_lang = None
         try:
-            prev_sel = prev_codes[prev_idx] if 0 <= prev_idx < len(prev_codes) else None
+            prev_lang = prev_codes[prev_idx] if 0 <= prev_idx < len(prev_codes) else None
         except Exception:
-            prev_sel = None
-        prev_base = normalize_lang_code(prev_sel, drop_region=True) if prev_sel else ""
+            prev_lang = None
+        prev_base = normalize_lang_code(prev_lang, drop_region=True) if prev_lang else ""
         w.blockSignals(True)
         w.clear()
         w.addItem(str(default_text or ""))
@@ -1155,7 +1220,7 @@ class SourceTable(QtWidgets.QTableWidget):
             w.addItem(c)
             lang_codes.append(c)
 
-        desired = prev_sel
+        desired = prev_lang
         if not desired and prev_base:
             desired = prev_base
 
@@ -1211,7 +1276,7 @@ class SourceTable(QtWidgets.QTableWidget):
         it = self.item(row, col)
         if it is None:
             it = QtWidgets.QTableWidgetItem()
-            it.setFlags(it.flags() & ~QtCore.Qt.ItemIsEditable)
+            it.setFlags(it.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
             self.setItem(row, col, it)
         it.setText(text)
         it.setToolTip(tooltip if tooltip is not None else text)

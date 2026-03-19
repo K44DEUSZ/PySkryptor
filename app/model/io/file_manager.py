@@ -5,13 +5,12 @@ import hashlib
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
 from app.model.io.audio_extractor import AudioExtractor
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.io.media_probe import is_url_source
-
 
 class FileManager:
     """Filesystem helpers for inputs, downloads, session outputs and transcripts."""
@@ -88,7 +87,7 @@ class FileManager:
         return p
 
     @staticmethod
-    def find_existing_output(stem: str) -> Optional[Path]:
+    def find_existing_output(stem: str) -> Path | None:
         """Find existing output folder for `stem` across legacy layout and session layout."""
         safe = sanitize_filename(stem) or Config.OUTPUT_DEFAULT_STEM
         root = Config.TRANSCRIPTIONS_DIR
@@ -176,8 +175,8 @@ class FileManager:
             return candidate
 
         parent = candidate.parent
-        stem = str(candidate.stem or '').strip() or Config.OUTPUT_DEFAULT_STEM
-        suffix = str(candidate.suffix or '')
+        stem = str(candidate.stem or "").strip() or Config.OUTPUT_DEFAULT_STEM
+        suffix = str(candidate.suffix or "")
 
         idx = 1
         while True:
@@ -198,9 +197,7 @@ class FileManager:
         if filename:
             return out_dir / filename
 
-        ext = str(Config.TRANSCRIPT_DEFAULT_EXT or "").lower().strip().lstrip(".")
-        if not ext:
-            ext = Config.TRANSCRIPT_DEFAULT_EXT
+        ext = Config.transcription_output_default_ext()
         name = sanitize_filename(str(base_name or "")) or Config.TRANSCRIPT_DEFAULT_BASENAME
         return out_dir / f"{name}.{ext}"
 
@@ -260,7 +257,7 @@ class FileManager:
     def ensure_tmp_wav(
         source: Path,
         *,
-        cancel_check=None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> Path:
         """Return a mono 16k WAV path for transcription."""
         if AudioExtractor.is_wav_mono_16k(source):
@@ -294,7 +291,7 @@ class FileManager:
         return (raw or "").strip()
 
     @staticmethod
-    def parse_source_input(raw: str, *, supported_exts: List[str]) -> Dict[str, Any]:
+    def parse_source_input(raw: str, *, supported_exts: list[str]) -> dict[str, Any]:
         """Parse a single user input as either URL or local file path."""
         key = FileManager.normalize_source_text(raw)
         if not key:
@@ -314,17 +311,17 @@ class FileManager:
         return {"ok": True, "type": "file", "key": str(p)}
 
     @staticmethod
-    def collect_media_files(paths: List[str], *, supported_exts: List[str]) -> List[str]:
+    def collect_media_files(paths: list[str], *, supported_exts: list[str]) -> list[str]:
         """Collect supported media files from a drag&drop payload (files and folders)."""
         exts = {str(e).lower().lstrip(".") for e in (supported_exts or [])}
-        out: List[str] = []
+        out: list[str] = []
 
-        def _add_file(fp: Path) -> None:
-            if not fp.exists() or not fp.is_file():
+        def _add_file(file_path: Path) -> None:
+            if not file_path.exists() or not file_path.is_file():
                 return
-            if exts and fp.suffix.lower().lstrip(".") not in exts:
+            if exts and file_path.suffix.lower().lstrip(".") not in exts:
                 return
-            out.append(str(fp))
+            out.append(str(file_path))
 
         for raw in (paths or []):
             p = FileManager.normalize_source_text(raw)
@@ -334,9 +331,9 @@ class FileManager:
             if not pp.exists():
                 continue
             if pp.is_dir():
-                for fp in pp.rglob("*"):
-                    if fp.is_file():
-                        _add_file(fp)
+                for child_path in pp.rglob("*"):
+                    if child_path.is_file():
+                        _add_file(child_path)
             else:
                 _add_file(pp)
 

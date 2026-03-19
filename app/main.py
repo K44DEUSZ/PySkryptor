@@ -17,13 +17,14 @@ from app.model.config.app_config import AppConfig as Config
 from app.controller.platform.logging import LoggingSetup
 from app.model.services.settings_service import SettingsService, SettingsError
 from app.controller.support.localization import Translator
-from app.view.dialogs import (
+from app.view.components.dialogs import (
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,
     critical_startup_error_and_exit,
     critical_config_load_failed_choice,
 )
-from app.view.ui_config import UIConfig, app_icon, render_theme_stylesheet, system_theme_key
+from app.view.support.theme_runtime import app_icon, render_theme_stylesheet, system_theme_key
+from app.view.ui_config import UIConfig
 
 
 def _load_fonts(app: QtWidgets.QApplication, fonts_dir: Path) -> None:
@@ -39,7 +40,8 @@ def _load_fonts(app: QtWidgets.QApplication, fonts_dir: Path) -> None:
 
         fams = set()
         try:
-            for fam in QtGui.QFontDatabase.families():
+            font_db = QtGui.QFontDatabase()
+            for fam in font_db.families():
                 fams.add(str(fam))
         except Exception:
             pass
@@ -138,15 +140,15 @@ def run() -> int:
 
     try:
         snap = svc.load()
-    except SettingsError as ex:
-        key = getattr(ex, "key", str(ex))
-        if key == "error.settings.defaults_missing":
+    except SettingsError as settings_ex:
+        settings_error_key = getattr(settings_ex, "key", str(settings_ex))
+        if settings_error_key == "error.settings.defaults_missing":
             critical_defaults_missing_and_exit(None)
             return 1
         try:
-            detail = Translator.tr(key, **(getattr(ex, "params", {}) or {}))
+            detail = Translator.tr(settings_error_key, **(getattr(settings_ex, "params", {}) or {}))
         except Exception:
-            detail = str(key)
+            detail = str(settings_error_key)
         action = critical_config_load_failed_choice(None, detail)
         if action != "restore_defaults":
             return 1
@@ -155,14 +157,15 @@ def run() -> int:
             svc.restore_defaults()
             snap = svc.load()
             log.debug("Settings restored from defaults after load failure. detail=%s", detail)
-        except Exception as rex:
-            critical_startup_error_and_exit(None, type(rex).__name__)
+        except Exception as restore_ex:
+            critical_startup_error_and_exit(None, type(restore_ex).__name__)
             return 1
-    except Exception as ex:
-        log.exception("Entrypoint settings load failed. detail=%s", ex)
-        critical_startup_error_and_exit(None, type(ex).__name__)
+    except Exception as load_ex:
+        log.exception("Entrypoint settings load failed. detail=%s", load_ex)
+        critical_startup_error_and_exit(None, type(load_ex).__name__)
         return 1
 
+    logging_cfg: dict[str, object] = {}
     try:
         logging_cfg = snap.app.get("logging", {}) if isinstance(snap.app.get("logging"), dict) else {}
         LoggingSetup.apply_settings(
@@ -177,8 +180,8 @@ def run() -> int:
         "Settings snapshot loaded. language=%s theme=%s logging_level=%s logging_enabled=%s",
         snap.app.get("language", "auto"),
         snap.app.get("theme", "auto"),
-        logging_cfg.get("level", "warning") if 'logging_cfg' in locals() else "warning",
-        bool(logging_cfg.get("enabled", True)) if 'logging_cfg' in locals() else True,
+        logging_cfg.get("level", "warning"),
+        bool(logging_cfg.get("enabled", True)),
     )
 
     locales_dir = Config.LOCALES_DIR
@@ -199,8 +202,8 @@ def run() -> int:
         theme = _apply_stylesheet(app, Config.STYLES_DIR, str(snap.app.get("theme", "auto")))
         _apply_palette(app, theme)
         log.debug("Application theme applied. theme=%s styles_dir=%s", theme, Config.STYLES_DIR)
-    except Exception as ex:
-        log.exception("Entrypoint stylesheet failed. detail=%s", ex)
+    except Exception as stylesheet_ex:
+        log.exception("Entrypoint stylesheet failed. detail=%s", stylesheet_ex)
 
     try:
         icon = app_icon(theme)
@@ -250,10 +253,10 @@ def run() -> int:
         loading.set_indeterminate(False)
         loading.set_progress(pct)
 
-    def _on_failed(key: str, params: dict) -> None:
-        log.error("Entrypoint startup worker failed. key=%s params=%s", key, params)
+    def _on_failed(failed_key: str, params: dict) -> None:
+        log.error("Entrypoint startup worker failed. key=%s params=%s", failed_key, params)
         loading.finish()
-        details = str((params or {}).get("detail") or key or "StartupError")
+        details = str((params or {}).get("detail") or failed_key or "StartupError")
         critical_startup_error_and_exit(None, details)
 
     def _on_ready(ctx: dict) -> None:
@@ -270,10 +273,10 @@ def run() -> int:
                 getattr(win, "network_status", lambda: "checking")(),
                 live_has_audio,
             )
-        except Exception as ex:
-            log.exception("Entrypoint main window creation failed. detail=%s", ex)
+        except Exception as ready_ex:
+            log.exception("Entrypoint main window creation failed. detail=%s", ready_ex)
             loading.finish()
-            critical_startup_error_and_exit(None, type(ex).__name__)
+            critical_startup_error_and_exit(None, type(ready_ex).__name__)
             return
 
         loading.finish()

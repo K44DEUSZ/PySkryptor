@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from PyQt5 import QtCore
 
@@ -20,9 +20,9 @@ class MediaProbeWorker(BaseWorker):
 
     def __init__(
         self,
-        entries: List[Dict[str, Any]],
+        entries: list[dict[str, Any]],
         *,
-        cancel_token: Optional[CancellationToken] = None,
+        cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
         self._entries = list(entries or [])
@@ -33,7 +33,7 @@ class MediaProbeWorker(BaseWorker):
     def _execute(self) -> None:
         svc = MediaProbeService()
 
-        out: list[dict] = []
+        out: list[dict[str, Any]] = []
         for ent in self._entries:
             if self._cancel.is_cancelled:
                 break

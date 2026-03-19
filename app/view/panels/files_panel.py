@@ -4,43 +4,25 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, cast
 
 import logging
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.ui_config import (
-    build_field_stack,
-    enable_styled_background,
-    make_grid,
-    normalize_network_status,
-    open_external_url,
-    open_local_path,
-    read_network_status,
-    setup_button,
-    setup_combo,
-    setup_input,
-    setup_option_checkbox,
-    setup_layout,
-    status_icon,
-    ui,
-)
 from app.view.components.popup_combo import (
+    LanguageCombo,
     PopupComboBox,
     combo_current_code,
-    rebuild_code_combo,
-    set_combo_code,
     set_combo_data,
 )
 from app.view.components.choice_toggle import ChoiceToggle
+from app.view.components import dialogs
 from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.runtime_badge import RuntimeBadgeWidget
 from app.view.components.section_group import SectionGroup
 from app.view.components.source_table import SourceTable
-from app.view import dialogs
-
-from app.controller.support.localization import build_language_options, tr
+from app.controller.support.localization import tr, Translator
 from app.controller.support.runtime_resolver import (
     build_entries,
     build_files_quick_options_payload,
@@ -50,47 +32,38 @@ from app.controller.support.runtime_resolver import (
     parse_source_input,
     translation_language_codes,
     try_add_source_key,
+    build_transcription_runtime_overrides,
+    translation_runtime_available,
 )
 from app.controller.tasks.media_probe_task import MediaProbeWorker
 from app.controller.support.options_autosave_controller import OptionsAutosaveController
-from app.controller.tasks.transcription_task import TranscriptionWorker, build_overrides
+from app.controller.support.task_thread_runner import TaskThreadRunner
+from app.controller.tasks.transcription_task import TranscriptionWorker
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.string_utils import format_hms, normalize_lang_code
 from app.model.io.media_probe import is_url_source
-from app.model.services.settings_service import SettingsCatalog
+from app.model.services.ai_models_service import current_transcription_model_cfg, current_translation_model_cfg
+from app.model.services.settings_service import SettingsCatalog, SettingsSnapshot
+from app.view.support.theme_runtime import status_icon
+from app.view.support.view_runtime import (
+    normalize_network_status,
+    open_external_url,
+    open_local_path,
+    read_network_status,
+)
+from app.view.support.widget_effects import enable_styled_background
+from app.view.support.widget_setup import (
+    build_field_stack,
+    make_grid,
+    setup_button,
+    setup_combo,
+    setup_input,
+    setup_option_checkbox,
+    setup_layout,
+)
+from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
-
-class LanguageCombo(PopupComboBox):
-    def __init__(
-        self,
-        *,
-        special_first: tuple[str, str] | None = None,
-        codes_provider=None,
-        parent: QtWidgets.QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._special_first = special_first
-        self._codes_provider = codes_provider
-        self._fallback_code = str((special_first or ('', Config.LANGUAGE_AUTO_VALUE))[1] or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
-        setup_combo(self)
-        self.rebuild()
-
-    def rebuild(self) -> None:
-        provider = self._codes_provider
-        try:
-            codes = list(provider()) if callable(provider) else []
-        except Exception:
-            codes = []
-        items = build_language_options(codes, special_first=self._special_first)
-        desired = self.code()
-        rebuild_code_combo(self, items, desired_code=desired, fallback_code=self._fallback_code)
-
-    def code(self) -> str:
-        return combo_current_code(self, default=self._fallback_code)
-
-    def set_code(self, code: str) -> None:
-        set_combo_code(self, code, fallback_code=self._fallback_code)
 
 class FilesPanel(QtWidgets.QWidget):
     """Files tab: manage sources and batch transcription/translation."""
@@ -105,7 +78,8 @@ class FilesPanel(QtWidgets.QWidget):
     COL_STATUS = 7
     COL_PREVIEW = 8
 
-    def _theme(self) -> str:
+    @staticmethod
+    def _theme() -> str:
         app = QtWidgets.QApplication.instance()
         t = str(app.property("theme") if app else "light").strip().lower()
         return "dark" if t == "dark" else "light"
@@ -119,13 +93,13 @@ class FilesPanel(QtWidgets.QWidget):
             pass
         return fallback
 
-    def __init__(self, parent=None, boot_ctx: Optional[dict] = None) -> None:
+    def __init__(self, parent: QtWidgets.QWidget | None = None, boot_ctx: dict[str, Any] | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("FilesPanel")
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
-        self._boot_ctx: dict = boot_ctx if isinstance(boot_ctx, dict) else {}
+        self._boot_ctx: dict[str, Any] = boot_ctx if isinstance(boot_ctx, dict) else {}
 
         self._init_runtime_state(parent)
         self._build_ui()
@@ -134,30 +108,31 @@ class FilesPanel(QtWidgets.QWidget):
 
     # ----- Initialization / build -----
 
-    def _init_runtime_state(self, parent: Optional[QtWidgets.QWidget]) -> None:
-        self._transcribe_thread: Optional[QtCore.QThread] = None
-        self._transcribe_worker: Optional[TranscriptionWorker] = None
+    def _init_runtime_state(self, parent: QtWidgets.QWidget | None) -> None:
+        self._transcribe_runner = TaskThreadRunner(self)
+        self._transcribe_worker: TranscriptionWorker | None = None
 
-        self._meta_thread: Optional[QtCore.QThread] = None
-        self._meta_worker: Optional[MediaProbeWorker] = None
+        self._meta_thread: QtCore.QThread | None = None
+        self._meta_worker: MediaProbeWorker | None = None
         self._was_cancelled: bool = False
-        self._conflict_apply_all_action: Optional[str] = None
-        self._conflict_apply_all_new_base: Optional[str] = None
-        self._status_base_by_key: Dict[str, str] = {}
-        self._pct_by_key: Dict[str, int] = {}
-        self._error_by_key: Dict[str, tuple[str, dict]] = {}
-        self._output_dir_by_key: Dict[str, str] = {}
+        self._cancel_notice_pending: bool = False
+        self._conflict_apply_all_action: str | None = None
+        self._conflict_apply_all_new_base: str | None = None
+        self._status_base_by_key: dict[str, str] = {}
+        self._pct_by_key: dict[str, int] = {}
+        self._error_by_key: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._output_dir_by_key: dict[str, str] = {}
 
         self.pipe = None
         self._keys: set[str] = set()
-        self._row_by_key: Dict[str, int] = {}
-        self._transcript_by_key: Dict[str, str] = {}
-        self._origin_src_by_key: Dict[str, str] = {}
-        self._display_path_by_key: Dict[str, str] = {}
-        self._audio_lang_by_key: Dict[str, Optional[str]] = {}
+        self._row_by_key: dict[str, int] = {}
+        self._transcript_by_key: dict[str, str] = {}
+        self._origin_src_by_key: dict[str, str] = {}
+        self._display_path_by_key: dict[str, str] = {}
+        self._audio_lang_by_key: dict[str, str | None] = {}
 
         self._network_status = read_network_status(parent)
-        self._session_target_language = Config.LANGUAGE_DEFAULT_VALUE
+        self._session_target_language = Config.LANGUAGE_DEFAULT_UI_VALUE
         self._session_source_language = Config.LANGUAGE_AUTO_VALUE
 
     def _build_ui(self) -> None:
@@ -169,7 +144,10 @@ class FilesPanel(QtWidgets.QWidget):
         self.model_info = RuntimeBadgeWidget()
         self.model_info.set_summary_status(tr("files.runtime.status_loading"), state="loading")
         self.model_info.set_summary_icon(
-            self._status_icon("status_loading", self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload))
+            self._status_icon(
+                "status_loading",
+                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_BrowserReload),
+            )
         )
         self.model_info.set_device_value(tr("common.na"))
         self.model_info.set_asr_value(tr("common.na"), state="neutral")
@@ -184,7 +162,7 @@ class FilesPanel(QtWidgets.QWidget):
         cfg = self._ui
         self._top_section_host = QtWidgets.QWidget(self)
         top_grid = make_grid(4, cfg)
-        top_grid.setVerticalSpacing(cfg.grid_hspacing)
+        top_grid.setVerticalSpacing(cfg.space_l)
         self._top_section_host.setLayout(top_grid)
 
         self.src_edit = QtWidgets.QLineEdit()
@@ -203,7 +181,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         top_btn_host = QtWidgets.QWidget(self._top_section_host)
         top_btn_box = QtWidgets.QHBoxLayout(top_btn_host)
-        setup_layout(top_btn_box, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.grid_hspacing)
+        setup_layout(top_btn_box, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_l)
         top_btn_box.addWidget(self.btn_src_add, 1)
         top_btn_box.addWidget(self.btn_open_output, 3)
 
@@ -232,7 +210,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_details_section(self, root: QtWidgets.QVBoxLayout) -> None:
         details_group = SectionGroup(self, object_name="FilesDetailsGroup")
-        details_layout = details_group.root
+        details_layout = cast(QtWidgets.QVBoxLayout, details_group.root)
 
         self.tbl = SourceTable()
         self.tbl.setObjectName("SourcesTable")
@@ -252,7 +230,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.setCornerButtonEnabled(False)
         self.tbl.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.tbl.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.tbl.setTextElideMode(QtCore.Qt.ElideMiddle)
+        self.tbl.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
 
         self._apply_empty_header_mode()
 
@@ -278,22 +256,22 @@ class FilesPanel(QtWidgets.QWidget):
             layout="grid",
         )
         self.options_group.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-        ql = self.options_group.root
+        ql = cast(QtWidgets.QGridLayout, self.options_group.root)
         setup_layout(
             ql,
             cfg=cfg,
             margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin),
             spacing=cfg.spacing,
-            hspacing=cfg.grid_hspacing,
-            vspacing=cfg.grid_vspacing,
+            hspacing=cfg.space_l,
+            vspacing=cfg.space_s,
             column_stretches={0: 1, 1: 1},
         )
 
         mode_host, out_host, source_host, target_host, tmp_host = self._build_quick_options_controls(base_h)
-        ql.addWidget(mode_host, 0, 0, alignment=QtCore.Qt.AlignTop)
-        ql.addWidget(out_host, 0, 1, alignment=QtCore.Qt.AlignTop)
-        ql.addWidget(source_host, 1, 0, alignment=QtCore.Qt.AlignTop)
-        ql.addWidget(target_host, 1, 1, alignment=QtCore.Qt.AlignTop)
+        ql.addWidget(mode_host, 0, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        ql.addWidget(out_host, 0, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        ql.addWidget(source_host, 1, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        ql.addWidget(target_host, 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         ql.addWidget(tmp_host, 2, 0, 1, 2)
 
         self.model_group = SectionGroup(
@@ -303,14 +281,14 @@ class FilesPanel(QtWidgets.QWidget):
             layout="vbox",
         )
         self.model_group.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-        mg = self.model_group.root
+        mg = cast(QtWidgets.QVBoxLayout, self.model_group.root)
         setup_layout(mg, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
         mg.addWidget(self.model_info)
         mg.addStretch(1)
 
         self._main_row_host = QtWidgets.QWidget(self)
         main_row = QtWidgets.QHBoxLayout(self._main_row_host)
-        setup_layout(main_row, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.grid_hspacing)
+        setup_layout(main_row, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_l)
         main_row.addWidget(self.model_group, 1)
         main_row.addWidget(self.options_group, 3)
         root.addWidget(self._main_row_host, 0)
@@ -331,7 +309,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_target_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
         self.cmb_target_lang = LanguageCombo(
-            special_first=("lang.special.default_ui", Config.LANGUAGE_DEFAULT_VALUE),
+            special_first=("lang.special.default_ui", Config.LANGUAGE_DEFAULT_UI_VALUE),
         )
         self.cmb_target_lang.setMinimumHeight(base_h)
         return build_field_stack(
@@ -363,7 +341,7 @@ class FilesPanel(QtWidgets.QWidget):
             out_checks_lay,
             cfg=cfg,
             margins=(0, 0, 0, 0),
-            spacing=cfg.option_spacing,
+                spacing=cfg.space_s,
         )
 
         for mode in SettingsCatalog.transcription_output_modes():
@@ -388,7 +366,7 @@ class FilesPanel(QtWidgets.QWidget):
             build_payload=self._build_quick_options_payload,
             apply_snapshot=self._on_quick_options_saved_snapshot,
             on_error=self._on_quick_options_save_error,
-            is_busy=lambda: self._transcribe_thread is not None,
+            is_busy=self._is_transcription_running,
             interval_ms=1200,
             pending_delay_ms=300,
             retry_delay_ms=600,
@@ -427,22 +405,22 @@ class FilesPanel(QtWidgets.QWidget):
             cfg=cfg,
             margins=(0, 0, 0, 0),
             spacing=cfg.spacing,
-            hspacing=cfg.grid_hspacing,
-            vspacing=cfg.option_spacing,
+            hspacing=cfg.space_l,
+            vspacing=cfg.space_s,
             column_stretches={0: 1, 1: 1},
         )
         tmp_grid.addWidget(self.opt_download_audio_only, 2, 0, 1, 2)
 
         aud_row = QtWidgets.QWidget()
         aud_lay = QtWidgets.QHBoxLayout(aud_row)
-        setup_layout(aud_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.inline_spacing)
+        setup_layout(aud_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
         aud_lay.addWidget(self.chk_keep_url_audio, 0)
         aud_lay.addWidget(self.cmb_audio_ext, 1)
         tmp_grid.addWidget(aud_row, 3, 0)
 
         vid_row = QtWidgets.QWidget()
         vid_lay = QtWidgets.QHBoxLayout(vid_row)
-        setup_layout(vid_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.inline_spacing)
+        setup_layout(vid_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
         vid_lay.addWidget(self.chk_keep_url_video, 0)
         vid_lay.addWidget(self.cmb_video_ext, 1)
         tmp_grid.addWidget(vid_row, 3, 1)
@@ -461,7 +439,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     # ----- Signal wiring -----
 
-    def _wire_signals(self, parent: Optional[QtWidgets.QWidget]) -> None:
+    def _wire_signals(self, parent: QtWidgets.QWidget | None) -> None:
         self.btn_src_add.clicked.connect(self._on_add_clicked)
         self.src_edit.returnPressed.connect(self._on_add_clicked)
 
@@ -538,9 +516,8 @@ class FilesPanel(QtWidgets.QWidget):
             tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
             self.tg_mode.set_second_enabled(tr_enabled)
 
-            trcfg = self._get_translation_cfg()
-            self.cmb_target_lang.set_code(str(trcfg.get("target_language", Config.LANGUAGE_DEFAULT_VALUE) or Config.LANGUAGE_DEFAULT_VALUE))
-            self.cmb_source_lang.set_code(str(trcfg.get("source_language", Config.LANGUAGE_AUTO_VALUE) or Config.LANGUAGE_AUTO_VALUE))
+            self.cmb_target_lang.set_code(Config.translation_target_language())
+            self.cmb_source_lang.set_code(Config.translation_source_language())
 
             output_formats = tcfg.get("output_formats")
             if isinstance(output_formats, str):
@@ -555,7 +532,7 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception:
             pass
         finally:
-            self._session_target_language = str(self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_VALUE).strip().lower() or Config.LANGUAGE_DEFAULT_VALUE
+            self._session_target_language = str(self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_UI_VALUE).strip().lower() or Config.LANGUAGE_DEFAULT_UI_VALUE
             self._session_source_language = str(self.cmb_source_lang.code() or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
             self._opt_autosave.set_blocked(False)
 
@@ -570,9 +547,8 @@ class FilesPanel(QtWidgets.QWidget):
 
     def on_parent_close(self) -> None:
         try:
-            if self._transcribe_thread and self._transcribe_worker:
-                self._transcribe_worker.cancel()
-                self._transcribe_thread.requestInterruption()
+            if self._is_transcription_running():
+                self._transcribe_runner.cancel()
         except Exception:
             pass
 
@@ -588,6 +564,9 @@ class FilesPanel(QtWidgets.QWidget):
         self._refresh_runtime_badge()
         self._refresh_pending_row_statuses()
         self._update_buttons()
+
+    def _is_transcription_running(self) -> bool:
+        return bool(self._transcribe_runner.is_running())
 
     def _sync_options_and_autosave(self, *, refresh_targets: bool = False) -> None:
         if refresh_targets:
@@ -651,14 +630,14 @@ class FilesPanel(QtWidgets.QWidget):
         self._sync_options_and_autosave(refresh_targets=True)
 
     def _on_target_language_changed(self, *_args) -> None:
-        self._session_target_language = combo_current_code(self.cmb_target_lang, default=Config.LANGUAGE_DEFAULT_VALUE)
+        self._session_target_language = combo_current_code(self.cmb_target_lang, default=Config.LANGUAGE_DEFAULT_UI_VALUE)
         self._sync_options_and_autosave()
 
     def _on_source_language_changed(self, *_args) -> None:
         self._session_source_language = combo_current_code(self.cmb_source_lang, default=Config.LANGUAGE_AUTO_VALUE)
         self._sync_options_and_autosave()
 
-    def _gather_quick_options_patch(self) -> Dict[str, Any]:
+    def _gather_quick_options_patch(self) -> dict[str, Any]:
         translate_after = bool(not self.tg_mode.is_first_checked())
         output_formats = [mid for mid, cb in self._out_checks.items() if cb.isChecked()]
 
@@ -679,21 +658,22 @@ class FilesPanel(QtWidgets.QWidget):
             url_video_ext=vext,
         )
 
-    def _build_quick_options_payload(self) -> Dict[str, Any]:
+    def _build_quick_options_payload(self) -> dict[str, Any]:
         return build_files_quick_options_payload(
             transcription_patch=self._gather_quick_options_patch(),
             source_language=self._session_source_language,
             target_language=self._session_target_language,
         )
 
-    def _on_quick_options_saved_snapshot(self, snap: object) -> None:
+    @staticmethod
+    def _on_quick_options_saved_snapshot(snap: object) -> None:
         try:
-            Config.update_from_snapshot(snap,
+            Config.update_from_snapshot(cast(SettingsSnapshot, snap),
                                         sections=("transcription", "translation", "model"))
         except Exception:
             pass
 
-    def _on_quick_options_save_error(self, key: str, params: dict) -> None:
+    def _on_quick_options_save_error(self, key: str, params: dict[str, Any]) -> None:
         dialogs.show_error(self, key=key, params=params or {})
 
     def _fill_audio_ext_combo(self) -> None:
@@ -708,17 +688,17 @@ class FilesPanel(QtWidgets.QWidget):
             self.cmb_video_ext.addItem(str(ext), ext)
         self.cmb_video_ext.setCurrentIndex(0)
 
-    def _get_transcription_cfg(self) -> dict:
+    @staticmethod
+    def _get_transcription_cfg() -> dict[str, Any]:
         return Config.transcription_cfg_dict()
 
-    def _get_translation_cfg(self) -> dict:
-        return Config.translation_cfg_dict()
+    @staticmethod
+    def _get_transcription_model_cfg() -> dict[str, Any]:
+        return current_transcription_model_cfg()
 
-    def _get_transcription_model_cfg(self) -> dict:
-        return Config.transcription_model_cfg_dict()
-
-    def _get_translation_model_cfg(self) -> dict:
-        return Config.translation_model_cfg_dict()
+    @staticmethod
+    def _get_translation_model_cfg() -> dict[str, Any]:
+        return current_translation_model_cfg()
 
     def _refresh_target_languages_if_ready(self) -> None:
         if not self._translation_enabled():
@@ -732,10 +712,10 @@ class FilesPanel(QtWidgets.QWidget):
         if self.cmb_target_lang.count() > 1:
             return
 
-        desired = str(self._session_target_language or self.cmb_target_lang.code() or Config.LANGUAGE_AUTO_VALUE).strip()
+        desired = str(self._session_target_language or self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_UI_VALUE).strip()
         self.cmb_target_lang.rebuild()
         self.cmb_target_lang.set_code(desired)
-        self._session_target_language = self.cmb_target_lang.code() or Config.LANGUAGE_AUTO_VALUE
+        self._session_target_language = self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_UI_VALUE
 
     # ----- Mode / preview / table layout -----
 
@@ -762,34 +742,32 @@ class FilesPanel(QtWidgets.QWidget):
                 btn.setEnabled(False)
 
     def _translation_enabled(self) -> bool:
-        cfg = self._get_translation_model_cfg()
-        eng = str(cfg.get("engine_name", "none") or "none").strip().lower()
-        return bool(eng and eng not in ("none", "off", "disabled"))
+        return translation_runtime_available(model_cfg=self._get_translation_model_cfg())
 
     def _refresh_mode_badge(self) -> None:
         t_cfg = self._get_transcription_model_cfg()
         asr_eng_raw = str(t_cfg.get("engine_name", "none") or "none").strip()
         asr_eng_norm = asr_eng_raw.lower()
-        asr_disabled = asr_eng_norm in ("none", "off", "disabled", "", "null")
+        asr_disabled = Config.is_disabled_engine_name(asr_eng_norm) or asr_eng_norm == "null"
         asr_value = self._disabled_value() if asr_disabled else asr_eng_raw
 
         x_cfg = self._get_translation_model_cfg()
         tr_eng_raw = str(x_cfg.get("engine_name", "none") or "none").strip()
         tr_eng_norm = tr_eng_raw.lower()
-        tr_disabled = tr_eng_norm in ("none", "off", "disabled", "", "null")
+        tr_disabled = Config.is_disabled_engine_name(tr_eng_norm) or tr_eng_norm == "null"
         tr_value = self._disabled_value() if tr_disabled else tr_eng_raw
 
         self.model_info.set_asr_value(asr_value, state="disabled" if asr_disabled else "ready")
         self.model_info.set_translation_value(tr_value, state="disabled" if tr_disabled else "ready")
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
-        if obj is self.tbl.viewport() and event.type() == QtCore.QEvent.Resize:
+        if obj is self.tbl.viewport() and event.type() == QtCore.QEvent.Type.Resize:
             if getattr(self, "_header_mode", "") == "empty":
                 self._apply_empty_column_widths()
         return super().eventFilter(obj, event)
 
     def _sync_options_ui(self) -> None:
-        running = self._transcribe_thread is not None
+        running = self._is_transcription_running()
         model_ready = self.pipe is not None
 
         tr_enabled = self._translation_enabled()
@@ -841,6 +819,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.out_checks_host.setEnabled(not running)
 
     def _status_width(self) -> int:
+        cfg = self._ui
         labels = [str(tr('files.details.col.status') or '').strip()]
         for key in (
             'status.queued',
@@ -855,15 +834,28 @@ class FilesPanel(QtWidgets.QWidget):
             labels.append(str(tr(key) or '').strip())
         metrics = QtGui.QFontMetrics(self.tbl.font())
         text_width = max((metrics.horizontalAdvance(label) for label in labels if label), default=0)
-        return max(132, min(text_width + metrics.horizontalAdvance(' (100%)') + 28, 220))
+        min_w = int(cfg.control_min_w + cfg.pad_x_l)
+        pad_w = int(cfg.pad_x_l + cfg.pad_y_l + cfg.space_l - 1)
+        max_w = int(cfg.control_min_w + cfg.control_min_h * 3 + max(0, cfg.space_s - 1))
+        return max(
+            min_w,
+            min(text_width + pad_w + metrics.horizontalAdvance(' (100%)'), max_w),
+        )
 
     def _preview_width(self) -> int:
-        return max(int(self._ui.control_min_h) + 26, 88)
+        cfg = self._ui
+        return int(cfg.control_min_h * 2 + cfg.margin * 3)
 
     def _apply_empty_header_mode(self) -> None:
         self._header_mode = 'empty'
+        cfg = self._ui
         status_width = self._status_width()
         preview_width = self._preview_width()
+        title_min_w = int(cfg.control_min_w + cfg.margin * 5)
+        duration_min_w = int(preview_width)
+        source_min_w = int(preview_width + max(0, cfg.space_s - 1))
+        language_min_w = int(cfg.control_min_w + cfg.pad_x_l)
+        path_min_w = int(cfg.control_min_w + cfg.control_min_h * 3 + max(0, cfg.space_s - 1))
         self.tbl.reset_header_user_widths()
         self.tbl.apply_weighted_header_layout(
             check_col=self.COL_CHECK,
@@ -877,11 +869,11 @@ class FilesPanel(QtWidgets.QWidget):
                 self.COL_PATH: 3,
             },
             min_widths={
-                self.COL_TITLE: 160,
-                self.COL_DUR: 88,
-                self.COL_SRC: 92,
-                self.COL_LANG: 132,
-                self.COL_PATH: 220,
+                self.COL_TITLE: title_min_w,
+                self.COL_DUR: duration_min_w,
+                self.COL_SRC: source_min_w,
+                self.COL_LANG: language_min_w,
+                self.COL_PATH: path_min_w,
             },
             fixed_widths={
                 self.COL_STATUS: status_width,
@@ -891,9 +883,27 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _apply_populated_header_mode(self) -> None:
         self._header_mode = 'populated'
+        cfg = self._ui
         status_width = self._status_width()
         preview_width = self._preview_width()
-        language_width = self.tbl.column_widget_width_hint(self.COL_LANG, fallback=148, pad=8, cap=180)
+        language_min_w = int(cfg.control_min_w + cfg.pad_x_l)
+        language_fallback_w = int(language_min_w + cfg.margin * 2)
+        language_pad_w = int(cfg.margin)
+        language_cap_w = int(cfg.control_min_w + cfg.control_min_h + cfg.margin * 3 + max(0, cfg.space_s - 1))
+        language_floor_w = int(cfg.control_min_w + cfg.margin * 5)
+        language_extra_w = int(cfg.pad_x_l)
+        title_min_w = int(cfg.control_min_w + cfg.margin * 6)
+        duration_min_w = int(preview_width)
+        source_min_w = int(preview_width + max(0, cfg.space_s - 1))
+        path_min_w = int(cfg.control_min_w + cfg.control_min_h * 3 + max(0, cfg.space_s - 1))
+        status_min_w = int(cfg.control_min_w + cfg.pad_x_l)
+        fit_padding = int(cfg.margin + cfg.pad_x_l)
+        language_width = self.tbl.column_widget_width_hint(
+            self.COL_LANG,
+            fallback=language_fallback_w,
+            pad=language_pad_w,
+            cap=language_cap_w,
+        )
         self.tbl.apply_content_header_layout(
             check_col=self.COL_CHECK,
             number_col=self.COL_NO,
@@ -908,21 +918,21 @@ class FilesPanel(QtWidgets.QWidget):
                 self.COL_STATUS: status_width,
             },
             min_widths={
-                self.COL_TITLE: 168,
-                self.COL_DUR: 88,
-                self.COL_SRC: 92,
-                self.COL_LANG: 132,
-                self.COL_PATH: 220,
-                self.COL_STATUS: 132,
+                self.COL_TITLE: title_min_w,
+                self.COL_DUR: duration_min_w,
+                self.COL_SRC: source_min_w,
+                self.COL_LANG: language_min_w,
+                self.COL_PATH: path_min_w,
+                self.COL_STATUS: status_min_w,
             },
             max_widths={
-                self.COL_LANG: max(language_width + 12, 160),
-                self.COL_STATUS: 220,
+                self.COL_LANG: max(language_width + language_extra_w, language_floor_w),
+                self.COL_STATUS: int(cfg.control_min_w + cfg.control_min_h * 3 + max(0, cfg.space_s - 1)),
             },
             fixed_widths={
                 self.COL_PREVIEW: preview_width,
             },
-            fit_padding=20,
+            fit_padding=fit_padding,
         )
 
     def _apply_empty_column_widths(self) -> None:
@@ -931,7 +941,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     # ----- Source row helpers -----
 
-    def _checkbox_at_row(self, row: int) -> Optional[QtWidgets.QCheckBox]:
+    def _checkbox_at_row(self, row: int) -> QtWidgets.QCheckBox | None:
         return self.tbl.checkbox_at(row, self.COL_CHECK)
 
     def _on_preview_requested(self, key: str) -> None:
@@ -946,7 +956,8 @@ class FilesPanel(QtWidgets.QWidget):
             p.mkdir(parents=True, exist_ok=True)
             open_local_path(p)
         except Exception as e:
-            dialogs.show_error(self, title=tr("dialog.error.title"), header=tr("dialog.error.header"), message=str(e))
+            _LOG.exception("Opening the preview output folder failed. key=%s path=%s", key, out_dir)
+            dialogs.show_error(self, key="dialog.error.unexpected", params={"msg": str(e)})
 
     @QtCore.pyqtSlot(int)
     def _on_lang_combo_changed(self, idx: int) -> None:
@@ -966,7 +977,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._audio_lang_by_key[key] = normalize_lang_code(code, drop_region=True) or None
 
-    def _update_audio_tracks(self, row: int, meta: Dict[str, Any]) -> None:
+    def _update_audio_tracks(self, row: int, meta: dict[str, Any]) -> None:
         default_text = tr("down.select.audio_track.default")
         lang_codes = self.tbl.update_audio_tracks(row=row, col=self.COL_LANG, meta=meta, default_text=default_text)
 
@@ -1011,7 +1022,7 @@ class FilesPanel(QtWidgets.QWidget):
 
             current_internal = self.tbl.internal_key_at(r, self.COL_PATH)
             if current_internal == display_url:
-                it_path.setData(QtCore.Qt.UserRole, display_url)
+                it_path.setData(QtCore.Qt.ItemDataRole.UserRole, display_url)
                 self._display_path_by_key[display_url] = display_url
                 self._origin_src_by_key[display_url] = "url"
                 self._row_by_key[display_url] = r
@@ -1048,7 +1059,7 @@ class FilesPanel(QtWidgets.QWidget):
 
             self._transcript_by_key.pop(old_key, None)
 
-            it_path.setData(QtCore.Qt.UserRole, new_key)
+            it_path.setData(QtCore.Qt.ItemDataRole.UserRole, new_key)
             it_path.setToolTip(new_key)
             it_path.setText(new_key)
 
@@ -1058,7 +1069,7 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         mods = QtWidgets.QApplication.keyboardModifiers()
-        if not (mods & QtCore.Qt.ControlModifier):
+        if not (mods & QtCore.Qt.KeyboardModifier.ControlModifier):
             return
 
         if col not in (self.COL_SRC, self.COL_PATH):
@@ -1087,8 +1098,8 @@ class FilesPanel(QtWidgets.QWidget):
         except Exception:
             pass
 
-    def _source_keys_in_table(self) -> List[str]:
-        keys: List[str] = []
+    def _source_keys_in_table(self) -> list[str]:
+        keys: list[str] = []
         for r in range(self.tbl.rowCount()):
             key = self.tbl.internal_key_at(r, self.COL_PATH)
             if key:
@@ -1105,18 +1116,18 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.setCellWidget(row, self.COL_CHECK, self.tbl.make_checkbox_cell(on_changed=self._update_buttons))
 
         it_no = QtWidgets.QTableWidgetItem(str(row + 1))
-        it_no.setTextAlignment(QtCore.Qt.AlignCenter)
+        it_no.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl.setItem(row, self.COL_NO, it_no)
 
         it_title = QtWidgets.QTableWidgetItem(tr("common.loading"))
         self.tbl.setItem(row, self.COL_TITLE, it_title)
 
         it_dur = QtWidgets.QTableWidgetItem(tr("common.na"))
-        it_dur.setTextAlignment(QtCore.Qt.AlignCenter)
+        it_dur.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl.setItem(row, self.COL_DUR, it_dur)
 
         it_src = QtWidgets.QTableWidgetItem(src_label)
-        it_src.setTextAlignment(QtCore.Qt.AlignCenter)
+        it_src.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl.setItem(row, self.COL_SRC, it_src)
         it_src.setToolTip(src_label)
 
@@ -1131,12 +1142,12 @@ class FilesPanel(QtWidgets.QWidget):
 
         it_path = QtWidgets.QTableWidgetItem(key)
         it_path.setToolTip(key)
-        it_path.setData(QtCore.Qt.UserRole, key)
+        it_path.setData(QtCore.Qt.ItemDataRole.UserRole, key)
         self.tbl.setItem(row, self.COL_PATH, it_path)
 
         pending_status = self._pending_status_for_key(key)
         it_status = QtWidgets.QTableWidgetItem(tr(pending_status))
-        it_status.setTextAlignment(QtCore.Qt.AlignCenter)
+        it_status.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl.setItem(row, self.COL_STATUS, it_status)
 
         self.tbl.setCellWidget(
@@ -1153,7 +1164,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._origin_src_by_key[key] = src_label
         self._display_path_by_key[key] = key
 
-    def _update_row_from_meta(self, row: int, meta: Dict[str, Any]) -> None:
+    def _update_row_from_meta(self, row: int, meta: dict[str, Any]) -> None:
         if row < 0 or row >= self.tbl.rowCount():
             return
 
@@ -1165,7 +1176,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.tbl.item(row, self.COL_DUR).setText(txt or tr("common.na"))
         self._update_audio_tracks(row, meta)
 
-    def _start_metadata_for(self, keys: List[str]) -> None:
+    def _start_metadata_for(self, keys: list[str]) -> None:
         if not keys:
             return
         if self._meta_thread is not None:
@@ -1199,7 +1210,7 @@ class FilesPanel(QtWidgets.QWidget):
         has_items = self.tbl.rowCount() > 0
         has_sel = bool(self.tbl.rows_for_removal(self.COL_CHECK))
         model_ready = self.pipe is not None
-        running = self._transcribe_thread is not None
+        running = self._is_transcription_running()
 
         self.src_edit.setEnabled((not running) and model_ready)
 
@@ -1274,7 +1285,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._refresh_order_numbers()
         self._update_buttons()
 
-    def _try_parse_and_validate_manual_source(self) -> Optional[Dict[str, Any]]:
+    def _try_parse_and_validate_manual_source(self) -> dict[str, Any] | None:
         parsed = parse_source_input(self.src_edit.text())
         if not parsed.get("ok", False):
             err = str(parsed.get("error") or "")
@@ -1298,8 +1309,8 @@ class FilesPanel(QtWidgets.QWidget):
         parsed["key"] = key
         return parsed
 
-    def _collect_added_local_keys(self, paths: List[str]) -> List[str]:
-        added: List[str] = []
+    def _collect_added_local_keys(self, paths: list[str]) -> list[str]:
+        added: list[str] = []
         for key in collect_media_files(paths):
             ok, key, _dup = try_add_source_key(self._keys, key)
             if not ok:
@@ -1338,13 +1349,13 @@ class FilesPanel(QtWidgets.QWidget):
         self.src_edit.clear()
         self._finalize_source_rows_changed()
 
-    def _on_paths_dropped(self, paths: List[str]) -> None:
+    def _on_paths_dropped(self, paths: list[str]) -> None:
         added = self._collect_added_local_keys(paths)
         if added:
             self._start_metadata_for(added[:30])
         self._finalize_source_rows_changed()
 
-    def _remove_rows(self, rows: List[int]) -> None:
+    def _remove_rows(self, rows: list[int]) -> None:
         if not rows:
             return
         for r in sorted(set(rows), reverse=True):
@@ -1396,7 +1407,7 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         exts = {e.lower() for e in Config.files_media_input_file_exts()}
-        files: List[str] = []
+        files: list[str] = []
         for fp in p.rglob("*"):
             if fp.is_file() and fp.suffix.lower() in exts:
                 files.append(str(fp))
@@ -1416,13 +1427,13 @@ class FilesPanel(QtWidgets.QWidget):
             out_dir.mkdir(parents=True, exist_ok=True)
             open_local_path(out_dir)
         except Exception as e:
-            dialogs.show_error(self, title=tr("dialog.error.title"), header=tr("dialog.error.header"),
-                       message=tr("dialog.error.unexpected", msg=str(e)))
+            _LOG.exception("Opening the transcriptions output folder failed. path=%s", Config.TRANSCRIPTIONS_DIR)
+            dialogs.show_error(self, key="dialog.error.unexpected", params={"msg": str(e)})
 
     # ----- Transcription flow -----
 
     def _can_start_transcription(self) -> bool:
-        if self._transcribe_worker is not None or self._transcribe_thread is not None:
+        if self._is_transcription_running() or self._transcribe_worker is not None:
             return False
         if not self.pipe:
             return False
@@ -1430,13 +1441,13 @@ class FilesPanel(QtWidgets.QWidget):
             return False
         return True
 
-    def _prepare_transcription_entries(self) -> List[Dict[str, Any]]:
+    def _prepare_transcription_entries(self) -> list[dict[str, Any]]:
         self._reset_url_rows_to_original_keys()
         self._refresh_target_languages_if_ready()
         self._reset_previews()
         return build_entries(self._source_keys_in_table(), self._audio_lang_by_key)
 
-    def _reset_transcription_run_state(self, run_keys: List[str]) -> None:
+    def _reset_transcription_run_state(self, run_keys: list[str]) -> None:
         self._pct_by_key = {}
         self._status_base_by_key = {}
         self._error_by_key = {}
@@ -1453,48 +1464,44 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.action_bar.reset()
         self._was_cancelled = False
+        self._cancel_notice_pending = False
         self._conflict_apply_all_action = None
         self._conflict_apply_all_new_base = None
 
-    def _build_transcription_overrides(self) -> Dict[str, Any]:
-        return build_overrides(
+    def _build_transcription_overrides(self) -> dict[str, Any]:
+        return build_transcription_runtime_overrides(
             source_language=str(self._session_source_language or Config.LANGUAGE_AUTO_VALUE),
             target_language=str(self._session_target_language or Config.LANGUAGE_AUTO_VALUE),
             translate_after_transcription=bool(
                 (not self.tg_mode.is_first_checked()) and self._translation_enabled()
             ),
+            ui_language=Translator.current_language(),
+            cfg_target=Config.translation_target_language(),
+            supported=translation_language_codes(),
         )
 
-    def _create_transcription_worker(self, entries: List[Dict[str, Any]], overrides: Dict[str, Any]) -> None:
-        self._transcribe_thread = QtCore.QThread(self)
+    def _create_transcription_worker(self, entries: list[dict[str, Any]], overrides: dict[str, Any]) -> None:
         self._transcribe_worker = TranscriptionWorker(pipe=self.pipe, entries=entries, overrides=overrides)
-        self._transcribe_worker.moveToThread(self._transcribe_thread)
-        self._transcribe_thread.started.connect(self._transcribe_worker.run)
 
-    def _wire_transcription_worker_signals(self) -> None:
-        if self._transcribe_worker is None or self._transcribe_thread is None:
+    def _wire_transcription_worker_signals(self, worker: TranscriptionWorker) -> None:
+        if worker is None:
             return
 
-        self._transcribe_worker.progress.connect(self._on_global_progress)
-        self._transcribe_worker.item_status.connect(self._on_item_status)
-        self._transcribe_worker.item_progress.connect(self._on_item_progress)
-        self._transcribe_worker.item_path_update.connect(self._on_item_path_update)
-        self._transcribe_worker.transcript_ready.connect(self._on_transcript_ready)
-        self._transcribe_worker.item_error.connect(self._on_item_error)
-        self._transcribe_worker.item_output_dir.connect(self._on_item_output_dir)
-        self._transcribe_worker.conflict_check.connect(self._on_conflict_check)
-        self._transcribe_worker.session_done.connect(self._on_session_done)
-
-        self._transcribe_worker.finished.connect(self._transcribe_thread.quit)
-        self._transcribe_worker.finished.connect(self._transcribe_worker.deleteLater)
-        self._transcribe_thread.finished.connect(self._transcribe_thread.deleteLater)
-        self._transcribe_thread.finished.connect(self._on_transcribe_finished)
+        worker.progress.connect(self._on_global_progress)
+        worker.item_status.connect(self._on_item_status)
+        worker.item_progress.connect(self._on_item_progress)
+        worker.item_path_update.connect(self._on_item_path_update)
+        worker.transcript_ready.connect(self._on_transcript_ready)
+        worker.item_error.connect(self._on_item_error)
+        worker.item_output_dir.connect(self._on_item_output_dir)
+        worker.conflict_check.connect(self._on_conflict_check)
+        worker.session_done.connect(self._on_session_done)
 
     def _request_transcription_cancel(self) -> None:
         try:
-            if self._transcribe_thread is not None:
-                self._transcribe_thread.requestInterruption()
-            if self._transcribe_worker is not None:
+            if self._is_transcription_running():
+                self._transcribe_runner.cancel()
+            elif self._transcribe_worker is not None:
                 self._transcribe_worker.cancel()
         except Exception:
             pass
@@ -1522,11 +1529,14 @@ class FilesPanel(QtWidgets.QWidget):
 
         overrides = self._build_transcription_overrides()
         self._create_transcription_worker(entries, overrides)
-        self._wire_transcription_worker_signals()
-
+        if self._transcribe_worker is None:
+            return
+        self._transcribe_runner.start(
+            self._transcribe_worker,
+            connect=self._wire_transcription_worker_signals,
+            on_finished=self._on_transcribe_finished,
+        )
         self._update_buttons()
-        if self._transcribe_thread is not None:
-            self._transcribe_thread.start()
 
     def _on_cancel_clicked(self) -> None:
         if not self._transcribe_worker:
@@ -1534,17 +1544,9 @@ class FilesPanel(QtWidgets.QWidget):
         if not dialogs.ask_cancel(self):
             return
 
-        self._was_cancelled = True
-        self.action_bar.reset()
+        self._cancel_notice_pending = True
         self._request_transcription_cancel()
-        self._reset_non_finished_rows_after_cancel()
-        self._reset_url_rows_to_original_keys()
-        dialogs.show_info(
-            self,
-            title=tr("dialog.info.title"),
-            header=tr("dialog.info.header"),
-            message=tr("dialog.info.cancelled"),
-        )
+        self._update_buttons()
 
     # ----- Worker events / status rendering -----
 
@@ -1555,7 +1557,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.action_bar.set_progress(int(value))
 
     @QtCore.pyqtSlot(list)
-    def _on_meta_rows_ready(self, batch: List[Dict[str, Any]]) -> None:
+    def _on_meta_rows_ready(self, batch: list[dict[str, Any]]) -> None:
         for meta in batch:
             key = str(meta.get("path") or "").strip()
             if not key:
@@ -1566,7 +1568,7 @@ class FilesPanel(QtWidgets.QWidget):
             self._update_row_from_meta(row, meta)
 
     @QtCore.pyqtSlot(str, str, dict)
-    def _on_meta_item_error(self, key: str, err_key: str, params: dict) -> None:
+    def _on_meta_item_error(self, key: str, err_key: str, params: dict[str, Any]) -> None:
         k = str(key or "").strip()
         row = self._row_by_key.get(k) if k else None
         if row is not None:
@@ -1579,12 +1581,23 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _on_transcribe_finished(self) -> None:
         self.action_bar.reset()
-        self._transcribe_thread = None
+        if self._was_cancelled:
+            self._reset_non_finished_rows_after_cancel()
+            self._reset_url_rows_to_original_keys()
+            if self._cancel_notice_pending:
+                dialogs.show_info(
+                    self,
+                    title=tr("dialog.info.title"),
+                    header=tr("dialog.info.header"),
+                    message=tr("dialog.info.cancelled"),
+                )
+        self._cancel_notice_pending = False
         self._transcribe_worker = None
         self._update_buttons()
 
     @QtCore.pyqtSlot(str, bool, bool, bool)
     def _on_session_done(self, session_dir: str, processed_any: bool, had_errors: bool, was_cancelled: bool) -> None:
+        self._was_cancelled = bool(was_cancelled)
         if not processed_any or had_errors or was_cancelled:
             return
         try:
@@ -1608,12 +1621,13 @@ class FilesPanel(QtWidgets.QWidget):
     def _is_terminal_status(status: str) -> bool:
         return status in ("status.done", "status.saved", "status.skipped", "status.error")
 
-    def _status_display_text(self, base_key: str, raw_status: str) -> str:
+    @staticmethod
+    def _status_display_text(base_key: str, raw_status: str) -> str:
         if str(base_key or "").startswith("status."):
             return tr(base_key)
         return str(base_key or raw_status or "")
 
-    def _should_reset_progress_for_status_change(self, prev_base: Optional[str], new_base: str, status: str) -> bool:
+    def _should_reset_progress_for_status_change(self, prev_base: str | None, new_base: str, status: str) -> bool:
         return bool(prev_base and prev_base != new_base and not self._is_terminal_status(status))
 
     def _render_row_status_text(self, key: str, row: int, status: str, base_text: str) -> None:
@@ -1691,7 +1705,7 @@ class FilesPanel(QtWidgets.QWidget):
             it.setText(text)
 
     @QtCore.pyqtSlot(str, str, dict)
-    def _on_item_error(self, key: str, err_key: str, params: dict) -> None:
+    def _on_item_error(self, key: str, err_key: str, params: dict[str, Any]) -> None:
         if self._was_cancelled:
             return
 
@@ -1758,7 +1772,7 @@ class FilesPanel(QtWidgets.QWidget):
         it_path = self.tbl.item(row, self.COL_PATH)
         if it_path is None:
             return
-        it_path.setData(QtCore.Qt.UserRole, new_key)
+        it_path.setData(QtCore.Qt.ItemDataRole.UserRole, new_key)
         it_path.setText(display)
         it_path.setToolTip(display)
 
@@ -1778,18 +1792,19 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcript_by_key[str(key)] = str(transcript_path)
 
     @QtCore.pyqtSlot(str, str)
-    def _on_conflict_check(self, stem: str, existing_dir: str) -> None:
-        if self._was_cancelled:
-            if self._transcribe_worker is not None:
-                self._transcribe_worker.on_conflict_decided("skip", "")
+    def _on_conflict_check(self, stem: str, _existing_dir: str) -> None:
+        worker = self._transcribe_worker
+        if self._was_cancelled or self._cancel_notice_pending:
+            if worker is not None:
+                worker.on_conflict_decided("skip", "")
             return
 
         try:
             if self._conflict_apply_all_action:
                 action = self._conflict_apply_all_action
                 new_stem = self._conflict_apply_all_new_base or stem if action == "new" else ""
-                if self._transcribe_worker is not None:
-                    self._transcribe_worker.on_conflict_decided(action, new_stem)
+                if worker is not None:
+                    worker.on_conflict_decided(action, new_stem)
                 return
 
             action, new_stem, apply_all = dialogs.ask_conflict(self, stem)
@@ -1797,13 +1812,14 @@ class FilesPanel(QtWidgets.QWidget):
                 self._conflict_apply_all_action = action
                 self._conflict_apply_all_new_base = None
 
-            if self._transcribe_worker is not None:
-                self._transcribe_worker.on_conflict_decided(action, new_stem)
+            if worker is not None:
+                worker.on_conflict_decided(action, new_stem)
         except Exception:
-            if self._transcribe_worker is not None:
-                self._transcribe_worker.on_conflict_decided("skip", "")
+            if worker is not None:
+                worker.on_conflict_decided("skip", "")
 
-    def _on_anchor_clicked(self, url: QtCore.QUrl) -> None:
+    @staticmethod
+    def _on_anchor_clicked(url: QtCore.QUrl) -> None:
         try:
             u = url.toString()
             if not u:
@@ -1823,20 +1839,24 @@ class FilesPanel(QtWidgets.QWidget):
             self._on_model_ready(self.pipe)
             return
 
-        model_cfg = getattr(getattr(Config, "SETTINGS", None), "model", {}) if getattr(Config, "SETTINGS",
-                                                                                       None) is not None else {}
-        tm = model_cfg.get("transcription_model", {}) if isinstance(model_cfg, dict) else {}
-        engine = str(tm.get("engine_name") or "none").strip().lower()
+        model_cfg = current_transcription_model_cfg()
+        engine = str(model_cfg.get("engine_name") or "none").strip().lower()
 
-        if engine in ("none", "off", "disabled", "", "null"):
+        if Config.is_disabled_engine_name(engine) or engine == "null":
             self.model_info.set_summary_status(tr("files.runtime.status_disabled"), state="disabled")
             self.model_info.set_summary_icon(
-                self._status_icon("status_info", self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation))
+                self._status_icon(
+                    "status_info",
+                    self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation),
+                )
             )
         else:
             self.model_info.set_summary_status(tr("files.runtime.status_missing"), state="missing")
             self.model_info.set_summary_icon(
-                self._status_icon("status_error", self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxCritical))
+                self._status_icon(
+                    "status_error",
+                    self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxCritical),
+                )
             )
 
         self.model_info.set_device_value(str(Config.DEVICE_FRIENDLY_NAME or tr("common.na")))
@@ -1847,7 +1867,10 @@ class FilesPanel(QtWidgets.QWidget):
         self.pipe = pipe
         self.model_info.set_summary_status(tr("files.runtime.status_ready"), state="ready")
         self.model_info.set_summary_icon(
-            self._status_icon("status_ready", self.style().standardIcon(QtWidgets.QStyle.SP_DialogApplyButton))
+            self._status_icon(
+                "status_ready",
+                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton),
+            )
         )
         self.model_info.set_device_value(str(Config.DEVICE_FRIENDLY_NAME or tr("common.na")))
         self._refresh_mode_badge()

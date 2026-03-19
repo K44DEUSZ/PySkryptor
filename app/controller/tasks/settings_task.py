@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from PyQt5 import QtCore
 
@@ -21,7 +21,7 @@ class SettingsWorker(BaseWorker):
     saved_snapshot = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str, dict)
 
-    def __init__(self, *, action: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, *, action: str, payload: dict[str, Any] | None = None) -> None:
         super().__init__()
         self._action = str(action or "").strip().lower()
         self._payload = payload or {}

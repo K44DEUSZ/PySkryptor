@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 @dataclass
 class AppError(Exception):
     """Application error represented by an i18n key and optional params."""
 
     key: str
-    params: Dict[str, Any]
-    cause: Optional[BaseException] = None
+    params: dict[str, Any]
+    cause: BaseException | None = None
 
     def __str__(self) -> str:
         return str(self.key)

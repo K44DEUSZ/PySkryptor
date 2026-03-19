@@ -1,10 +1,11 @@
 # app/view/components/progress_action_bar.py
 from __future__ import annotations
 
-from typing import Optional
-
 from PyQt5 import QtCore, QtWidgets
-from app.view.ui_config import build_layout_host, setup_button, setup_layout, sync_progress_text_role, ui
+
+from app.view.support.widget_effects import sync_progress_text_role
+from app.view.support.widget_setup import build_layout_host, setup_button, setup_layout
+from app.view.ui_config import ui
 
 # ----- Progress action bar -----
 class ProgressActionBar(QtWidgets.QWidget):
@@ -18,8 +19,8 @@ class ProgressActionBar(QtWidgets.QWidget):
         *,
         primary_text: str,
         secondary_text: str,
-        height: Optional[int] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
+        height: int | None = None,
+        parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -44,7 +45,12 @@ class ProgressActionBar(QtWidgets.QWidget):
 
         for w in (self.btn_primary, self.btn_secondary, self.progress):
             w.ensurePolished()
-        h_eff = max(h, int(self.btn_primary.sizeHint().height()), int(self.btn_secondary.sizeHint().height()), int(self.progress.sizeHint().height()))
+        h_eff = max(
+            h,
+            int(self.btn_primary.sizeHint().height()),
+            int(self.btn_secondary.sizeHint().height()),
+            int(self.progress.sizeHint().height()),
+        )
         self.progress.setFixedHeight(h_eff)
         self.btn_primary.setFixedHeight(h_eff)
         self.btn_secondary.setFixedHeight(h_eff)
@@ -65,7 +71,7 @@ class ProgressActionBar(QtWidgets.QWidget):
 
         self._target_value = 0
         self._anim_timer = QtCore.QTimer(self)
-        self._anim_timer.setInterval(33)
+        self._anim_timer.setInterval(int(cfg.progress_anim_interval_ms))
         self._anim_timer.timeout.connect(self._tick_progress)
         self._sync_progress_text_role()
 
@@ -85,7 +91,11 @@ class ProgressActionBar(QtWidgets.QWidget):
             return
 
         delta = target - cur
-        step = 1 if delta < 8 else max(1, int(delta / 6))
+        cfg = ui(self)
+        if delta < int(cfg.progress_anim_small_delta_threshold):
+            step = 1
+        else:
+            step = max(1, int(delta / max(1, int(cfg.progress_anim_divisor))))
         self.progress.setValue(min(target, cur + step))
         self._sync_progress_text_role()
 

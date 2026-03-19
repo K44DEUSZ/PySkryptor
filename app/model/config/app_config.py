@@ -1,9 +1,12 @@
 # app/model/config/app_config.py
 from __future__ import annotations
 
+import hashlib
+import json
 import platform
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.helpers.errors import AppError
@@ -16,11 +19,13 @@ class ConfigError(AppError):
     """Key-based runtime configuration error."""
 
     def __init__(self, key: str, **params: Any) -> None:
-        super().__init__(key=str(key), params=dict(params or {}))
+        super().__init__(str(key), dict(params or {}))
 
 
 class AppConfig:
     """Global runtime configuration and path mapping."""
+
+    _UNSET = object()
 
     APP_NAME: str = "PySkryptor"
     APP_VERSION: str = "1.0 ALPHA"
@@ -55,8 +60,8 @@ class AppConfig:
     TRANSLATION_ENGINE_DIR: Path = AI_MODELS_DIR / MISSING_VALUE
 
     MODEL_CONFIG_FILE: str = "config.json"
-    TRANSCRIPTION_MODEL_TYPES: Tuple[str, ...] = ("whisper",)
-    TRANSLATION_MODEL_TYPES: Tuple[str, ...] = ("m2m_100",)
+    TRANSCRIPTION_MODEL_TYPES: tuple[str, ...] = ("whisper",)
+    TRANSLATION_MODEL_TYPES: tuple[str, ...] = ("m2m_100",)
 
     DATA_DIR: Path = ROOT_DIR / "userdata"
     DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
@@ -92,19 +97,19 @@ class AppConfig:
     LANGUAGE_APP_VALUE: str = "app"
     LANGUAGE_DEFAULT_UI_VALUE: str = "default_ui"
 
-    DOWNLOAD_AUDIO_LANG_AUTO_VALUES: Tuple[str, ...] = (
+    DOWNLOAD_AUDIO_LANG_AUTO_VALUES: tuple[str, ...] = (
         LANGUAGE_DEFAULT_VALUE,
         LANGUAGE_AUTO_VALUE,
         "-",
     )
-    TRANSLATION_SOURCE_DEFERRED_VALUES: Tuple[str, ...] = (
+    TRANSLATION_SOURCE_DEFERRED_VALUES: tuple[str, ...] = (
         LANGUAGE_AUTO_VALUE,
         LANGUAGE_UI_VALUE,
         LANGUAGE_APP_VALUE,
         LANGUAGE_DEFAULT_VALUE,
         LANGUAGE_DEFAULT_UI_VALUE,
     )
-    TRANSLATION_TARGET_DEFERRED_VALUES: Tuple[str, ...] = (
+    TRANSLATION_TARGET_DEFERRED_VALUES: tuple[str, ...] = (
         LANGUAGE_AUTO_VALUE,
         LANGUAGE_DEFAULT_VALUE,
         LANGUAGE_UI_VALUE,
@@ -142,127 +147,198 @@ class AppConfig:
     def translation_model_tokenizer_path(cls) -> Path:
         return cls.TRANSLATION_ENGINE_DIR / cls.TRANSLATION_MODEL_TOKENIZER_FILE
 
+    @staticmethod
+    def _read_json_dict(path: Path) -> dict[str, Any]:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, JSONDecodeError, TypeError, ValueError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    @classmethod
+    def normalize_model_type(cls, model_type: Any) -> str:
+        return str(model_type or "").strip().lower()
+
+    @classmethod
+    def task_for_model_type(cls, model_type: Any) -> str:
+        norm = cls.normalize_model_type(model_type)
+        if norm in cls.TRANSCRIPTION_MODEL_TYPES:
+            return "transcription"
+        if norm in cls.TRANSLATION_MODEL_TYPES:
+            return "translation"
+        return ""
+
+    @classmethod
+    def model_signature(cls, config_data: dict[str, Any]) -> str:
+        if not isinstance(config_data, dict) or not config_data:
+            return ""
+
+        stable = {
+            k: v
+            for k, v in config_data.items()
+            if str(k) not in ("_name_or_path", "transformers_version")
+        }
+        try:
+            payload = json.dumps(stable, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return ""
+        return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest().lower()
+
+    @classmethod
+    def local_model_descriptor(cls, model_name: str) -> dict[str, Any]:
+        name = str(model_name or "").strip()
+        if not name or name.startswith("__"):
+            return {}
+
+        model_dir = cls.AI_MODELS_DIR / name
+        if not model_dir.exists() or not model_dir.is_dir():
+            return {}
+
+        cfg_path = model_dir / cls.MODEL_CONFIG_FILE
+        if not cfg_path.exists() or not cfg_path.is_file():
+            return {}
+
+        cfg = cls._read_json_dict(cfg_path)
+        model_type = cls.normalize_model_type(cfg.get("model_type", ""))
+        task = cls.task_for_model_type(model_type)
+        signature = cls.model_signature(cfg)
+
+        return {
+            "name": model_dir.name,
+            "path": model_dir,
+            "config_path": cfg_path,
+            "model_type": model_type,
+            "task": task,
+            "signature": signature,
+        }
+
+    @classmethod
+    def local_model_descriptors(cls) -> tuple[dict[str, Any], ...]:
+        if not cls.AI_MODELS_DIR.exists() or not cls.AI_MODELS_DIR.is_dir():
+            return tuple()
+
+        out: list[dict[str, Any]] = []
+        for path in sorted(cls.AI_MODELS_DIR.iterdir(), key=lambda item: item.name.lower()):
+            if not path.is_dir() or path.name.startswith("__"):
+                continue
+            desc = cls.local_model_descriptor(path.name)
+            if desc:
+                out.append(desc)
+        return tuple(out)
+
+    @classmethod
+    def local_models_for_task(cls, task: str) -> tuple[dict[str, Any], ...]:
+        wanted = str(task or "").strip().lower()
+        return tuple(desc for desc in cls.local_model_descriptors() if str(desc.get("task", "")) == wanted)
+
+    @classmethod
+    def local_model_names_for_task(cls, task: str) -> tuple[str, ...]:
+        return tuple(str(desc.get("name", "")) for desc in cls.local_models_for_task(task) if desc.get("name"))
+
+    @classmethod
+    def is_disabled_engine_name(cls, name: str) -> bool:
+        token = str(name or "").strip().lower()
+        return (not token) or token in ("none", "off", "disabled")
+
+    @classmethod
+    def autoselect_engine_name(cls, *, task: str) -> str:
+        for desc in cls.local_models_for_task(task):
+            name = str(desc.get("name", "")).strip()
+            if name:
+                return name
+        return ""
+
+    @classmethod
+    def resolve_model_engine_name(cls, model_cfg: dict[str, Any], *, task: str) -> str:
+        cfg = model_cfg if isinstance(model_cfg, dict) else {}
+        raw = str(cfg.get("engine_name", "none") or "none").strip()
+        low = raw.lower()
+
+        if cls.is_disabled_engine_name(low):
+            return cls.MISSING_VALUE
+        if low == "auto":
+            pick = cls.autoselect_engine_name(task=task)
+            return pick if pick else cls.MISSING_VALUE
+
+        desc = cls.local_model_descriptor(raw)
+        if desc and str(desc.get("task", "")) == str(task or "").strip().lower():
+            return str(desc.get("name") or raw)
+
+        sig = str(cfg.get("engine_signature", "") or "").strip().lower()
+        model_type = cls.normalize_model_type(cfg.get("engine_model_type", ""))
+        matches: list[str] = []
+        for cand in cls.local_models_for_task(task):
+            cand_type = cls.normalize_model_type(cand.get("model_type", ""))
+            cand_sig = str(cand.get("signature", "") or "").strip().lower()
+            if model_type and cand_type != model_type:
+                continue
+            if sig and cand_sig != sig:
+                continue
+            matches.append(str(cand.get("name", "")).strip())
+
+        if sig and len(matches) == 1:
+            return matches[0]
+        return cls.MISSING_VALUE
+
+    @classmethod
+    def active_engine_name(cls, *, task: str) -> str:
+        task_id = str(task or "").strip().lower()
+        engine_dir = cls.TRANSLATION_ENGINE_DIR if task_id == "translation" else cls.TRANSCRIPTION_ENGINE_DIR
+        name = str(getattr(engine_dir, "name", "") or "").strip()
+        if not name or name == cls.MISSING_VALUE:
+            return ""
+        return name
+
     # ----- Model resolution -----
     @classmethod
-    def resolve_transcription_engine_name(cls, model: Dict[str, Any]) -> str:
-        from app.model.services.ai_models_service import resolve_engine_name
-
+    def resolve_transcription_engine_name(cls, model: dict[str, Any]) -> str:
         cfg = model.get("transcription_model", {}) if isinstance(model, dict) else {}
-        return resolve_engine_name(cfg if isinstance(cfg, dict) else {}, task="transcription")
+        return cls.resolve_model_engine_name(cfg if isinstance(cfg, dict) else {}, task="transcription")
 
     @classmethod
-    def resolve_translation_engine_name(cls, model: Dict[str, Any]) -> str:
-        from app.model.services.ai_models_service import resolve_engine_name
-
+    def resolve_translation_engine_name(cls, model: dict[str, Any]) -> str:
         cfg = model.get("translation_model", {}) if isinstance(model, dict) else {}
-        return resolve_engine_name(cfg if isinstance(cfg, dict) else {}, task="translation")
+        return cls.resolve_model_engine_name(cfg if isinstance(cfg, dict) else {}, task="translation")
 
-    # ----- UI defaults -----
+    # ----- Root mapping -----
 
     @classmethod
     def set_root_dir(cls, root_dir: Path) -> None:
         cls.ROOT_DIR = Path(root_dir).resolve()
-
+        cls._DEFAULT_SETTINGS_CACHE = None
         cls.APP_DIR = cls.ROOT_DIR / "app"
         cls.LICENSE_FILE = cls.ROOT_DIR / "LICENSE"
-
         cls.ASSETS_DIR = cls.ROOT_DIR / "assets"
         cls.RUNTIME_DIR = cls.ROOT_DIR / "bin"
-
         cls.AI_MODELS_DIR = cls.ROOT_DIR / "models"
-
         cls.LOCALES_DIR = cls.ASSETS_DIR / "locales"
         cls.STYLES_DIR = cls.APP_DIR / "view"
         cls.IMAGES_DIR = cls.ASSETS_DIR / "images"
         cls.ICONS_DIR = cls.ASSETS_DIR / "icons"
-
         cls.FFMPEG_DIR = cls.RUNTIME_DIR / "ffmpeg"
         cls.FFMPEG_BIN_DIR = cls.FFMPEG_DIR
-
         cls.DENO_DIR = cls.RUNTIME_DIR / "deno"
         cls.DENO_BIN = cls.DENO_DIR / ("deno.exe" if platform.system().lower().startswith("win") else "deno")
-
-        cls.MISSING_VALUE = "__missing__"
         cls.TRANSCRIPTION_ENGINE_DIR = cls.AI_MODELS_DIR / cls.MISSING_VALUE
         cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / cls.MISSING_VALUE
-
         cls.DATA_DIR = cls.ROOT_DIR / "userdata"
         cls.DOWNLOADS_DIR = cls.DATA_DIR / "downloads"
         cls.TRANSCRIPTIONS_DIR = cls.DATA_DIR / "transcriptions"
         cls.LOGS_DIR = cls.DATA_DIR / "logs"
-
-        cls.APP_LOG_NAME = "app.log"
-        cls.CRASH_LOG_NAME = "crash.log"
         cls.APP_LOG_PATH = cls.LOGS_DIR / cls.APP_LOG_NAME
         cls.CRASH_LOG_PATH = cls.LOGS_DIR / cls.CRASH_LOG_NAME
-
         cls.USER_CONFIG_DIR = cls.DATA_DIR / "config"
         cls.SETTINGS_FILE = cls.USER_CONFIG_DIR / "settings.json"
-
         cls.MODEL_CONFIG_DIR = cls.APP_DIR / "model" / "config"
         cls.DEFAULTS_FILE = cls.MODEL_CONFIG_DIR / "defaults.json"
-
         cls.DOWNLOADS_TMP_DIR = cls.DOWNLOADS_DIR / "._tmp"
         cls.TRANSCRIPTIONS_TMP_DIR = cls.TRANSCRIPTIONS_DIR / "._tmp"
 
-        cls.DOWNLOAD_PURPOSE_DOWNLOAD = "download"
-        cls.DOWNLOAD_PURPOSE_TRANSCRIPTION = "transcription"
-
-        cls.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT = "strict_final_ext"
-        cls.DOWNLOAD_ARTIFACT_POLICY_WORK_INPUT = "work_input"
-
-        cls.DOWNLOAD_DEFAULT_PURPOSE = cls.DOWNLOAD_PURPOSE_DOWNLOAD
-        cls.DOWNLOAD_DEFAULT_STEM = "download"
-
-        cls.LANGUAGE_AUTO_VALUE = "auto"
-        cls.LANGUAGE_DEFAULT_VALUE = "default"
-        cls.LANGUAGE_UI_VALUE = "ui"
-        cls.LANGUAGE_APP_VALUE = "app"
-        cls.LANGUAGE_DEFAULT_UI_VALUE = "default_ui"
-
-        cls.DOWNLOAD_AUDIO_LANG_AUTO_VALUES = (
-            cls.LANGUAGE_DEFAULT_VALUE,
-            cls.LANGUAGE_AUTO_VALUE,
-            "-",
-        )
-        cls.TRANSLATION_SOURCE_DEFERRED_VALUES = (
-            cls.LANGUAGE_AUTO_VALUE,
-            cls.LANGUAGE_UI_VALUE,
-            cls.LANGUAGE_APP_VALUE,
-            cls.LANGUAGE_DEFAULT_VALUE,
-            cls.LANGUAGE_DEFAULT_UI_VALUE,
-        )
-        cls.TRANSLATION_TARGET_DEFERRED_VALUES = (
-            cls.LANGUAGE_AUTO_VALUE,
-            cls.LANGUAGE_DEFAULT_VALUE,
-            cls.LANGUAGE_UI_VALUE,
-            cls.LANGUAGE_APP_VALUE,
-            cls.LANGUAGE_DEFAULT_UI_VALUE,
-        )
-
-        cls.DOWNLOAD_FALLBACK_AUDIO_SELECTOR = "bestaudio/best"
-        cls.DOWNLOAD_FALLBACK_VIDEO_SELECTOR = "bv*+ba/b"
-        cls.URL_DOWNLOAD_DEFAULT_QUALITY = "best"
-
-        cls.OUTPUT_DEFAULT_STEM = "item"
-        cls.TRANSCRIPT_DEFAULT_BASENAME = "transcript"
-        cls.TMP_AUDIO_DEFAULT_STEM = "audio"
-        cls.AUDIO_OUTPUT_DEFAULT_FILENAME = "Audio.wav"
-        cls.AUDIO_OUTPUT_DEFAULT_BASENAME = "Audio"
-        cls.SOURCE_MEDIA_DEFAULT_BASENAME = "Source"
-        cls.SOURCE_MEDIA_DEFAULT_EXT = "bin"
-
-        cls.AUDIO_PROBE_TIMEOUT_S = 10.0
-        cls.ASR_SAMPLE_RATE = 16000
-        cls.ASR_CHANNELS = 1
-        cls.ASR_WAV_FORMAT_TOKEN = "wav"
-        cls.ASR_WAV_CODEC_PREFIX = "pcm_"
-
     # ----- File input / download output extensions -----
-    FILES_AUDIO_INPUT_EXTS: Tuple[str, ...] = ("wav", "mp3", "flac", "m4a", "ogg", "aac")
-    FILES_VIDEO_INPUT_EXTS: Tuple[str, ...] = ("mp4", "webm", "mkv", "mov", "avi")
+    FILES_AUDIO_INPUT_EXTS: tuple[str, ...] = ("wav", "mp3", "flac", "m4a", "ogg", "aac")
+    FILES_VIDEO_INPUT_EXTS: tuple[str, ...] = ("mp4", "webm", "mkv", "mov", "avi")
 
-    DOWNLOAD_AUDIO_FORMAT_PROFILES: Dict[str, Dict[str, Any]] = {
+    DOWNLOAD_AUDIO_FORMAT_PROFILES: dict[str, dict[str, Any]] = {
         "wav": {"selector_exts": ("wav",), "postprocess": "extract_audio", "preferredcodec": "wav"},
         "mp3": {"selector_exts": ("mp3",), "postprocess": "extract_audio", "preferredcodec": "mp3"},
         "flac": {"selector_exts": ("flac",), "postprocess": "extract_audio", "preferredcodec": "flac"},
@@ -270,7 +346,7 @@ class AppConfig:
         "ogg": {"selector_exts": ("ogg", "opus", "webm"), "postprocess": "extract_audio", "preferredcodec": "ogg"},
         "aac": {"selector_exts": ("aac", "m4a", "mp4"), "postprocess": "extract_audio", "preferredcodec": "aac"},
     }
-    DOWNLOAD_VIDEO_FORMAT_PROFILES: Dict[str, Dict[str, Any]] = {
+    DOWNLOAD_VIDEO_FORMAT_PROFILES: dict[str, dict[str, Any]] = {
         "mp4": {
             "video_exts": ("mp4",),
             "audio_exts": ("m4a", "mp4", "aac"),
@@ -303,15 +379,15 @@ class AppConfig:
         },
     }
 
-    DOWNLOAD_AUDIO_OUTPUT_EXTS: Tuple[str, ...] = tuple(DOWNLOAD_AUDIO_FORMAT_PROFILES.keys())
-    DOWNLOAD_VIDEO_OUTPUT_EXTS: Tuple[str, ...] = tuple(DOWNLOAD_VIDEO_FORMAT_PROFILES.keys())
+    DOWNLOAD_AUDIO_OUTPUT_EXTS: tuple[str, ...] = tuple(DOWNLOAD_AUDIO_FORMAT_PROFILES.keys())
+    DOWNLOAD_VIDEO_OUTPUT_EXTS: tuple[str, ...] = tuple(DOWNLOAD_VIDEO_FORMAT_PROFILES.keys())
 
     @classmethod
-    def download_audio_format_profile(cls, ext: str) -> Dict[str, Any]:
+    def download_audio_format_profile(cls, ext: str) -> dict[str, Any]:
         return dict(cls.DOWNLOAD_AUDIO_FORMAT_PROFILES.get(str(ext or "").strip().lower(), {}))
 
     @classmethod
-    def download_video_format_profile(cls, ext: str) -> Dict[str, Any]:
+    def download_video_format_profile(cls, ext: str) -> dict[str, Any]:
         return dict(cls.DOWNLOAD_VIDEO_FORMAT_PROFILES.get(str(ext or "").strip().lower(), {}))
 
     @classmethod
@@ -322,7 +398,7 @@ class AppConfig:
         purpose: str,
         keep_output: bool,
         ext: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         kind_l = str(kind or "").strip().lower()
         purpose_l = cls.normalize_policy_value(purpose) or cls.DOWNLOAD_DEFAULT_PURPOSE
         ext_l = str(ext or "").strip().lower().lstrip(".")
@@ -351,8 +427,15 @@ class AppConfig:
         return str(value or "").strip().lower()
 
     @classmethod
+    def normalize_language_choice_value(cls, value: Any) -> str:
+        token = cls.normalize_policy_value(value)
+        if token == "default-ui":
+            return cls.LANGUAGE_DEFAULT_UI_VALUE
+        return token
+
+    @classmethod
     def is_auto_language_value(cls, value: Any) -> bool:
-        return cls.normalize_policy_value(value) == cls.LANGUAGE_AUTO_VALUE
+        return cls.normalize_language_choice_value(value) == cls.LANGUAGE_AUTO_VALUE
 
     @classmethod
     def is_download_audio_auto_value(cls, value: Any) -> bool:
@@ -361,37 +444,202 @@ class AppConfig:
 
     @classmethod
     def is_translation_source_deferred_value(cls, value: Any) -> bool:
-        token = cls.normalize_policy_value(value)
+        token = cls.normalize_language_choice_value(value)
         return (not token) or token in set(cls.TRANSLATION_SOURCE_DEFERRED_VALUES)
 
     @classmethod
     def is_translation_target_deferred_value(cls, value: Any) -> bool:
-        token = cls.normalize_policy_value(value)
+        token = cls.normalize_language_choice_value(value)
         return (not token) or token in set(cls.TRANSLATION_TARGET_DEFERRED_VALUES)
 
     @classmethod
-    def files_audio_input_file_exts(cls) -> Tuple[str, ...]:
+    def files_audio_input_file_exts(cls) -> tuple[str, ...]:
         return tuple(f".{x}" for x in cls.FILES_AUDIO_INPUT_EXTS)
 
     @classmethod
-    def files_video_input_file_exts(cls) -> Tuple[str, ...]:
+    def files_video_input_file_exts(cls) -> tuple[str, ...]:
         return tuple(f".{x}" for x in cls.FILES_VIDEO_INPUT_EXTS)
 
     @classmethod
-    def files_media_input_file_exts(cls) -> Tuple[str, ...]:
+    def files_media_input_file_exts(cls) -> tuple[str, ...]:
         exts = {e.lower() for e in cls.files_audio_input_file_exts()}
         exts |= {e.lower() for e in cls.files_video_input_file_exts()}
         return tuple(sorted(exts))
 
+    # ----- Live transcription -----
+    LIVE_OUTPUT_MODE_STREAM: str = "stream"
+    LIVE_OUTPUT_MODE_CUMULATIVE: str = "cumulative"
+    LIVE_OUTPUT_MODES: tuple[str, ...] = (LIVE_OUTPUT_MODE_STREAM, LIVE_OUTPUT_MODE_CUMULATIVE)
+    LIVE_UI_MODE_TRANSCRIBE: str = "transcribe"
+    LIVE_UI_MODE_TRANSCRIBE_TRANSLATE: str = "transcribe_translate"
+    LIVE_UI_MODES: tuple[str, ...] = (LIVE_UI_MODE_TRANSCRIBE, LIVE_UI_MODE_TRANSCRIBE_TRANSLATE)
+    LIVE_UI_DEFAULT_MODE: str = LIVE_UI_MODE_TRANSCRIBE
+    LIVE_DEFAULT_PRESET: str = "balanced"
+    LIVE_PRESET_IDS: tuple[str, ...] = ("low_latency", "balanced", "high_context")
+
+    LIVE_AUDIO_SIGNAL_PROFILE: dict[str, Any] = {
+        "silence_level_threshold": 0.055,
+        "silence_audio_rms_min": 0.007,
+        "silence_tail_keep_s": 0.24,
+        "tail_flush_min_s": 0.20,
+        "weak_rms_threshold": 0.0115,
+        "weak_activity_floor": 0.0055,
+        "weak_active_ratio_threshold": 0.012,
+        "weak_active_ms_threshold": 55.0,
+        "solid_rms_threshold": 0.0145,
+        "solid_activity_floor": 0.0065,
+        "solid_active_ratio_threshold": 0.022,
+        "solid_active_ms_threshold": 85.0,
+        "language_detect_rms_threshold": 0.03,
+        "language_detect_activity_floor": 0.009,
+        "language_detect_active_ratio_threshold": 0.07,
+        "language_detect_active_ms_threshold": 160.0,
+        "artifact_min_chars": 3,
+        "artifact_min_words": 2,
+        "artifact_tail_max_words": 2,
+        "artifact_tail_max_chars": 14,
+    }
+
+    LIVE_PRESET_PROFILES: dict[str, dict[str, Any]] = {
+        "low_latency": {
+            "chunk_length_s": 3,
+            "stride_length_s": 2,
+            "stream_commit_silence_s": 0.52,
+            "cumulative_commit_silence_s": 0.58,
+            "stream_clear_after_s": 1.05,
+            "stream_replace_prefix_ratio": 0.58,
+            "stream_commit_min_words": 5,
+            "cumulative_merge_overlap_min": 2,
+            "stream_show_previous_caption": False,
+            "stream_max_pending_chunks": 2,
+            "cumulative_max_pending_chunks": 3,
+            "stream_translation_min_chars": 16,
+            "cumulative_translation_min_chars": 18,
+        },
+        "balanced": {
+            "chunk_length_s": 5,
+            "stride_length_s": 4,
+            "stream_commit_silence_s": 0.64,
+            "cumulative_commit_silence_s": 0.72,
+            "stream_clear_after_s": 1.30,
+            "stream_replace_prefix_ratio": 0.64,
+            "stream_commit_min_words": 6,
+            "cumulative_merge_overlap_min": 2,
+            "stream_show_previous_caption": False,
+            "stream_max_pending_chunks": 3,
+            "cumulative_max_pending_chunks": 4,
+            "stream_translation_min_chars": 18,
+            "cumulative_translation_min_chars": 20,
+        },
+        "high_context": {
+            "chunk_length_s": 7,
+            "stride_length_s": 5,
+            "stream_commit_silence_s": 0.78,
+            "cumulative_commit_silence_s": 0.86,
+            "stream_clear_after_s": 1.55,
+            "stream_replace_prefix_ratio": 0.70,
+            "stream_commit_min_words": 7,
+            "cumulative_merge_overlap_min": 3,
+            "stream_show_previous_caption": False,
+            "stream_max_pending_chunks": 3,
+            "cumulative_max_pending_chunks": 5,
+            "stream_translation_min_chars": 22,
+            "cumulative_translation_min_chars": 24,
+        },
+    }
+
+    @classmethod
+    def live_ui_cfg_dict(cls) -> dict[str, Any]:
+        app_cfg = cls._snapshot_section_dict("app")
+        ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
+        live_cfg = ui_cfg.get("live", {}) if isinstance(ui_cfg.get("live"), dict) else {}
+        return dict(live_cfg) if isinstance(live_cfg, dict) else {}
+
+    @classmethod
+    def live_ui_mode(cls) -> str:
+        cfg = cls.live_ui_cfg_dict()
+        return cls.normalize_live_ui_mode(cfg.get("mode"))
+
+    @classmethod
+    def live_ui_device_name(cls) -> str:
+        cfg = cls.live_ui_cfg_dict()
+        return str(cfg.get("device_name") or "").strip()
+
+    @classmethod
+    def live_ui_preset(cls) -> str:
+        cfg = cls.live_ui_cfg_dict()
+        return cls.normalize_live_preset(cfg.get("preset"))
+
+    @classmethod
+    def live_ui_output_mode(cls) -> str:
+        cfg = cls.live_ui_cfg_dict()
+        return cls.normalize_live_output_mode(cfg.get("output_mode"))
+
+    @classmethod
+    def live_ui_show_source(cls) -> bool:
+        cfg = cls.live_ui_cfg_dict()
+        return bool(cfg.get("show_source"))
+
+    @classmethod
+    def normalize_live_ui_mode(cls, value: Any) -> str:
+        token = cls.normalize_policy_value(value)
+        if token not in set(cls.LIVE_UI_MODES):
+            return cls.LIVE_UI_DEFAULT_MODE
+        return token
+
+    @classmethod
+    def normalize_live_output_mode(cls, value: Any) -> str:
+        token = cls.normalize_policy_value(value)
+        if token not in set(cls.LIVE_OUTPUT_MODES):
+            return cls.LIVE_OUTPUT_MODE_CUMULATIVE
+        return token
+
+    @classmethod
+    def normalize_live_preset(cls, value: Any) -> str:
+        token = cls.normalize_policy_value(value)
+        if token not in set(cls.LIVE_PRESET_IDS):
+            return cls.LIVE_DEFAULT_PRESET
+        return token
+
+    @classmethod
+    def live_audio_profile(cls) -> dict[str, Any]:
+        return dict(cls.LIVE_AUDIO_SIGNAL_PROFILE)
+
+    @classmethod
+    def live_preset_profile(cls, preset: Any) -> dict[str, Any]:
+        preset_id = cls.normalize_live_preset(preset)
+        profile = cls.LIVE_PRESET_PROFILES.get(preset_id) or cls.LIVE_PRESET_PROFILES[cls.LIVE_DEFAULT_PRESET]
+        return dict(profile)
+
+    @classmethod
+    def live_runtime_profile(cls, *, output_mode: Any, preset: Any) -> dict[str, Any]:
+        output_mode_id = cls.normalize_live_output_mode(output_mode)
+        preset_id = cls.normalize_live_preset(preset)
+        profile = cls.live_audio_profile()
+        profile.update(cls.live_preset_profile(preset_id))
+        profile["output_mode"] = output_mode_id
+        profile["preset_id"] = preset_id
+        profile["stream_mode"] = output_mode_id == cls.LIVE_OUTPUT_MODE_STREAM
+        profile["commit_silence_s"] = float(
+            profile["stream_commit_silence_s"]
+            if profile["stream_mode"]
+            else profile["cumulative_commit_silence_s"]
+        )
+        profile["max_pending_chunks"] = int(
+            profile["stream_max_pending_chunks"]
+            if profile["stream_mode"]
+            else profile["cumulative_max_pending_chunks"]
+        )
+        return profile
+
     # ----- Transcript output -----
-    TRANSCRIPTION_OUTPUT_MODES: Tuple[Dict[str, Any], ...] = (
+    TRANSCRIPTION_OUTPUT_MODES: tuple[dict[str, Any], ...] = (
         {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "transcription.output_mode.plain_txt.label"},
         {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "transcription.output_mode.txt_timestamps.label"},
         {"id": "srt", "ext": "srt", "timestamps": True, "tr_key": "transcription.output_mode.srt.label"},
     )
-    TRANSCRIPT_DEFAULT_EXT: str = "txt"
 
-    _TRANSCRIPT_FILENAMES: Dict[str, str] = {
+    _TRANSCRIPT_FILENAMES: dict[str, str] = {
         "txt": "transcript.txt",
         "txt_ts": "transcript_ts.txt",
         "srt": "transcript.srt",
@@ -410,29 +658,16 @@ class AppConfig:
         return f"transcript_{safe_mid}.{ext}"
 
     @classmethod
-    def get_transcription_output_modes(cls) -> Tuple[Dict[str, Any], ...]:
+    def get_transcription_output_modes(cls) -> tuple[dict[str, Any], ...]:
         return cls.TRANSCRIPTION_OUTPUT_MODES
 
     @classmethod
-    def get_transcription_output_mode(cls, mode_id: str) -> Dict[str, Any]:
+    def get_transcription_output_mode(cls, mode_id: str) -> dict[str, Any]:
         mid = str(mode_id or "txt").strip().lower()
         for mode in cls.TRANSCRIPTION_OUTPUT_MODES:
             if str(mode.get("id", "")).lower() == mid:
                 return mode
         return cls.TRANSCRIPTION_OUTPUT_MODES[0]
-
-    # ----- Defaults -----
-    VIDEO_MIN_HEIGHT: int = 144
-    VIDEO_MAX_HEIGHT: int = 4320
-
-    NET_MAX_KBPS: int | None = None
-    NET_RETRIES: int = 3
-    NET_CONC_FRAG: int = 4
-    NET_TIMEOUT_S: int = 30
-
-    NET_NO_CHECK_CERT: bool = True
-
-    ENGINE_LOW_CPU_MEM_USAGE: bool = True
 
     USE_SAFETENSORS: bool = True
 
@@ -448,61 +683,215 @@ class AppConfig:
     TF32_ENABLED: bool = False
     TF32_SUPPORTED: bool = False
     SETTINGS: "SettingsSnapshot | None" = None
+    _DEFAULT_SETTINGS_CACHE: dict[str, Any] | None = None
 
     # ----- Snapshot accessors (UI/Controller helpers) -----
     @classmethod
-    def _snapshot_section_dict(cls, section_name: str) -> dict:
-        """Return a shallow dict copy of a SettingsSnapshot section."""
+    def _default_settings_dict(cls) -> dict[str, Any]:
+        cache = cls._DEFAULT_SETTINGS_CACHE
+        if isinstance(cache, dict):
+            return cache
 
-        snap = cls.SETTINGS
-        if snap is None:
-            return {}
-        sec = getattr(snap, section_name, {})
-        return dict(sec) if isinstance(sec, dict) else {}
+        if not cls.DEFAULTS_FILE.exists():
+            raise ConfigError("error.settings.defaults_missing", path=str(cls.DEFAULTS_FILE))
+
+        try:
+            raw = json.loads(cls.DEFAULTS_FILE.read_text(encoding="utf-8"))
+        except Exception as ex:
+            raise ConfigError("error.settings.json_invalid", path=str(cls.DEFAULTS_FILE), detail=str(ex))
+
+        if not isinstance(raw, dict):
+            raise ConfigError("error.settings.section_invalid", section="root")
+
+        cls._DEFAULT_SETTINGS_CACHE = raw
+        return cls._DEFAULT_SETTINGS_CACHE
 
     @classmethod
-    def transcription_cfg_dict(cls) -> dict:
+    def _default_section_dict(cls, section_name: str) -> dict[str, Any]:
+        defaults = cls._default_settings_dict()
+        section = defaults.get(section_name, cls._UNSET)
+        if not isinstance(section, dict):
+            raise ConfigError("error.settings.section_invalid", section=str(section_name))
+        return dict(section)
+
+    @classmethod
+    def _snapshot_section_value(cls, section_name: str, key: str) -> Any:
+        snap = cls.SETTINGS
+        if snap is not None:
+            section = getattr(snap, section_name, {})
+            if isinstance(section, dict):
+                value = section.get(key, cls._UNSET)
+                if value is not cls._UNSET and value is not None:
+                    if not isinstance(value, str) or value.strip():
+                        return value
+
+        defaults = cls._default_section_dict(section_name)
+        value = defaults.get(key, cls._UNSET)
+        if value is cls._UNSET:
+            raise ConfigError("error.settings.section_invalid", section=f"{section_name}.{key}")
+        return value
+
+    @classmethod
+    def _snapshot_section_dict(cls, section_name: str) -> dict[str, Any]:
+        """Return a shallow dict copy of a SettingsSnapshot section or its defaults."""
+
+        merged = cls._default_section_dict(section_name)
+        snap = cls.SETTINGS
+        if snap is None:
+            return merged
+        sec = getattr(snap, section_name, {})
+        if isinstance(sec, dict):
+            merged.update(sec)
+        return merged
+
+    @classmethod
+    def transcription_cfg_dict(cls) -> dict[str, Any]:
         return cls._snapshot_section_dict("transcription")
 
     @classmethod
-    def translation_cfg_dict(cls) -> dict:
+    def translation_cfg_dict(cls) -> dict[str, Any]:
         return cls._snapshot_section_dict("translation")
 
     @classmethod
-    def engine_cfg_dict(cls) -> dict:
+    def translation_source_language(cls) -> str:
+        value = cls.normalize_language_choice_value(
+            cls._snapshot_section_value("translation", "source_language") or cls.LANGUAGE_AUTO_VALUE
+        )
+        return value or cls.LANGUAGE_AUTO_VALUE
+
+    @classmethod
+    def translation_target_language(cls) -> str:
+        value = cls.normalize_language_choice_value(
+            cls._snapshot_section_value("translation", "target_language") or cls.LANGUAGE_DEFAULT_UI_VALUE
+        )
+        return value or cls.LANGUAGE_DEFAULT_UI_VALUE
+
+    @classmethod
+    def engine_cfg_dict(cls) -> dict[str, Any]:
         return cls._snapshot_section_dict("engine")
 
     @classmethod
-    def model_cfg_dict(cls) -> dict:
+    def model_cfg_dict(cls) -> dict[str, Any]:
         return cls._snapshot_section_dict("model")
 
     @classmethod
-    def transcription_model_cfg_dict(cls) -> dict:
-        cfg = dict(cls.model_cfg_dict().get("transcription_model") or {})
-        resolved_name = cls.TRANSCRIPTION_ENGINE_DIR.name if cls.TRANSCRIPTION_ENGINE_DIR.name != cls.MISSING_VALUE else ""
-        if resolved_name:
-            from app.model.services.ai_models_service import local_model_descriptor
-
-            cfg["engine_name"] = resolved_name
-            desc = local_model_descriptor(resolved_name)
-            if desc:
-                cfg["engine_model_type"] = str(desc.get("model_type", "") or "")
-                cfg["engine_signature"] = str(desc.get("signature", "") or "")
-        return cfg
+    def model_section_cfg_dict(cls, section_name: str) -> dict[str, Any]:
+        model_cfg = cls.model_cfg_dict()
+        section = model_cfg.get(str(section_name or "").strip(), {}) if isinstance(model_cfg, dict) else {}
+        return dict(section) if isinstance(section, dict) else {}
 
     @classmethod
-    def translation_model_cfg_dict(cls) -> dict:
-        cfg = dict(cls.model_cfg_dict().get("translation_model") or {})
-        resolved_name = cls.TRANSLATION_ENGINE_DIR.name if cls.TRANSLATION_ENGINE_DIR.name != cls.MISSING_VALUE else ""
-        if resolved_name:
-            from app.model.services.ai_models_service import local_model_descriptor
+    def transcription_model_raw_cfg_dict(cls) -> dict[str, Any]:
+        return cls.model_section_cfg_dict("transcription_model")
 
-            cfg["engine_name"] = resolved_name
-            desc = local_model_descriptor(resolved_name)
-            if desc:
-                cfg["engine_model_type"] = str(desc.get("model_type", "") or "")
-                cfg["engine_signature"] = str(desc.get("signature", "") or "")
-        return cfg
+    @classmethod
+    def translation_model_raw_cfg_dict(cls) -> dict[str, Any]:
+        return cls.model_section_cfg_dict("translation_model")
+
+    @classmethod
+    def transcription_model_engine_name(cls) -> str:
+        cfg = cls.transcription_model_raw_cfg_dict()
+        return str(cfg.get("engine_name", "none") or "none").strip()
+
+    @classmethod
+    def translation_model_engine_name(cls) -> str:
+        cfg = cls.translation_model_raw_cfg_dict()
+        return str(cfg.get("engine_name", "none") or "none").strip()
+
+    @classmethod
+    def downloader_cfg_dict(cls) -> dict[str, Any]:
+        return cls._snapshot_section_dict("downloader")
+
+    @classmethod
+    def network_cfg_dict(cls) -> dict[str, Any]:
+        return cls._snapshot_section_dict("network")
+
+    @classmethod
+    def downloader_min_video_height(cls) -> int:
+        raw = cls._snapshot_section_value("downloader", "min_video_height")
+        return max(1, cls._coerce_int(raw, 1))
+
+    @classmethod
+    def downloader_max_video_height(cls) -> int:
+        raw_max = cls._coerce_int(cls._snapshot_section_value("downloader", "max_video_height"), cls.downloader_min_video_height())
+        return max(cls.downloader_min_video_height(), raw_max)
+
+    @classmethod
+    def network_max_bandwidth_kbps(cls) -> int | None:
+        raw = cls._snapshot_section_value("network", "max_bandwidth_kbps")
+        try:
+            value = int(raw) if raw is not None else None
+        except Exception:
+            return None
+        if value is not None and value <= 0:
+            return None
+        return value
+
+    @classmethod
+    def network_retries(cls) -> int:
+        raw = cls._snapshot_section_value("network", "retries")
+        return max(0, cls._coerce_int(raw, 0))
+
+    @classmethod
+    def network_concurrent_fragments(cls) -> int:
+        raw = cls._snapshot_section_value("network", "concurrent_fragments")
+        return max(1, cls._coerce_int(raw, 1))
+
+    @classmethod
+    def network_http_timeout_s(cls) -> int:
+        raw = cls._snapshot_section_value("network", "http_timeout_s")
+        return max(1, cls._coerce_int(raw, 1))
+
+    @classmethod
+    def network_no_check_certificate(cls) -> bool:
+        return bool(cls._snapshot_section_value("network", "no_check_certificate"))
+
+    @classmethod
+    def engine_low_cpu_mem_usage(cls) -> bool:
+        return bool(cls._snapshot_section_value("engine", "low_cpu_mem_usage"))
+
+    @classmethod
+    def transcription_output_mode_ids(cls) -> tuple[str, ...]:
+        raw = cls._snapshot_section_value("transcription", "output_formats")
+        if isinstance(raw, str) and raw.strip():
+            selected = [raw.strip().lower()]
+        elif isinstance(raw, (list, tuple)):
+            selected = [str(x or "").strip().lower() for x in raw if str(x or "").strip()]
+        else:
+            selected = []
+
+        valid_ids = {str(mode.get("id", "")).strip().lower() for mode in cls.TRANSCRIPTION_OUTPUT_MODES if mode.get("id")}
+        norm: list[str] = []
+        for mode_id in selected:
+            if mode_id in valid_ids and mode_id not in norm:
+                norm.append(mode_id)
+        if not norm:
+            norm.append(str(cls.TRANSCRIPTION_OUTPUT_MODES[0].get("id", "txt")).strip().lower() or "txt")
+        return tuple(norm)
+
+    @classmethod
+    def transcription_output_default_ext(cls) -> str:
+        mode_id = cls.transcription_output_mode_ids()[0]
+        mode = cls.get_transcription_output_mode(mode_id)
+        return str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
+
+    @classmethod
+    def transcription_translate_after_enabled(cls) -> bool:
+        return bool(cls._snapshot_section_value("transcription", "translate_after_transcription"))
+
+    @classmethod
+    def transcription_download_audio_only(cls) -> bool:
+        return bool(cls._snapshot_section_value("transcription", "download_audio_only"))
+
+    @classmethod
+    def transcription_url_audio_ext(cls) -> str:
+        value = str(cls._snapshot_section_value("transcription", "url_audio_ext") or "").strip().lower().lstrip(".")
+        return value or "m4a"
+
+    @classmethod
+    def transcription_url_video_ext(cls) -> str:
+        value = str(cls._snapshot_section_value("transcription", "url_video_ext") or "").strip().lower().lstrip(".")
+        return value or "mp4"
 
     # ----- Snapshot mapping -----
     @classmethod
@@ -510,10 +899,6 @@ class AppConfig:
         cls.SETTINGS = snap
         cls._apply_transcription_engine_dir(snap.model)
         cls._apply_translation_engine_dir(snap.model)
-        cls._apply_downloader(snap.downloader)
-        cls._apply_network(snap.network)
-        cls._apply_transcription(snap.transcription)
-        cls._apply_engine(snap.engine)
 
     @classmethod
     def update_from_snapshot(
@@ -527,14 +912,6 @@ class AppConfig:
         if "model" in want:
             cls._apply_transcription_engine_dir(snap.model)
             cls._apply_translation_engine_dir(snap.model)
-        if "downloader" in want:
-            cls._apply_downloader(snap.downloader)
-        if "network" in want:
-            cls._apply_network(snap.network)
-        if "transcription" in want:
-            cls._apply_transcription(snap.transcription)
-        if "engine" in want:
-            cls._apply_engine(snap.engine)
 
     # ----- Startup -----
     @classmethod
@@ -565,66 +942,15 @@ class AppConfig:
 
     # ----- Apply sections -----
     @classmethod
-    def _apply_downloader(cls, downloader: Dict[str, Any]) -> None:
-        mn = cls._coerce_int(downloader.get("min_video_height", cls.VIDEO_MIN_HEIGHT), cls.VIDEO_MIN_HEIGHT)
-        mx = cls._coerce_int(downloader.get("max_video_height", cls.VIDEO_MAX_HEIGHT), cls.VIDEO_MAX_HEIGHT)
-        if mx < mn:
-            mx = mn
-        cls.VIDEO_MIN_HEIGHT = max(1, mn)
-        cls.VIDEO_MAX_HEIGHT = max(cls.VIDEO_MIN_HEIGHT, mx)
-
-    @classmethod
-    def _apply_network(cls, network: Dict[str, Any]) -> None:
-        kbps = network.get("max_bandwidth_kbps")
-        try:
-            kbps_val = int(kbps) if kbps is not None else None
-        except Exception:
-            kbps_val = None
-        if kbps_val is not None and kbps_val <= 0:
-            kbps_val = None
-
-        cls.NET_MAX_KBPS = kbps_val
-        cls.NET_RETRIES = max(0, cls._coerce_int(network.get("retries", cls.NET_RETRIES), cls.NET_RETRIES))
-        cls.NET_CONC_FRAG = max(1, cls._coerce_int(network.get("concurrent_fragments", cls.NET_CONC_FRAG), cls.NET_CONC_FRAG))
-        cls.NET_TIMEOUT_S = max(1, cls._coerce_int(network.get("http_timeout_s", cls.NET_TIMEOUT_S), cls.NET_TIMEOUT_S))
-
-        cls.NET_NO_CHECK_CERT = bool(network.get("no_check_certificate", cls.NET_NO_CHECK_CERT))
-
-    @classmethod
-    def _apply_transcription(cls, transcription: Dict[str, Any]) -> None:
-        raw = transcription.get("output_formats")
-        if isinstance(raw, str) and raw.strip():
-            mode_id = raw.strip().lower()
-        elif isinstance(raw, (list, tuple)) and raw:
-            mode_id = str(raw[0] or "txt").strip().lower()
-        else:
-            mode_id = "txt"
-
-        mode = cls.get_transcription_output_mode(mode_id)
-        cls.TRANSCRIPT_DEFAULT_EXT = str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
-
-    @classmethod
-    def _apply_engine(cls, engine: Dict[str, Any]) -> None:
-        """Apply lightweight engine settings from a snapshot section."""
-
-        if not isinstance(engine, dict):
-            return
-        cls.ENGINE_LOW_CPU_MEM_USAGE = bool(engine.get("low_cpu_mem_usage", cls.ENGINE_LOW_CPU_MEM_USAGE))
-
-    @classmethod
-    def _apply_translation_engine_dir(cls, model: Dict[str, Any]) -> None:
-        from app.model.services.ai_models_service import resolve_engine_name
-
+    def _apply_translation_engine_dir(cls, model: dict[str, Any]) -> None:
         tcfg = model.get("translation_model", {})
-        resolved = resolve_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="translation")
+        resolved = cls.resolve_model_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="translation")
         cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / resolved
 
     @classmethod
-    def _apply_transcription_engine_dir(cls, model: Dict[str, Any]) -> None:
-        from app.model.services.ai_models_service import resolve_engine_name
-
+    def _apply_transcription_engine_dir(cls, model: dict[str, Any]) -> None:
         tcfg = model.get("transcription_model", {})
-        resolved = resolve_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="transcription")
+        resolved = cls.resolve_model_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="transcription")
         cls.TRANSCRIPTION_ENGINE_DIR = cls.AI_MODELS_DIR / resolved
 
     # ----- Runtime capabilities -----
@@ -641,7 +967,7 @@ class AppConfig:
         return "float16" if cls.has_cuda() else "float32"
 
     @classmethod
-    def runtime_capabilities(cls) -> Dict[str, bool]:
+    def runtime_capabilities(cls) -> dict[str, bool]:
         return {
             "has_cuda": bool(cls.HAS_CUDA),
             "bf16_supported": bool(cls.BF16_SUPPORTED),

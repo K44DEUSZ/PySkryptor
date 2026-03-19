@@ -8,25 +8,23 @@ import sys
 import threading
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable
 
 import torch
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
 from app.model.helpers.errors import AppError
 from app.model.services.settings_service import SettingsCatalog
-from app.model.services.settings_service import SettingsService
 from app.model.helpers.string_utils import normalize_lang_code
 
 _LOG = logging.getLogger(__name__)
-
 
 # ----- Errors -----
 class TranslationError(AppError):
     """Key-based error used for i18n-friendly translation failures."""
 
     def __init__(self, key: str, **params: Any) -> None:
-        super().__init__(key=str(key), params=dict(params or {}))
+        super().__init__(str(key), dict(params or {}))
 
 LogFn = Callable[[str], None]
 
@@ -35,7 +33,7 @@ def _norm_lang(code: str) -> str:
     return normalize_lang_code(code, drop_region=True)
 
 
-def _supported() -> Set[str]:
+def _supported() -> set[str]:
     return set(SettingsCatalog.translation_language_codes())
 
 
@@ -53,7 +51,7 @@ class _WorkerIO:
     proc: subprocess.Popen
     lock: threading.Lock
 
-_WORKER: Optional[_WorkerIO] = None
+_WORKER: _WorkerIO | None = None
 _WORKER_GUARD = threading.Lock()
 
 
@@ -61,17 +59,23 @@ class TranslationService:
     """Translation via a dedicated worker process."""
 
     @classmethod
-    def supported_language_codes(cls) -> Set[str]:
+    def supported_language_codes(cls) -> set[str]:
         return _supported()
 
-    def warmup(self, *, log: Optional[LogFn] = None) -> bool:
+    def warmup(self, *, log: LogFn | None = None) -> bool:
         try:
             self._ensure_worker(log=log)
+            rep = self._rpc({"cmd": "warmup", **self._runtime_request_payload()})
+            if not isinstance(rep, dict) or not rep.get("ok", False):
+                raise TranslationError(
+                    "error.translation.worker_error",
+                    detail=str(rep.get("error") or rep.get("code") or "warmup failed"),
+                )
             return True
         except AppError:
             return False
 
-    def translate(self, text: str, *, src_lang: str, tgt_lang: str, log: Optional[LogFn] = None) -> str:
+    def translate(self, text: str, *, src_lang: str, tgt_lang: str, log: LogFn | None = None) -> str:
         t = str(text or "").strip()
         if not t:
             return ""
@@ -95,28 +99,14 @@ class TranslationService:
         if src not in sup:
             raise TranslationError("error.translation.unsupported_source", lang=str(src))
 
-        snap = Config.SETTINGS
-        if snap is None:
+        if Config.SETTINGS is None:
             raise ConfigError("error.runtime.settings_not_initialized")
 
-        if not isinstance(snap.model, dict):
-            raise ConfigError("error.runtime.settings_not_initialized")
-        mdl = snap.model["translation_model"]
-        model_path = Config.TRANSLATION_ENGINE_DIR
-        if not (model_path.exists() and model_path.is_dir()):
-            raise ConfigError("error.model.translation_missing", path=str(model_path))
-        model_ref = str(model_path)
-
-        dtype_name = _dtype_name(str(getattr(Config, "DTYPE_ID", "float32")))
-        device_str = str(getattr(Config, "DEVICE_ID", "cpu"))
-
-        if not isinstance(snap.engine, dict):
-            raise ConfigError("error.runtime.settings_not_initialized")
-        low_cpu_mem_usage = bool(snap.engine["low_cpu_mem_usage"])
-
-        max_new_tokens = int(mdl["max_new_tokens"])
-        chunk_max_chars = int(mdl["chunk_max_chars"])
-        quality_preset = str(mdl["quality_preset"]).strip().lower()
+        runtime_payload = self._runtime_request_payload()
+        device_str = str(runtime_payload["device"])
+        dtype_name = str(runtime_payload["dtype"])
+        chunk_max_chars = int(runtime_payload["chunk_max_chars"])
+        quality_preset = str(runtime_payload["quality_preset"])
 
         debug_chunk_count = 0
         if _LOG.isEnabledFor(logging.DEBUG):
@@ -137,13 +127,7 @@ class TranslationService:
             "text": t,
             "src": src,
             "tgt": tgt,
-            "model_ref": model_ref,
-            "device": device_str,
-            "dtype": dtype_name,
-            "low_cpu_mem_usage": low_cpu_mem_usage,
-            "max_new_tokens": max_new_tokens,
-            "chunk_max_chars": chunk_max_chars,
-            "quality_preset": quality_preset,
+            **runtime_payload,
         }
 
         try:
@@ -182,7 +166,7 @@ class TranslationService:
         return out
 
     # ----- Worker management -----
-    def _ensure_worker(self, *, log: Optional[LogFn] = None) -> None:
+    def _ensure_worker(self, *, log: LogFn | None = None) -> None:
         global _WORKER
 
         def _dispose() -> None:
@@ -252,7 +236,31 @@ class TranslationService:
             log("Translation engine ready.")
         _LOG.info("Translation engine ready.")
 
-    def _rpc(self, payload: Dict) -> Dict:
+    @staticmethod
+    def _runtime_request_payload() -> dict[str, Any]:
+        if Config.SETTINGS is None:
+            raise ConfigError("error.runtime.settings_not_initialized")
+
+        mdl = Config.translation_model_raw_cfg_dict()
+        if not mdl:
+            raise ConfigError("error.runtime.settings_not_initialized")
+
+        model_path = Config.TRANSLATION_ENGINE_DIR
+        if not (model_path.exists() and model_path.is_dir()):
+            raise ConfigError("error.model.translation_missing", path=str(model_path))
+
+        return {
+            "model_ref": str(model_path),
+            "device": str(getattr(Config, "DEVICE_ID", "cpu")),
+            "dtype": _dtype_name(str(getattr(Config, "DTYPE_ID", "float32"))),
+            "low_cpu_mem_usage": bool(Config.engine_low_cpu_mem_usage()),
+            "max_new_tokens": int(mdl["max_new_tokens"]),
+            "chunk_max_chars": int(mdl["chunk_max_chars"]),
+            "quality_preset": str(mdl["quality_preset"]).strip().lower(),
+        }
+
+    @staticmethod
+    def _rpc(payload: dict[str, Any]) -> dict[str, Any]:
         global _WORKER
         if _WORKER is None or _WORKER.proc.poll() is not None:
             raise TranslationError("error.translation.worker_not_running")
@@ -274,51 +282,21 @@ class TranslationService:
             raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
         return rep if isinstance(rep, dict) else {}
 
-
 # ----- Worker -----
-
 @dataclass
 class _LoadedM2M100:
-    tokenizer: object
-    model: object
+    tokenizer: Any
+    model: Any
     device: torch.device
 
-_WORKER_STATE: Dict[Tuple, _LoadedM2M100] = {}
-
-_WORKER_RUNTIME_OK: bool = False
-_WORKER_RUNTIME_ERROR_KEY: str = ""
-_WORKER_RUNTIME_ERROR_PARAMS: Dict[str, Any] = {}
-_WORKER_RUNTIME_ERROR_DETAIL: str = ""
+_WORKER_STATE: dict[tuple[str, str, str, bool], _LoadedM2M100] = {}
 
 
-def _worker_init_runtime() -> None:
-    global _WORKER_RUNTIME_OK, _WORKER_RUNTIME_ERROR_KEY, _WORKER_RUNTIME_ERROR_PARAMS, _WORKER_RUNTIME_ERROR_DETAIL
-    if _WORKER_RUNTIME_OK:
-        return
-    try:
-        snap = SettingsService().load()
-        Config.initialize_from_snapshot(snap)
-        _WORKER_RUNTIME_OK = True
-        _WORKER_RUNTIME_ERROR_KEY = ""
-        _WORKER_RUNTIME_ERROR_PARAMS = {}
-        _WORKER_RUNTIME_ERROR_DETAIL = ""
-    except AppError as ex:
-        _WORKER_RUNTIME_OK = False
-        _WORKER_RUNTIME_ERROR_KEY = str(ex.key)
-        _WORKER_RUNTIME_ERROR_PARAMS = dict(ex.params or {})
-        _WORKER_RUNTIME_ERROR_DETAIL = ""
-    except Exception as ex:
-        _WORKER_RUNTIME_OK = False
-        _WORKER_RUNTIME_ERROR_KEY = "error.translation.worker_ping_failed"
-        _WORKER_RUNTIME_ERROR_PARAMS = {"detail": "runtime initialization failed"}
-        _WORKER_RUNTIME_ERROR_DETAIL = str(ex)
-
-
-def _chunk_text(text: str, *, max_chars: int) -> List[str]:
+def _chunk_text(text: str, *, max_chars: int) -> list[str]:
     t = str(text or "").strip()
     if not t:
         return []
-    parts: List[str] = []
+    parts: list[str] = []
     for para in re.split(r"\n{2,}", t):
         para = para.strip()
         if not para:
@@ -391,43 +369,61 @@ def _load_m2m100(
     return _LoadedM2M100(tokenizer=tok, model=model, device=device)
 
 
-def _worker_handle(req: Dict) -> Dict:
+def _load_worker_runtime(req: dict[str, Any]) -> _LoadedM2M100:
+    model_ref = str(req.get("model_ref") or "").strip()
+    device_str = str(req.get("device") or "").strip()
+    dtype_name = str(req.get("dtype") or "").strip().lower()
+    low_cpu_mem_usage = bool(req.get("low_cpu_mem_usage"))
+
+    key = (model_ref, device_str, dtype_name, low_cpu_mem_usage)
+    loaded = _WORKER_STATE.get(key)
+    if loaded is not None:
+        return loaded
+
+    loaded = _load_m2m100(
+        model_ref=model_ref,
+        device_str=device_str,
+        dtype_name=dtype_name,
+        local_files_only=True,
+        low_cpu_mem_usage=low_cpu_mem_usage,
+    )
+    _WORKER_STATE[key] = loaded
+    return loaded
+
+
+def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
     cmd = str(req.get("cmd", ""))
     if cmd == "ping":
-        _worker_init_runtime()
-        if not _WORKER_RUNTIME_OK:
-            return {
-                "ok": False,
-                "code": "runtime_not_ready",
-                "error_key": _WORKER_RUNTIME_ERROR_KEY,
-                "error_params": _WORKER_RUNTIME_ERROR_PARAMS,
-                "error": _WORKER_RUNTIME_ERROR_DETAIL,
-            }
+        return {"ok": True}
+
+    if cmd == "warmup":
+        try:
+            _load_worker_runtime(req)
+        except Exception as ex:
+            return {"ok": False, "code": "warmup_failed", "error": str(ex)}
         return {"ok": True}
 
     if cmd == "translate":
-        _worker_init_runtime()
-        if not _WORKER_RUNTIME_OK:
-            return {
-                "ok": False,
-                "code": "runtime_not_ready",
-                "error_key": _WORKER_RUNTIME_ERROR_KEY,
-                "error_params": _WORKER_RUNTIME_ERROR_PARAMS,
-                "error": _WORKER_RUNTIME_ERROR_DETAIL,
-            }
-        sup = _supported()
-        if not sup:
-            return {
-                "ok": False,
-                "code": "language_catalog_unavailable",
-                "error_key": "error.translation.language_catalog_unavailable",
-                "error_params": {},
-                "error": "language catalog unavailable",
-            }
         src = _norm_lang(req.get("src", ""))
         tgt = _norm_lang(req.get("tgt", ""))
+        max_new_tokens = int(req.get("max_new_tokens"))
+        chunk_max_chars = int(req.get("chunk_max_chars"))
 
-        if not tgt or tgt == "auto" or tgt not in sup:
+        preset = str(req.get("quality_preset") or "").strip().lower()
+        if preset not in ("fast", "balanced", "accurate"):
+            return {"ok": False, "code": "bad_preset", "error": f"unsupported preset '{preset}'"}
+
+        try:
+            loaded = _load_worker_runtime(req)
+        except Exception as ex:
+            return {"ok": False, "code": "load_failed", "error": str(ex)}
+
+        tok = loaded.tokenizer
+        model = loaded.model
+        device = loaded.device
+        lang_code_to_id = getattr(tok, "lang_code_to_id", {}) or {}
+
+        if not tgt or tgt == "auto" or tgt not in lang_code_to_id:
             return {
                 "ok": False,
                 "code": "unsupported_target",
@@ -435,7 +431,7 @@ def _worker_handle(req: Dict) -> Dict:
                 "error_params": {"lang": str(tgt)},
                 "error": f"unsupported target '{tgt}'",
             }
-        if not src or src == "auto" or src not in sup:
+        if not src or src == "auto" or src not in lang_code_to_id:
             return {
                 "ok": False,
                 "code": "unsupported_source",
@@ -444,34 +440,7 @@ def _worker_handle(req: Dict) -> Dict:
                 "error": f"unsupported source '{src}'",
             }
 
-        model_ref = str(req.get("model_ref") or "").strip()
-        device_str = str(req.get("device") or "").strip()
-        dtype_name = str(req.get("dtype") or "").strip().lower()
-        low_cpu_mem_usage = bool(req.get("low_cpu_mem_usage"))
-        max_new_tokens = int(req.get("max_new_tokens"))
-        chunk_max_chars = int(req.get("chunk_max_chars"))
-
-        preset = str(req.get("quality_preset") or "").strip().lower()
-        if preset not in ("fast", "balanced", "accurate"):
-            return {"ok": False, "code": "bad_preset", "error": f"unsupported preset '{preset}'"}
-
-        key = (model_ref, device_str, dtype_name, low_cpu_mem_usage)
-        loaded = _WORKER_STATE.get(key)
-        if loaded is None:
-            loaded = _load_m2m100(
-                model_ref=model_ref,
-                device_str=device_str,
-                dtype_name=dtype_name,
-                local_files_only=True,
-                low_cpu_mem_usage=low_cpu_mem_usage,
-            )
-            _WORKER_STATE[key] = loaded
-
-        tok = loaded.tokenizer
-        model = loaded.model
-        device = loaded.device
-
-        out_parts: List[str] = []
+        out_parts: list[str] = []
         for chunk in _chunk_text(str(req.get("text", "")), max_chars=chunk_max_chars):
             tok.src_lang = src
             enc = tok(chunk, return_tensors="pt", truncation=True).to(device)
@@ -514,7 +483,7 @@ def _run_worker() -> int:
     return 0
 
 
-def _cli_entry(argv: List[str]) -> int:
+def _cli_entry(argv: list[str]) -> int:
     if "--worker" not in argv:
         return 0
     return _run_worker()

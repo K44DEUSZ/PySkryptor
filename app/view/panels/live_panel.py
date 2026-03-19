@@ -2,12 +2,34 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from app.view.ui_config import (
-    ui,
-    enable_styled_background,
+
+from app.view.components import dialogs
+from app.view.components.popup_combo import LanguageCombo, PopupComboBox
+from app.controller.platform.microphone import list_input_device_names
+from app.controller.support.localization import tr, Translator, language_display_name
+from app.controller.support.runtime_resolver import (
+    compute_translation_runtime,
+    build_live_quick_options_payload,
+    translation_language_codes,
+    transcription_language_codes,
+    translation_runtime_available,
+)
+from app.controller.tasks.live_transcription_task import LiveTranscriptionWorker
+from app.model.config.app_config import AppConfig as Config
+from app.model.services.ai_models_service import current_translation_model_cfg
+from app.model.io.transcript_writer import TranscriptWriter
+from app.model.services.settings_service import SettingsSnapshot
+
+from app.view.components.audio_spectrum import AudioSpectrumWidget
+from app.view.components.choice_toggle import ChoiceToggle
+from app.view.components.section_group import SectionGroup
+from app.controller.support.task_thread_runner import TaskThreadRunner
+from app.controller.support.options_autosave_controller import OptionsAutosaveController
+from app.view.support.widget_effects import enable_styled_background
+from app.view.support.widget_setup import (
     build_field_stack,
     build_layout_host,
     setup_button,
@@ -15,30 +37,11 @@ from app.view.ui_config import (
     setup_layout,
     setup_text_editor,
 )
+from app.view.ui_config import ui
 
-from app.view.components.popup_combo import PopupComboBox, combo_current_code, rebuild_code_combo, set_combo_code
-
-from app.controller.platform.microphone import list_input_device_names
-from app.controller.support.localization import tr, Translator, build_language_options
-from app.controller.support.runtime_resolver import (
-    compute_translation_runtime,
-    build_live_quick_options_payload,
-    translation_language_codes,
-    transcription_language_codes,
-)
-from app.controller.tasks.live_transcription_task import LiveTranscriptionWorker
-from app.model.config.app_config import AppConfig as Config
-from app.model.services.ai_models_service import is_disabled_engine_name
-
-from app.view.components.audio_spectrum import AudioSpectrumWidget
-from app.view.components.choice_toggle import ChoiceToggle
-from app.view.components.section_group import SectionGroup
-from app.controller.support.task_thread_runner import TaskThreadRunner
-from app.controller.support.options_autosave_controller import OptionsAutosaveController
-from app.view import dialogs
-
-BootContext = Dict[str, Any]
+BootContext = dict[str, Any]
 _LOG = logging.getLogger(__name__)
+
 
 class LivePanel(QtWidgets.QWidget):
     """Live tab: capture audio input and run streaming ASR/translation."""
@@ -47,16 +50,20 @@ class LivePanel(QtWidgets.QWidget):
     STATE_LISTENING = "listening"
     STATE_PAUSED = "paused"
 
+    OUTPUT_MODE_STREAM = "stream"
+    OUTPUT_MODE_CUMULATIVE = "cumulative"
+
     def __init__(
         self,
-        parent: Optional[QtWidgets.QWidget] = None,
-        boot_ctx: Optional[BootContext] = None,
+        parent: QtWidgets.QWidget | None = None,
+        boot_ctx: BootContext | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("LivePanel")
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
+        self._first_shown = False
 
         self._init_runtime_state(boot_ctx)
         self._load_saved_options()
@@ -66,8 +73,8 @@ class LivePanel(QtWidgets.QWidget):
 
     # ----- Build -----
 
-    def _init_runtime_state(self, boot_ctx: Optional[BootContext]) -> None:
-        self._boot_ctx: Optional[BootContext] = boot_ctx
+    def _init_runtime_state(self, boot_ctx: BootContext | None) -> None:
+        self._boot_ctx: BootContext | None = boot_ctx
         self._status_key = ""
         self._last_availability_debug_key: tuple | None = None
 
@@ -79,14 +86,18 @@ class LivePanel(QtWidgets.QWidget):
         self._first_shown: bool = False
         self._warned_no_devices_for_tab: bool = False
 
-        self._last_source: str = ""
-        self._last_target: str = ""
+        self._display_source: str = ""
+        self._display_target: str = ""
+        self._archive_source: str = ""
+        self._archive_target: str = ""
+        self._session_output_mode: str = self.OUTPUT_MODE_CUMULATIVE
         self._applied_source: str = ""
         self._applied_target: str = ""
+        self._detected_language_code: str = ""
 
         self._render_timer = QtCore.QTimer(self)
         self._render_timer.setSingleShot(True)
-        self._render_timer.setInterval(80)
+        self._render_timer.setInterval(int(self._ui.live_render_interval_ms))
         self._render_timer.timeout.connect(self._apply_render_output)
 
         self._opt_autosave = OptionsAutosaveController(
@@ -102,21 +113,14 @@ class LivePanel(QtWidgets.QWidget):
         self._opt_autosave.set_blocked(True)
 
     def _load_saved_options(self) -> None:
-        snap = Config.SETTINGS
-        app_cfg = getattr(snap, "app", {}) if snap is not None else {}
-        if not isinstance(app_cfg, dict):
-            app_cfg = {}
-        ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
-        live_cfg = ui_cfg.get("live", {}) if isinstance(ui_cfg.get("live"), dict) else {}
+        self._saved_device_name = Config.live_ui_device_name()
+        self._saved_preset = Config.live_ui_preset()
+        self._saved_mode = Config.live_ui_mode()
+        self._saved_output_mode = Config.live_ui_output_mode()
+        self._saved_show_source = Config.live_ui_show_source()
 
-        self._saved_device_name = str(live_cfg.get("device_name", "") or "").strip()
-        self._saved_preset = str(live_cfg.get("preset", "balanced") or "balanced").strip().lower()
-        self._saved_mode = str(live_cfg.get("mode", "transcribe") or "transcribe").strip().lower()
-        self._saved_show_source = bool(live_cfg.get("show_source", True))
-
-        tr_cfg = Config.translation_cfg_dict()
-        self._session_source_language = str(tr_cfg.get("source_language", Config.LANGUAGE_AUTO_VALUE) or Config.LANGUAGE_AUTO_VALUE).strip().lower() or Config.LANGUAGE_AUTO_VALUE
-        self._session_target_language = str(tr_cfg.get("target_language", Config.LANGUAGE_DEFAULT_VALUE) or Config.LANGUAGE_DEFAULT_VALUE).strip().lower() or Config.LANGUAGE_DEFAULT_VALUE
+        self._session_source_language = Config.translation_source_language()
+        self._session_target_language = Config.translation_target_language()
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -131,14 +135,14 @@ class LivePanel(QtWidgets.QWidget):
     def _build_settings_section(self, root: QtWidgets.QVBoxLayout, base_h: int) -> None:
         cfg = self._ui
         settings_box = SectionGroup(self, object_name="LiveSettingsGroup", role="panelGroup", layout="grid")
-        s_lay = settings_box.root
+        s_lay = cast(QtWidgets.QGridLayout, settings_box.root)
         setup_layout(
             s_lay,
             cfg=cfg,
             margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin),
             spacing=cfg.spacing,
-            hspacing=cfg.grid_hspacing,
-            vspacing=cfg.grid_vspacing,
+            hspacing=cfg.space_l,
+            vspacing=cfg.space_s,
             column_stretches={0: 1, 1: 1},
         )
         root.addWidget(settings_box)
@@ -160,7 +164,14 @@ class LivePanel(QtWidgets.QWidget):
         dev_row_lay.addWidget(self.cmb_device, 3)
         dev_row_lay.addWidget(self.btn_refresh_devices, 1)
         device_host, _ = build_field_stack(self, tr("live.device.label"), dev_row, buddy=self.cmb_device)
-        s_lay.addWidget(device_host, 0, 0, 1, 2)
+
+        self.tg_output_mode = ChoiceToggle(
+            first_text=tr("live.output_mode.stream"),
+            second_text=tr("live.output_mode.cumulative"),
+            height=base_h,
+        )
+        self.tg_output_mode.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        output_mode_host, _ = build_field_stack(self, tr("live.output_mode.label"), self.tg_output_mode, buddy=self.tg_output_mode)
 
         self.tg_mode = ChoiceToggle(
             first_text=tr("files.options.mode.transcribe"),
@@ -172,47 +183,43 @@ class LivePanel(QtWidgets.QWidget):
 
         self.cmb_preset = PopupComboBox()
         setup_combo(self.cmb_preset, min_h=base_h)
-        self.cmb_preset.addItem(tr("live.preset.low_latency"), "low_latency")
-        self.cmb_preset.addItem(tr("live.preset.balanced"), "balanced")
-        self.cmb_preset.addItem(tr("live.preset.high_context"), "high_context")
+        preset_options = (
+            ("low_latency", tr("live.preset.low_latency"), tr("live.preset.help.low_latency")),
+            ("balanced", tr("live.preset.balanced"), tr("live.preset.help.balanced")),
+            ("high_context", tr("live.preset.high_context"), tr("live.preset.help.high_context")),
+        )
+        for value, label, tooltip in preset_options:
+            self.cmb_preset.addItem(label, value)
+            idx = self.cmb_preset.count() - 1
+            self.cmb_preset.setItemData(idx, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
         preset_host, _ = build_field_stack(self, tr("live.preset.label"), self.cmb_preset, buddy=self.cmb_preset)
 
-        self.cmb_src_lang = PopupComboBox()
-        setup_combo(self.cmb_src_lang, min_h=base_h)
-        rebuild_code_combo(
-            self.cmb_src_lang,
-            build_language_options(
-                transcription_language_codes(),
-                special_first=("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
-            ),
-            desired_code=self._session_source_language,
-            fallback_code=Config.LANGUAGE_AUTO_VALUE,
+        self.cmb_src_lang = LanguageCombo(
+            special_first=("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
+            codes_provider=transcription_language_codes,
         )
+        self.cmb_src_lang.setMinimumHeight(base_h)
 
-        self.cmb_tgt_lang = PopupComboBox()
-        setup_combo(self.cmb_tgt_lang, min_h=base_h)
-        rebuild_code_combo(
-            self.cmb_tgt_lang,
-            build_language_options(
-                translation_language_codes(),
-                special_first=("lang.special.default_ui", Config.LANGUAGE_DEFAULT_VALUE),
-            ),
-            desired_code=self._session_target_language,
-            fallback_code=Config.LANGUAGE_DEFAULT_VALUE,
+        self.cmb_tgt_lang = LanguageCombo(
+            special_first=("lang.special.default_ui", Config.LANGUAGE_DEFAULT_UI_VALUE),
+            codes_provider=translation_language_codes,
         )
+        self.cmb_tgt_lang.setMinimumHeight(base_h)
 
         src_lang_host, _ = build_field_stack(self, tr("common.field.source_language"), self.cmb_src_lang, buddy=self.cmb_src_lang)
         tgt_lang_host, _ = build_field_stack(self, tr("common.field.target_language"), self.cmb_tgt_lang, buddy=self.cmb_tgt_lang)
 
-        s_lay.addWidget(mode_host, 1, 0, alignment=QtCore.Qt.AlignTop)
-        s_lay.addWidget(preset_host, 1, 1, alignment=QtCore.Qt.AlignTop)
-        s_lay.addWidget(src_lang_host, 2, 0, alignment=QtCore.Qt.AlignTop)
-        s_lay.addWidget(tgt_lang_host, 2, 1, alignment=QtCore.Qt.AlignTop)
+        s_lay.addWidget(device_host, 0, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        s_lay.addWidget(output_mode_host, 0, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        s_lay.addWidget(mode_host, 1, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        s_lay.addWidget(preset_host, 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        s_lay.addWidget(src_lang_host, 2, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        s_lay.addWidget(tgt_lang_host, 2, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
 
     def _build_controls_section(self, root: QtWidgets.QVBoxLayout, base_h: int) -> None:
         cfg = self._ui
         controls_box = SectionGroup(self, object_name="LiveControlsGroup", role="panelGroup", layout="hbox")
-        c_lay = controls_box.root
+        c_lay = cast(QtWidgets.QHBoxLayout, controls_box.root)
         setup_layout(c_lay, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
         root.addWidget(controls_box)
 
@@ -242,15 +249,35 @@ class LivePanel(QtWidgets.QWidget):
         out_lay.addStretch(1)
         left_lay.addWidget(save_clear_outer)
 
-        self.lbl_status = QtWidgets.QLabel(tr("status.idle"))
-        self.lbl_status.setProperty("uiRole", "hint")
-        self.lbl_status.setWordWrap(True)
+        self.lbl_status_title = QtWidgets.QLabel(f"<b>{tr('live.status_label')}</b>")
+        self.lbl_status_title.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.lbl_status_value = QtWidgets.QLabel(tr("status.idle"))
+        self.lbl_status_value.setProperty("uiRole", "hint")
+        self.lbl_status_value.setWordWrap(True)
 
-        self.spectrum = AudioSpectrumWidget(bars=24)
+        self.lbl_detected_title = QtWidgets.QLabel(f"<b>{tr('live.detected_language_label')}</b>")
+        self.lbl_detected_title.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.lbl_detected_value = QtWidgets.QLabel("—")
+        self.lbl_detected_value.setProperty("uiRole", "hint")
+        self.lbl_detected_value.setWordWrap(True)
+
+        status_row, status_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.space_s)
+        status_row_lay.addWidget(self.lbl_status_title, 0)
+        status_row_lay.addWidget(self.lbl_status_value, 1)
+
+        detected_row, detected_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.space_s)
+        detected_row_lay.addWidget(self.lbl_detected_title, 0)
+        detected_row_lay.addWidget(self.lbl_detected_value, 1)
+
+        info_row, info_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
+        info_row_lay.addWidget(status_row, 1)
+        info_row_lay.addWidget(detected_row, 1)
+
+        self.spectrum = AudioSpectrumWidget(bars=18)
         meter_host, meter_lay = build_layout_host(parent=self, layout="vbox", margins=(0, 0, 0, 0), spacing=0)
         meter_host.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        meter_lay.addWidget(self.lbl_status, 0)
-        meter_lay.addSpacing(cfg.inline_spacing)
+        meter_lay.addWidget(info_row, 0)
+        meter_lay.addSpacing(cfg.space_s)
         meter_lay.addWidget(self.spectrum, 1)
 
         c_lay.addWidget(controls_left, 1)
@@ -287,6 +314,7 @@ class LivePanel(QtWidgets.QWidget):
         self.btn_clear.clicked.connect(self._clear_text)
 
         self.cmb_device.currentIndexChanged.connect(self._on_device_changed)
+        self.tg_output_mode.changed.connect(self._on_quick_option_changed)
         self.tg_mode.changed.connect(self._on_quick_option_changed)
         self.cmb_preset.currentIndexChanged.connect(self._on_quick_option_changed)
         self.cmb_src_lang.currentIndexChanged.connect(self._on_source_language_changed)
@@ -313,11 +341,11 @@ class LivePanel(QtWidgets.QWidget):
 
     def _apply_saved_options_to_ui(self) -> None:
         try:
-            set_combo_code(self.cmb_src_lang, self._session_source_language, fallback_code=Config.LANGUAGE_AUTO_VALUE)
+            self.cmb_src_lang.set_code(self._session_source_language)
         except Exception:
             pass
         try:
-            set_combo_code(self.cmb_tgt_lang, self._session_target_language, fallback_code=Config.LANGUAGE_DEFAULT_VALUE)
+            self.cmb_tgt_lang.set_code(self._session_target_language)
         except Exception:
             pass
 
@@ -328,6 +356,12 @@ class LivePanel(QtWidgets.QWidget):
             if str(self.cmb_preset.itemData(i) or "").strip().lower() == want_preset:
                 self.cmb_preset.setCurrentIndex(i)
                 break
+
+        want_output_mode = str(self._saved_output_mode or self.OUTPUT_MODE_CUMULATIVE).strip().lower()
+        if want_output_mode == self.OUTPUT_MODE_CUMULATIVE:
+            self.tg_output_mode.set_second_checked(True)
+        else:
+            self.tg_output_mode.set_first_checked(True)
 
         tr_ready = self._translation_engine_ready()
         self.tg_mode.set_second_enabled(bool(tr_ready))
@@ -355,22 +389,24 @@ class LivePanel(QtWidgets.QWidget):
         self._trigger_quick_options_autosave(sync_ui=False)
 
     def _on_source_language_changed(self, *_args) -> None:
-        self._session_source_language = combo_current_code(self.cmb_src_lang, default=Config.LANGUAGE_AUTO_VALUE)
+        self._session_source_language = self.cmb_src_lang.code()
         self._trigger_quick_options_autosave()
 
     def _on_target_language_changed(self, *_args) -> None:
-        self._session_target_language = combo_current_code(self.cmb_tgt_lang, default=Config.LANGUAGE_DEFAULT_VALUE)
+        self._session_target_language = self.cmb_tgt_lang.code()
         self._trigger_quick_options_autosave()
 
-    def _build_quick_options_payload(self) -> dict:
+    def _build_quick_options_payload(self) -> dict[str, Any]:
         mode = "transcribe_translate" if self._is_translate_mode_checked() else "transcribe"
         preset = str(self.cmb_preset.currentData() or "balanced").strip().lower() or "balanced"
+        output_mode = self._current_output_mode()
         device_name = str(self.cmb_device.currentData() or "").strip()
         show_source = bool(self._saved_show_source)
 
         return build_live_quick_options_payload(
             mode=mode,
             preset=preset,
+            output_mode=output_mode,
             device_name=device_name,
             show_source=show_source,
             source_language=self._session_source_language,
@@ -379,16 +415,19 @@ class LivePanel(QtWidgets.QWidget):
 
     def _on_quick_options_saved_snapshot(self, snap: object) -> None:
         try:
-            Config.update_from_snapshot(snap, sections=("app", "translation"))
+            Config.update_from_snapshot(cast(SettingsSnapshot, snap), sections=("app", "translation"))
         except Exception:
             pass
 
-        try:
-            self._saved_device_name = str(self.cmb_device.currentData() or "").strip()
-        except Exception:
-            pass
+        self._saved_device_name = Config.live_ui_device_name()
+        self._saved_preset = Config.live_ui_preset()
+        self._saved_mode = Config.live_ui_mode()
+        self._saved_output_mode = Config.live_ui_output_mode()
+        self._saved_show_source = Config.live_ui_show_source()
+        self._session_source_language = Config.translation_source_language()
+        self._session_target_language = Config.translation_target_language()
 
-    def _on_quick_options_save_error(self, key: str, params: dict) -> None:
+    def _on_quick_options_save_error(self, key: str, params: dict[str, Any]) -> None:
         dialogs.show_error(self, key=key, params=params or {})
 
     def _refresh_devices_clicked(self) -> None:
@@ -461,10 +500,8 @@ class LivePanel(QtWidgets.QWidget):
                 wk.resume()
             except Exception:
                 pass
-            self._state = self.STATE_LISTENING
             _LOG.debug("Live session resumed.")
-            self._set_status("status.listening")
-            self._update_buttons()
+            self._set_panel_state(self.STATE_LISTENING, status="status.listening")
 
     def _on_pause_clicked(self) -> None:
         if self._state != self.STATE_LISTENING:
@@ -478,17 +515,14 @@ class LivePanel(QtWidgets.QWidget):
         except Exception:
             pass
 
-        self._state = self.STATE_PAUSED
         _LOG.debug("Live session paused.")
-        self._set_status("status.paused")
-        self._update_buttons()
+        self._set_panel_state(self.STATE_PAUSED, status="status.paused")
 
     def _on_stop_clicked(self) -> None:
         _LOG.debug("Live session stop requested.")
         self._stop_live()
-        self._state = self.STATE_STOPPED
-        self._set_status("status.stopped")
-        self._update_buttons()
+        self.spectrum.clear()
+        self._set_panel_state(self.STATE_STOPPED, status="status.stopped")
 
     def _start_live_new_session(self) -> None:
         if not self._has_audio_devices:
@@ -509,49 +543,38 @@ class LivePanel(QtWidgets.QWidget):
 
         self._start_live_worker()
         _LOG.debug("Live session started.")
-        self._state = self.STATE_LISTENING
-        self._set_status("status.listening")
-        self._update_buttons()
+        self._set_panel_state(self.STATE_LISTENING, status="status.listening")
 
     def _start_live_worker(self) -> None:
         device_name = str(self.cmb_device.currentData() or "").strip()
-        src_lang = combo_current_code(self.cmb_src_lang, default=Config.LANGUAGE_AUTO_VALUE)
+        src_lang = self.cmb_src_lang.code()
 
         tr_ready = self._translation_engine_ready()
-        translate_requested = self._is_translate_mode_effective() and tr_ready
-        include_source = False
+        translate_requested = self._is_translate_mode_checked() and tr_ready
 
-        tgt_code = combo_current_code(self.cmb_tgt_lang, default=Config.LANGUAGE_DEFAULT_VALUE)
-        ui_lang = Translator.current_language()
-        cfg_target = str(Config.translation_cfg_dict().get("target_language") or "")
-        tr_rt = compute_translation_runtime(
+        tr_rt = self._translation_runtime(
             requested_enabled=translate_requested,
-            target_code=tgt_code,
-            ui_language=ui_lang,
-            cfg_target=cfg_target,
-            supported=translation_language_codes(),
+            target_code=self.cmb_tgt_lang.code(),
         )
         translate_enabled = tr_rt.enabled
         tgt_lang = tr_rt.target_language
 
-        preset = str(self.cmb_preset.currentData() or "balanced").strip().lower() or "balanced"
-        preset_map = {
-            "low_latency": (4, 3),
-            "balanced": (6, 4),
-            "high_context": (8, 6),
-        }
-        chunk_len_s, stride_len_s = preset_map.get(preset, (6, 4))
+        preset = Config.normalize_live_preset(self.cmb_preset.currentData() or Config.LIVE_DEFAULT_PRESET)
+        output_mode = self._current_output_mode()
+        self._session_output_mode = output_mode
+        live_profile = Config.live_runtime_profile(output_mode=output_mode, preset=preset)
 
         _LOG.debug(
-            "Live worker prepared. device=%s preset=%s translate_requested=%s translate_enabled=%s source_language=%s target_language=%s chunk_length_s=%s stride_length_s=%s",
+            "Live worker prepared. device=%s preset=%s output_mode=%s translate_requested=%s translate_enabled=%s source_language=%s target_language=%s chunk_length_s=%s stride_length_s=%s",
             device_name,
             preset,
+            output_mode,
             bool(translate_requested),
             bool(translate_enabled),
             src_lang,
             tgt_lang,
-            chunk_len_s,
-            stride_len_s,
+            int(live_profile.get("chunk_length_s", 0)),
+            int(live_profile.get("stride_length_s", 0)),
         )
         wk = LiveTranscriptionWorker(
             pipe=self.pipe,
@@ -559,9 +582,8 @@ class LivePanel(QtWidgets.QWidget):
             source_language=src_lang,
             target_language=tgt_lang,
             translate_enabled=translate_enabled,
-            include_source_in_translate=include_source,
-            chunk_length_s=chunk_len_s,
-            stride_length_s=stride_len_s,
+            preset_id=preset,
+            output_mode=output_mode,
         )
 
         def _connect(worker: LiveTranscriptionWorker) -> None:
@@ -570,12 +592,14 @@ class LivePanel(QtWidgets.QWidget):
             worker.detected_language.connect(self._on_detected_language)
             worker.source_text.connect(self._on_source_text)
             worker.target_text.connect(self._on_target_text)
+            worker.archive_source_text.connect(self._on_archive_source_text)
+            worker.archive_target_text.connect(self._on_archive_target_text)
             worker.spectrum.connect(self.spectrum.set_spectrum)
 
         self._live_runner.start(wk, connect=_connect, on_finished=self._on_live_thread_finished)
 
     def _stop_live(self) -> None:
-        self._live_runner.cancel()
+        self._live_runner.stop()
 
     def _on_live_thread_finished(self) -> None:
         if not self._has_audio_devices:
@@ -583,18 +607,22 @@ class LivePanel(QtWidgets.QWidget):
         elif self._state == self.STATE_STOPPED:
             self._set_status("status.stopped")
         else:
-            self._state = self.STATE_STOPPED
-            self._set_status("status.stopped")
+            self._set_panel_state(self.STATE_STOPPED, status="status.stopped", update_buttons=False)
 
+        self.spectrum.clear()
         _LOG.debug("Live worker finished. has_audio_devices=%s state=%s", bool(self._has_audio_devices), self._state)
         self._update_buttons()
 
     def _clear_text(self) -> None:
-        self._last_source = ""
-        self._last_target = ""
+        self._display_source = ""
+        self._display_target = ""
+        self._archive_source = ""
+        self._archive_target = ""
         self._applied_source = ""
         self._applied_target = ""
+        self._set_detected_language("")
         self._render_timer.stop()
+        self.spectrum.clear()
         self._apply_render_output(force=True)
         self._update_buttons()
 
@@ -660,7 +688,7 @@ class LivePanel(QtWidgets.QWidget):
             self.tgt_text_host.setVisible(is_translate)
 
         self.txt_src.setPlaceholderText(tr("live.placeholder.source"))
-        source_text = self._last_source or ""
+        source_text = self._current_render_source_text()
         if force or source_text != self._applied_source:
             self._set_text_edit_text(self.txt_src, source_text, force=force)
             self._applied_source = source_text
@@ -672,7 +700,7 @@ class LivePanel(QtWidgets.QWidget):
             return
 
         self.txt_tgt.setPlaceholderText(tr("live.placeholder.target"))
-        target_text = self._last_target or ""
+        target_text = self._current_render_target_text()
         if force or target_text != self._applied_target:
             self._set_text_edit_text(self.txt_tgt, target_text, force=force)
             self._applied_target = target_text
@@ -681,29 +709,9 @@ class LivePanel(QtWidgets.QWidget):
         if not (self._state == self.STATE_STOPPED and (not self._live_runner.is_running())):
             return
 
-        translate_requested = self._is_translate_mode_effective()
-        src_text = (self._last_source or "").strip()
-        tgt_text = (self._last_target or "").strip()
+        src_text, tgt_text = self._current_session_texts()
 
-        if not translate_requested:
-            if not src_text:
-                return
-            path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self,
-                tr("live.ctrl.save_transcript"),
-                Config.transcript_filename("txt"),
-                tr("live.save.file_filter"),
-            )
-            if not path:
-                return
-            try:
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(src_text)
-            except Exception as e:
-                self._set_status("status.error")
-                self.txt_src.setPlainText(tr("error.generic", detail=str(e)))
-            return
-
+        translate_requested = bool(tgt_text) or self._is_translate_mode_effective()
         if not (src_text or tgt_text):
             return
 
@@ -717,18 +725,12 @@ class LivePanel(QtWidgets.QWidget):
             return
 
         try:
-            from pathlib import Path
-            p = Path(path)
-            if p.suffix:
-                src_path = p.with_name(p.stem + "_og" + p.suffix)
-            else:
-                src_path = Path(str(p) + "_og")
-            main_content = tgt_text if tgt_text else src_text
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(main_content)
-            if src_text:
-                with open(str(src_path), "w", encoding="utf-8") as f:
-                    f.write(src_text)
+            TranscriptWriter.save_live_transcript(
+                target_path=path,
+                source_text=src_text,
+                target_text=tgt_text,
+                write_source_companion=bool(translate_requested),
+            )
         except Exception as e:
             self._set_status("status.error")
             self.txt_src.setPlainText(tr("error.generic", detail=str(e)))
@@ -736,39 +738,102 @@ class LivePanel(QtWidgets.QWidget):
     # ----- UI state -----
 
     def _translation_engine_ready(self) -> bool:
-        if bool(str((self._boot_ctx or {}).get("translation_error_key") or "").strip()):
-            return False
+        return translation_runtime_available(
+            boot_ctx=self._boot_ctx,
+            model_cfg=current_translation_model_cfg(),
+        )
 
-        try:
-            if Config.TRANSLATION_ENGINE_DIR.name == Config.MISSING_VALUE:
-                return False
-        except Exception:
-            return False
+    def _translation_runtime(
+        self,
+        *,
+        requested_enabled: bool | None = None,
+        target_code: str | None = None,
+    ) -> Any:
+        enabled = self._translation_engine_ready() if requested_enabled is None else bool(requested_enabled)
+        target = self.cmb_tgt_lang.code() if target_code is None else str(target_code or "")
+        return compute_translation_runtime(
+            requested_enabled=enabled,
+            target_code=target,
+            ui_language=Translator.current_language(),
+            cfg_target=Config.translation_target_language(),
+            supported=translation_language_codes(),
+        )
 
-        mcfg = Config.model_cfg_dict()
-        tcfg = mcfg.get("translation_model", {}) if isinstance(mcfg.get("translation_model"), dict) else {}
-        eng = str(tcfg.get("engine_name", "") or "").strip().lower()
-        if is_disabled_engine_name(eng):
-            return False
+    def _panel_control_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
+        return (
+            self.cmb_device,
+            self.tg_output_mode,
+            self.tg_mode,
+            self.cmb_preset,
+            self.cmb_src_lang,
+            self.cmb_tgt_lang,
+            self.btn_start,
+            self.btn_pause,
+            self.btn_stop,
+            self.btn_save,
+            self.btn_clear,
+        )
 
-        return True
+    def _set_panel_controls_enabled(self, enabled: bool) -> None:
+        for widget in self._panel_control_widgets():
+            widget.setEnabled(bool(enabled))
+
+    def _set_panel_state(self, state: str, *, status: str | None = None, update_buttons: bool = True) -> None:
+        self._state = str(state or self.STATE_STOPPED)
+        if status is not None:
+            self._set_status(status)
+        if update_buttons:
+            self._update_buttons()
+
+    def _current_output_mode(self) -> str:
+        if self._live_runner.is_running():
+            return Config.normalize_live_output_mode(self._session_output_mode)
+        if bool(self.tg_output_mode.is_second_checked()):
+            return self.OUTPUT_MODE_CUMULATIVE
+        return self.OUTPUT_MODE_STREAM
+
+    def _current_session_texts(self) -> tuple[str, str]:
+        if self._current_output_mode() == self.OUTPUT_MODE_STREAM:
+            return (
+                str(self._display_source or "").strip(),
+                str(self._display_target or "").strip(),
+            )
+        return (
+            str(self._archive_source or "").strip(),
+            str(self._archive_target or "").strip(),
+        )
+
+    def _current_render_source_text(self) -> str:
+        if self._current_output_mode() == self.OUTPUT_MODE_CUMULATIVE:
+            return self._archive_source or ""
+        return self._display_source or ""
+
+    def _current_render_target_text(self) -> str:
+        if self._current_output_mode() == self.OUTPUT_MODE_CUMULATIVE:
+            return self._archive_target or ""
+        return self._display_target or ""
+
+    @staticmethod
+    def _format_detected_language(lang_code: str) -> str:
+        code = str(lang_code or "").strip().lower()
+        if not code:
+            return "—"
+        label = language_display_name(code, ui_lang=Translator.current_language())
+        return str(label or code)
+
+    def _set_detected_language(self, lang_code: str) -> None:
+        code = str(lang_code or "").strip().lower()
+        self._detected_language_code = code
+        self.lbl_detected_value.setText(self._format_detected_language(code))
+
     def _is_translate_mode_checked(self) -> bool:
         return bool(self.tg_mode.is_second_checked())
 
     def _is_translate_mode_effective(self) -> bool:
-        if not self._translation_engine_ready() or not self._is_translate_mode_checked():
+        if not self._is_translate_mode_checked():
             return False
 
-        tgt_code = combo_current_code(self.cmb_tgt_lang, default=Config.LANGUAGE_DEFAULT_VALUE)
-        ui_lang = Translator.current_language()
-        cfg_target = str(Config.translation_cfg_dict().get("target_language") or "")
-        tr_rt = compute_translation_runtime(
-            requested_enabled=True,
-            target_code=tgt_code,
-            ui_language=ui_lang,
-            cfg_target=cfg_target,
-            supported=translation_language_codes(),
-        )
+        tr_rt = self._translation_runtime()
         return bool(tr_rt.enabled)
 
     def _log_availability_state(self, *, reason: str) -> None:
@@ -814,60 +879,71 @@ class LivePanel(QtWidgets.QWidget):
         key = str(msg or "").strip()
         self._status_key = key if key.startswith("status.") else ""
         if key.startswith("status."):
-            self.lbl_status.setText(tr(key))
+            self.lbl_status_value.setText(tr(key))
         else:
-            self.lbl_status.setText(key)
+            self.lbl_status_value.setText(key)
 
     def _can_change_settings(self) -> bool:
         return (not self._live_runner.is_running()) and self._state == self.STATE_STOPPED
+
+    def _update_save_clear_buttons(self, *, running: bool | None = None) -> None:
+        if running is None:
+            running = self._live_runner.is_running()
+
+        has_archive = bool(str(self._archive_source or "").strip() or str(self._archive_target or "").strip())
+        has_display = bool(str(self._display_source or "").strip() or str(self._display_target or "").strip())
+        idle_ready = self._state == self.STATE_STOPPED and (not running)
+        stream_mode = self._current_output_mode() == self.OUTPUT_MODE_STREAM
+
+        can_save = idle_ready and (has_display if stream_mode else has_archive)
+        can_clear = idle_ready and (has_display or has_archive)
+        self.btn_save.setEnabled(bool(can_save))
+        self.btn_clear.setEnabled(bool(can_clear))
+
+    def _sync_spectrum_state(self) -> None:
+        if self._status_key == "status.error":
+            self.spectrum.set_visual_state(AudioSpectrumWidget.STATE_ERROR)
+            return
+
+        if (not self._has_audio_devices) or self.pipe is None:
+            self.spectrum.clear()
+            self.spectrum.set_visual_state(AudioSpectrumWidget.STATE_DISABLED)
+            return
+
+        if self._state == self.STATE_LISTENING:
+            self.spectrum.set_visual_state(AudioSpectrumWidget.STATE_ACTIVE)
+            return
+
+        if self._state == self.STATE_PAUSED:
+            self.spectrum.set_visual_state(AudioSpectrumWidget.STATE_PAUSED)
+            return
+
+        self.spectrum.set_visual_state(AudioSpectrumWidget.STATE_IDLE)
 
     def _update_buttons(self) -> None:
         running = self._live_runner.is_running()
 
         if not self._has_audio_devices:
             self.btn_refresh_devices.setEnabled(True)
-
-            for w in (
-                self.cmb_device,
-                self.tg_mode,
-                self.cmb_preset,
-                self.cmb_src_lang,
-                self.cmb_tgt_lang,
-                self.btn_start,
-                self.btn_pause,
-                self.btn_stop,
-                self.btn_save,
-                self.btn_clear,
-            ):
-                w.setEnabled(False)
+            self._set_panel_controls_enabled(False)
 
             self._set_status("status.no_devices")
+            self._sync_spectrum_state()
             return
 
         if self.pipe is None:
             self.btn_refresh_devices.setEnabled(True)
-
-            for w in (
-                self.cmb_device,
-                self.tg_mode,
-                self.cmb_preset,
-                self.cmb_src_lang,
-                self.cmb_tgt_lang,
-                self.btn_start,
-                self.btn_pause,
-                self.btn_stop,
-                self.btn_save,
-                self.btn_clear,
-            ):
-                w.setEnabled(False)
+            self._set_panel_controls_enabled(False)
 
             self._set_status(tr("live.model.unavailable"))
+            self._sync_spectrum_state()
             return
 
         can_config = self._can_change_settings()
 
         self.cmb_device.setEnabled(can_config)
         self.btn_refresh_devices.setEnabled(can_config)
+        self.tg_output_mode.setEnabled(can_config)
         self.tg_mode.setEnabled(can_config)
         self.cmb_preset.setEnabled(can_config)
 
@@ -880,8 +956,8 @@ class LivePanel(QtWidgets.QWidget):
             except Exception:
                 pass
 
-        is_translate = self._is_translate_mode_effective()
-        self.cmb_tgt_lang.setEnabled(can_config and is_translate)
+        wants_translate = self._is_translate_mode_checked() and tr_ready
+        self.cmb_tgt_lang.setEnabled(can_config and wants_translate)
 
         if self._state == self.STATE_STOPPED:
             self.btn_start.setEnabled(not running)
@@ -896,17 +972,17 @@ class LivePanel(QtWidgets.QWidget):
             self.btn_pause.setEnabled(False)
             self.btn_stop.setEnabled(True)
 
-        can_save = self._state == self.STATE_STOPPED and (not running) and bool((self._last_source or "").strip() or (self._last_target or "").strip())
-        self.btn_save.setEnabled(can_save)
-        self.btn_clear.setEnabled(can_save)
+        self._update_save_clear_buttons(running=running)
+        self._sync_spectrum_state()
         self._log_availability_state(reason="buttons_updated")
 
     # ----- Worker events -----
 
-    def _on_worker_error(self, key: str, params: dict) -> None:
-        self._state = self.STATE_STOPPED
+    def _on_worker_error(self, key: str, params: dict[str, Any]) -> None:
+        self._set_panel_state(self.STATE_STOPPED, status="status.error", update_buttons=False)
         _LOG.debug("Live worker error received. key=%s params=%s", key, params)
-        self._set_status("status.error")
+        self.spectrum.clear()
+        self._sync_spectrum_state()
         dialogs.show_error(self, key=key, params=params)
         self._stop_live()
         self._update_buttons()
@@ -924,19 +1000,45 @@ class LivePanel(QtWidgets.QWidget):
         self._set_status(msg)
 
     def _on_detected_language(self, lang: str) -> None:
-        if lang and self._state == self.STATE_LISTENING:
-            self._set_status(tr("live.detected_language", lang=lang))
+        if not lang:
+            return
+        self._set_detected_language(lang)
 
     def _on_source_text(self, text: str) -> None:
-        text = text or ""
-        if text == self._last_source:
-            return
-        self._last_source = text
-        self._render_output()
+        self._set_live_text("_display_source", text, render_mode=self.OUTPUT_MODE_STREAM)
 
     def _on_target_text(self, text: str) -> None:
-        text = text or ""
-        if text == self._last_target:
+        self._set_live_text("_display_target", text, render_mode=self.OUTPUT_MODE_STREAM)
+
+    def _on_archive_source_text(self, text: str) -> None:
+        self._set_live_text(
+            "_archive_source",
+            text,
+            render_mode=self.OUTPUT_MODE_CUMULATIVE,
+            update_save_clear=True,
+        )
+
+    def _on_archive_target_text(self, text: str) -> None:
+        self._set_live_text(
+            "_archive_target",
+            text,
+            render_mode=self.OUTPUT_MODE_CUMULATIVE,
+            update_save_clear=True,
+        )
+
+    def _set_live_text(
+        self,
+        attr_name: str,
+        text: str,
+        *,
+        render_mode: str,
+        update_save_clear: bool = False,
+    ) -> None:
+        value = str(text or "")
+        if value == getattr(self, attr_name, ""):
             return
-        self._last_target = text
-        self._render_output()
+        setattr(self, attr_name, value)
+        if update_save_clear:
+            self._update_save_clear_buttons()
+        if self._current_output_mode() == render_mode:
+            self._render_output()

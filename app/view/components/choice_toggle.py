@@ -1,10 +1,12 @@
 # app/view/components/choice_toggle.py
 from __future__ import annotations
 
-from typing import Callable, Optional
-
 from PyQt5 import QtCore, QtGui, QtWidgets
-from app.view.ui_config import set_widget_style_role, ui
+
+from app.view.support.widget_effects import repolish_widget
+from app.view.support.widget_setup import set_widget_style_role
+from app.view.ui_config import ui
+
 
 class ChoiceToggle(QtWidgets.QWidget):
     """Two-option segmented toggle."""
@@ -16,9 +18,9 @@ class ChoiceToggle(QtWidgets.QWidget):
         *,
         first_text: str,
         second_text: str,
-        height: Optional[int] = None,
+        height: int | None = None,
         first_checked: bool = True,
-        parent: Optional[QtWidgets.QWidget] = None,
+        parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -33,8 +35,8 @@ class ChoiceToggle(QtWidgets.QWidget):
 
         for b in (self._btn_first, self._btn_second):
             b.setCheckable(True)
-            b.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-            b.setFocusPolicy(QtCore.Qt.NoFocus)
+            b.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
+            b.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
             b.setFixedHeight(h)
             b.setMinimumWidth(cfg.control_min_w)
 
@@ -67,13 +69,7 @@ class ChoiceToggle(QtWidgets.QWidget):
 
     @staticmethod
     def _repolish_segment(button: QtWidgets.QPushButton) -> None:
-        try:
-            style = button.style()
-            style.unpolish(button)
-            style.polish(button)
-            button.update()
-        except Exception:
-            pass
+        repolish_widget(button)
 
     def _on_toggled(self, _btn: QtWidgets.QAbstractButton, checked: bool) -> None:
         if checked:
@@ -89,18 +85,6 @@ class ChoiceToggle(QtWidgets.QWidget):
         dirty = bool(getattr(self, "_dirty_value", False))
         self._set_segment_dirty(self._btn_first, dirty and self._btn_first.isChecked())
         self._set_segment_dirty(self._btn_second, dirty and self._btn_second.isChecked())
-
-    # ----- Compatibility -----
-
-    def toggled(self, callback: Callable[[], None]) -> None:
-        """Compatibility helper used in SettingsPanel."""
-        self.changed.connect(callback)
-
-    def set_checked(self, checked: bool) -> None:
-        self.set_first_checked(bool(checked))
-
-    def is_checked(self) -> bool:
-        return self.is_first_checked()
 
     # ----- State -----
 

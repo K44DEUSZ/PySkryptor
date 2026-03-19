@@ -1,13 +1,11 @@
 # app/model/services/ai_models_service.py
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import platform
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Tuple, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
 from app.model.helpers.errors import AppError
@@ -17,148 +15,61 @@ _LOG = logging.getLogger(__name__)
 if TYPE_CHECKING:
     import torch
 
-
 # ----- Errors -----
 class ModelNotInstalledError(AppError):
     """Raised when a required local model directory is missing."""
 
     def __init__(self, key: str, path: Path) -> None:
-        super().__init__(key=str(key), params={"path": str(path)})
+        super().__init__(str(key), {"path": str(path)})
+
+# ----- Current model configs -----
+def _enrich_model_cfg(
+    model_cfg: dict[str, Any],
+    *,
+    task: str,
+    resolved_name: str = "",
+) -> dict[str, Any]:
+    cfg = dict(model_cfg) if isinstance(model_cfg, dict) else {}
+    engine_name = str(resolved_name or Config.active_engine_name(task=task) or cfg.get("engine_name", "") or "").strip()
+    if not engine_name or engine_name == Config.MISSING_VALUE:
+        return cfg
+
+    cfg["engine_name"] = engine_name
+    desc = Config.local_model_descriptor(engine_name)
+    if not desc:
+        return cfg
+
+    cfg["engine_model_type"] = str(desc.get("model_type", "") or "")
+    cfg["engine_signature"] = str(desc.get("signature", "") or "")
+    return cfg
 
 
-# ----- Local model catalog -----
-def _read_json_dict(path: Path) -> Dict[str, Any]:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return raw if isinstance(raw, dict) else {}
+def _raw_model_cfg_for_task(*, task: str) -> dict[str, Any]:
+    task_id = str(task or "").strip().lower()
+    if task_id == "translation":
+        return Config.translation_model_raw_cfg_dict()
+    return Config.transcription_model_raw_cfg_dict()
 
 
-def normalize_model_type(model_type: str) -> str:
-    return str(model_type or "").strip().lower()
+def _current_model_cfg(*, task: str) -> dict[str, Any]:
+    task_id = str(task or "").strip().lower()
+    return _enrich_model_cfg(_raw_model_cfg_for_task(task=task_id), task=task_id)
 
 
-def task_for_model_type(model_type: str) -> str:
-    norm = normalize_model_type(model_type)
-    if norm in Config.TRANSCRIPTION_MODEL_TYPES:
-        return "transcription"
-    if norm in Config.TRANSLATION_MODEL_TYPES:
-        return "translation"
-    return ""
+def current_transcription_model_cfg() -> dict[str, Any]:
+    """Return the active transcription model configuration with runtime metadata."""
+
+    return _current_model_cfg(task="transcription")
 
 
-def model_signature(config_data: Dict[str, Any]) -> str:
-    if not isinstance(config_data, dict) or not config_data:
-        return ""
+def current_translation_model_cfg() -> dict[str, Any]:
+    """Return the active translation model configuration with runtime metadata."""
 
-    stable = {
-        k: v
-        for k, v in config_data.items()
-        if str(k) not in ("_name_or_path", "transformers_version")
-    }
-    try:
-        payload = json.dumps(stable, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    except Exception:
-        return ""
-    return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest().lower()
-
-
-def local_model_descriptor(model_name: str) -> Dict[str, Any]:
-    name = str(model_name or "").strip()
-    if not name or name.startswith("__"):
-        return {}
-
-    model_dir = Config.AI_MODELS_DIR / name
-    if not model_dir.exists() or not model_dir.is_dir():
-        return {}
-
-    cfg_path = model_dir / Config.MODEL_CONFIG_FILE
-    if not cfg_path.exists() or not cfg_path.is_file():
-        return {}
-
-    cfg = _read_json_dict(cfg_path)
-    model_type = normalize_model_type(cfg.get("model_type", ""))
-    task = task_for_model_type(model_type)
-    signature = model_signature(cfg)
-
-    return {
-        "name": model_dir.name,
-        "path": model_dir,
-        "config_path": cfg_path,
-        "model_type": model_type,
-        "task": task,
-        "signature": signature,
-    }
-
-
-def local_model_descriptors() -> Tuple[Dict[str, Any], ...]:
-    if not Config.AI_MODELS_DIR.exists() or not Config.AI_MODELS_DIR.is_dir():
-        return tuple()
-
-    out: list[Dict[str, Any]] = []
-    for p in sorted(Config.AI_MODELS_DIR.iterdir(), key=lambda item: item.name.lower()):
-        if not p.is_dir() or p.name.startswith("__"):
-            continue
-        desc = local_model_descriptor(p.name)
-        if desc:
-            out.append(desc)
-    return tuple(out)
-
-
-def local_models_for_task(task: str) -> Tuple[Dict[str, Any], ...]:
-    wanted = str(task or "").strip().lower()
-    return tuple(d for d in local_model_descriptors() if str(d.get("task", "")) == wanted)
-
-
-def local_model_names_for_task(task: str) -> Tuple[str, ...]:
-    return tuple(str(d.get("name", "")) for d in local_models_for_task(task) if d.get("name"))
-
-
-def autoselect_engine_name(*, task: str) -> str:
-    for desc in local_models_for_task(task):
-        name = str(desc.get("name", "")).strip()
-        if name:
-            return name
-    return ""
-
-
-def resolve_engine_name(model_cfg: Dict[str, Any], *, task: str) -> str:
-    cfg = model_cfg if isinstance(model_cfg, dict) else {}
-    raw = str(cfg.get("engine_name", "none") or "none").strip()
-    low = raw.lower()
-
-    if is_disabled_engine_name(low):
-        return Config.MISSING_VALUE
-    if low == "auto":
-        pick = autoselect_engine_name(task=task)
-        return pick if pick else Config.MISSING_VALUE
-
-    desc = local_model_descriptor(raw)
-    if desc and str(desc.get("task", "")) == str(task or "").strip().lower():
-        return str(desc.get("name") or raw)
-
-    sig = str(cfg.get("engine_signature", "") or "").strip().lower()
-    model_type = normalize_model_type(cfg.get("engine_model_type", ""))
-    matches: list[str] = []
-    for cand in local_models_for_task(task):
-        cand_type = normalize_model_type(cand.get("model_type", ""))
-        cand_sig = str(cand.get("signature", "") or "").strip().lower()
-        if model_type and cand_type != model_type:
-            continue
-        if sig and cand_sig != sig:
-            continue
-        matches.append(str(cand.get("name", "")).strip())
-
-    if sig and len(matches) == 1:
-        return matches[0]
-    return Config.MISSING_VALUE
-
+    return _current_model_cfg(task="translation")
 
 # ----- Runtime helpers -----
-def is_disabled_engine_name(name: str) -> bool:
-    n = str(name or "").strip().lower()
-    return (not n) or n in ("none", "off", "disabled")
+def _is_disabled_engine_name(name: str) -> bool:
+    return Config.is_disabled_engine_name(name)
 
 
 def _require_dir(path: Path, *, error_key: str) -> None:
@@ -196,7 +107,7 @@ def _resolve_torch_dtype(dtype_id: str, device: Any) -> Any:
     return torch.float16
 
 
-def resolve_torch_device_dtype() -> Tuple[Any, Any]:
+def _resolve_torch_device_dtype() -> tuple[Any, Any]:
     device = _resolve_torch_device(getattr(Config, "DEVICE_ID", "cpu"))
     dtype = _resolve_torch_dtype(getattr(Config, "DTYPE_ID", "float32"), device)
     return device, dtype
@@ -233,31 +144,28 @@ class TranscriptionModelLoader:
     def pipeline(self) -> Any | None:
         return self._pipeline
 
-    def is_enabled(self) -> bool:
-        snap = Config.SETTINGS
-        if snap is None:
+    @staticmethod
+    def is_enabled() -> bool:
+        if Config.SETTINGS is None:
             return False
-        model_cfg = snap.model.get("transcription_model", {}) if isinstance(snap.model, dict) else {}
-        engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
-        return not is_disabled_engine_name(engine_name)
+        engine_name = Config.transcription_model_engine_name()
+        return not _is_disabled_engine_name(engine_name)
 
     def ensure_ready(self) -> Any | None:
-        snap = Config.SETTINGS
-        if snap is None:
+        if Config.SETTINGS is None:
             raise ConfigError("error.runtime.settings_not_initialized")
 
-        model_cfg = snap.model.get("transcription_model", {}) if isinstance(snap.model, dict) else {}
-        engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
-        if is_disabled_engine_name(engine_name):
+        engine_name = Config.transcription_model_engine_name()
+        if _is_disabled_engine_name(engine_name):
             self._pipeline = None
             return None
 
         model_path = Path(Config.TRANSCRIPTION_ENGINE_DIR)
         _require_dir(model_path, error_key="error.model.transcription_missing")
 
-        device, dtype = resolve_torch_device_dtype()
+        device, dtype = _resolve_torch_device_dtype()
 
-        low_cpu_mem_usage = bool(Config.ENGINE_LOW_CPU_MEM_USAGE)
+        low_cpu_mem_usage = bool(Config.engine_low_cpu_mem_usage())
         use_safetensors = bool(Config.USE_SAFETENSORS)
 
         _LOG.info("Loading transcription model '%s' from '%s'.", engine_name, model_path)
@@ -271,7 +179,6 @@ class TranscriptionModelLoader:
         )
 
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-        import torch
 
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
             str(model_path),
@@ -305,22 +212,20 @@ class TranscriptionModelLoader:
 class TranslationModelLoader:
     """Ensure the translation worker is ready."""
 
-    def is_enabled(self) -> bool:
-        snap = Config.SETTINGS
-        if snap is None:
+    @staticmethod
+    def is_enabled() -> bool:
+        if Config.SETTINGS is None:
             return False
-        model_cfg = snap.model.get("translation_model", {}) if isinstance(snap.model, dict) else {}
-        engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
-        return not is_disabled_engine_name(engine_name)
+        engine_name = Config.translation_model_engine_name()
+        return not _is_disabled_engine_name(engine_name)
 
-    def ensure_ready(self) -> bool:
-        snap = Config.SETTINGS
-        if snap is None:
+    @staticmethod
+    def ensure_ready() -> bool:
+        if Config.SETTINGS is None:
             raise ConfigError("error.runtime.settings_not_initialized")
 
-        model_cfg = snap.model.get("translation_model", {}) if isinstance(snap.model, dict) else {}
-        engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
-        if is_disabled_engine_name(engine_name):
+        engine_name = Config.translation_model_engine_name()
+        if _is_disabled_engine_name(engine_name):
             return False
 
         model_path = Path(Config.TRANSLATION_ENGINE_DIR)
@@ -336,7 +241,7 @@ class AIModelsService:
     """Centralized model readiness service (transcription + translation)."""
 
     @staticmethod
-    def apply_engine_runtime(engine: dict) -> None:
+    def apply_engine_runtime(engine: dict[str, Any]) -> None:
         """Resolve and apply runtime device/dtype flags for the current engine settings."""
 
         try:
@@ -358,7 +263,6 @@ class AIModelsService:
             pref_prec = str((engine or {}).get("precision", "auto") or "auto").strip().lower()
             allow_tf32 = bool((engine or {}).get("allow_tf32", False))
 
-            device_id = "cpu"
             if pref_dev in ("cpu",):
                 device_id = "cpu"
             elif pref_dev.startswith("cuda") or pref_dev in ("cuda", "gpu"):

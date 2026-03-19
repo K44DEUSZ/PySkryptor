@@ -46,7 +46,7 @@
     }
   },
   "ctrl": {
-    "add": "Hinzufügen",
+    "add": "Hinzufügen +",
     "cancel": "Abbrechen ✖️",
     "exit": "Beenden",
     "ok": "OK",
@@ -330,9 +330,9 @@
   },
   "live": {
     "ctrl": {
-      "clear": "Löschen",
+      "clear": "Löschen 🧹",
       "pause": "Pause ⏸️",
-      "refresh": "Geräte aktualisieren",
+      "refresh": "Aktualisieren 🔄",
       "save_transcript": "Speichern 💾",
       "start": "Start ▶️",
       "stop": "Stopp ⏹️"
@@ -344,7 +344,7 @@
     },
     "dialog": {
       "no_devices": {
-        "text": "Es wurden keine Audioeingabegeräte erkannt.\nSchließe ein Mikrofon an und versuche es erneut (Geräte aktualisieren).",
+        "text": "Es wurden keine Audioeingabegeräte erkannt.\nSchließe ein Mikrofon an und versuche es erneut (Aktualisieren 🔄).",
         "title": "Kein Mikrofon"
       }
     },
@@ -359,10 +359,22 @@
       "balanced": "Ausgewogen",
       "high_context": "Hoher Kontext",
       "label": "Voreinstellung",
-      "low_latency": "Niedrige Latenz"
+      "low_latency": "Niedrige Latenz",
+      "help": {
+        "low_latency": "Niedrigste Latenz und schnellste Aktualisierung auf Kosten eines kürzeren Kontexts.",
+        "balanced": "Ausgewogener Kompromiss zwischen Aktualisierungsgeschwindigkeit und Textstabilität.",
+        "high_context": "Größerer Kontext für stabileren Text auf Kosten höherer Latenz."
+      }
     },
     "save": {
       "file_filter": "Textdateien (*.txt);;Alle Dateien (*.*)"
+    },
+    "status_label": "Status:",
+    "detected_language_label": "Erkannte Sprache:",
+    "output_mode": {
+      "label": "Textmodus",
+      "stream": "Streaming-Transkription",
+      "cumulative": "Kumulative Transkription"
     }
   },
   "loading": {
