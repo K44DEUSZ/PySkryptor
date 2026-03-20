@@ -4,12 +4,14 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 __all__ = [
     "format_bytes",
     "format_hms",
     "normalize_lang_code",
     "sanitize_filename",
+    "sanitize_url_for_log",
     "is_youtube_url",
 ]
 
@@ -51,6 +53,27 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
         n = (stem[:allowed] + ext).strip(" .")
 
     return n or "file"
+
+
+def sanitize_url_for_log(url: str, *, max_len: int = 96) -> str:
+    """Return a compact, query-free URL safe for logs and diagnostics."""
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        parts = None
+    if parts is None or not (parts.scheme or parts.netloc):
+        text = raw
+    else:
+        netloc = parts.hostname or ""
+        if parts.port:
+            netloc = f"{netloc}:{parts.port}"
+        text = str(urlunsplit((parts.scheme, netloc, parts.path or "", "", "")))
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
 
 
 def is_youtube_url(url: str | None) -> bool:

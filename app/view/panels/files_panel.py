@@ -112,8 +112,9 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcribe_runner = TaskThreadRunner(self)
         self._transcribe_worker: TranscriptionWorker | None = None
 
-        self._meta_thread: QtCore.QThread | None = None
+        self._meta_runner = TaskThreadRunner(self)
         self._meta_worker: MediaProbeWorker | None = None
+        self._pending_meta_entries: list[dict[str, Any]] | None = None
         self._was_cancelled: bool = False
         self._cancel_notice_pending: bool = False
         self._conflict_apply_all_action: str | None = None
@@ -553,8 +554,8 @@ class FilesPanel(QtWidgets.QWidget):
             pass
 
         try:
-            if self._meta_thread and self._meta_worker:
-                self._meta_thread.requestInterruption()
+            if self._meta_runner.is_running():
+                self._meta_runner.cancel()
         except Exception:
             pass
 
@@ -941,9 +942,6 @@ class FilesPanel(QtWidgets.QWidget):
 
     # ----- Source row helpers -----
 
-    def _checkbox_at_row(self, row: int) -> QtWidgets.QCheckBox | None:
-        return self.tbl.checkbox_at(row, self.COL_CHECK)
-
     def _on_preview_requested(self, key: str) -> None:
         key = str(key or "").strip()
         if not key:
@@ -979,31 +977,17 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _update_audio_tracks(self, row: int, meta: dict[str, Any]) -> None:
         default_text = tr("down.select.audio_track.default")
-        lang_codes = self.tbl.update_audio_tracks(row=row, col=self.COL_LANG, meta=meta, default_text=default_text)
-
         internal_key = self.tbl.internal_key_at(row, self.COL_PATH)
         if internal_key:
-            w = self.tbl.combo_at(row, self.COL_LANG)
-            if isinstance(w, QtWidgets.QComboBox):
-                w.setProperty("internal_key", internal_key)
-                w.setProperty("lang_codes", lang_codes)
             self._audio_lang_by_key.setdefault(internal_key, None)
-            sel = self._audio_lang_by_key.get(internal_key)
-            if sel and isinstance(w, QtWidgets.QComboBox):
-                try:
-                    idx = list(lang_codes).index(sel) if sel in list(lang_codes) else -1
-                except Exception:
-                    idx = -1
-                if idx < 0:
-                    base = normalize_lang_code(sel, drop_region=True)
-                    for j, c in enumerate(list(lang_codes)):
-                        if c and normalize_lang_code(c, drop_region=True) == base:
-                            idx = j
-                            break
-                if idx >= 0:
-                    w.blockSignals(True)
-                    w.setCurrentIndex(int(idx))
-                    w.blockSignals(False)
+        self.tbl.update_audio_tracks(
+            row=row,
+            col=self.COL_LANG,
+            meta=meta,
+            default_text=default_text,
+            preferred_lang_code=self._audio_lang_by_key.get(internal_key) if internal_key else None,
+            internal_key=internal_key or None,
+        )
 
         self._update_buttons()
 
@@ -1026,9 +1010,7 @@ class FilesPanel(QtWidgets.QWidget):
                 self._display_path_by_key[display_url] = display_url
                 self._origin_src_by_key[display_url] = "url"
                 self._row_by_key[display_url] = r
-                w = self.tbl.combo_at(r, self.COL_LANG)
-                if isinstance(w, QtWidgets.QComboBox):
-                    w.setProperty("internal_key", display_url)
+                self.tbl.set_cell_internal_key(r, self.COL_LANG, display_url)
                 self._audio_lang_by_key.setdefault(display_url, None)
                 continue
 
@@ -1053,9 +1035,7 @@ class FilesPanel(QtWidgets.QWidget):
             if old_key in self._audio_lang_by_key:
                 self._audio_lang_by_key[new_key] = self._audio_lang_by_key.pop(old_key)
 
-            w = self.tbl.combo_at(r, self.COL_LANG)
-            if isinstance(w, QtWidgets.QComboBox):
-                w.setProperty("internal_key", new_key)
+            self.tbl.set_cell_internal_key(r, self.COL_LANG, new_key)
 
             self._transcript_by_key.pop(old_key, None)
 
@@ -1179,30 +1159,27 @@ class FilesPanel(QtWidgets.QWidget):
     def _start_metadata_for(self, keys: list[str]) -> None:
         if not keys:
             return
-        if self._meta_thread is not None:
-            try:
-                self._meta_thread.requestInterruption()
-            except Exception:
-                pass
 
         entries = []
         for k in keys:
             entries.append({"type": ("url" if is_url_source(k) else "file"), "value": k})
 
-        self._meta_thread = QtCore.QThread(self)
-        self._meta_worker = MediaProbeWorker(entries)
-        self._meta_worker.moveToThread(self._meta_thread)
+        self._pending_meta_entries = list(entries)
+        if self._meta_runner.is_running():
+            self._meta_runner.cancel()
+            return
+        self._start_meta_worker(entries)
 
-        self._meta_thread.started.connect(self._meta_worker.run)
-        self._meta_worker.table_ready.connect(self._on_meta_rows_ready)
-        self._meta_worker.item_error.connect(self._on_meta_item_error)
+    def _start_meta_worker(self, entries: list[dict[str, Any]]) -> None:
+        self._pending_meta_entries = None
+        worker = MediaProbeWorker(entries)
+        self._meta_worker = worker
 
-        self._meta_worker.finished.connect(self._meta_thread.quit)
-        self._meta_worker.finished.connect(self._meta_worker.deleteLater)
-        self._meta_thread.finished.connect(self._meta_thread.deleteLater)
-        self._meta_thread.finished.connect(self._on_meta_finished)
+        def _connect(wk: MediaProbeWorker) -> None:
+            wk.table_ready.connect(self._on_meta_rows_ready)
+            wk.item_error.connect(self._on_meta_item_error)
 
-        self._meta_thread.start()
+        self._meta_runner.start(worker, connect=_connect, on_finished=self._on_meta_finished)
 
     # ----- Source collection state -----
 
@@ -1254,35 +1231,34 @@ class FilesPanel(QtWidgets.QWidget):
 
     # ----- Source collection actions -----
 
+    def _source_state_maps(self) -> tuple[dict[str, Any], ...]:
+        return (
+            self._row_by_key,
+            self._transcript_by_key,
+            self._origin_src_by_key,
+            self._display_path_by_key,
+            self._audio_lang_by_key,
+            self._status_base_by_key,
+            self._pct_by_key,
+            self._error_by_key,
+            self._output_dir_by_key,
+        )
+
     def _discard_source_state(self, key: str) -> None:
         source_key = str(key or "").strip()
         if not source_key:
             return
         self._keys.discard(source_key)
-        self._row_by_key.pop(source_key, None)
-        self._transcript_by_key.pop(source_key, None)
-        self._origin_src_by_key.pop(source_key, None)
-        self._display_path_by_key.pop(source_key, None)
-        self._audio_lang_by_key.pop(source_key, None)
-        self._status_base_by_key.pop(source_key, None)
-        self._pct_by_key.pop(source_key, None)
-        self._error_by_key.pop(source_key, None)
-        self._output_dir_by_key.pop(source_key, None)
+        for mapping in self._source_state_maps():
+            mapping.pop(source_key, None)
 
     def _clear_source_collections(self) -> None:
         self._keys.clear()
-        self._row_by_key.clear()
-        self._transcript_by_key.clear()
-        self._origin_src_by_key.clear()
-        self._display_path_by_key.clear()
-        self._audio_lang_by_key.clear()
-        self._status_base_by_key.clear()
-        self._pct_by_key.clear()
-        self._error_by_key.clear()
-        self._output_dir_by_key.clear()
+        for mapping in self._source_state_maps():
+            mapping.clear()
 
     def _finalize_source_rows_changed(self) -> None:
-        self._refresh_order_numbers()
+        self.tbl.renumber_rows(self.COL_NO)
         self._update_buttons()
 
     def _try_parse_and_validate_manual_source(self) -> dict[str, Any] | None:
@@ -1369,12 +1345,6 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._finalize_source_rows_changed()
 
-    def _refresh_order_numbers(self) -> None:
-        for r in range(self.tbl.rowCount()):
-            it = self.tbl.item(r, self.COL_NO)
-            if it:
-                it.setText(str(r + 1))
-
     def _open_transcript_for_row(self, row: int) -> None:
         key = self.tbl.internal_key_at(row, self.COL_PATH)
         if not key:
@@ -1405,13 +1375,7 @@ class FilesPanel(QtWidgets.QWidget):
         p = Path(folder)
         if not p.exists() or not p.is_dir():
             return
-
-        exts = {e.lower() for e in Config.files_media_input_file_exts()}
-        files: list[str] = []
-        for fp in p.rglob("*"):
-            if fp.is_file() and fp.suffix.lower() in exts:
-                files.append(str(fp))
-        self._on_paths_dropped(files)
+        self._on_paths_dropped([str(p)])
 
     def _on_remove_selected(self) -> None:
         rows = self.tbl.rows_for_removal(self.COL_CHECK)
@@ -1576,8 +1540,11 @@ class FilesPanel(QtWidgets.QWidget):
         dialogs.show_error(self, err_key, params or {})
 
     def _on_meta_finished(self) -> None:
-        self._meta_thread = None
         self._meta_worker = None
+        pending = self._pending_meta_entries
+        self._pending_meta_entries = None
+        if pending:
+            QtCore.QTimer.singleShot(0, lambda entries=list(pending): self._start_meta_worker(entries))
 
     def _on_transcribe_finished(self) -> None:
         self.action_bar.reset()
@@ -1728,11 +1695,7 @@ class FilesPanel(QtWidgets.QWidget):
         row = self._row_by_key.get(str(key))
         if row is None:
             return
-        w = self.tbl.cellWidget(row, self.COL_PREVIEW)
-        if w:
-            btn = w.findChild(QtWidgets.QAbstractButton)
-            if btn:
-                btn.setProperty("internal_key", str(key))
+        self.tbl.set_cell_internal_key(row, self.COL_PREVIEW, str(key))
 
     # ----- Source retargeting / runtime map helpers -----
 
@@ -1764,9 +1727,8 @@ class FilesPanel(QtWidgets.QWidget):
         return display
 
     def _retarget_source_row_widgets(self, row: int, new_key: str) -> None:
-        w = self.tbl.combo_at(row, self.COL_LANG)
-        if isinstance(w, QtWidgets.QComboBox):
-            w.setProperty("internal_key", new_key)
+        self.tbl.set_cell_internal_key(row, self.COL_LANG, new_key)
+        self.tbl.set_cell_internal_key(row, self.COL_PREVIEW, new_key)
 
     def _apply_source_row_path_display(self, row: int, new_key: str, display: str) -> None:
         it_path = self.tbl.item(row, self.COL_PATH)

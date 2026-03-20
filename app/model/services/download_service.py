@@ -11,10 +11,14 @@ from typing import Any, Callable
 
 import yt_dlp
 
-from app.controller.platform.logging import sanitize_url_for_log
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.errors import AppError, OperationCancelled
-from app.model.helpers.string_utils import sanitize_filename, normalize_lang_code, is_youtube_url
+from app.model.helpers.string_utils import (
+    is_youtube_url,
+    normalize_lang_code,
+    sanitize_filename,
+    sanitize_url_for_log,
+)
 
 _LOG = logging.getLogger(__name__)
 

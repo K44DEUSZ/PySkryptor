@@ -4,7 +4,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 # ----- Bootstrap -----
 if __package__ in (None, ""):
     _root_dir = Path(__file__).resolve().parents[1]

@@ -12,7 +12,6 @@ from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, TextIO
-from urllib.parse import urlsplit, urlunsplit
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
@@ -32,27 +31,6 @@ class LoggingContext:
     logs_dir: Path
     app_log_path: Path
     crash_log_path: Path
-
-
-def sanitize_url_for_log(url: str, *, max_len: int = 96) -> str:
-    raw = str(url or "").strip()
-    if not raw:
-        return ""
-    try:
-        parts = urlsplit(raw)
-    except ValueError:
-        parts = None
-    if parts is None or not (parts.scheme or parts.netloc):
-        text = raw
-    else:
-        netloc = parts.hostname or ""
-        if parts.port:
-            netloc = f"{netloc}:{parts.port}"
-        text = str(urlunsplit((parts.scheme, netloc, parts.path or "", "", "")))
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 3] + "..."
-
 
 class LoggingSetup:
     """File logging bootstrap + crash hooks."""

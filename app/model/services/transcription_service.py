@@ -6,13 +6,10 @@ import shutil
 import time
 import wave
 
-import numpy as np
-import torch
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from app.controller.platform.logging import sanitize_url_for_log
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.errors import AppError, OperationCancelled
 from app.model.helpers.chunking import (
@@ -20,8 +17,15 @@ from app.model.helpers.chunking import (
     iter_wav_mono_chunks,
     normalize_chunk_params,
 )
-from app.model.helpers.output_resolver import OutputResolver
-from app.model.helpers.string_utils import sanitize_filename
+from app.model.helpers.output_resolver import OutputDirectoryResolution, OutputResolver
+from app.model.helpers.string_utils import sanitize_filename, sanitize_url_for_log
+from app.model.helpers.transcription_runtime import (
+    audio_has_meaningful_signal,
+    detect_language_from_pipe_runtime,
+    debug_source_key,
+    extract_detected_language_from_result,
+    normalize_detected_language,
+)
 from app.model.io.audio_extractor import AudioExtractor
 from app.model.io.file_manager import FileManager
 from app.model.io.media_probe import is_url_source
@@ -227,261 +231,6 @@ class _ProgressTracker:
         self._last_pct = pct
         self._cb(pct)
 
-# ----- Shared audio / language helpers -----
-def audio_rms_level(audio: Any) -> float:
-    try:
-        arr = np.asarray(audio, dtype=np.float32).reshape(-1)
-    except Exception:
-        return 0.0
-    if arr.size == 0:
-        return 0.0
-    return float(np.sqrt(np.mean(np.square(arr), dtype=np.float64)))
-
-
-def _audio_signal_profile(audio: Any, *, sr: int, floor: float) -> tuple[float, float, float]:
-    try:
-        arr = np.asarray(audio, dtype=np.float32).reshape(-1)
-    except Exception:
-        return 0.0, 0.0, 0.0
-    if arr.size == 0:
-        return 0.0, 0.0, 0.0
-
-    abs_arr = np.abs(arr, dtype=np.float32)
-    active = abs_arr >= max(0.0, float(floor))
-    active_ratio = float(np.mean(active, dtype=np.float64))
-    active_ms = 0.0 if sr <= 0 else (float(np.count_nonzero(active)) / float(sr)) * 1000.0
-    return audio_rms_level(arr), active_ratio, active_ms
-
-
-def audio_has_meaningful_signal(
-    audio: Any,
-    *,
-    sr: int,
-    rms_min: float,
-    activity_floor: float,
-    active_ratio_min: float,
-    active_ms_min: float,
-) -> bool:
-    rms, active_ratio, active_ms = _audio_signal_profile(audio, sr=sr, floor=activity_floor)
-    return bool(
-        rms >= float(rms_min)
-        and active_ratio >= float(active_ratio_min)
-        and active_ms >= float(active_ms_min)
-    )
-
-
-def _normalize_detected_language(lang: str) -> str:
-    lang = str(lang or '').strip().lower().replace('_', '-')
-    lang = lang.split('-', 1)[0]
-    try:
-        from transformers.models.whisper import tokenization_whisper
-
-        languages = getattr(tokenization_whisper, "LANGUAGES", {})
-        inv = {str(value).lower(): str(key) for key, value in dict(languages).items()}
-        return inv.get(lang, lang)
-    except Exception:
-        return lang
-
-
-def _normalize_whisper_language_key(value: Any) -> str:
-    key = str(value or '').strip().lower()
-    if key.startswith('<|') and key.endswith('|>'):
-        key = key[2:-2]
-    key = key.replace('_', '-').split('-', 1)[0]
-    return _normalize_detected_language(key)
-
-
-def extract_detected_language_from_result(out: dict[str, Any]) -> str:
-    lang = str(out.get('language') or '').strip().lower()
-    if lang:
-        return _normalize_detected_language(lang)
-
-    chunks = out.get('chunks')
-    if isinstance(chunks, list) and chunks:
-        lang = str(chunks[0].get('language') or '').strip().lower()
-        if lang:
-            return _normalize_detected_language(lang)
-
-    return ''
-
-
-def _resolve_whisper_runtime(pipe: Any) -> tuple[Any, Any, Any]:
-    fe = getattr(pipe, 'feature_extractor', None) or getattr(getattr(pipe, 'processor', None), 'feature_extractor', None)
-    tok = getattr(pipe, 'tokenizer', None) or getattr(getattr(pipe, 'processor', None), 'tokenizer', None)
-    model = getattr(pipe, 'model', None)
-    return fe, tok, model
-
-
-def _resolve_whisper_language_token_map(tokenizer: Any) -> dict[str, int]:
-    lang_to_id = getattr(tokenizer, 'lang_to_id', None)
-    resolved: dict[str, int] = {}
-
-    if isinstance(lang_to_id, dict) and lang_to_id:
-        for code, token_id in lang_to_id.items():
-            norm = _normalize_whisper_language_key(code)
-            if not norm:
-                continue
-            try:
-                resolved[norm] = int(token_id)
-            except Exception:
-                continue
-        if resolved:
-            return resolved
-
-    try:
-        vocab = tokenizer.get_vocab()
-    except Exception:
-        vocab = getattr(tokenizer, 'vocab', {}) or {}
-
-    if not isinstance(vocab, dict):
-        return resolved
-
-    for token, token_id in vocab.items():
-        if not isinstance(token, str):
-            continue
-        norm = _normalize_whisper_language_key(token)
-        if not norm:
-            continue
-        if not norm.isalpha() or not (2 <= len(norm) <= 5):
-            continue
-        try:
-            resolved[norm] = int(token_id)
-        except Exception:
-            continue
-    return resolved
-
-
-def _build_whisper_input_features(*, feature_extractor: Any, model: Any, audio: Any, sr: int) -> Any:
-    inputs = feature_extractor(audio, sampling_rate=int(sr), return_tensors='pt')
-    input_features = inputs.get('input_features')
-    if input_features is None:
-        return None
-
-    device = getattr(model, 'device', None)
-    try:
-        dtype = next(model.parameters()).dtype
-    except Exception:
-        dtype = None
-
-    if device is None and dtype is None:
-        return input_features
-
-    try:
-        move_kwargs: dict[str, Any] = {}
-        if device is not None:
-            move_kwargs['device'] = device
-        if dtype is not None and torch.is_floating_point(input_features):
-            move_kwargs['dtype'] = dtype
-        return input_features.to(**move_kwargs) if move_kwargs else input_features
-    except Exception:
-        return input_features
-
-
-def _select_language_from_logits(logits: Any, *, lang_to_id: dict[str, int]) -> str:
-    if logits is None or not lang_to_id:
-        return ''
-
-    try:
-        ids = torch.tensor(list(lang_to_id.values()), device=logits.device)
-        if ids.numel() <= 0:
-            return ''
-        scores = logits.index_select(-1, ids)
-        best_idx = int(torch.argmax(scores, dim=-1).item())
-        best_id = int(ids[best_idx].item())
-        inv = {int(token_id): str(code) for code, token_id in lang_to_id.items()}
-        return inv.get(best_id, '')
-    except Exception:
-        best_lang = ''
-        best_score = None
-        for code, token_id in lang_to_id.items():
-            try:
-                score = float(logits[0, int(token_id)].item())
-            except Exception:
-                continue
-            if best_score is None or score > best_score:
-                best_lang = str(code)
-                best_score = score
-        return best_lang
-
-
-def _detect_language_from_decoder_runtime(*, model: Any, tokenizer: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
-    try:
-        sot_id = tokenizer.convert_tokens_to_ids('<|startoftranscript|>')
-        if sot_id is None:
-            return ''
-        decoder_input_ids = torch.tensor([[int(sot_id)]], device=input_features.device)
-        with torch.no_grad():
-            out = model(input_features=input_features, decoder_input_ids=decoder_input_ids)
-            logits = getattr(out, 'logits', None)
-        if logits is None:
-            return ''
-        return _select_language_from_logits(logits[:, -1, :], lang_to_id=lang_to_id)
-    except Exception:
-        return ''
-
-
-def _detect_language_from_encoder_runtime(*, model: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
-    try:
-        encoder = model.get_encoder()
-        proj_out = getattr(model, 'proj_out', None)
-        if encoder is None or proj_out is None:
-            return ''
-        with torch.no_grad():
-            enc = encoder(input_features)
-            hidden = enc.last_hidden_state if hasattr(enc, 'last_hidden_state') else enc
-            logits = proj_out(hidden)
-        return _select_language_from_logits(logits[:, 0, :], lang_to_id=lang_to_id)
-    except Exception:
-        return ''
-
-
-def _debug_source_key(value: str) -> str:
-    text = str(value or '').strip()
-    if not text:
-        return ''
-    if is_url_source(text):
-        return sanitize_url_for_log(text)
-    try:
-        return Path(text).name or text
-    except Exception:
-        return text
-
-
-def detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
-    """Detect language from Whisper logits when the pipeline output omits it."""
-    try:
-        fe, tok, model = _resolve_whisper_runtime(pipe)
-        if fe is None or tok is None or model is None:
-            return ''
-
-        lang_to_id = _resolve_whisper_language_token_map(tok)
-        if not lang_to_id:
-            return ''
-
-        input_features = _build_whisper_input_features(
-            feature_extractor=fe,
-            model=model,
-            audio=audio,
-            sr=sr,
-        )
-        if input_features is None:
-            return ''
-
-        detected = _detect_language_from_decoder_runtime(
-            model=model,
-            tokenizer=tok,
-            input_features=input_features,
-            lang_to_id=lang_to_id,
-        )
-        if not detected:
-            detected = _detect_language_from_encoder_runtime(
-                model=model,
-                input_features=input_features,
-                lang_to_id=lang_to_id,
-            )
-        return _normalize_detected_language(detected)
-    except Exception:
-        return ''
 
 # ----- Transcription service -----
 class TranscriptionService:
@@ -661,15 +410,182 @@ class TranscriptionService:
         _LOG.debug(
             "Transcription materialize failed. session_id=%s source_key=%s detail=%s",
             runtime.session_id,
-            _debug_source_key(request.source_key),
+            debug_source_key(request.source_key),
             str(error),
         )
+        TranscriptionService._emit_item_error(
+            callbacks=callbacks,
+            key=request.source_key,
+            error=error,
+        )
+
+    @staticmethod
+    def _emit_item_error(
+        *,
+        callbacks: _SessionCallbacks,
+        key: str,
+        error: Exception,
+    ) -> None:
         err_key = getattr(error, "key", None)
         err_params = getattr(error, "params", None)
         if err_key:
-            callbacks.item_error(request.source_key, str(err_key), dict(err_params or {}))
+            callbacks.item_error(key, str(err_key), dict(err_params or {}))
             return
-        callbacks.item_error(request.source_key, "error.generic", {"detail": str(error)})
+        callbacks.item_error(key, "error.generic", {"detail": str(error)})
+
+    @staticmethod
+    def _report_item_stage_progress(
+        *,
+        tracker: _ProgressTracker,
+        key: str,
+        stage: str,
+        pct: int,
+        item_progress: ItemProgressFn | None = None,
+    ) -> None:
+        pct = int(pct)
+        tracker.update(key, stage, pct)
+        if item_progress is not None:
+            item_progress(key, pct)
+
+    @staticmethod
+    def _build_stage_progress_callback(
+        *,
+        tracker: _ProgressTracker,
+        key: str,
+        stage: str,
+        item_progress: ItemProgressFn | None = None,
+    ) -> Callable[..., None]:
+        def _report(pct: int, *_args: Any) -> None:
+            TranscriptionService._report_item_stage_progress(
+                tracker=tracker,
+                key=key,
+                stage=stage,
+                pct=pct,
+                item_progress=item_progress,
+            )
+
+        return _report
+
+    @staticmethod
+    def _resolve_item_output_dir(
+        *,
+        key: str,
+        src_path: Path,
+        forced_stem: str | None,
+        apply_all: tuple[str, str] | None,
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+    ) -> OutputDirectoryResolution:
+        stem = sanitize_filename(forced_stem or src_path.stem)
+        resolution = OutputResolver.resolve_directory(
+            stem=stem,
+            conflict_resolver=callbacks.conflict_resolver,
+            apply_all=apply_all,
+        )
+        if resolution.skipped or resolution.output_dir is None:
+            _LOG.debug(
+                "Transcription output conflict resolved. session_id=%s source_key=%s action=skip",
+                runtime.session_id,
+                debug_source_key(key),
+            )
+            callbacks.item_status(key, "status.skipped")
+            runtime.tracker.mark_done(key)
+            return resolution
+
+        _LOG.debug(
+            "Transcription output directory resolved. session_id=%s source_key=%s out_dir=%s stem=%s",
+            runtime.session_id,
+            debug_source_key(key),
+            Path(resolution.output_dir).name,
+            resolution.stem,
+        )
+        callbacks.item_output_dir(key, str(resolution.output_dir))
+        return resolution
+
+    def _prepare_item_audio(
+        self,
+        *,
+        key: str,
+        src_path: Path,
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+    ) -> tuple[Path, float]:
+        self._report_item_stage_progress(
+            tracker=runtime.tracker,
+            key=key,
+            stage="preprocess",
+            pct=0,
+        )
+        preprocess_started = time.perf_counter()
+        tmp_wav = FileManager.ensure_tmp_wav(src_path, cancel_check=callbacks.cancel_check)
+        self._report_item_stage_progress(
+            tracker=runtime.tracker,
+            key=key,
+            stage="preprocess",
+            pct=100,
+        )
+
+        with wave.open(str(tmp_wav), "rb") as wav_file:
+            frames = wav_file.getnframes()
+            rate = wav_file.getframerate()
+            dur_s = (float(frames) / float(rate)) if rate > 0 else 0.0
+
+        runtime.tracker.set_weight(key, weight=float(max(15.0, min(3600.0, dur_s))))
+        _LOG.debug(
+            "Transcription stage finished. session_id=%s source_key=%s stage=preprocess duration_ms=%s tmp_name=%s duration_s=%s",
+            runtime.session_id,
+            debug_source_key(key),
+            int((time.perf_counter() - preprocess_started) * 1000.0),
+            tmp_wav.name,
+            round(dur_s, 2),
+        )
+        return tmp_wav, dur_s
+
+    def _save_item_outputs(
+        self,
+        *,
+        key: str,
+        stem: str,
+        out_dir: Path,
+        merged_text: str,
+        translated_text: str,
+        translated_segments: list[dict[str, Any]] | None,
+        segments: list[dict[str, Any]],
+        runtime: _SessionRuntime,
+        callbacks: _SessionCallbacks,
+    ) -> Path | None:
+        callbacks.item_status(key, "status.saving")
+        save_started = time.perf_counter()
+        primary = self._write_outputs(
+            key=key,
+            stem=stem,
+            out_dir=out_dir,
+            merged_text=merged_text,
+            translated_text=translated_text,
+            translated_segments=translated_segments,
+            segments=segments,
+            output_mode_ids=runtime.options.output_mode_ids,
+            transcript_ready=callbacks.transcript_ready,
+            item_output_dir_cb=callbacks.item_output_dir,
+            item_error_cb=callbacks.item_error,
+            cancel_check=callbacks.cancel_check,
+        )
+        self._report_item_stage_progress(
+            tracker=runtime.tracker,
+            key=key,
+            stage="save",
+            pct=100,
+        )
+        runtime.tracker.mark_done(key)
+        _LOG.debug(
+            "Transcription stage finished. session_id=%s source_key=%s stage=save duration_ms=%s output_dir=%s primary_saved=%s",
+            runtime.session_id,
+            debug_source_key(key),
+            int((time.perf_counter() - save_started) * 1000.0),
+            out_dir.name,
+            bool(primary is not None),
+        )
+        return primary
 
     def _count_session_sources(self, *, entries: list[SourceEntry]) -> tuple[int, int]:
         local_count = 0
@@ -868,55 +784,29 @@ class TranscriptionService:
         if callbacks.cancel_check():
             return _ItemProcessResult(False, False, True, apply_all)
 
-        stem = sanitize_filename(forced_stem or src_path.stem)
-        resolution = OutputResolver.resolve_directory(
-            stem=stem,
-            conflict_resolver=callbacks.conflict_resolver,
+        resolution = self._resolve_item_output_dir(
+            key=key,
+            src_path=src_path,
+            forced_stem=forced_stem,
             apply_all=apply_all,
+            runtime=runtime,
+            callbacks=callbacks,
         )
         if resolution.skipped or resolution.output_dir is None:
-            _LOG.debug(
-                "Transcription output conflict resolved. session_id=%s source_key=%s action=skip",
-                runtime.session_id,
-                _debug_source_key(key),
-            )
-            callbacks.item_status(key, "status.skipped")
-            runtime.tracker.mark_done(key)
             return _ItemProcessResult(False, False, False, apply_all)
 
         out_dir = resolution.output_dir
         stem = resolution.stem
         apply_all = resolution.apply_all
-        _LOG.debug(
-            "Transcription output directory resolved. session_id=%s source_key=%s out_dir=%s stem=%s",
-            runtime.session_id,
-            _debug_source_key(key),
-            Path(out_dir).name,
-            stem,
-        )
-        callbacks.item_output_dir(key, str(out_dir))
 
         tmp_wav: Path | None = None
         try:
             callbacks.item_status(key, "status.processing")
-            runtime.tracker.update(key, "preprocess", 0)
-            preprocess_started = time.perf_counter()
-            tmp_wav = FileManager.ensure_tmp_wav(src_path, cancel_check=callbacks.cancel_check)
-            runtime.tracker.update(key, "preprocess", 100)
-
-            with wave.open(str(tmp_wav), "rb") as wav_file:
-                frames = wav_file.getnframes()
-                rate = wav_file.getframerate()
-                dur_s = (float(frames) / float(rate)) if rate > 0 else 0.0
-
-            runtime.tracker.set_weight(key, weight=float(max(15.0, min(3600.0, dur_s))))
-            _LOG.debug(
-                "Transcription stage finished. session_id=%s source_key=%s stage=preprocess duration_ms=%s tmp_name=%s duration_s=%s",
-                runtime.session_id,
-                _debug_source_key(key),
-                int((time.perf_counter() - preprocess_started) * 1000.0),
-                tmp_wav.name if tmp_wav is not None else "",
-                round(dur_s, 2),
+            tmp_wav, _ = self._prepare_item_audio(
+                key=key,
+                src_path=src_path,
+                runtime=runtime,
+                callbacks=callbacks,
             )
 
             callbacks.item_status(key, "status.transcribing")
@@ -937,7 +827,7 @@ class TranscriptionService:
             _LOG.debug(
                 "Transcription stage finished. session_id=%s source_key=%s stage=transcribe duration_ms=%s text_chars=%s segments=%s detected_lang=%s",
                 runtime.session_id,
-                _debug_source_key(key),
+                debug_source_key(key),
                 int((time.perf_counter() - transcribe_started) * 1000.0),
                 len(merged_text),
                 len(segments),
@@ -953,31 +843,16 @@ class TranscriptionService:
                 callbacks=callbacks,
             )
 
-            callbacks.item_status(key, "status.saving")
-            save_started = time.perf_counter()
-            primary = self._write_outputs(
+            primary = self._save_item_outputs(
                 key=key,
                 stem=stem,
-                out_dir=Path(out_dir),
+                out_dir=out_dir,
                 merged_text=merged_text,
                 translated_text=translated_text,
                 translated_segments=translated_segments,
                 segments=segments,
-                output_mode_ids=runtime.options.output_mode_ids,
-                transcript_ready=callbacks.transcript_ready,
-                item_output_dir_cb=callbacks.item_output_dir,
-                item_error_cb=callbacks.item_error,
-                cancel_check=callbacks.cancel_check,
-            )
-            runtime.tracker.update(key, "save", 100)
-            runtime.tracker.mark_done(key)
-            _LOG.debug(
-                "Transcription stage finished. session_id=%s source_key=%s stage=save duration_ms=%s output_dir=%s primary_saved=%s",
-                runtime.session_id,
-                _debug_source_key(key),
-                int((time.perf_counter() - save_started) * 1000.0),
-                Path(out_dir).name,
-                bool(primary is not None),
+                runtime=runtime,
+                callbacks=callbacks,
             )
 
             if primary is not None:
@@ -989,12 +864,7 @@ class TranscriptionService:
         except OperationCancelled:
             return _ItemProcessResult(False, False, True, apply_all)
         except Exception as ex:
-            err_key = getattr(ex, "key", None)
-            err_params = getattr(ex, "params", None)
-            if err_key:
-                callbacks.item_error(key, str(err_key), dict(err_params or {}))
-            else:
-                callbacks.item_error(key, "error.generic", {"detail": str(ex)})
+            self._emit_item_error(callbacks=callbacks, key=key, error=ex)
             callbacks.item_status(key, "status.error")
             return _ItemProcessResult(False, True, False, apply_all)
         finally:
@@ -1015,8 +885,13 @@ class TranscriptionService:
         had_errors = False
 
         if not runtime.options.want_translate:
-            runtime.tracker.update(key, "translate", 100)
-            callbacks.item_progress(key, 100)
+            self._report_item_stage_progress(
+                tracker=runtime.tracker,
+                key=key,
+                stage="translate",
+                pct=100,
+                item_progress=callbacks.item_progress,
+            )
             return translated_text, translated_segments, had_errors
 
         callbacks.item_status(key, "status.translating")
@@ -1025,7 +900,7 @@ class TranscriptionService:
         _LOG.debug(
             "Translation source language resolved. session_id=%s source_key=%s default_lang=%s detected_lang=%s resolved=%s",
             runtime.session_id,
-            _debug_source_key(key),
+            debug_source_key(key),
             runtime.options.default_lang or "",
             detected_lang or "",
             src_lang or "",
@@ -1048,24 +923,30 @@ class TranscriptionService:
                 translated_text = ""
             else:
                 if runtime.options.want_timestamps and segments:
-                    def _report_translate_progress(pct: int) -> None:
-                        runtime.tracker.update(key, "translate", pct)
-                        callbacks.item_progress(key, int(pct))
-
                     translated_segments = self._translate_segments(
                         segments=segments,
                         src_lang=src_lang,
                         tgt_lang=runtime.options.tgt_lang,
                         cancel_check=callbacks.cancel_check,
-                        progress_cb=_report_translate_progress,
+                        progress_cb=self._build_stage_progress_callback(
+                            tracker=runtime.tracker,
+                            key=key,
+                            stage="translate",
+                            item_progress=callbacks.item_progress,
+                        ),
                     )
 
-        runtime.tracker.update(key, "translate", 100)
-        callbacks.item_progress(key, 100)
+        self._report_item_stage_progress(
+            tracker=runtime.tracker,
+            key=key,
+            stage="translate",
+            pct=100,
+            item_progress=callbacks.item_progress,
+        )
         _LOG.debug(
             "Transcription stage finished. session_id=%s source_key=%s stage=translate duration_ms=%s text_chars=%s segments=%s",
             runtime.session_id,
-            _debug_source_key(key),
+            debug_source_key(key),
             int((time.perf_counter() - translate_started) * 1000.0),
             len(translated_text),
             len(translated_segments or []),
@@ -1148,9 +1029,12 @@ class TranscriptionService:
 
         _LOG.debug("Transcription URL materialization started. source_key=%s kind=%s ext=%s keep_download=%s audio_lang=%s", safe_url, kind, ext, bool(keep), request.audio_lang or "")
 
-        def on_dl(pct: int, _stage: str = "") -> None:
-            runtime.tracker.update(old_key, "download", pct)
-            callbacks.item_progress(old_key, pct)
+        on_dl = self._build_stage_progress_callback(
+            tracker=runtime.tracker,
+            key=old_key,
+            stage="download",
+            item_progress=callbacks.item_progress,
+        )
 
         callbacks.item_status(old_key, "status.downloading")
         out_dir = FileManager.downloads_dir() if keep else FileManager.url_tmp_dir()
@@ -1176,9 +1060,14 @@ class TranscriptionService:
         new_key = str(dst)
         callbacks.item_path_update(old_key, new_key)
         runtime.tracker.rename_key(old_key, new_key)
-        runtime.tracker.update(new_key, "download", 100)
-        callbacks.item_progress(new_key, 100)
-        _LOG.debug("Transcription URL materialization finished. source_key=%s new_key=%s duration_ms=%s", safe_url, _debug_source_key(new_key), int((time.perf_counter() - download_started) * 1000.0))
+        self._report_item_stage_progress(
+            tracker=runtime.tracker,
+            key=new_key,
+            stage="download",
+            pct=100,
+            item_progress=callbacks.item_progress,
+        )
+        _LOG.debug("Transcription URL materialization finished. source_key=%s new_key=%s duration_ms=%s", safe_url, debug_source_key(new_key), int((time.perf_counter() - download_started) * 1000.0))
         return _MaterializedWorkItem(
             source_key=new_key,
             source_path=dst,
@@ -1208,7 +1097,7 @@ class TranscriptionService:
             dur_s = 0.0 if rate <= 0 else float(frames) / float(rate)
         chunk_len_s, stride_len_s, step_s = normalize_chunk_params(chunk_len_s, stride_len_s)
         n_chunks = estimate_chunks(dur_s, chunk_len_s, stride_len_s)
-        _LOG.debug("Transcription wav started. source_key=%s duration_s=%s chunks=%s require_language=%s timestamps=%s", _debug_source_key(key), round(dur_s, 2), n_chunks, bool(require_language), bool(want_timestamps))
+        _LOG.debug("Transcription wav started. source_key=%s duration_s=%s chunks=%s require_language=%s timestamps=%s", debug_source_key(key), round(dur_s, 2), n_chunks, bool(require_language), bool(want_timestamps))
 
         merged_parts: list[str] = []
         segments: list[dict[str, Any]] = []
@@ -1219,8 +1108,13 @@ class TranscriptionService:
                 raise OperationCancelled()
 
             if n_chunks <= 1 and i == 1:
-                tracker.update(key, "transcribe", 5)
-                item_progress(key, 5)
+                self._report_item_stage_progress(
+                    tracker=tracker,
+                    key=key,
+                    stage="transcribe",
+                    pct=5,
+                    item_progress=item_progress,
+                )
 
             if not audio_has_meaningful_signal(
                 ch.audio,
@@ -1233,8 +1127,13 @@ class TranscriptionService:
                 pct = int(round((i / float(n_chunks)) * 100))
                 if n_chunks <= 1:
                     pct = min(95, max(0, pct))
-                tracker.update(key, "transcribe", pct)
-                item_progress(key, pct)
+                self._report_item_stage_progress(
+                    tracker=tracker,
+                    key=key,
+                    stage="transcribe",
+                    pct=pct,
+                    item_progress=item_progress,
+                )
                 continue
 
             out = self._pipe_call(pipe=pipe, audio=ch.audio, sr=ch.sr, ignore_warning=ignore_warning, require_language=require_language)
@@ -1252,15 +1151,25 @@ class TranscriptionService:
             pct = int(round((i / float(n_chunks)) * 100))
             if n_chunks <= 1:
                 pct = min(95, max(0, pct))
-            tracker.update(key, "transcribe", pct)
-            item_progress(key, pct)
+            self._report_item_stage_progress(
+                tracker=tracker,
+                key=key,
+                stage="transcribe",
+                pct=pct,
+                item_progress=item_progress,
+            )
 
         merged_text = "\n".join([p for p in merged_parts if p]).strip()
         if not merged_text and not bool(ignore_warning):
             raise TranscriptionError("error.transcription.empty_result")
 
-        tracker.update(key, "transcribe", 100)
-        _LOG.debug("Transcription wav finished. source_key=%s text_chars=%s segments=%s detected_lang=%s", _debug_source_key(key), len(merged_text), len(segments), detected_lang or "")
+        self._report_item_stage_progress(
+            tracker=tracker,
+            key=key,
+            stage="transcribe",
+            pct=100,
+        )
+        _LOG.debug("Transcription wav finished. source_key=%s text_chars=%s segments=%s detected_lang=%s", debug_source_key(key), len(merged_text), len(segments), detected_lang or "")
         return merged_text, segments, detected_lang
 
     @staticmethod
@@ -1309,7 +1218,7 @@ class TranscriptionService:
         src = src.split("-", 1)[0]
         if src and not Config.is_auto_language_value(src):
             return src
-        return _normalize_detected_language(detected_lang)
+        return normalize_detected_language(detected_lang)
 
     @staticmethod
     def _extract_segments(result: dict[str, Any], *, offset_s: float) -> list[dict[str, Any]]:
@@ -1393,7 +1302,7 @@ class TranscriptionService:
         for mode_id, out_path in zip(output_mode_ids, written_paths):
             _LOG.debug(
                 "Transcript output saved. source_key=%s mode=%s file_name=%s",
-                _debug_source_key(key),
+                debug_source_key(key),
                 mode_id,
                 out_path.name,
             )

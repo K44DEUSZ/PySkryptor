@@ -940,6 +940,59 @@ class SourceTable(QtWidgets.QTableWidget):
             return str(v).strip()
         return (it.text() or "").strip()
 
+    def row_for_internal_key(self, col: int, key: str) -> int:
+        target = str(key or "").strip()
+        if not target:
+            return -1
+        for row in range(self.rowCount()):
+            if self.internal_key_at(row, col) == target:
+                return int(row)
+        return -1
+
+    def selected_internal_key(self, col: int) -> str:
+        rows = self.selected_rows()
+        if not rows:
+            return ""
+        return self.internal_key_at(int(rows[0]), col)
+
+    def renumber_rows(self, col: int, *, start: int = 1) -> None:
+        column = int(col)
+        base = int(start)
+        for row in range(self.rowCount()):
+            item = self.item(row, column)
+            if item is not None:
+                item.setText(str(base + row))
+
+    def set_cell_internal_key(self, row: int, col: int, key: str) -> None:
+        host = self.cellWidget(row, col)
+        if host is None:
+            return
+
+        target = str(key or "").strip()
+        candidates: list[QtCore.QObject] = [host, *host.findChildren(QtCore.QObject)]
+        updated = False
+
+        for candidate in candidates:
+            try:
+                prop = candidate.property("internal_key")
+            except Exception:
+                prop = None
+            if prop is None:
+                continue
+            try:
+                candidate.setProperty("internal_key", target)
+                updated = True
+            except Exception:
+                continue
+
+        if updated:
+            return
+
+        try:
+            host.setProperty("internal_key", target)
+        except Exception:
+            pass
+
     def checked_rows(self, col: int) -> list[int]:
         rows: list[int] = []
         for r in range(self.rowCount()):
@@ -1188,6 +1241,8 @@ class SourceTable(QtWidgets.QTableWidget):
         col: int,
         meta: dict[str, Any],
         default_text: str,
+        preferred_lang_code: str | None = None,
+        internal_key: str | None = None,
     ) -> list[str | None]:
         w = self.combo_at(row, col)
         if not isinstance(w, QtWidgets.QComboBox):
@@ -1220,9 +1275,9 @@ class SourceTable(QtWidgets.QTableWidget):
             w.addItem(c)
             lang_codes.append(c)
 
-        desired = prev_lang
-        if not desired and prev_base:
-            desired = prev_base
+        preferred = normalize_lang_code(preferred_lang_code, drop_region=False) if preferred_lang_code else ""
+        preferred_base = normalize_lang_code(preferred_lang_code, drop_region=True) if preferred_lang_code else ""
+        desired = preferred or prev_lang or prev_base
 
         chosen = 0
         if desired:
@@ -1230,9 +1285,10 @@ class SourceTable(QtWidgets.QTableWidget):
                 idx = lang_codes.index(desired) if desired in lang_codes else -1
             except Exception:
                 idx = -1
-            if idx < 0 and prev_base:
+            base = preferred_base or prev_base
+            if idx < 0 and base:
                 for j, c in enumerate(lang_codes):
-                    if c and normalize_lang_code(c, drop_region=True) == prev_base:
+                    if c and normalize_lang_code(c, drop_region=True) == base:
                         idx = j
                         break
             if idx >= 0:
@@ -1243,6 +1299,8 @@ class SourceTable(QtWidgets.QTableWidget):
 
         w.setProperty("lang_codes", lang_codes)
         w.setProperty("has_choices", len(lang_codes) > 2)
+        if internal_key is not None:
+            w.setProperty("internal_key", str(internal_key))
         w.setToolTip("")
         return lang_codes
 

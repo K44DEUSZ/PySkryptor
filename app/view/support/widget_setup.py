@@ -209,6 +209,53 @@ def build_field_stack(
     return host, label
 
 
+def build_setting_row(
+    *,
+    label_text: str,
+    control: QtWidgets.QWidget,
+    tooltip: str = "",
+    parent: QtWidgets.QWidget | None = None,
+    cfg: UIConfig | None = None,
+    control_host: QtWidgets.QWidget | None = None,
+    include_info: bool = True,
+    label_role: str | None = "settingsRowLabel",
+    label_min_width: int | None = None,
+) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
+    resolved_cfg = cfg or ui(parent or control)
+    host, layout = build_layout_host(
+        parent=parent,
+        layout="grid",
+        margins=(0, 0, 0, 0),
+        hspacing=resolved_cfg.space_l,
+        vspacing=0,
+        column_stretches={1: 1},
+    )
+    grid = cast(QtWidgets.QGridLayout, layout)
+
+    label = QtWidgets.QLabel(str(label_text or ""), host)
+    label.setMinimumWidth(int(label_min_width if label_min_width is not None else resolved_cfg.control_min_w + resolved_cfg.space_l * 10))
+    label.setWordWrap(True)
+    label.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Preferred)
+    if label_role is not None:
+        label.setProperty("role", str(label_role))
+
+    setattr(host, "_setting_label", label)
+    setattr(host, "_setting_control", control)
+
+    grid.addWidget(label, 0, 0)
+    grid.addWidget(control_host or control, 0, 1)
+
+    if include_info:
+        from app.view.components.hint_popup import InfoButton
+
+        info = InfoButton(str(tooltip or ""))
+        info.setFixedSize(int(resolved_cfg.control_min_h), int(resolved_cfg.control_min_h))
+        grid.addWidget(info, 0, 2)
+        grid.setColumnStretch(2, 0)
+
+    return host, label
+
+
 def setup_layout(
     layout: QtWidgets.QLayout,
     *,

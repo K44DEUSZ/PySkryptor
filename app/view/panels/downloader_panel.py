@@ -12,8 +12,7 @@ from app.controller.support.localization import tr
 from app.controller.support.runtime_resolver import is_playlist_url
 from app.controller.tasks.download_task import DownloadWorker
 from app.model.config.app_config import AppConfig as Config
-from app.controller.platform.logging import sanitize_url_for_log
-from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code
+from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code, sanitize_url_for_log
 from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.source_table import SourceTable
 from app.view.components.section_group import SectionGroup
@@ -970,7 +969,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._thumb_by_key.pop(job_key, None)
 
     def _finalize_queue_rows_changed(self, *, next_row: int | None = None) -> None:
-        self._renumber_rows()
+        self.table.renumber_rows(self.COL_NO)
         if self.table.rowCount() > 0:
             self._apply_populated_header_mode()
             if next_row is not None:
@@ -1014,12 +1013,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._finalize_queue_rows_changed()
 
     # ----- Metadata UI state -----
-
-    def _renumber_rows(self) -> None:
-        for r in range(self.table.rowCount()):
-            it = self.table.item(r, self.COL_NO)
-            if it is not None:
-                it.setText(str(r + 1))
 
     def _append_job_row(self, job: _Job) -> int:
         row = self.table.rowCount()
@@ -1113,11 +1106,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.table.scrollToItem(self.table.item(row, self.COL_TITLE), QtWidgets.QAbstractItemView.PositionAtCenter)
 
     def _selected_job_key(self) -> str:
-        rows = self.table.selectionModel().selectedRows()
-        if not rows:
-            return ""
-        r = int(rows[0].row())
-        return self.table.internal_key_at(r, self.COL_TITLE)
+        return self.table.selected_internal_key(self.COL_TITLE)
 
     def _on_selection_changed(self) -> None:
         self._refresh_meta_panel()
@@ -1129,7 +1118,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         mods = QtWidgets.QApplication.keyboardModifiers()
         if not (mods & QtCore.Qt.KeyboardModifier.ControlModifier):
             return
-        job = self._job_for_row(row)
+        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
         if job is None:
             return
         url = str(job.url or "").strip()
@@ -1330,9 +1319,15 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         if self._row_for_key(job_key) >= 0:
             self._set_job_status(job_key, "probing")
+
+    def _probe_target_relevant(self, job_key: str) -> tuple[bool, bool]:
+        has_row = self._row_for_key(job_key) >= 0
+        keep_state = bool(has_row or job_key == self._active_preview_key())
+        return has_row, keep_state
+
     def _on_probe_ready(self, job_key: str, meta: dict[str, Any]) -> None:
-        has_row = self._find_job_index(job_key) >= 0
-        if not has_row and job_key != self._active_preview_key():
+        has_row, keep_state = self._probe_target_relevant(job_key)
+        if not keep_state:
             self._clear_job_state(job_key)
             return
 
@@ -1347,8 +1342,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._refresh_meta_panel()
 
     def _on_probe_error(self, job_key: str, err_key: str, params: dict[str, Any]) -> None:
-        has_row = self._find_job_index(job_key) >= 0
-        if not has_row and job_key != self._active_preview_key():
+        has_row, keep_state = self._probe_target_relevant(job_key)
+        if not keep_state:
             self._clear_job_state(job_key)
             return
 
@@ -1394,11 +1389,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         )
 
     def _update_audio_tracks_row(self, row: int, meta: dict[str, Any]) -> None:
+        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
         codes = self.table.update_audio_tracks(
             row=row,
             col=self.COL_LANGUAGE,
             meta=meta,
             default_text=tr("down.select.audio_track.default"),
+            preferred_lang_code=job.audio_lang if job is not None else None,
+            internal_key=job.key if job is not None else None,
         )
         self.table.apply_probe_diag_notice(row=row, col=self.COL_LANGUAGE, status_col=self.COL_STATUS, meta=meta)
 
@@ -1409,10 +1407,7 @@ class DownloaderPanel(QtWidgets.QWidget):
     # ----- Row option refresh -----
 
     def _row_for_key(self, key: str) -> int:
-        for r in range(self.table.rowCount()):
-            if self.table.internal_key_at(r, self.COL_TITLE) == key:
-                return r
-        return -1
+        return self.table.row_for_internal_key(self.COL_TITLE, key)
 
     def _job_for_key(self, key: str) -> _Job | None:
         idx = self._find_job_index(key)
@@ -1449,7 +1444,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._refresh_row_options(row)
 
     def _refresh_row_options(self, row: int) -> None:
-        job = self._job_for_row(row)
+        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
         if job is None:
             return
 
@@ -1501,7 +1496,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         return uniq
 
     def _rebuild_formats_button(self, row: int) -> None:
-        job = self._job_for_row(row)
+        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
         if job is None:
             return
 
@@ -1556,13 +1551,6 @@ class DownloaderPanel(QtWidgets.QWidget):
             return
         job.audio_lang = normalize_lang_code(self.table.audio_lang_code_at(row, self.COL_LANGUAGE), drop_region=True) or None
         self._schedule_queue_header_refresh()
-
-    def _job_for_row(self, row: int) -> _Job | None:
-        key = self.table.internal_key_at(row, self.COL_TITLE)
-        for j in self._jobs:
-            if j.key == key:
-                return j
-        return None
 
     # ----- Download flow -----
 
@@ -1656,11 +1644,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             self.duplicate_decided.emit(self._dup_apply_all_action, "")
             return
 
-        suggested_name = ""
-        try:
-            suggested_name = Path(expected).name
-        except Exception:
-            suggested_name = str(expected or "")
+        suggested_name = Path(str(expected or "")).name or str(expected or "")
 
         action, new_name, apply_all = dialogs.ask_download_duplicate(self, title=title, suggested_name=suggested_name)
         if action == "rename":

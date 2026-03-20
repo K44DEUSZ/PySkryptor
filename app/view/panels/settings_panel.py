@@ -9,7 +9,6 @@ from typing import Any, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.components.hint_popup import InfoButton
 from app.view.components.popup_combo import PopupComboBox, set_combo_data
 
 from app.controller.tasks.settings_task import SettingsWorker
@@ -22,10 +21,19 @@ from app.view.components.section_group import SectionGroup
 from app.controller.support.task_thread_runner import TaskThreadRunner
 from app.controller.support.options_autosave_controller import OptionsAutosaveController
 from app.view.support.theme_runtime import system_theme_key
+from app.view.support.settings_mapping import (
+    collect_combo_fields,
+    collect_spin_fields,
+    collect_toggle_fields,
+    populate_combo_fields,
+    populate_spin_fields,
+    populate_toggle_fields,
+)
 from app.view.support.view_runtime import open_local_path
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
 from app.view.support.widget_setup import (
     build_layout_host,
+    build_setting_row,
     setup_button,
     setup_combo,
     setup_layout,
@@ -93,7 +101,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self._restore_baseline_data: dict[str, Any] | None = None
 
         self._advanced_rows: list[QtWidgets.QWidget] = []
-        self._label_widgets: list[QtWidgets.QLabel] = []
         self._dirty_row_specs: list[tuple[QtWidgets.QWidget, QtWidgets.QWidget, tuple[tuple[str, ...], ...]]] = []
         self.btn_save: QtWidgets.QPushButton | None = None
         self.btn_undo: QtWidgets.QPushButton | None = None
@@ -225,7 +232,7 @@ class SettingsPanel(QtWidgets.QWidget):
                 w = max(left_w, right_w, 0)
                 self._left_col_host.setMinimumWidth(w)
                 self._right_col_host.setMinimumWidth(w)
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
     def _sync_column_widths(self) -> None:
@@ -241,35 +248,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
     # ----- Shared row / layout builders -----
 
-    def _build_row_shell(self, *, advanced: bool) -> tuple[QtWidgets.QWidget, QtWidgets.QGridLayout]:
-        cfg = self._ui
-
-        w = QtWidgets.QWidget()
-        g = QtWidgets.QGridLayout(w)
-        g.setContentsMargins(0, 0, 0, 0)
-        g.setHorizontalSpacing(cfg.space_l)
-        g.setVerticalSpacing(0)
-
-        if advanced:
-            self._advanced_rows.append(w)
-
-        return w, g
-
-    def _build_setting_label(self, text: str, *, track: bool = True) -> QtWidgets.QLabel:
-        cfg = self._ui
-
-        lbl = QtWidgets.QLabel(text)
-        lbl.setMinimumWidth(int(cfg.control_min_w + cfg.space_l * 10))
-        lbl.setWordWrap(True)
-        lbl.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Preferred)
-
-        if track:
-            lbl.setProperty("role", "settingsRowLabel")
-            lbl.setProperty("dirtySetting", False)
-            self._label_widgets.append(lbl)
-
-        return lbl
-
     def _build_labeled_row(
         self,
         *,
@@ -278,26 +256,23 @@ class SettingsPanel(QtWidgets.QWidget):
         tooltip: str,
         control_host: QtWidgets.QWidget | None = None,
         advanced: bool = False,
+        include_info: bool = True,
+        track_dirty_label: bool = True,
     ) -> QtWidgets.QWidget:
-        cfg = self._ui
-
-        w, g = self._build_row_shell(advanced=advanced)
-        lbl = self._build_setting_label(label)
-        setattr(w, "_setting_label", lbl)
-        setattr(w, "_setting_control", control)
-
-        info = InfoButton(tooltip)
-        info.setFixedSize(cfg.control_min_h, cfg.control_min_h)
-
-        g.addWidget(lbl, 0, 0)
-        g.addWidget(control_host or control, 0, 1)
-        g.addWidget(info, 0, 2)
-
-        g.setColumnStretch(0, 0)
-        g.setColumnStretch(1, 1)
-        g.setColumnStretch(2, 0)
-
-        return w
+        row, label_widget = build_setting_row(
+            label_text=label,
+            control=control,
+            tooltip=tooltip,
+            cfg=self._ui,
+            control_host=control_host,
+            include_info=include_info,
+            label_role="settingsRowLabel" if track_dirty_label else None,
+        )
+        if advanced:
+            self._advanced_rows.append(row)
+        if track_dirty_label:
+            label_widget.setProperty("dirtySetting", False)
+        return row
 
     def _row(self, label: str, control: QtWidgets.QWidget, tooltip: str, *,
              advanced: bool = False) -> QtWidgets.QWidget:
@@ -337,27 +312,14 @@ class SettingsPanel(QtWidgets.QWidget):
     def _row_button_under_control(self, button: QtWidgets.QPushButton, *, advanced: bool = False) -> QtWidgets.QWidget:
         button.setMinimumHeight(self._ui.control_min_h)
         button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-
-        w, g = self._build_row_shell(advanced=advanced)
-        lbl = self._build_setting_label("", track=False)
-
-        g.addWidget(lbl, 0, 0)
-        g.addWidget(button, 0, 1)
-
-        g.setColumnStretch(0, 0)
-        g.setColumnStretch(1, 1)
-
-        return w
-
-    def _normalize_all_labels(self) -> None:
-        labels = [lbl for lbl in self._label_widgets if lbl.text().strip()]
-        if not labels:
-            return
-        max_w = 0
-        for lbl in labels:
-            max_w = max(max_w, lbl.sizeHint().width())
-        for lbl in labels:
-            lbl.setFixedWidth(max_w)
+        return self._build_labeled_row(
+            label="",
+            control=button,
+            tooltip="",
+            advanced=advanced,
+            include_info=False,
+            track_dirty_label=False,
+        )
 
     def _track_dirty_row(
         self,
@@ -874,14 +836,14 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_settings_loaded_snapshot(snap: object) -> None:
         try:
             Config.initialize_from_snapshot(cast(SettingsSnapshot, snap))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
     @staticmethod
     def _on_saved_snapshot(snap: object) -> None:
         try:
             Config.initialize_from_snapshot(cast(SettingsSnapshot, snap))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
     def _on_saved(self, data: object) -> None:
@@ -977,7 +939,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_advanced_saved_snapshot(snap: object) -> None:
         try:
             Config.update_from_snapshot(cast(SettingsSnapshot, snap), sections=("app",))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
     # ----- User actions -----
@@ -1026,8 +988,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self._mark_dirty()
         self._refresh_runtime_capabilities()
 
-    # ----- Populate / collect payload helpers -----
-
     def _populate_from_data(self) -> None:
         d = self._data or {}
 
@@ -1046,8 +1006,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self._refresh_dirty_markers()
 
     def _populate_app_settings(self, app: dict[str, Any]) -> None:
-        set_combo_data(self.cb_app_language, str(app.get("language", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
-        set_combo_data(self.cb_app_theme, str(app.get("theme", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
+        populate_combo_fields(
+            app,
+            (
+                ("language", self.cb_app_language, Config.LANGUAGE_AUTO_VALUE),
+                ("theme", self.cb_app_theme, Config.LANGUAGE_AUTO_VALUE),
+            ),
+        )
 
         ui_cfg = self._section_dict(app, "ui")
         show_adv = bool(ui_cfg.get("show_advanced_settings", False))
@@ -1057,15 +1022,25 @@ class SettingsPanel(QtWidgets.QWidget):
         self._apply_advanced_visibility(show_adv)
 
         log_cfg = self._section_dict(app, "logging")
-        self.tg_log_enabled.set_first_checked(bool(log_cfg.get("enabled", True)))
-        set_combo_data(self.cb_log_level, str(log_cfg.get("level", "warning")), fallback_data="warning")
+        populate_toggle_fields(log_cfg, (("enabled", self.tg_log_enabled, True),))
+        populate_combo_fields(log_cfg, (("level", self.cb_log_level, "warning"),))
         self._on_logging_toggle()
 
     def _populate_engine_settings(self, eng: dict[str, Any]) -> None:
-        set_combo_data(self.cb_engine_device, str(eng.get("preferred_device", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
-        set_combo_data(self.cb_engine_precision, str(eng.get("precision", Config.LANGUAGE_AUTO_VALUE)), fallback_data=Config.LANGUAGE_AUTO_VALUE)
-        self.tg_tf32.set_first_checked(bool(eng.get("allow_tf32", True)))
-        self.tg_low_cpu_mem.set_first_checked(bool(eng.get("low_cpu_mem_usage", True)))
+        populate_combo_fields(
+            eng,
+            (
+                ("preferred_device", self.cb_engine_device, Config.LANGUAGE_AUTO_VALUE),
+                ("precision", self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE),
+            ),
+        )
+        populate_toggle_fields(
+            eng,
+            (
+                ("allow_tf32", self.tg_tf32, True),
+                ("low_cpu_mem_usage", self.tg_low_cpu_mem, True),
+            ),
+        )
 
     def _populate_model_settings(self, model: dict[str, Any]) -> None:
         t_model = self._section_dict(model, "transcription_model")
@@ -1077,29 +1052,54 @@ class SettingsPanel(QtWidgets.QWidget):
         if trans_engine_name == Config.MISSING_VALUE:
             trans_engine_name = str(t_model.get("engine_name", "none"))
         set_combo_data(self.cb_trans_engine, trans_engine_name, fallback_data="none")
-        set_combo_data(self.cb_quality, str(t_model.get("quality_preset", "balanced")), fallback_data="balanced")
-        self.tg_text_consistency.set_first_checked(bool(t_model.get("text_consistency", True)))
-        self.sp_chunk_len.setValue(int(t_model.get("chunk_length_s", 60)))
-        self.sp_stride_len.setValue(int(t_model.get("stride_length_s", 5)))
-        self.tg_ignore_warning.set_first_checked(bool(t_model.get("ignore_warning", False)))
+        populate_combo_fields(t_model, (("quality_preset", self.cb_quality, "balanced"),))
+        populate_toggle_fields(
+            t_model,
+            (
+                ("text_consistency", self.tg_text_consistency, True),
+                ("ignore_warning", self.tg_ignore_warning, False),
+            ),
+        )
+        populate_spin_fields(
+            t_model,
+            (
+                ("chunk_length_s", self.sp_chunk_len, 60),
+                ("stride_length_s", self.sp_stride_len, 5),
+            ),
+        )
 
         tr_engine_name = Config.resolve_translation_engine_name(model)
         if tr_engine_name == Config.MISSING_VALUE:
             tr_engine_name = str(x_model.get("engine_name", "none"))
         set_combo_data(self.cb_tr_engine, tr_engine_name, fallback_data="none")
-        set_combo_data(self.cb_tr_quality, str(x_model.get("quality_preset", "balanced")), fallback_data="balanced")
-        self.sp_tr_max_tokens.setValue(int(x_model.get("max_new_tokens", 256)))
-        self.sp_tr_chunk_chars.setValue(int(x_model.get("chunk_max_chars", 1200)))
+        populate_combo_fields(x_model, (("quality_preset", self.cb_tr_quality, "balanced"),))
+        populate_spin_fields(
+            x_model,
+            (
+                ("max_new_tokens", self.sp_tr_max_tokens, 256),
+                ("chunk_max_chars", self.sp_tr_chunk_chars, 1200),
+            ),
+        )
 
     def _populate_download_settings(self, downloader: dict[str, Any], network: dict[str, Any]) -> None:
-        self.sp_min_height.setValue(int(downloader.get("min_video_height", Config.downloader_min_video_height())))
-        self.sp_max_height.setValue(int(downloader.get("max_video_height", Config.downloader_max_video_height())))
+        populate_spin_fields(
+            downloader,
+            (
+                ("min_video_height", self.sp_min_height, Config.downloader_min_video_height()),
+                ("max_video_height", self.sp_max_height, Config.downloader_max_video_height()),
+            ),
+        )
 
-        self.sp_retries.setValue(int(network.get("retries", Config.network_retries())))
+        populate_spin_fields(
+            network,
+            (
+                ("retries", self.sp_retries, Config.network_retries()),
+                ("concurrent_fragments", self.sp_fragments, Config.network_concurrent_fragments()),
+                ("http_timeout_s", self.sp_timeout, Config.network_http_timeout_s()),
+            ),
+        )
         bw = network.get("max_bandwidth_kbps", Config.network_max_bandwidth_kbps())
         self.sp_bandwidth.setValue(int(bw or 0))
-        self.sp_fragments.setValue(int(network.get("concurrent_fragments", Config.network_concurrent_fragments())))
-        self.sp_timeout.setValue(int(network.get("http_timeout_s", Config.network_http_timeout_s())))
 
     def _collect_payload(self) -> dict[str, Any]:
         return {
@@ -1111,58 +1111,108 @@ class SettingsPanel(QtWidgets.QWidget):
         }
 
     def _collect_app_payload(self) -> dict[str, Any]:
-        return {
-            "language": str(self.cb_app_language.currentData() or Config.LANGUAGE_AUTO_VALUE),
-            "theme": str(self.cb_app_theme.currentData() or Config.LANGUAGE_AUTO_VALUE),
+        payload = collect_combo_fields(
+            (
+                ("language", self.cb_app_language, Config.LANGUAGE_AUTO_VALUE),
+                ("theme", self.cb_app_theme, Config.LANGUAGE_AUTO_VALUE),
+            ),
+        )
+        payload.update({
             "ui": {
                 "show_advanced_settings": bool(self.chk_show_advanced.isChecked()),
             },
-            "logging": {
-                "enabled": bool(self.tg_log_enabled.is_first_checked()),
-                "level": str(self.cb_log_level.currentData() or "warning"),
-            },
+        })
+        payload["logging"] = {
+            **collect_toggle_fields((("enabled", self.tg_log_enabled),)),
+            **collect_combo_fields((("level", self.cb_log_level, "warning"),)),
         }
+        return payload
 
     def _collect_engine_payload(self) -> dict[str, Any]:
-        return {
-            "preferred_device": str(self.cb_engine_device.currentData() or Config.LANGUAGE_AUTO_VALUE),
-            "precision": str(self.cb_engine_precision.currentData() or Config.LANGUAGE_AUTO_VALUE),
-            "allow_tf32": bool(self.tg_tf32.is_first_checked()),
-            "low_cpu_mem_usage": bool(self.tg_low_cpu_mem.is_first_checked()),
-        }
+        payload = collect_combo_fields(
+            (
+                ("preferred_device", self.cb_engine_device, Config.LANGUAGE_AUTO_VALUE),
+                ("precision", self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE),
+            ),
+        )
+        payload.update(
+            collect_toggle_fields(
+                (
+                    ("allow_tf32", self.tg_tf32),
+                    ("low_cpu_mem_usage", self.tg_low_cpu_mem),
+                ),
+            )
+        )
+        return payload
 
     def _collect_model_payload(self) -> dict[str, Any]:
         return {
             "transcription_model": {
-                "engine_name": str(self.cb_trans_engine.currentData() or "none"),
-                "quality_preset": str(self.cb_quality.currentData() or "balanced"),
-                "text_consistency": bool(self.tg_text_consistency.is_first_checked()),
-                "chunk_length_s": int(self.sp_chunk_len.value()),
-                "stride_length_s": int(self.sp_stride_len.value()),
-                "ignore_warning": bool(self.tg_ignore_warning.is_first_checked()),
+                **collect_combo_fields(
+                    (
+                        ("engine_name", self.cb_trans_engine, "none"),
+                        ("quality_preset", self.cb_quality, "balanced"),
+                    ),
+                ),
+                **collect_toggle_fields(
+                    (
+                        ("text_consistency", self.tg_text_consistency),
+                        ("ignore_warning", self.tg_ignore_warning),
+                    ),
+                ),
+                **cast(
+                    dict[str, Any],
+                    collect_spin_fields(
+                        (
+                            ("chunk_length_s", self.sp_chunk_len),
+                            ("stride_length_s", self.sp_stride_len),
+                        ),
+                    ),
+                ),
             },
             "translation_model": {
-                "engine_name": str(self.cb_tr_engine.currentData() or "none"),
-                "max_new_tokens": int(self.sp_tr_max_tokens.value()),
-                "chunk_max_chars": int(self.sp_tr_chunk_chars.value()),
-                "quality_preset": str(self.cb_tr_quality.currentData() or "balanced"),
+                **collect_combo_fields(
+                    (
+                        ("engine_name", self.cb_tr_engine, "none"),
+                        ("quality_preset", self.cb_tr_quality, "balanced"),
+                    ),
+                ),
+                **cast(
+                    dict[str, Any],
+                    collect_spin_fields(
+                        (
+                            ("max_new_tokens", self.sp_tr_max_tokens),
+                            ("chunk_max_chars", self.sp_tr_chunk_chars),
+                        ),
+                    ),
+                ),
             },
         }
 
     def _collect_downloader_payload(self) -> dict[str, Any]:
-        return {
-            "min_video_height": int(self.sp_min_height.value()),
-            "max_video_height": int(self.sp_max_height.value()),
-        }
+        return cast(
+            dict[str, Any],
+            collect_spin_fields(
+                (
+                    ("min_video_height", self.sp_min_height),
+                    ("max_video_height", self.sp_max_height),
+                ),
+            ),
+        )
 
     def _collect_network_payload(self) -> dict[str, Any]:
-        bandwidth = int(self.sp_bandwidth.value())
-        return {
-            "retries": int(self.sp_retries.value()),
-            "max_bandwidth_kbps": bandwidth if bandwidth > 0 else None,
-            "concurrent_fragments": int(self.sp_fragments.value()),
-            "http_timeout_s": int(self.sp_timeout.value()),
-        }
+        return cast(
+            dict[str, Any],
+            collect_spin_fields(
+                (
+                    ("retries", self.sp_retries),
+                    ("max_bandwidth_kbps", self.sp_bandwidth),
+                    ("concurrent_fragments", self.sp_fragments),
+                    ("http_timeout_s", self.sp_timeout),
+                ),
+                none_if_non_positive={"max_bandwidth_kbps"},
+            ),
+        )
 
     def _needs_restart(self, payload: dict[str, Any]) -> bool:
         return self._needs_restart_between(self._data or {}, payload)
@@ -1203,7 +1253,7 @@ class SettingsPanel(QtWidgets.QWidget):
             idx_auto = self.cb_app_language.findData(Config.LANGUAGE_AUTO_VALUE)
             if idx_auto >= 0:
                 self.cb_app_language.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_lang})')
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
         try:
@@ -1214,7 +1264,7 @@ class SettingsPanel(QtWidgets.QWidget):
             idx_auto = self.cb_app_theme.findData(Config.LANGUAGE_AUTO_VALUE)
             if idx_auto >= 0:
                 self.cb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
         try:
@@ -1223,7 +1273,7 @@ class SettingsPanel(QtWidgets.QWidget):
             idx_auto = self.cb_engine_device.findData(Config.LANGUAGE_AUTO_VALUE)
             if idx_auto >= 0:
                 self.cb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             pass
 
         try:
