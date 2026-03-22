@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
 from app.model.io.audio_extractor import AudioExtractor
+from app.model.domain.errors import OperationCancelled
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.io.media_probe import is_url_source
 
@@ -308,12 +309,22 @@ class FileManager:
         return {"ok": True, "type": "file", "key": str(p)}
 
     @staticmethod
-    def collect_media_files(paths: list[str], *, supported_exts: list[str]) -> list[str]:
+    def collect_media_files(
+        paths: list[str],
+        *,
+        supported_exts: list[str],
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> list[str]:
         """Collect supported media files from a drag&drop payload (files and folders)."""
         exts = {str(e).lower().lstrip(".") for e in (supported_exts or [])}
         out: list[str] = []
 
+        def _guard_cancel() -> None:
+            if cancel_check is not None and bool(cancel_check()):
+                raise OperationCancelled()
+
         def _add_file(file_path: Path) -> None:
+            _guard_cancel()
             if not file_path.exists() or not file_path.is_file():
                 return
             if exts and file_path.suffix.lower().lstrip(".") not in exts:
@@ -321,6 +332,7 @@ class FileManager:
             out.append(str(file_path))
 
         for raw in (paths or []):
+            _guard_cancel()
             p = FileManager.normalize_source_text(raw)
             if not p:
                 continue
@@ -329,6 +341,7 @@ class FileManager:
                 continue
             if pp.is_dir():
                 for child_path in pp.rglob("*"):
+                    _guard_cancel()
                     if child_path.is_file():
                         _add_file(child_path)
             else:

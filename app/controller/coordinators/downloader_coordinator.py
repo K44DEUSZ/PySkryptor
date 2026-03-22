@@ -6,6 +6,7 @@ from app.controller.contracts import DownloaderPanelViewProtocol
 from PyQt5 import QtCore
 
 from app.controller.workers.download_worker import DownloadWorker
+from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
 
 class DownloaderCoordinator(QtCore.QObject):
@@ -17,6 +18,10 @@ class DownloaderCoordinator(QtCore.QObject):
 
     probe_meta_ready = QtCore.pyqtSignal(str, dict)
     probe_failed = QtCore.pyqtSignal(str, str, dict)
+    expansion_busy_changed = QtCore.pyqtSignal(bool)
+    expansion_status_changed = QtCore.pyqtSignal(str, dict)
+    expansion_ready = QtCore.pyqtSignal(object)
+    expansion_failed = QtCore.pyqtSignal(str, dict)
 
     progress_pct = QtCore.pyqtSignal(int)
     stage_changed = QtCore.pyqtSignal(str)
@@ -33,6 +38,8 @@ class DownloaderCoordinator(QtCore.QObject):
 
         self._download_runner = TaskThreadRunner(self)
         self._download_worker: DownloadWorker | None = None
+        self._expansion_runner = TaskThreadRunner(self)
+        self._expansion_worker: SourceExpansionWorker | None = None
         self._view: DownloaderPanelViewProtocol | None = None
 
     def bind_view(self, panel: DownloaderPanelViewProtocol) -> None:
@@ -43,6 +50,10 @@ class DownloaderCoordinator(QtCore.QObject):
             for signal, slot in (
                 (self.probe_meta_ready, previous.on_probe_ready),
                 (self.probe_failed, previous.on_probe_error),
+                (self.expansion_busy_changed, previous.on_expansion_busy_changed),
+                (self.expansion_status_changed, previous.on_expansion_status_changed),
+                (self.expansion_ready, previous.on_expansion_ready),
+                (self.expansion_failed, previous.on_expansion_error),
                 (self.progress_pct, previous.on_progress_pct),
                 (self.stage_changed, previous.on_stage_changed),
                 (self.duplicate_check, previous.on_duplicate_check),
@@ -58,6 +69,10 @@ class DownloaderCoordinator(QtCore.QObject):
         self._view = panel
         self.probe_meta_ready.connect(panel.on_probe_ready)
         self.probe_failed.connect(panel.on_probe_error)
+        self.expansion_busy_changed.connect(panel.on_expansion_busy_changed)
+        self.expansion_status_changed.connect(panel.on_expansion_status_changed)
+        self.expansion_ready.connect(panel.on_expansion_ready)
+        self.expansion_failed.connect(panel.on_expansion_error)
         self.progress_pct.connect(panel.on_progress_pct)
         self.stage_changed.connect(panel.on_stage_changed)
         self.duplicate_check.connect(panel.on_duplicate_check)
@@ -75,8 +90,11 @@ class DownloaderCoordinator(QtCore.QObject):
     def is_downloading(self) -> bool:
         return self._download_runner.is_running()
 
+    def is_expanding(self) -> bool:
+        return self._expansion_runner.is_running()
+
     def is_busy(self) -> bool:
-        return self.is_probe_running() or self.is_downloading()
+        return self.is_probe_running() or self.is_downloading() or self.is_expanding()
 
     def start_probe(self, *, job_key: str, url: str) -> DownloadWorker | None:
         key = str(job_key or "probe").strip() or "probe"
@@ -120,6 +138,31 @@ class DownloaderCoordinator(QtCore.QObject):
     def cancel_all_probes(self) -> None:
         for runner in list(self._probe_runners.values()):
             runner.cancel()
+
+    def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
+        if self._expansion_runner.is_running():
+            return self._expansion_worker
+
+        worker = SourceExpansionWorker(mode="manual_input", raw=str(raw or ""))
+        self._expansion_worker = worker
+        self.expansion_busy_changed.emit(True)
+        self.busy_changed.emit(True)
+
+        def _connect(wk: SourceExpansionWorker) -> None:
+            wk.status_changed.connect(self.expansion_status_changed)
+            wk.expanded.connect(self.expansion_ready)
+            wk.failed.connect(self.expansion_failed)
+
+        def _done() -> None:
+            self._expansion_worker = None
+            self.expansion_busy_changed.emit(False)
+            self.expansion_status_changed.emit("", {})
+            self.busy_changed.emit(self.is_busy())
+
+        return self._expansion_runner.start(worker, connect=_connect, on_finished=_done)
+
+    def cancel_expansion(self) -> None:
+        self._expansion_runner.cancel()
 
     def start_download(
         self,

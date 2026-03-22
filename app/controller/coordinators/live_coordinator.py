@@ -93,7 +93,8 @@ class LiveCoordinator(QtCore.QObject):
     def is_running(self) -> bool:
         return self._runner.is_running()
 
-    def list_input_devices(self) -> list[str]:
+    @staticmethod
+    def list_input_devices() -> list[str]:
         return list_input_device_names()
 
     def start_session(

@@ -624,8 +624,8 @@ class TranscriptionService:
 
         return _MaterializeBatchResult(work=work, had_errors=had_errors, was_cancelled=was_cancelled)
 
+    @staticmethod
     def _build_session_callbacks(
-        self,
         *,
         item_status: ItemStatusFn,
         item_progress: ItemProgressFn,
@@ -981,8 +981,8 @@ class TranscriptionService:
             except OSError as ex:
                 _LOG.debug("Downloaded source cleanup skipped. path=%s detail=%s", path, ex)
 
+            parent = path.parent
             try:
-                parent = path.parent
                 tmp_root = Config.DOWNLOADS_TMP_DIR.resolve()
                 if parent != tmp_root and tmp_root in parent.resolve().parents:
                     shutil.rmtree(parent, ignore_errors=True)

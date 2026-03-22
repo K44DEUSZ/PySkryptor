@@ -31,8 +31,6 @@ from app.model.services.runtime_resolver import (
     build_entries,
     build_files_quick_options_payload,
     build_files_transcription_patch,
-    collect_media_files,
-    is_playlist_url,
     parse_source_input,
     transcription_language_codes,
     translation_language_codes,
@@ -44,6 +42,7 @@ from app.model.services.runtime_resolver import (
 from app.view.support.options_autosave import OptionsAutosave
 from app.model.config.app_config import AppConfig as Config
 from app.model.domain.entities import TranscriptionSessionRequest
+from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
 from app.model.helpers.string_utils import format_hms, normalize_lang_code
 from app.model.io.media_probe import is_url_source
 from app.view.support.theme_runtime import active_theme_key, status_icon
@@ -74,6 +73,12 @@ class FilesPanel(QtWidgets.QWidget):
     _was_cancelled: bool
     _conflict_apply_all_action: str | None
     _conflict_apply_all_new_base: str | None
+    _transcription_ready: bool
+    _transcription_error_key: str | None
+    _transcription_error_params: dict[str, Any]
+    _translation_ready: bool
+    _translation_error_key: str | None
+    _translation_error_params: dict[str, Any]
 
     COL_CHECK = 0
     COL_NO = 1
@@ -88,9 +93,9 @@ class FilesPanel(QtWidgets.QWidget):
     @staticmethod
     def _status_icon(key: str, fallback: QtGui.QIcon) -> QtGui.QIcon:
         app = QtWidgets.QApplication.instance()
-        qapp = app if isinstance(app, QtWidgets.QApplication) else None
+        qt_app = app if isinstance(app, QtWidgets.QApplication) else None
         try:
-            icon = status_icon(key, theme=active_theme_key(app=qapp))
+            icon = status_icon(key, theme=active_theme_key(app=qt_app))
             if not icon.isNull():
                 return icon
         except (AttributeError, RuntimeError, TypeError, ValueError):
@@ -115,6 +120,10 @@ class FilesPanel(QtWidgets.QWidget):
 
     def coordinator(self) -> FilesCoordinatorProtocol | None:
         return self._panel_coordinator
+
+    def _files_is_expanding(self) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and getattr(coord, "is_expanding", lambda: False)())
 
     def _files_is_transcribing(self) -> bool:
         coord = self.coordinator()
@@ -149,6 +158,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._network_status = read_network_status(parent)
         self._session_target_language = Config.LANGUAGE_DEFAULT_UI_VALUE
+        self._expansion_progress_dialog: dialogs.ExpansionProgressDialog | None = None
         self._session_source_language = Config.transcription_default_language()
 
     def _build_ui(self) -> None:
@@ -187,12 +197,10 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.btn_src_add = QtWidgets.QPushButton(tr("ctrl.add"))
         self.btn_src_add.setObjectName("FilesAddSource")
-        self.btn_src_add.setProperty("variant", "primary")
         setup_button(self.btn_src_add, min_h=base_h, min_w=cfg.control_min_w)
 
         self.btn_open_output = QtWidgets.QPushButton(tr("files.open_output"))
         self.btn_open_output.setObjectName("FilesOpenOutput")
-        self.btn_open_output.setProperty("variant", "secondary")
         setup_button(self.btn_open_output, min_h=base_h, min_w=cfg.control_min_w)
 
         top_btn_host = QtWidgets.QWidget(self._top_section_host)
@@ -209,10 +217,6 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_remove_selected = QtWidgets.QPushButton(tr("files.remove_selected"))
         self.btn_clear_list = QtWidgets.QPushButton(tr("files.clear"))
 
-        self.btn_add_files.setProperty("variant", "primary")
-        self.btn_add_folder.setProperty("variant", "primary")
-        self.btn_remove_selected.setProperty("variant", "secondary")
-        self.btn_clear_list.setProperty("variant", "secondary")
 
         for button in (self.btn_add_files, self.btn_add_folder, self.btn_remove_selected, self.btn_clear_list):
             setup_button(button, min_h=base_h, min_w=cfg.control_min_w)
@@ -509,9 +513,9 @@ class FilesPanel(QtWidgets.QWidget):
 
             aext_raw = tcfg.get("url_audio_ext")
             if aext_raw:
-                aext = str(aext_raw).strip().lower().lstrip(".")
-                if aext in Config.DOWNLOAD_AUDIO_OUTPUT_EXTS:
-                    set_combo_data(self.cmb_audio_ext, aext)
+                audio_ext = str(aext_raw).strip().lower().lstrip(".")
+                if audio_ext in Config.DOWNLOAD_AUDIO_OUTPUT_EXTS:
+                    set_combo_data(self.cmb_audio_ext, audio_ext)
 
             vext_raw = tcfg.get("url_video_ext")
             if vext_raw:
@@ -641,7 +645,7 @@ class FilesPanel(QtWidgets.QWidget):
         keep_audio = bool(self.chk_keep_url_audio.isChecked())
         keep_video = bool(self.chk_keep_url_video.isChecked())
 
-        aext = str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext())
+        audio_ext = str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext())
         vext = str(self.cmb_video_ext.currentData() or Config.transcription_url_video_ext())
 
         return build_files_transcription_patch(
@@ -649,7 +653,7 @@ class FilesPanel(QtWidgets.QWidget):
             output_formats=output_formats,
             download_audio_only=audio_only,
             url_keep_audio=keep_audio,
-            url_audio_ext=aext,
+            url_audio_ext=audio_ext,
             url_keep_video=keep_video,
             url_video_ext=vext,
         )
@@ -1076,7 +1080,14 @@ class FilesPanel(QtWidgets.QWidget):
                 keys.append(key)
         return keys
 
-    def _insert_placeholder_row(self, key: str, *, src_label: str) -> None:
+    def _insert_placeholder_row(
+        self,
+        key: str,
+        *,
+        src_label: str,
+        title: str = "",
+        duration_s: int | None = None,
+    ) -> None:
         if self.tbl.rowCount() == 0:
             self._apply_populated_header_mode()
 
@@ -1089,10 +1100,12 @@ class FilesPanel(QtWidgets.QWidget):
         it_no.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl.setItem(row, self.COL_NO, it_no)
 
-        it_title = QtWidgets.QTableWidgetItem(tr("common.loading"))
+        initial_title = str(title or "").strip() or tr("common.loading")
+        it_title = QtWidgets.QTableWidgetItem(initial_title)
         self.tbl.setItem(row, self.COL_TITLE, it_title)
 
-        it_dur = QtWidgets.QTableWidgetItem(tr("common.na"))
+        initial_dur = format_hms(duration_s, blank_for_none=True)
+        it_dur = QtWidgets.QTableWidgetItem(initial_dur or tr("common.na"))
         it_dur.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl.setItem(row, self.COL_DUR, it_dur)
 
@@ -1163,29 +1176,31 @@ class FilesPanel(QtWidgets.QWidget):
         has_sel = bool(self.tbl.rows_for_removal(self.COL_CHECK))
         model_ready = self._transcription_ready
         running = self._is_transcription_running()
+        expanding = self._files_is_expanding()
+        busy = bool(running or expanding)
 
-        self.src_edit.setEnabled((not running) and model_ready)
+        self.src_edit.setEnabled((not busy) and model_ready)
 
-        self.action_bar.set_primary_enabled(has_items and model_ready and not running)
+        self.action_bar.set_primary_enabled(has_items and model_ready and not busy)
         self.action_bar.set_secondary_enabled(running)
 
-        self.btn_clear_list.setEnabled(has_items and not running and model_ready)
-        self.btn_remove_selected.setEnabled(has_sel and not running and model_ready)
+        self.btn_clear_list.setEnabled(has_items and not busy and model_ready)
+        self.btn_remove_selected.setEnabled(has_sel and not busy and model_ready)
 
-        self.btn_src_add.setEnabled(not running and model_ready)
+        self.btn_src_add.setEnabled(not busy and model_ready)
         self.btn_open_output.setEnabled(True)
 
-        self.btn_add_files.setEnabled(not running and model_ready)
-        self.btn_add_folder.setEnabled(not running and model_ready)
+        self.btn_add_files.setEnabled(not busy and model_ready)
+        self.btn_add_folder.setEnabled(not busy and model_ready)
 
-        self.tbl.setEnabled(model_ready)
-        self.tbl.setAcceptDrops(bool(model_ready and (not running)))
-        if model_ready and (not running):
+        self.tbl.setEnabled(model_ready and not expanding)
+        self.tbl.setAcceptDrops(bool(model_ready and (not busy)))
+        if model_ready and (not busy):
             self.tbl.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
         else:
             self.tbl.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
 
-        if running:
+        if busy:
             self.tbl.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         else:
             self.tbl.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
@@ -1251,22 +1266,134 @@ class FilesPanel(QtWidgets.QWidget):
         if not key:
             return None
 
-        if str(parsed.get("type") or "") == "url" and is_playlist_url(key):
-            dialogs.info_playlist_not_supported(self)
-            return None
-
         parsed["key"] = key
         return parsed
 
-    def _collect_added_local_keys(self, paths: list[str]) -> list[str]:
+    @staticmethod
+    def _source_label_for_kind(source_kind: str) -> str:
+        kind = str(source_kind or "").strip().lower()
+        return tr("files.source.url") if kind == "url" else tr("files.source.local")
+
+    def _ensure_expansion_progress_dialog(self) -> dialogs.ExpansionProgressDialog:
+        dlg = self._expansion_progress_dialog
+        if dlg is None:
+            dlg = dialogs.ExpansionProgressDialog(self)
+            dlg.cancel_requested.connect(self._cancel_expansion_request)
+            self._expansion_progress_dialog = dlg
+        return dlg
+
+    def _show_expansion_progress(self) -> None:
+        dlg = self._ensure_expansion_progress_dialog()
+        dlg.set_message(tr("dialog.expansion_progress.generic"))
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _hide_expansion_progress(self) -> None:
+        dlg = self._expansion_progress_dialog
+        if dlg is None:
+            return
+        dlg.hide()
+
+    def _cancel_expansion_request(self) -> None:
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.cancel_expansion()
+
+    @staticmethod
+    def _sample_titles_from_expansion(result: SourceExpansionResult) -> list[str]:
+        out: list[str] = []
+        for item in result.items:
+            title = str(getattr(item, "title", "") or "").strip()
+            if title:
+                out.append(title)
+        return out
+
+    @staticmethod
+    def _should_confirm_bulk_add(count: int) -> bool:
+        if count <= 0:
+            return False
+        if not Config.ui_bulk_add_confirmation_enabled():
+            return False
+        return int(count) >= int(Config.ui_bulk_add_confirmation_threshold())
+
+    @staticmethod
+    def _limit_expansion_items(result: SourceExpansionResult, limit: int) -> tuple[ExpandedSourceItem, ...]:
+        lim = int(max(0, int(limit or 0)))
+        if lim <= 0:
+            return tuple(result.items)
+        return tuple(result.items[:lim])
+
+    def _apply_expansion_result(
+        self,
+        result: SourceExpansionResult,
+        items: tuple[ExpandedSourceItem, ...] | None = None,
+    ) -> tuple[int, int]:
         added: list[str] = []
-        for key in collect_media_files(paths):
-            ok, key, _dup = try_add_source_key(self._keys, key)
-            if not ok:
+        duplicate_count = 0
+        source_items = tuple(result.items) if items is None else tuple(items)
+        for item in source_items:
+            key = str(getattr(item, "key", "") or "").strip()
+            if not key:
                 continue
-            self._insert_placeholder_row(key, src_label=tr("files.source.local"))
+            ok, key, dup = try_add_source_key(self._keys, key)
+            if not ok:
+                if dup:
+                    duplicate_count += 1
+                continue
+            self._insert_placeholder_row(
+                key,
+                src_label=self._source_label_for_kind(getattr(item, "source_kind", "file")),
+                title=str(getattr(item, "title", "") or ""),
+                duration_s=getattr(item, "duration_s", None),
+            )
             added.append(key)
-        return added
+
+        if added:
+            self._start_metadata_for(added[:30])
+        self._finalize_source_rows_changed()
+
+        if result.origin_kind in {"manual_input", "playlist"}:
+            self.src_edit.clear()
+
+        return len(added), duplicate_count
+
+    def _show_expansion_summary(
+        self,
+        result: SourceExpansionResult,
+        *,
+        added_count: int,
+        duplicate_count: int,
+        selected_count: int,
+    ) -> None:
+        message = ""
+        total = int(max(0, int(result.discovered_count or 0)))
+        selected = int(max(0, int(selected_count or 0)))
+        limited = bool(total > 0 and 0 < selected < total)
+        if total <= 1:
+            if added_count == 0 and duplicate_count > 0:
+                message = tr("files.msg.already_on_list")
+        elif limited and added_count > 0 and duplicate_count > 0:
+            message = tr("files.msg.bulk_add_summary_limited_with_duplicates", added=added_count, selected=selected, total=total, skipped=duplicate_count)
+        elif limited and added_count > 0:
+            message = tr("files.msg.bulk_add_summary_limited", added=added_count, selected=selected, total=total)
+        elif added_count > 0 and duplicate_count > 0:
+            message = tr("files.msg.bulk_add_summary_with_duplicates", added=added_count, skipped=duplicate_count)
+        elif added_count > 0:
+            message = tr("files.msg.bulk_add_summary_added", added=added_count)
+        elif duplicate_count > 0:
+            message = tr("files.msg.bulk_add_summary_duplicates_only", skipped=duplicate_count)
+
+        if not message:
+            return
+
+        dialogs.show_info(
+            self,
+            title=tr("dialog.info.title"),
+            header=tr("dialog.info.header"),
+            message=message,
+        )
 
     def _reset_sources_view_state(self) -> None:
         self.tbl.setRowCount(0)
@@ -1279,30 +1406,16 @@ class FilesPanel(QtWidgets.QWidget):
         if not parsed:
             return
 
-        key = str(parsed.get("key") or "").strip()
-        ok, key, dup = try_add_source_key(self._keys, key)
-        if not ok:
-            if dup:
-                dialogs.show_info(
-                    self,
-                    title=tr("dialog.info.title"),
-                    header=tr("dialog.info.header"),
-                    message=tr("status.skipped"),
-                )
+        coord = self.coordinator()
+        if coord is None:
             return
-
-        src_label = tr("files.source.url") if str(parsed.get("type")) == "url" else tr("files.source.local")
-        self._insert_placeholder_row(key, src_label=src_label)
-        self._start_metadata_for([key])
-
-        self.src_edit.clear()
-        self._finalize_source_rows_changed()
+        coord.expand_manual_input(self.src_edit.text())
 
     def _on_paths_dropped(self, paths: list[str]) -> None:
-        added = self._collect_added_local_keys(paths)
-        if added:
-            self._start_metadata_for(added[:30])
-        self._finalize_source_rows_changed()
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.expand_local_paths(list(paths or []), origin_kind="drop")
 
     def _remove_rows(self, rows: list[int]) -> None:
         if not rows:
@@ -1339,7 +1452,10 @@ class FilesPanel(QtWidgets.QWidget):
         )
         if not files:
             return
-        self._on_paths_dropped(files)
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.expand_local_paths(list(files), origin_kind="file_selection")
 
     def _on_add_folder_clicked(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, tr("files.add_folder"))
@@ -1348,7 +1464,10 @@ class FilesPanel(QtWidgets.QWidget):
         p = Path(folder)
         if not p.exists() or not p.is_dir():
             return
-        self._on_paths_dropped([str(p)])
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.expand_local_paths([str(p)], origin_kind="folder")
 
     def _on_remove_selected(self) -> None:
         rows = self.tbl.rows_for_removal(self.COL_CHECK)
@@ -1493,6 +1612,64 @@ class FilesPanel(QtWidgets.QWidget):
 
     def on_meta_finished(self) -> None:
         self._update_buttons()
+
+    @QtCore.pyqtSlot(bool)
+    def on_expansion_busy_changed(self, busy: bool) -> None:
+        if busy:
+            self._show_expansion_progress()
+        else:
+            self._hide_expansion_progress()
+        self._update_buttons()
+
+    @QtCore.pyqtSlot(str, dict)
+    def on_expansion_status_changed(self, key: str, params: dict[str, Any]) -> None:
+        dlg = self._ensure_expansion_progress_dialog()
+        if not key:
+            dlg.set_message(tr("dialog.expansion_progress.generic"))
+            return
+        dlg.set_message(tr(str(key), **(params or {})))
+
+    @QtCore.pyqtSlot(object)
+    def on_expansion_ready(self, result: SourceExpansionResult) -> None:
+        self._hide_expansion_progress()
+        if result.discovered_count <= 0 or not result.items:
+            dialogs.show_info(
+                self,
+                title=tr("dialog.info.title"),
+                header=tr("dialog.info.header"),
+                message=tr("files.msg.no_media_found"),
+            )
+            return
+
+        selected_items = tuple(result.items)
+        threshold = int(Config.ui_bulk_add_confirmation_threshold())
+        if self._should_confirm_bulk_add(result.discovered_count):
+            action, chosen_count = dialogs.ask_bulk_add_plan(
+                self,
+                origin_kind=result.origin_kind,
+                count=result.discovered_count,
+                origin_label=result.origin_label,
+                sample_titles=self._sample_titles_from_expansion(result),
+                default_limit=threshold,
+                target_label=tr("dialog.bulk_add.target.files"),
+            )
+            if action == "cancel":
+                return
+            if action == "first_n":
+                selected_items = self._limit_expansion_items(result, chosen_count)
+
+        added_count, duplicate_count = self._apply_expansion_result(result, selected_items)
+        self._show_expansion_summary(
+            result,
+            added_count=added_count,
+            duplicate_count=duplicate_count,
+            selected_count=len(selected_items),
+        )
+
+    @QtCore.pyqtSlot(str, dict)
+    def on_expansion_error(self, key: str, params: dict[str, Any]) -> None:
+        self._hide_expansion_progress()
+        dialogs.show_error(self, key, params or {})
 
     def on_transcribe_finished(self) -> None:
         self.action_bar.reset()

@@ -49,6 +49,13 @@ class LivePanel(QtWidgets.QWidget):
     OUTPUT_MODE_STREAM = "stream"
     OUTPUT_MODE_CUMULATIVE = "cumulative"
 
+    _transcription_ready: bool
+    _transcription_error_key: str | None
+    _transcription_error_params: dict[str, Any]
+    _translation_ready: bool
+    _translation_error_key: str | None
+    _translation_error_params: dict[str, Any]
+
     def __init__(
         self,
         parent: QtWidgets.QWidget | None = None,

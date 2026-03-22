@@ -8,7 +8,12 @@ from app.controller.coordinators.files_coordinator import FilesCoordinator
 from app.controller.coordinators.live_coordinator import LiveCoordinator
 from app.controller.coordinators.settings_coordinator import SettingsCoordinator
 from app.controller.coordinators.startup_coordinator import StartupCoordinator
-from app.controller.contracts import MainWindowPanelsHostProtocol
+from app.controller.contracts import (
+    DownloaderCoordinatorProtocol,
+    FilesCoordinatorProtocol,
+    LiveCoordinatorProtocol,
+    MainWindowPanelsHostProtocol,
+)
 from app.model.domain.runtime_state import AppRuntimeState
 
 
@@ -67,15 +72,21 @@ class AppCoordinator(QtCore.QObject):
             self.main_window = window
 
         if window.files_panel is not None:
-            window.files_panel.bind_coordinator(self.files)
+            files = self.files
+            assert isinstance(files, FilesCoordinatorProtocol)
+            window.files_panel.bind_coordinator(files)
             self.files.bind_view(window.files_panel)
 
         if window.live_panel is not None:
-            window.live_panel.bind_coordinator(self.live)
+            live = self.live
+            assert isinstance(live, LiveCoordinatorProtocol)
+            window.live_panel.bind_coordinator(live)
             self.live.bind_view(window.live_panel)
 
         if window.downloader_panel is not None:
-            window.downloader_panel.bind_coordinator(self.downloader)
+            downloader = self.downloader
+            assert isinstance(downloader, DownloaderCoordinatorProtocol)
+            window.downloader_panel.bind_coordinator(downloader)
             self.downloader.bind_view(window.downloader_panel)
 
         if window.settings_panel is not None:

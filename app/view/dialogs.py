@@ -12,8 +12,16 @@ from app.model.config.app_config import AppConfig as Config
 from app.model.domain.errors import AppError
 from app.model.helpers.string_utils import sanitize_filename
 from app.view.support.theme_runtime import apply_windows_dark_titlebar
-from app.view.support.widget_setup import setup_button, setup_input
+from app.view.support.widget_setup import (
+    build_layout_host,
+    setup_button,
+    setup_input,
+    setup_spinbox,
+    setup_text_editor,
+)
 from app.view.ui_config import ui
+
+# ----- Shared helpers -----
 
 class _NoCloseFilter(QtCore.QObject):
     """Event filter that blocks closing the dialog via window controls or ESC."""
@@ -177,6 +185,8 @@ def _terminate_application() -> None:
     except (AttributeError, RuntimeError, TypeError):
         return
 
+# ----- Critical startup dialogs -----
+
 def critical_defaults_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
     title = tr("dialog.critical.application_error.title")
     text = tr("dialog.critical.defaults_missing.text")
@@ -211,16 +221,19 @@ def critical_config_load_failed_choice(parent: QtWidgets.QWidget | None, details
     )
     return "restore_defaults" if ok_restore else "exit"
 
+# ----- Source expansion and runtime dialogs -----
+
 def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     cfg = ui(parent)
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg, cfg)
+    dlg.setWindowTitle(tr("dialog.live.no_devices.title"))
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
 
-    lay.addWidget(_bold_label(tr("live.dialog.no_devices.title")))
-    lay.addWidget(_wrap_label(tr("live.dialog.no_devices.text")))
+    lay.addWidget(_bold_label(tr("dialog.live.no_devices.header")))
+    lay.addWidget(_wrap_label(tr("dialog.live.no_devices.text")))
     lay.addStretch(1)
 
     btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
@@ -233,8 +246,161 @@ def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
 
     dlg.exec_()
 
-def info_playlist_not_supported(parent: QtWidgets.QWidget | None = None) -> None:
-    _message_dialog(parent, title="", message=tr("down.dialog.playlist_not_supported.text"))
+def ask_bulk_add_plan(
+    parent: QtWidgets.QWidget | None,
+    *,
+    origin_kind: str,
+    count: int,
+    origin_label: str = "",
+    sample_titles: list[str] | None = None,
+    default_limit: int = 0,
+    target_label: str = "",
+) -> tuple[str, int]:
+    kind = str(origin_kind or "selection").strip().lower()
+    key_map = {
+        "playlist": "dialog.bulk_add.playlist",
+        "folder": "dialog.bulk_add.folder",
+        "file_selection": "dialog.bulk_add.selection",
+        "drop": "dialog.bulk_add.drop",
+        "manual_input": "dialog.bulk_add.selection",
+    }
+    total = int(max(0, int(count or 0)))
+    default_n = int(max(1, int(default_limit or 1)))
+    default_n = min(default_n, max(1, total))
+
+    details: list[str] = [tr(key_map.get(kind, "dialog.bulk_add.selection"), count=total)]
+    label = str(origin_label or "").strip()
+    if label:
+        details.append(tr("dialog.bulk_add.origin", origin=label))
+    target = str(target_label or "").strip()
+    if target:
+        details.append(tr("dialog.bulk_add.target", target=target))
+    preview = [str(item or "").strip() for item in list(sample_titles or []) if str(item or "").strip()]
+    preview = preview[:5]
+
+    cfg = ui(parent)
+    dlg = QtWidgets.QDialog(parent)
+    _tune_dialog_window(dlg, cfg)
+    dlg.setWindowTitle(tr("dialog.bulk_add.title"))
+    dlg.setMinimumWidth(max(cfg.dialog_min_w, 640))
+    dlg.setMaximumWidth(max(cfg.dialog_max_w, 860))
+
+    lay = QtWidgets.QVBoxLayout(dlg)
+    _tune_dialog_layout(lay, cfg)
+    lay.addWidget(_bold_label(tr("dialog.bulk_add.header")))
+    lay.addWidget(_wrap_label("\n".join(details)))
+
+    if preview:
+        preview_label = QtWidgets.QLabel(tr("dialog.bulk_add.preview_header"), dlg)
+        preview_label.setProperty("role", "fieldLabel")
+        lay.addWidget(preview_label)
+
+        preview_box = QtWidgets.QPlainTextEdit(dlg)
+        preview_box.setReadOnly(True)
+        preview_box.setPlainText("\n".join(f"• {item}" for item in preview))
+        preview_box.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        preview_box.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        preview_box.setLineWrapMode(QtWidgets.QPlainTextEdit.WidgetWidth)
+        setup_text_editor(preview_box)
+        visible_rows = max(1, len(preview))
+        line_h = preview_box.fontMetrics().lineSpacing()
+        frame_h = preview_box.frameWidth() * 2
+        doc_margin = int(preview_box.document().documentMargin() * 2)
+        preview_h = (line_h * visible_rows) + frame_h + doc_margin + int(cfg.space_s)
+        preview_box.setFixedHeight(max(cfg.control_min_h * 2, preview_h))
+        lay.addWidget(preview_box)
+
+    rb_all = QtWidgets.QRadioButton(tr("dialog.bulk_add.option_all"))
+    rb_first = QtWidgets.QRadioButton(tr("dialog.bulk_add.option_first_n"))
+
+    rb_first.setChecked(total > default_n)
+    if not rb_first.isChecked():
+        rb_all.setChecked(True)
+
+    lay.addWidget(rb_all)
+
+    first_row_host, first_row = build_layout_host(layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
+    first_row.addWidget(rb_first)
+    sp_count = QtWidgets.QSpinBox(dlg)
+    sp_count.setMinimum(1)
+    sp_count.setMaximum(max(1, total))
+    sp_count.setValue(default_n)
+    sp_count.setButtonSymbols(QtWidgets.QAbstractSpinBox.UpDownArrows)
+    setup_spinbox(sp_count, min_h=cfg.control_min_h)
+    first_row.addWidget(sp_count)
+    first_row.addWidget(QtWidgets.QLabel(tr("dialog.bulk_add.option_first_suffix", total=total)))
+    first_row.addStretch(1)
+    lay.addWidget(first_row_host)
+    lay.addStretch(1)
+
+    def _sync_spinbox() -> None:
+        sp_count.setEnabled(rb_first.isChecked())
+
+    rb_all.toggled.connect(_sync_spinbox)
+    rb_first.toggled.connect(_sync_spinbox)
+    _sync_spinbox()
+
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    cancel_btn = btns.button(QtWidgets.QDialogButtonBox.Cancel)
+    if ok_btn and cancel_btn:
+        ok_btn.setText(tr("ctrl.add"))
+        cancel_btn.setText(tr("ctrl.cancel"))
+        _tune_buttons(cfg, ok_btn, cancel_btn)
+        ok_btn.setDefault(True)
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    lay.addWidget(btns)
+
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return "cancel", 0
+    if rb_first.isChecked():
+        return "first_n", int(sp_count.value())
+    return "all", total
+
+
+class ExpansionProgressDialog(QtWidgets.QDialog):
+    """Lightweight cancellable progress dialog for source expansion."""
+
+    cancel_requested = QtCore.pyqtSignal()
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        cfg = ui(parent)
+        _tune_dialog_window(self, cfg)
+        self.setWindowTitle(tr("dialog.expansion_progress.title"))
+        self.setModal(False)
+        self.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        _lock_close(self)
+
+        lay = QtWidgets.QVBoxLayout(self)
+        _tune_dialog_layout(lay, cfg)
+        lay.addWidget(_bold_label(tr("dialog.expansion_progress.header")))
+
+        self._message_label = _wrap_label(tr("dialog.expansion_progress.generic"))
+        lay.addWidget(self._message_label)
+
+        self._bar = QtWidgets.QProgressBar(self)
+        self._bar.setRange(0, 0)
+        self._bar.setTextVisible(False)
+        self._bar.setMinimumHeight(cfg.control_min_h)
+        lay.addWidget(self._bar)
+        lay.addStretch(1)
+
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
+        cancel_btn = btns.button(QtWidgets.QDialogButtonBox.Cancel)
+        if cancel_btn:
+            cancel_btn.setText(tr("ctrl.cancel"))
+            _tune_buttons(cfg, cancel_btn)
+            cancel_btn.setDefault(True)
+        btns.rejected.connect(self.cancel_requested.emit)
+        lay.addWidget(btns)
+
+    def set_message(self, text: str) -> None:
+        self._message_label.setText(str(text or tr("dialog.expansion_progress.generic")))
+
+
+# ----- Confirmation dialogs -----
 
 def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> None:
     _message_dialog(
@@ -249,10 +415,10 @@ def show_downloader_offline_dialog(parent: QtWidgets.QWidget | None = None) -> N
     _availability_dialog(parent, text_key="dialog.availability.downloader_offline.text")
 
 def ask_cancel(parent: QtWidgets.QWidget) -> bool:
-    text = tr("dialog.cancel_confirm", detail="")
+    text = tr("dialog.cancel_confirm")
     return _confirm_dialog(
         parent,
-        title="",
+        title=tr("dialog.confirm.title"),
         message=text,
         accept_text=tr("action.cancel_now"),
         reject_text=tr("action.keep_working"),
@@ -264,7 +430,7 @@ def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
     text = tr("dialog.settings_save_confirm")
     return _confirm_dialog(
         parent,
-        title="",
+        title=tr("dialog.settings.title"),
         message=text,
         accept_text=tr("settings.buttons.save"),
         reject_text=tr("ctrl.cancel"),
@@ -276,7 +442,7 @@ def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
     text = tr("dialog.settings_restore_confirm")
     return _confirm_dialog(
         parent,
-        title="",
+        title=tr("dialog.settings.title"),
         message=text,
         accept_text=tr("settings.buttons.restore_defaults"),
         reject_text=tr("ctrl.cancel"),
@@ -294,7 +460,8 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout, cfg)
 
-    layout.addWidget(_bold_label(tr("dialog.conflict.title")))
+    dlg.setWindowTitle(tr("dialog.conflict.title"))
+    layout.addWidget(_bold_label(tr("dialog.conflict.header")))
     layout.addWidget(_wrap_label(tr("dialog.conflict.text", name=stem)))
 
     rb_skip = QtWidgets.QRadioButton(tr("dialog.conflict.skip"))
@@ -363,11 +530,13 @@ def ask_download_duplicate(
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout, cfg)
 
-    layout.addWidget(_wrap_label(tr("down.dialog.exists.text", title=title)))
+    dlg.setWindowTitle(tr("dialog.down.exists.title"))
+    layout.addWidget(_bold_label(tr("dialog.down.exists.header")))
+    layout.addWidget(_wrap_label(tr("dialog.down.exists.text", title=title)))
 
-    rb_skip = QtWidgets.QRadioButton(tr("down.dialog.exists.skip"))
-    rb_over = QtWidgets.QRadioButton(tr("down.dialog.exists.overwrite"))
-    rb_ren = QtWidgets.QRadioButton(tr("down.dialog.exists.rename"))
+    rb_skip = QtWidgets.QRadioButton(tr("dialog.down.exists.skip"))
+    rb_over = QtWidgets.QRadioButton(tr("dialog.down.exists.overwrite"))
+    rb_ren = QtWidgets.QRadioButton(tr("dialog.down.exists.rename"))
     rb_skip.setChecked(True)
 
     row = QtWidgets.QHBoxLayout()
@@ -382,7 +551,7 @@ def ask_download_duplicate(
     name_edit.setEnabled(False)
     layout.addWidget(name_edit)
 
-    cb_all = QtWidgets.QCheckBox(tr("down.dialog.exists.apply_all"))
+    cb_all = QtWidgets.QCheckBox(tr("dialog.down.exists.apply_all"))
     cb_all.setMinimumHeight(cfg.control_min_h)
     layout.addWidget(cb_all)
 
@@ -428,7 +597,8 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
 
-    lay.addWidget(_bold_label(tr("dialog.restart_required.title")))
+    dlg.setWindowTitle(tr("dialog.restart_required.title"))
+    lay.addWidget(_bold_label(tr("dialog.restart_required.header")))
     lay.addWidget(_wrap_label(tr("dialog.restart_required.text")))
     lay.addStretch(1)
 
@@ -450,11 +620,11 @@ def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> 
     msg = f"{base}\n{session_dir}" if session_dir else base
     return _confirm_dialog(
         parent,
-        title="",
+        title=tr("dialog.info.title"),
         message=msg,
         accept_text=tr("files.open_output"),
         reject_text=tr("ctrl.ok"),
-        header=tr("status.done"),
+        header=tr("dialog.info.done_header"),
         default_accept=False,
     )
 
@@ -471,13 +641,15 @@ def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -
 
     return _confirm_dialog(
         parent,
-        title="",
+        title=tr("dialog.info.title"),
         message=msg,
         accept_text=tr("down.open_folder"),
         reject_text=tr("ctrl.ok"),
-        header=tr("status.done"),
+        header=tr("dialog.info.done_header"),
         default_accept=False,
     )
+
+# ----- General message helpers -----
 
 def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
     _message_dialog(parent, title=title, message=message, header=header, ok_text=tr("ctrl.ok"))
@@ -491,11 +663,7 @@ def show_error(
     message: str | None = None,
     header: str | None = None,
 ) -> None:
-    """Show a runtime error dialog.
-
-    ``key`` is intended for semantic ``error.*`` translation keys.
-    ``dialog.*`` keys remain an internal concern of the view layer itself.
-    """
+    """Show a runtime error through the standard dialog path."""
 
     def _should_hide_detail(text: str) -> bool:
         s = str(text or "")

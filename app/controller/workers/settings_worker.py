@@ -17,7 +17,7 @@ class SettingsWorker(TaskWorker):
     """Background worker for loading/saving application settings."""
 
     settings_loaded = QtCore.pyqtSignal(object)
-    saved = QtCore.pyqtSignal(object)
+    saved = QtCore.pyqtSignal(str, object)
 
     def __init__(self, *, action: str, payload: dict[str, Any] | None = None) -> None:
         super().__init__()
@@ -32,8 +32,8 @@ class SettingsWorker(TaskWorker):
         if self._action == "load":
             self._do_load()
             return
-        if self._action == "save":
-            self._do_save()
+        if self._action in {"save", "save_ui_state"}:
+            self._do_save(self._action)
             return
         if self._action == "restore_defaults":
             self._do_restore_defaults()
@@ -51,13 +51,13 @@ class SettingsWorker(TaskWorker):
         svc = SettingsService()
         snap = svc.restore_defaults()
         self._apply_runtime_snapshot(snap)
-        self.saved.emit(snap)
+        self.saved.emit("restore_defaults", snap)
 
-    def _do_save(self) -> None:
+    def _do_save(self, action: str) -> None:
         svc = SettingsService()
         snap = svc.save(self._payload)
         self._apply_runtime_snapshot(snap)
-        self.saved.emit(snap)
+        self.saved.emit(str(action or "save"), snap)
 
     @staticmethod
     def _apply_runtime_snapshot(snap: SettingsSnapshot) -> None:

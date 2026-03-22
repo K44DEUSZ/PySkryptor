@@ -8,6 +8,7 @@ from PyQt5 import QtCore
 from app.controller.contracts import FilesPanelViewProtocol
 from app.controller.workers.media_probe_worker import MediaProbeWorker
 from app.controller.workers.settings_worker import SettingsWorker
+from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
 from app.controller.workers.transcription_worker import TranscriptionWorker
 from app.model.domain.entities import TranscriptionSessionRequest
@@ -20,10 +21,15 @@ class FilesCoordinator(QtCore.QObject):
     busy_changed = QtCore.pyqtSignal(bool)
     probe_busy_changed = QtCore.pyqtSignal(bool)
     transcription_busy_changed = QtCore.pyqtSignal(bool)
+    expansion_busy_changed = QtCore.pyqtSignal(bool)
+    expansion_status_changed = QtCore.pyqtSignal(str, dict)
 
     probe_table_ready = QtCore.pyqtSignal(list)
     probe_item_error = QtCore.pyqtSignal(str, str, dict)
     probe_finished = QtCore.pyqtSignal()
+
+    expansion_ready = QtCore.pyqtSignal(object)
+    expansion_failed = QtCore.pyqtSignal(str, dict)
 
     progress = QtCore.pyqtSignal(int)
     failed = QtCore.pyqtSignal(str, dict)
@@ -45,6 +51,9 @@ class FilesCoordinator(QtCore.QObject):
         self._probe_worker: MediaProbeWorker | None = None
         self._pending_probe_entries: list[dict[str, Any]] | None = None
 
+        self._expansion_runner = TaskThreadRunner(self)
+        self._expansion_worker: SourceExpansionWorker | None = None
+
         self._transcription_runner = TaskThreadRunner(self)
         self._transcription_worker: TranscriptionWorker | None = None
 
@@ -64,6 +73,10 @@ class FilesCoordinator(QtCore.QObject):
                 (self.probe_table_ready, previous.on_meta_rows_ready),
                 (self.probe_item_error, previous.on_meta_item_error),
                 (self.probe_finished, previous.on_meta_finished),
+                (self.expansion_busy_changed, previous.on_expansion_busy_changed),
+                (self.expansion_status_changed, previous.on_expansion_status_changed),
+                (self.expansion_ready, previous.on_expansion_ready),
+                (self.expansion_failed, previous.on_expansion_error),
                 (self.progress, previous.on_global_progress),
                 (self.item_status, previous.on_item_status),
                 (self.item_progress, previous.on_item_progress),
@@ -84,6 +97,10 @@ class FilesCoordinator(QtCore.QObject):
         self.probe_table_ready.connect(panel.on_meta_rows_ready)
         self.probe_item_error.connect(panel.on_meta_item_error)
         self.probe_finished.connect(panel.on_meta_finished)
+        self.expansion_busy_changed.connect(panel.on_expansion_busy_changed)
+        self.expansion_status_changed.connect(panel.on_expansion_status_changed)
+        self.expansion_ready.connect(panel.on_expansion_ready)
+        self.expansion_failed.connect(panel.on_expansion_error)
         self.progress.connect(panel.on_global_progress)
         self.item_status.connect(panel.on_item_status)
         self.item_progress.connect(panel.on_item_progress)
@@ -121,8 +138,44 @@ class FilesCoordinator(QtCore.QObject):
     def is_transcribing(self) -> bool:
         return self._transcription_runner.is_running()
 
+    def is_expanding(self) -> bool:
+        return self._expansion_runner.is_running()
+
     def is_busy(self) -> bool:
-        return self.is_probe_running() or self.is_transcribing()
+        return self.is_probe_running() or self.is_transcribing() or self.is_expanding()
+
+    def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
+        if self._expansion_runner.is_running():
+            return self._expansion_worker
+        worker = SourceExpansionWorker(mode="manual_input", raw=str(raw or ""))
+        return self._start_expansion_worker(worker)
+
+    def expand_local_paths(self, paths: list[str], origin_kind: str) -> SourceExpansionWorker | None:
+        if self._expansion_runner.is_running():
+            return self._expansion_worker
+        worker = SourceExpansionWorker(mode="local_paths", paths=list(paths or []), origin_kind=str(origin_kind or "local_paths"))
+        return self._start_expansion_worker(worker)
+
+    def _start_expansion_worker(self, worker: SourceExpansionWorker) -> SourceExpansionWorker | None:
+        self._expansion_worker = worker
+        self.expansion_busy_changed.emit(True)
+        self.busy_changed.emit(True)
+
+        def _connect(wk: SourceExpansionWorker) -> None:
+            wk.status_changed.connect(self.expansion_status_changed)
+            wk.expanded.connect(self.expansion_ready)
+            wk.failed.connect(self.expansion_failed)
+
+        def _done() -> None:
+            self._expansion_worker = None
+            self.expansion_busy_changed.emit(False)
+            self.expansion_status_changed.emit("", {})
+            self.busy_changed.emit(self.is_busy())
+
+        return self._expansion_runner.start(worker, connect=_connect, on_finished=_done)
+
+    def cancel_expansion(self) -> None:
+        self._expansion_runner.cancel()
 
     def start_probe(self, entries: list[dict[str, Any]]) -> MediaProbeWorker | None:
         normalized = [dict(entry or {}) for entry in entries or [] if isinstance(entry, dict)]

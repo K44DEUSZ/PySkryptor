@@ -29,7 +29,7 @@ class AppConfig:
     _UNSET = object()
 
     APP_NAME: str = "PySkryptor"
-    APP_VERSION: str = "1.0 ALPHA"
+    APP_VERSION: str = "1.1 ALPHA"
     APP_AUTHOR: str = "Bartosz Golat"
     APP_DEVELOPMENT_YEARS: str = "2025-2026"
     APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"
@@ -425,6 +425,10 @@ class AppConfig:
     LIVE_DEFAULT_PRESET: str = RuntimeProfiles.LIVE_DEFAULT_PRESET
     LIVE_PRESET_IDS: tuple[str, ...] = RuntimeProfiles.LIVE_PRESET_IDS
     LIVE_AUDIO_SIGNAL_PROFILE: dict[str, Any] = RuntimeProfiles.LIVE_AUDIO_SIGNAL_PROFILE
+
+    BULK_ADD_CONFIRMATION_MIN_THRESHOLD: int = 2
+    BULK_ADD_CONFIRMATION_MAX_THRESHOLD: int = 1000
+    BULK_ADD_CONFIRMATION_DEFAULT_THRESHOLD: int = 20
     LIVE_PRESET_PROFILES: dict[str, dict[str, Any]] = RuntimeProfiles.LIVE_PRESET_PROFILES
 
     @classmethod
@@ -433,6 +437,24 @@ class AppConfig:
         ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
         live_cfg = ui_cfg.get("live", {}) if isinstance(ui_cfg.get("live"), dict) else {}
         return dict(live_cfg) if isinstance(live_cfg, dict) else {}
+
+    @classmethod
+    def bulk_add_confirmation_cfg_dict(cls) -> dict[str, Any]:
+        app_cfg = cls._snapshot_section_dict("app")
+        ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
+        bulk_cfg = ui_cfg.get("bulk_add_confirmation", {}) if isinstance(ui_cfg.get("bulk_add_confirmation"), dict) else {}
+        return dict(bulk_cfg) if isinstance(bulk_cfg, dict) else {}
+
+    @classmethod
+    def ui_bulk_add_confirmation_enabled(cls) -> bool:
+        cfg = cls.bulk_add_confirmation_cfg_dict()
+        return bool(cfg.get("enabled", True))
+
+    @classmethod
+    def ui_bulk_add_confirmation_threshold(cls) -> int:
+        cfg = cls.bulk_add_confirmation_cfg_dict()
+        raw = cls._coerce_int(cfg.get("threshold"), cls.BULK_ADD_CONFIRMATION_DEFAULT_THRESHOLD)
+        return max(cls.BULK_ADD_CONFIRMATION_MIN_THRESHOLD, min(cls.BULK_ADD_CONFIRMATION_MAX_THRESHOLD, raw))
 
     @classmethod
     def live_ui_mode(cls) -> str:

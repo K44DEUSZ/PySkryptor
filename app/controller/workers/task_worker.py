@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import threading
-from abc import abstractmethod
 from dataclasses import dataclass, field
 
 from PyQt5 import QtCore
@@ -85,6 +84,6 @@ class TaskWorker(WorkerBase, metaclass=_WorkerMeta):
 
         self._finish_success()
 
-    @abstractmethod
     def _execute(self) -> None:
         """Run the worker logic on the background thread."""
+        raise NotImplementedError

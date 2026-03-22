@@ -1,6 +1,7 @@
 # app/view/components/hint_popup.py
 from __future__ import annotations
 
+from typing import Optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view.support.widget_effects import (
@@ -14,23 +15,29 @@ from app.view.ui_config import ui
 _SHARED_HINT_POPUP: HintPopup | None = None
 _HINT_MAX_TEXT_W = 360
 
+
 def _hint_anchor_gap_x(cfg) -> int:
     return max(2, int(cfg.space_l) - 1)
+
 
 def _hint_left_gap_x(cfg) -> int:
     return max(8, int(cfg.pad_x_l) + int(cfg.space_s) - 1)
 
+
 def _hint_avoid_gap_x(cfg) -> int:
     return int(cfg.pad_x_m)
 
+
 def _hint_icon_size(cfg) -> int:
     return max(12, int(cfg.radius_l) + 4)
+
 
 def hint_popup() -> "HintPopup":
     global _SHARED_HINT_POPUP
     if _SHARED_HINT_POPUP is None:
         _SHARED_HINT_POPUP = HintPopup()
     return _SHARED_HINT_POPUP
+
 
 class HintPopup(QtWidgets.QWidget):
     """Rounded hint popup used by info buttons."""
@@ -85,7 +92,7 @@ class HintPopup(QtWidgets.QWidget):
         pos: QtCore.QPoint,
         text: str,
         *,
-        avoid_rect: QtCore.QRect | None = None,
+        avoid_rect: Optional["QtCore.QRect"] = None,
     ) -> None:
         self._label.setText(str(text or "").strip())
         self.adjustSize()
@@ -111,6 +118,7 @@ class HintPopup(QtWidgets.QWidget):
         self.move(geom.topLeft())
         self.show()
         self.raise_()
+
 
 class InfoButton(QtWidgets.QToolButton):
     """Tooltip hint button used next to settings controls."""

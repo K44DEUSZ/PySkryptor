@@ -18,6 +18,7 @@ from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.source_table import SourceTable
 from app.view.components.section_group import SectionGroup
 from app.view import dialogs
+from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
 from app.view.support.view_runtime import (
     normalize_network_status,
     open_external_url,
@@ -36,6 +37,7 @@ _PROGRESS_BASE_PCT = 5
 _PROGRESS_SCALE_PCT = 85
 _LINK_MAX_CHARS = 48
 _DESCRIPTION_MAX_CHARS = 320
+_DOWNLOAD_BULK_PROBE_LIMIT = 10
 
 @dataclass
 class _Job:
@@ -100,6 +102,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         return bool(coord is not None and coord.is_downloading())
 
+    def _expansion_is_running(self) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and coord.is_expanding())
+
     def _probe_is_running(self, job_key: str | None = None) -> bool:
         coord = self.coordinator()
         return bool(coord is not None and coord.is_probe_running(job_key))
@@ -119,6 +125,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._dup_apply_all_action: str | None = None
         self._closing: bool = False
         self._network_status: str = read_network_status(parent)
+        self._expansion_progress_dialog: dialogs.ExpansionProgressDialog | None = None
         self._last_availability_debug_key: tuple | None = None
 
         self._net = QtNetwork.QNetworkAccessManager(self)
@@ -469,15 +476,16 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def _sync_buttons(self) -> None:
         running = self._download_is_running()
+        expanding = self._expansion_is_running()
         online = self._network_available()
-        can_start = bool((not running) and self.table.rowCount() > 0 and online)
+        can_start = bool((not running) and (not expanding) and self.table.rowCount() > 0 and online)
         self.action_bar.set_primary_enabled(can_start)
         self.action_bar.set_secondary_enabled(bool(running))
 
-        self.ed_url.setEnabled((not running) and online)
-        self.btn_add.setEnabled((not running) and online)
+        self.ed_url.setEnabled((not running) and (not expanding) and online)
+        self.btn_add.setEnabled((not running) and (not expanding) and online)
 
-        can_edit_queue = not running
+        can_edit_queue = not running and not expanding
         self.btn_remove_selected.setEnabled(can_edit_queue and bool(self.table.rows_for_removal(self.COL_CHECK)))
         self.btn_clear_list.setEnabled(can_edit_queue and self.table.rowCount() > 0)
 
@@ -834,13 +842,13 @@ class DownloaderPanel(QtWidgets.QWidget):
                 continue
             job = self._jobs[idx]
 
-            exts = [str(x).strip().lower() for x in (job.output_exts or []) if str(x).strip()]
-            if not exts:
-                exts = [str(x).strip().lower() for x in self._format_items(job.output_types) if str(x).strip()]
+            output_exts = [str(x).strip().lower() for x in (job.output_exts or []) if str(x).strip()]
+            if not output_exts:
+                output_exts = [str(x).strip().lower() for x in self._format_items(job.output_types) if str(x).strip()]
 
             only_audio = bool(job.output_types) and "audio" in job.output_types and "video" not in job.output_types
 
-            for ext in exts:
+            for ext in output_exts:
                 kind = "audio" if ext in audio_exts else "video"
                 quality = str(job.quality or Config.download_ui_default_quality()).strip().lower()
                 if kind == "audio" and not only_audio:
@@ -867,37 +875,245 @@ class DownloaderPanel(QtWidgets.QWidget):
             _LOG.debug("Downloader add blocked. reason=offline url=%s", sanitize_url_for_log(raw))
             dialogs.show_downloader_offline_dialog(self)
             return
-        url = self._make_job_key(raw)
-        _LOG.debug("Downloader URL normalized. raw=%s normalized=%s", sanitize_url_for_log(raw), sanitize_url_for_log(url))
-        if is_playlist_url(url):
-            _LOG.debug("Downloader add rejected. reason=playlist_not_supported url=%s", sanitize_url_for_log(url))
-            dialogs.info_playlist_not_supported(self)
+
+        coord = self.coordinator()
+        if coord is None:
+            url = self._make_job_key(raw)
+            _LOG.debug("Downloader URL normalized without coordinator. raw=%s normalized=%s", sanitize_url_for_log(raw), sanitize_url_for_log(url))
+            self._add_single_job(url)
             return
 
-        key = url
-        if self._find_job_index(key) >= 0:
-            _LOG.debug("Downloader add skipped. reason=duplicate job_key=%s", sanitize_url_for_log(key))
-            return
+        coord.expand_manual_input(raw)
 
-        output_types = ["video"]
+    def _ensure_expansion_progress_dialog(self) -> dialogs.ExpansionProgressDialog:
+        dlg = self._expansion_progress_dialog
+        if dlg is None:
+            dlg = dialogs.ExpansionProgressDialog(self)
+            dlg.cancel_requested.connect(self._cancel_expansion_request)
+            self._expansion_progress_dialog = dlg
+        return dlg
+
+    def _show_expansion_progress(self) -> None:
+        dlg = self._ensure_expansion_progress_dialog()
+        dlg.set_message(tr("dialog.expansion_progress.generic"))
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _hide_expansion_progress(self) -> None:
+        dlg = self._expansion_progress_dialog
+        if dlg is None:
+            return
+        dlg.hide()
+
+    def _cancel_expansion_request(self) -> None:
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.cancel_expansion()
+
+    @staticmethod
+    def _bulk_add_target_label() -> str:
+        return tr("dialog.bulk_add.target.downloads")
+
+    @staticmethod
+    def _sample_titles_from_expansion(result: SourceExpansionResult) -> list[str]:
+        out: list[str] = []
+        for item in result.items:
+            title = str(getattr(item, "title", "") or "").strip()
+            if title:
+                out.append(title)
+        return out
+
+    @staticmethod
+    def _limit_expansion_items(result: SourceExpansionResult, limit: int) -> tuple[ExpandedSourceItem, ...]:
+        lim = int(max(0, int(limit or 0)))
+        if lim <= 0:
+            return tuple(result.items)
+        return tuple(result.items[:lim])
+
+    @staticmethod
+    def _should_confirm_bulk_add(count: int) -> bool:
+        if count <= 0:
+            return False
+        if not Config.ui_bulk_add_confirmation_enabled():
+            return False
+        return int(count) >= int(Config.ui_bulk_add_confirmation_threshold())
+
+    @staticmethod
+    def _build_job_from_url(url: str) -> _Job:
+        key = str(url or "").strip()
         first_ext = Config.download_default_video_ext()
-        job = _Job(
+        return _Job(
             key=key,
-            url=url,
-            output_types=output_types,
+            url=key,
+            output_types=["video"],
             output_exts=[str(first_ext).strip().lower()],
             quality=Config.download_ui_default_quality(),
             audio_lang=None,
             status="queued",
-            )
+        )
+
+    def _prime_job_meta(self, job_key: str, *, title: str = "", duration_s: int | None = None) -> None:
+        meta = self._meta_by_key.get(job_key, {}) if isinstance(self._meta_by_key.get(job_key), dict) else {}
+        changed = False
+        title_text = str(title or "").strip()
+        if title_text:
+            meta["title"] = title_text
+            changed = True
+        if duration_s is not None:
+            meta["duration"] = int(duration_s)
+            changed = True
+        if changed:
+            self._meta_by_key[job_key] = meta
+            self._refresh_row_from_meta(job_key)
+
+    def _add_single_job(self, url: str) -> int:
+        key = str(url or "").strip()
+        if not key:
+            return -1
+        if self._find_job_index(key) >= 0:
+            _LOG.debug("Downloader add skipped. reason=duplicate job_key=%s", sanitize_url_for_log(key))
+            return -1
+
+        job = self._build_job_from_url(key)
         self._jobs.append(job)
         row = self._append_job_row(job)
         self._select_row(row)
-        _LOG.debug("Downloader job added. job_key=%s default_ext=%s", sanitize_url_for_log(job.key), first_ext)
+        _LOG.debug("Downloader job added. job_key=%s default_ext=%s", sanitize_url_for_log(job.key), Config.download_default_video_ext())
         self._start_probe(job)
-
         self.ed_url.clear()
         self._sync_buttons()
+        return row
+
+    def _apply_expansion_result(self, result: SourceExpansionResult, items: tuple[ExpandedSourceItem, ...]) -> tuple[int, int, list[str]]:
+        added_keys: list[str] = []
+        duplicate_count = 0
+        selected_row = -1
+
+        for item in items:
+            url = self._make_job_key(str(getattr(item, "key", "") or "").strip())
+            if not url:
+                continue
+            if self._find_job_index(url) >= 0:
+                duplicate_count += 1
+                continue
+            job = self._build_job_from_url(url)
+            self._jobs.append(job)
+            row = self._append_job_row(job)
+            if selected_row < 0:
+                selected_row = row
+            added_keys.append(job.key)
+            self._prime_job_meta(job.key, title=str(getattr(item, "title", "") or ""), duration_s=getattr(item, "duration_s", None))
+
+        if selected_row >= 0:
+            self._select_row(selected_row)
+
+        for key in added_keys[:_DOWNLOAD_BULK_PROBE_LIMIT]:
+            job = self._job_for_key(key)
+            if job is not None:
+                self._start_probe(job)
+
+        if result.origin_kind in {"manual_input", "playlist"}:
+            self.ed_url.clear()
+
+        self._sync_buttons()
+        return len(added_keys), duplicate_count, added_keys
+
+    def _show_expansion_summary(
+        self,
+        result: SourceExpansionResult,
+        *,
+        added_count: int,
+        duplicate_count: int,
+        selected_count: int,
+    ) -> None:
+        message = ""
+        total = int(max(0, int(result.discovered_count or 0)))
+        selected = int(max(0, int(selected_count or 0)))
+        limited = bool(total > 0 and 0 < selected < total)
+
+        if total <= 1:
+            if added_count == 0 and duplicate_count > 0:
+                message = tr("down.msg.already_on_list")
+        elif limited and added_count > 0 and duplicate_count > 0:
+            message = tr("down.msg.bulk_add_summary_limited_with_duplicates", added=added_count, selected=selected, total=total, skipped=duplicate_count)
+        elif limited and added_count > 0:
+            message = tr("down.msg.bulk_add_summary_limited", added=added_count, selected=selected, total=total)
+        elif added_count > 0 and duplicate_count > 0:
+            message = tr("down.msg.bulk_add_summary_with_duplicates", added=added_count, skipped=duplicate_count)
+        elif added_count > 0:
+            message = tr("down.msg.bulk_add_summary_added", added=added_count)
+        elif duplicate_count > 0:
+            message = tr("down.msg.bulk_add_summary_duplicates_only", skipped=duplicate_count)
+
+        if not message:
+            return
+
+        dialogs.show_info(
+            self,
+            title=tr("dialog.info.title"),
+            header=tr("dialog.info.header"),
+            message=message,
+        )
+
+    @QtCore.pyqtSlot(bool)
+    def on_expansion_busy_changed(self, busy: bool) -> None:
+        if busy:
+            self._show_expansion_progress()
+        else:
+            self._hide_expansion_progress()
+        self._sync_buttons()
+
+    @QtCore.pyqtSlot(str, dict)
+    def on_expansion_status_changed(self, key: str, params: dict[str, Any]) -> None:
+        dlg = self._ensure_expansion_progress_dialog()
+        if not key:
+            dlg.set_message(tr("dialog.expansion_progress.generic"))
+            return
+        dlg.set_message(tr(str(key), **(params or {})))
+
+    @QtCore.pyqtSlot(object)
+    def on_expansion_ready(self, result: SourceExpansionResult) -> None:
+        self._hide_expansion_progress()
+        if result.discovered_count <= 0 or not result.items:
+            dialogs.show_info(
+                self,
+                title=tr("dialog.info.title"),
+                header=tr("dialog.info.header"),
+                message=tr("files.msg.no_media_found"),
+            )
+            return
+
+        selected_items = tuple(result.items)
+        threshold = int(Config.ui_bulk_add_confirmation_threshold())
+        if self._should_confirm_bulk_add(result.discovered_count):
+            action, chosen_count = dialogs.ask_bulk_add_plan(
+                self,
+                origin_kind=result.origin_kind,
+                count=result.discovered_count,
+                origin_label=result.origin_label,
+                sample_titles=self._sample_titles_from_expansion(result),
+                default_limit=threshold,
+                target_label=self._bulk_add_target_label(),
+            )
+            if action == "cancel":
+                return
+            if action == "first_n":
+                selected_items = self._limit_expansion_items(result, chosen_count)
+
+        added_count, duplicate_count, _added_keys = self._apply_expansion_result(result, selected_items)
+        self._show_expansion_summary(
+            result,
+            added_count=added_count,
+            duplicate_count=duplicate_count,
+            selected_count=len(selected_items),
+        )
+
+    @QtCore.pyqtSlot(str, dict)
+    def on_expansion_error(self, key: str, params: dict[str, Any]) -> None:
+        self._hide_expansion_progress()
+        dialogs.show_error(self, key, params or {})
 
     @staticmethod
     def _make_job_key(url: str) -> str:

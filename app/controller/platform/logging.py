@@ -259,8 +259,8 @@ class LoggingSetup:
             def _close() -> None:
                 try:
                     f.close()
-                except OSError as ex:
-                    _LOG.debug("Faulthandler file close skipped. path=%s detail=%s", crash_log_path, ex)
+                except OSError as close_ex:
+                    _LOG.debug("Faulthandler file close skipped. path=%s detail=%s", crash_log_path, close_ex)
 
             atexit.register(_close)
             if logger:

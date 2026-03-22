@@ -9,6 +9,10 @@
         "preset": "balanced",
         "device_name": "",
         "output_mode": "cumulative"
+      },
+      "bulk_add_confirmation": {
+        "enabled": true,
+        "threshold": 20
       }
     },
     "logging": {

@@ -43,6 +43,9 @@ class SettingsCoordinator(QtCore.QObject):
     def save(self, payload: dict[str, Any] | None = None) -> SettingsWorker | None:
         return self._start_worker(action="save", payload=payload)
 
+    def save_ui_state(self, payload: dict[str, Any] | None = None) -> SettingsWorker | None:
+        return self._start_worker(action="save_ui_state", payload=payload)
+
     def restore_defaults(self) -> SettingsWorker | None:
         return self._start_worker(action="restore_defaults")
 

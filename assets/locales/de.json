@@ -75,7 +75,8 @@
       "overwrite": "Vorhandenes Transkript überschreiben ♻️",
       "skip": "Dieses Element überspringen ⏭️",
       "text": "Ein Transkript mit dem Namen „{name}” ist bereits vorhanden.\nWas möchtest du tun?",
-      "title": "⚠️ Transkript ist bereits vorhanden"
+      "title": "Transkriptkonflikt",
+      "header": "Ein Transkript ist bereits vorhanden"
     },
     "critical": {
       "application_error": {
@@ -109,30 +110,71 @@
       "downloaded_prefix": "Heruntergeladene Datei:",
       "header": "Info",
       "source_missing": "Die ausgewählte Quelle existiert nicht mehr.",
-      "title": "Information"
+      "title": "Information",
+      "done_header": "Fertig"
     },
     "restart_required": {
       "later": "Später",
       "restart": "Neu starten 🔁",
       "text": "Einige Einstellungsänderungen erfordern einen Neustart der Anwendung.\n\nJetzt neu starten?",
-      "title": "Neustart erforderlich"
+      "title": "Anwendungsneustart",
+      "header": "Ein Neustart ist erforderlich"
     },
     "settings_restore_confirm": "♻️ Standardeinstellungen wiederherstellen?\n\nDadurch werden die aktuellen Einstellungen überschrieben.",
-    "settings_save_confirm": "💾 Möchtest du die Änderungen an den Einstellungen speichern?"
-  },
-  "down": {
-    "dialog": {
+    "settings_save_confirm": "💾 Möchtest du die Änderungen an den Einstellungen speichern?",
+    "bulk_add": {
+      "title": "Sammelhinzufügung",
+      "header": "Eine größere Hinzufügung wurde erkannt",
+      "playlist": "Diese Playlist enthält {count} Elemente. Wie möchtest du fortfahren?",
+      "folder": "Der ausgewählte Ordner enthält {count} unterstützte Audio-/Videodateien. Wie möchtest du fortfahren?",
+      "selection": "Diese Aktion umfasst {count} Elemente. Wie möchtest du fortfahren?",
+      "drop": "Der abgelegte Inhalt erweitert sich zu {count} Elementen. Wie möchtest du fortfahren?",
+      "origin": "Quelle: {origin}",
+      "preview_header": "Vorschau:",
+      "target": "Ziel: {target}",
+      "target.files": "Dateiliste",
+      "target.downloads": "Downloadliste",
+      "option_all": "Alle hinzufügen",
+      "option_first_n": "Nur die ersten hinzufügen",
+      "option_first_suffix": "von {total}"
+    },
+    "expansion_progress": {
+      "title": "Quelle wird aufgelöst",
+      "header": "Quellenelemente werden vorbereitet",
+      "generic": "Die Quelle wird gerade analysiert. Du kannst den Vorgang abbrechen.",
+      "manual_input": "Die eingegebene Quelle wird geprüft...",
+      "playlist": "Playlist-Informationen werden geladen...",
+      "folder": "Ordner wird nach unterstützten Dateien durchsucht...",
+      "selection": "Ausgewählte Dateien werden vorbereitet...",
+      "drop": "Abgelegte Elemente werden analysiert...",
+      "local_paths": "Lokale Quellen werden analysiert..."
+    },
+    "live": {
+      "no_devices": {
+        "text": "Es wurden keine Audioeingabegeräte erkannt.\nSchließe ein Mikrofon an und versuche es erneut (Aktualisieren 🔄).",
+        "title": "Kein Mikrofon",
+        "header": "Es wurde kein Audioeingabegerät erkannt"
+      }
+    },
+    "down": {
       "exists": {
         "apply_all": "Diese Entscheidung auf alle Downloads anwenden",
         "overwrite": "Überschreiben ♻️",
         "rename": "Unter neuem Namen speichern ✏️",
         "skip": "Überspringen ⏭️",
-        "text": "Die Datei „{title}“ existiert bereits im Download-Ordner.\nWas möchtest du tun?"
-      },
-      "playlist_not_supported": {
-        "text": "Dieser Link verweist auf eine Playlist (oder ein in einem Playlist-Kontext geöffnetes Video).\nPlaylists werden in dieser Version nicht unterstützt."
+        "text": "Die Datei „{title}“ existiert bereits im Download-Ordner.\nWas möchtest du tun?",
+        "title": "Downloadkonflikt",
+        "header": "Die Datei existiert bereits"
       }
     },
+    "confirm": {
+      "title": "Bestätigung"
+    },
+    "settings": {
+      "title": "Einstellungen"
+    }
+  },
+  "down": {
     "meta": {
       "channel": "Kanal",
       "date": "Veröffentlichungsdatum",
@@ -178,6 +220,14 @@
     },
     "url": {
       "placeholder": "Medien-URL hier einfügen..."
+    },
+    "msg": {
+      "already_on_list": "Dieses Element befindet sich bereits in der Downloadliste.",
+      "bulk_add_summary_added": "Es wurden {added} Elemente zur Downloadliste hinzugefügt.",
+      "bulk_add_summary_with_duplicates": "Es wurden {added} Elemente zur Downloadliste hinzugefügt. {skipped} Duplikate wurden übersprungen.",
+      "bulk_add_summary_duplicates_only": "Es wurden {skipped} Duplikate übersprungen — alle Elemente waren bereits in der Downloadliste.",
+      "bulk_add_summary_limited": "Es wurden {added} der ersten {selected} Elemente von insgesamt {total} zur Downloadliste hinzugefügt.",
+      "bulk_add_summary_limited_with_duplicates": "Es wurden {added} der ersten {selected} Elemente von insgesamt {total} zur Downloadliste hinzugefügt. {skipped} Duplikate wurden übersprungen."
     }
   },
   "error": {
@@ -266,6 +316,14 @@
       "invalid_sample_width": "Ungültige WAV-Sample-Breite: {sample_width}.",
       "empty_audio": "Die Audiodaten sind leer.",
       "invalid_chunk_parameters": "Ungültige Chunking-Parameter."
+    },
+    "playlist": {
+      "resolve_failed": "Der Inhalt der Playlist konnte nicht gelesen werden.\n\nDetails:\n{detail}",
+      "empty": "In dieser Playlist wurden keine abspielbaren Elemente gefunden.",
+      "not_playlist": "Der angegebene Link ist keine Playlist."
+    },
+    "files": {
+      "source_expand_invalid": "Die angegebene Quelle konnte nicht hinzugefügt werden."
     }
   },
   "files": {
@@ -329,6 +387,15 @@
     "source": {
       "local": "Lokal",
       "url": "URL"
+    },
+    "msg": {
+      "no_media_found": "Es wurden keine unterstützten Audio-/Videodateien gefunden.",
+      "bulk_add_summary_added": "Es wurden {added} Elemente zur Transkriptionsliste hinzugefügt.",
+      "bulk_add_summary_with_duplicates": "Es wurden {added} Elemente zur Transkriptionsliste hinzugefügt. {skipped} Duplikate wurden übersprungen.",
+      "bulk_add_summary_duplicates_only": "Alle erkannten Elemente waren bereits in der Transkriptionsliste. {skipped} Duplikate wurden übersprungen.",
+      "already_on_list": "Dieses Element befindet sich bereits in der Transkriptionsliste.",
+      "bulk_add_summary_limited": "Es wurden {added} der ersten {selected} Elemente von insgesamt {total} hinzugefügt.",
+      "bulk_add_summary_limited_with_duplicates": "Es wurden {added} der ersten {selected} Elemente von insgesamt {total} hinzugefügt. {skipped} Duplikate wurden übersprungen."
     }
   },
   "lang": {
@@ -350,12 +417,6 @@
     "device": {
       "label": "Eingabegerät",
       "none": "Keine Eingabegeräte"
-    },
-    "dialog": {
-      "no_devices": {
-        "text": "Es wurden keine Audioeingabegeräte erkannt.\nSchließe ein Mikrofon an und versuche es erneut (Aktualisieren 🔄).",
-        "title": "Kein Mikrofon"
-      }
     },
     "model": {
       "unavailable": "Modell nicht verfügbar"
@@ -423,6 +484,10 @@
         "dark": "Dunkel",
         "label": "Thema",
         "light": "Hell"
+      },
+      "bulk_add_confirmation": {
+        "enabled": "Warnung für Massenhinzufügen aktivieren",
+        "threshold": "Warnen ab dieser Anzahl von Einträgen"
       }
     },
     "buttons": {
@@ -480,7 +545,11 @@
       "translation_max_new_tokens": "Begrenzt die maximale Länge des generierten Textes. Erhöhe den Wert, wenn Übersetzungen abgeschnitten werden; höhere Werte können langsamer sein.",
       "translation_quality": "Steuert die Dekodierparameter des Übersetzungsmodells. Höhere Qualität ist langsamer, kann aber die Sprachflüssigkeit verbessern.",
       "ui_language": "Wähle die Sprache der Benutzeroberfläche.",
-      "default_language": "Legt die standardmäßige gesprochene Sprache für Datei- und Live-Transkription fest. Bei automatischer Erkennung entscheidet das Modell."
+      "default_language": "Legt die standardmäßige gesprochene Sprache für Datei- und Live-Transkription fest. Bei automatischer Erkennung entscheidet das Modell.",
+      "bulk_add_confirmation": {
+        "enabled": "Vor dem Hinzufügen vieler Elemente gleichzeitig einen Bestätigungsdialog anzeigen.",
+        "threshold": "Minimale Anzahl erkannter Elemente, ab der die Warnung für Sammelhinzufügung angezeigt wird."
+      }
     },
     "msg": {
       "saved": "✅ Einstellungen wurden gespeichert."

@@ -75,7 +75,8 @@
       "overwrite": "Overwrite existing transcript ♻️",
       "skip": "Skip this item ⏭️",
       "text": "A transcript named “{name}” already exists.\nWhat do you want to do?",
-      "title": "⚠️ Transcript already exists"
+      "title": "Transcript conflict",
+      "header": "A transcript already exists"
     },
     "critical": {
       "application_error": {
@@ -109,30 +110,71 @@
       "downloaded_prefix": "Downloaded file:",
       "header": "Info",
       "source_missing": "The selected source no longer exists.",
-      "title": "Information"
+      "title": "Information",
+      "done_header": "Done"
     },
     "restart_required": {
       "later": "Later",
       "restart": "Restart 🔁",
       "text": "Some settings changes require restarting the application.\n\nRestart now?",
-      "title": "Restart required"
+      "title": "Application restart",
+      "header": "A restart is required"
     },
     "settings_restore_confirm": "♻️ Restore default settings?\n\nThis will overwrite current settings.",
-    "settings_save_confirm": "💾 Do you want to save settings changes?"
-  },
-  "down": {
-    "dialog": {
+    "settings_save_confirm": "💾 Do you want to save settings changes?",
+    "bulk_add": {
+      "title": "Bulk add",
+      "header": "A larger add operation was detected",
+      "playlist": "This playlist contains {count} items. How do you want to continue?",
+      "folder": "The selected folder contains {count} supported audio/video files. How do you want to continue?",
+      "selection": "This action includes {count} items. How do you want to continue?",
+      "drop": "Dropped content expands to {count} items. How do you want to continue?",
+      "origin": "Source: {origin}",
+      "preview_header": "Preview:",
+      "target": "Target: {target}",
+      "target.files": "files list",
+      "target.downloads": "download queue",
+      "option_all": "Add all",
+      "option_first_n": "Add only the first",
+      "option_first_suffix": "of {total}"
+    },
+    "expansion_progress": {
+      "title": "Resolving source",
+      "header": "Preparing source items",
+      "generic": "The source is being resolved. You can cancel this operation.",
+      "manual_input": "Checking the entered source...",
+      "playlist": "Fetching playlist information...",
+      "folder": "Scanning the folder for supported files...",
+      "selection": "Preparing the selected files...",
+      "drop": "Analyzing dropped items...",
+      "local_paths": "Analyzing local sources..."
+    },
+    "live": {
+      "no_devices": {
+        "text": "No audio input devices detected.\nConnect a microphone and try again (Refresh 🔄).",
+        "title": "No microphone",
+        "header": "No audio input device was detected"
+      }
+    },
+    "down": {
       "exists": {
         "apply_all": "Apply this decision to all downloads",
         "overwrite": "Overwrite ♻️",
         "rename": "Save with new name ✏️",
         "skip": "Skip ⏭️",
-        "text": "File “{title}” already exists in downloads.\nWhat do you want to do?"
-      },
-      "playlist_not_supported": {
-        "text": "This link points to a playlist (or a video opened in playlist context).\nPlaylists are not supported in this version."
+        "text": "File “{title}” already exists in downloads.\nWhat do you want to do?",
+        "title": "Download conflict",
+        "header": "The file already exists"
       }
     },
+    "confirm": {
+      "title": "Confirmation"
+    },
+    "settings": {
+      "title": "Settings"
+    }
+  },
+  "down": {
     "meta": {
       "channel": "Channel",
       "date": "Upload date",
@@ -178,6 +220,14 @@
     },
     "url": {
       "placeholder": "Paste media URL here..."
+    },
+    "msg": {
+      "already_on_list": "This item is already on the download list.",
+      "bulk_add_summary_added": "Added {added} items to the download list.",
+      "bulk_add_summary_with_duplicates": "Added {added} items to the download list. Skipped {skipped} duplicates.",
+      "bulk_add_summary_duplicates_only": "Skipped {skipped} duplicates — all items were already on the download list.",
+      "bulk_add_summary_limited": "Added {added} of the first {selected} items out of {total} to the download list.",
+      "bulk_add_summary_limited_with_duplicates": "Added {added} of the first {selected} items out of {total} to the download list. Skipped {skipped} duplicates."
     }
   },
   "error": {
@@ -266,6 +316,14 @@
       "invalid_sample_width": "Invalid WAV sample width: {sample_width}.",
       "empty_audio": "The audio data is empty.",
       "invalid_chunk_parameters": "Invalid chunking parameters."
+    },
+    "playlist": {
+      "resolve_failed": "Failed to read playlist contents.\n\nDetails:\n{detail}",
+      "empty": "No playable items were found in this playlist.",
+      "not_playlist": "The provided link is not a playlist."
+    },
+    "files": {
+      "source_expand_invalid": "The provided source could not be added."
     }
   },
   "files": {
@@ -329,6 +387,15 @@
     "source": {
       "local": "Local",
       "url": "URL"
+    },
+    "msg": {
+      "no_media_found": "No supported audio/video files were found.",
+      "bulk_add_summary_added": "Added {added} items to the transcription list.",
+      "bulk_add_summary_with_duplicates": "Added {added} items to the transcription list. Skipped {skipped} duplicates.",
+      "bulk_add_summary_duplicates_only": "All detected items were already on the transcription list. Skipped {skipped} duplicates.",
+      "already_on_list": "This item is already on the transcription list.",
+      "bulk_add_summary_limited": "Added {added} of the first {selected} items out of {total}.",
+      "bulk_add_summary_limited_with_duplicates": "Added {added} of the first {selected} items out of {total}. Skipped {skipped} duplicates."
     }
   },
   "lang": {
@@ -350,12 +417,6 @@
     "device": {
       "label": "Input device",
       "none": "No input devices"
-    },
-    "dialog": {
-      "no_devices": {
-        "text": "No audio input devices detected.\nConnect a microphone and try again (Refresh 🔄).",
-        "title": "No microphone"
-      }
     },
     "model": {
       "unavailable": "Model unavailable"
@@ -423,6 +484,10 @@
         "dark": "Dark",
         "label": "Theme",
         "light": "Light"
+      },
+      "bulk_add_confirmation": {
+        "enabled": "Allow bulk-add warning",
+        "threshold": "Warn when adding at least this many items"
       }
     },
     "buttons": {
@@ -480,7 +545,11 @@
       "translation_max_new_tokens": "Limits the maximum length of generated text. Increase if translations get cut off; higher values can be slower.",
       "translation_quality": "Controls decoding parameters for the translation model. Higher quality is slower but can improve fluency.",
       "ui_language": "Choose the interface language.",
-      "default_language": "Sets the default spoken language for file and live transcription. Auto-detect leaves language recognition to the model."
+      "default_language": "Sets the default spoken language for file and live transcription. Auto-detect leaves language recognition to the model.",
+      "bulk_add_confirmation": {
+        "enabled": "Show a confirmation dialog before adding many items at once.",
+        "threshold": "The minimum number of detected items that will trigger the bulk-add confirmation."
+      }
     },
     "msg": {
       "saved": "✅ Settings have been saved."

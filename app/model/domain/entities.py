@@ -28,6 +28,24 @@ class TranscriptionSessionRequest:
     url_keep_video: bool
     url_video_ext: str
 
+@dataclass(frozen=True)
+class PlaylistEntry:
+    """Resolved single entry originating from a remote playlist."""
+    entry_url: str
+    title: str = ""
+    duration_s: int | None = None
+    uploader: str = ""
+    position: int = 0
+
+@dataclass(frozen=True)
+class PlaylistResolveResult:
+    """Resolved remote playlist ready to be expanded into queue items."""
+    playlist_title: str
+    playlist_url: str
+    total_count: int
+    entries: tuple[PlaylistEntry, ...]
+
+
 def snapshot_to_dict(snap: SettingsSnapshot) -> dict[str, Any]:
     """Serialize a validated settings snapshot back to a plain dict."""
 

@@ -477,6 +477,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self._add_combo_option(self.cb_app_theme, "settings.app.theme.light", "light")
         self._add_combo_option(self.cb_app_theme, "settings.app.theme.dark", "dark")
 
+        self.sp_bulk_add_threshold = self._new_spinbox(
+            base_h,
+            Config.BULK_ADD_CONFIRMATION_MIN_THRESHOLD,
+            Config.BULK_ADD_CONFIRMATION_MAX_THRESHOLD,
+        )
+        self.tg_bulk_add_warning_enabled = self._new_toggle()
+
         self.tg_log_enabled = self._new_toggle()
 
         self.cb_log_level = self._new_combo(base_h)
@@ -502,6 +509,25 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(tr("settings.app.theme.label"), self.cb_app_theme, tr("settings.help.theme")),
             ("app", "theme"),
+        )
+        self._bulk_add_threshold_row = self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.app.bulk_add_confirmation.threshold"),
+                self.sp_bulk_add_threshold,
+                tr("settings.help.bulk_add_confirmation.threshold"),
+            ),
+            ("app", "ui", "bulk_add_confirmation", "threshold"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row_toggle(
+                tr("settings.app.bulk_add_confirmation.enabled"),
+                self.tg_bulk_add_warning_enabled,
+                tr("settings.help.bulk_add_confirmation.enabled"),
+                advanced=True,
+            ),
+            ("app", "ui", "bulk_add_confirmation", "enabled"),
         )
         self._add_tracked_row(
             lay,
@@ -532,8 +558,11 @@ class SettingsPanel(QtWidgets.QWidget):
             self.cb_app_language.currentIndexChanged,
             self.cb_app_theme.currentIndexChanged,
             self.cb_log_level.currentIndexChanged,
+            self.sp_bulk_add_threshold.valueChanged,
         )
+        self.tg_bulk_add_warning_enabled.changed.connect(self._on_bulk_add_warning_toggle)
         self.tg_log_enabled.changed.connect(self._on_logging_toggle)
+        self._on_bulk_add_warning_toggle()
         self._on_logging_toggle()
 
     def _build_engine_section(self, base_h: int) -> None:
@@ -833,10 +862,11 @@ class SettingsPanel(QtWidgets.QWidget):
         if isinstance(self._loaded_data, dict):
             self._loaded_data = self._merge_effective_payload(self._loaded_data, payload)
 
-    def on_saved(self, snap: SettingsSnapshot) -> None:
+    def on_saved(self, action: str, snap: SettingsSnapshot) -> None:
         data = snapshot_to_dict(snap)
-        need_restart = self._pending_restart_prompt
-        if self._restore_baseline_data is not None:
+        op = str(action or "save").strip().lower()
+        need_restart = self._pending_restart_prompt if op == "save" else False
+        if op == "restore_defaults" and self._restore_baseline_data is not None:
             need_restart = self._needs_restart_between(self._restore_baseline_data, data)
 
         self._data = data
@@ -859,7 +889,9 @@ class SettingsPanel(QtWidgets.QWidget):
             restart_now = dialogs.ask_restart_required(self)
             if restart_now:
                 self._restart_application()
-        else:
+            return
+
+        if op == "save":
             dialogs.show_info(self, title=tr("dialog.info.title"), message=tr("settings.msg.saved"), header=tr("dialog.info.header"))
 
     def on_error(self, key: str, params: dict[str, Any]) -> None:
@@ -908,6 +940,11 @@ class SettingsPanel(QtWidgets.QWidget):
         self._set_row_control_enabled(self._log_level_row, enabled)
         self._mark_dirty()
 
+    def _on_bulk_add_warning_toggle(self) -> None:
+        enabled = bool(self.tg_bulk_add_warning_enabled.is_first_checked())
+        self._set_row_control_enabled(self._bulk_add_threshold_row, enabled, control=self.sp_bulk_add_threshold)
+        self._mark_dirty()
+
     def _apply_advanced_visibility(self, show: bool) -> None:
         for w in self._advanced_rows:
             w.setVisible(bool(show))
@@ -917,7 +954,7 @@ class SettingsPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         if coord is None:
             return
-        coord.save(payload)
+        coord.save_ui_state(payload)
 
     def _build_advanced_payload(self) -> dict[str, Any]:
         return {
@@ -1010,6 +1047,11 @@ class SettingsPanel(QtWidgets.QWidget):
         self.chk_show_advanced.setChecked(show_adv)
         self.chk_show_advanced.blockSignals(False)
         self._apply_advanced_visibility(show_adv)
+
+        bulk_cfg = self._section_dict(ui_cfg, "bulk_add_confirmation")
+        populate_toggle_fields(bulk_cfg, (("enabled", self.tg_bulk_add_warning_enabled, Config.ui_bulk_add_confirmation_enabled()),))
+        populate_spin_fields(bulk_cfg, (("threshold", self.sp_bulk_add_threshold, Config.ui_bulk_add_confirmation_threshold()),))
+        self._on_bulk_add_warning_toggle()
 
         log_cfg = self._section_dict(app, "logging")
         populate_toggle_fields(log_cfg, (("enabled", self.tg_log_enabled, True),))
@@ -1109,6 +1151,10 @@ class SettingsPanel(QtWidgets.QWidget):
         payload.update({
             "ui": {
                 "show_advanced_settings": bool(self.chk_show_advanced.isChecked()),
+                "bulk_add_confirmation": {
+                    "enabled": bool(self.tg_bulk_add_warning_enabled.is_first_checked()),
+                    "threshold": int(self.sp_bulk_add_threshold.value()),
+                },
             },
         })
         payload["logging"] = {

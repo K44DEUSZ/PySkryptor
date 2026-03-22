@@ -75,7 +75,8 @@
       "overwrite": "Nadpisz istniejący transkrypt ♻️",
       "skip": "Pomiń ten element ⏭️",
       "text": "Transkrypt o nazwie „{name}” już istnieje.\nCo chcesz zrobić?",
-      "title": "⚠️ Transkrypt już istnieje"
+      "title": "Konflikt transkryptu",
+      "header": "Transkrypt już istnieje"
     },
     "critical": {
       "application_error": {
@@ -109,30 +110,71 @@
       "downloaded_prefix": "Pobrany plik:",
       "header": "Info",
       "source_missing": "Wybrane źródło już nie istnieje.",
-      "title": "Informacja"
+      "title": "Informacja",
+      "done_header": "Gotowe"
     },
     "restart_required": {
       "later": "Później",
       "restart": "Restart 🔁",
       "text": "Niektóre zmiany ustawień wymagają ponownego uruchomienia aplikacji.\n\nUruchomić ponownie teraz?",
-      "title": "Wymagany restart"
+      "title": "Restart aplikacji",
+      "header": "Wymagane ponowne uruchomienie"
     },
     "settings_restore_confirm": "♻️ Przywrócić ustawienia domyślne?\n\nTo nadpisze bieżące ustawienia.",
-    "settings_save_confirm": "💾 Czy chcesz zapisać zmiany w ustawieniach?"
-  },
-  "down": {
-    "dialog": {
+    "settings_save_confirm": "💾 Czy chcesz zapisać zmiany w ustawieniach?",
+    "bulk_add": {
+      "title": "Dodawanie zbiorcze",
+      "header": "Wykryto większą operację dodawania",
+      "playlist": "Ta playlista zawiera {count} elementów. Jak chcesz kontynuować?",
+      "folder": "Wybrany folder zawiera {count} obsługiwanych plików audio/wideo. Jak chcesz kontynuować?",
+      "selection": "Ta operacja obejmuje {count} elementów. Jak chcesz kontynuować?",
+      "drop": "Upuszczona zawartość rozwija się do {count} elementów. Jak chcesz kontynuować?",
+      "origin": "Źródło: {origin}",
+      "preview_header": "Podgląd:",
+      "target": "Cel: {target}",
+      "target.files": "lista plików",
+      "target.downloads": "lista pobierania",
+      "option_all": "Dodaj wszystko",
+      "option_first_n": "Dodaj tylko pierwsze",
+      "option_first_suffix": "z {total}"
+    },
+    "expansion_progress": {
+      "title": "Rozpoznawanie źródła",
+      "header": "Trwa przygotowywanie źródła",
+      "generic": "Trwa rozpoznawanie źródła. Możesz anulować operację.",
+      "manual_input": "Sprawdzanie wprowadzonego źródła...",
+      "playlist": "Pobieranie informacji o playliście...",
+      "folder": "Skanowanie folderu w poszukiwaniu obsługiwanych plików...",
+      "selection": "Przygotowywanie wybranych plików...",
+      "drop": "Analizowanie upuszczonych elementów...",
+      "local_paths": "Analizowanie źródeł lokalnych..."
+    },
+    "live": {
+      "no_devices": {
+        "text": "Nie wykryto urządzeń wejścia audio.\nPodłącz mikrofon i spróbuj ponownie (Odśwież 🔄).",
+        "title": "Brak mikrofonu",
+        "header": "Nie wykryto urządzenia wejścia audio"
+      }
+    },
+    "down": {
       "exists": {
         "apply_all": "Zastosuj tę decyzję do wszystkich pobrań",
         "overwrite": "Nadpisz ♻️",
         "rename": "Zapisz pod nową nazwą ✏️",
         "skip": "Pomiń ⏭️",
-        "text": "Plik „{title}” już istnieje w pobraniach.\nCo chcesz zrobić?"
-      },
-      "playlist_not_supported": {
-        "text": "Ten link wskazuje na playlistę (lub film otwarty w kontekście playlisty).\nPlaylisty nie są obsługiwane w tej wersji."
+        "text": "Plik „{title}” już istnieje w pobraniach.\nCo chcesz zrobić?",
+        "title": "Konflikt pobierania",
+        "header": "Plik już istnieje"
       }
     },
+    "confirm": {
+      "title": "Potwierdzenie"
+    },
+    "settings": {
+      "title": "Ustawienia"
+    }
+  },
+  "down": {
     "meta": {
       "channel": "Kanał",
       "date": "Data publikacji",
@@ -178,6 +220,14 @@
     },
     "url": {
       "placeholder": "Wklej tutaj URL multimediów..."
+    },
+    "msg": {
+      "already_on_list": "Ten element jest już na liście pobierania.",
+      "bulk_add_summary_added": "Dodano {added} elementów do listy pobierania.",
+      "bulk_add_summary_with_duplicates": "Dodano {added} elementów do listy pobierania. Pominięto {skipped} duplikatów.",
+      "bulk_add_summary_duplicates_only": "Pominięto {skipped} duplikatów — wszystkie pozycje były już na liście pobierania.",
+      "bulk_add_summary_limited": "Dodano {added} z pierwszych {selected} elementów z {total} do listy pobierania.",
+      "bulk_add_summary_limited_with_duplicates": "Dodano {added} z pierwszych {selected} elementów z {total} do listy pobierania. Pominięto {skipped} duplikatów."
     }
   },
   "error": {
@@ -266,6 +316,14 @@
       "invalid_sample_width": "Nieprawidłowa szerokość próbki WAV: {sample_width}.",
       "empty_audio": "Dane audio są puste.",
       "invalid_chunk_parameters": "Nieprawidłowe parametry chunkingu."
+    },
+    "playlist": {
+      "resolve_failed": "Nie udało się odczytać zawartości playlisty.\n\nSzczegóły:\n{detail}",
+      "empty": "W tej playliście nie znaleziono elementów możliwych do dodania.",
+      "not_playlist": "Podany link nie jest playlistą."
+    },
+    "files": {
+      "source_expand_invalid": "Nie udało się dodać podanego źródła."
     }
   },
   "files": {
@@ -329,6 +387,15 @@
     "source": {
       "local": "Lokalne",
       "url": "URL"
+    },
+    "msg": {
+      "no_media_found": "Nie znaleziono obsługiwanych plików audio/wideo.",
+      "bulk_add_summary_added": "Dodano {added} elementów do listy transkrypcyjnej.",
+      "bulk_add_summary_with_duplicates": "Dodano {added} elementów do listy transkrypcyjnej. Pominięto {skipped} duplikatów.",
+      "bulk_add_summary_duplicates_only": "Wszystkie wykryte elementy były już na liście transkrypcyjnej. Pominięto {skipped} duplikatów.",
+      "already_on_list": "Ten element jest już na liście transkrypcyjnej.",
+      "bulk_add_summary_limited": "Dodano {added} z pierwszych {selected} elementów z {total}.",
+      "bulk_add_summary_limited_with_duplicates": "Dodano {added} z pierwszych {selected} elementów z {total}. Pominięto {skipped} duplikatów."
     }
   },
   "lang": {
@@ -350,12 +417,6 @@
     "device": {
       "label": "Urządzenie wejściowe",
       "none": "Brak urządzeń wejściowych"
-    },
-    "dialog": {
-      "no_devices": {
-        "text": "Nie wykryto urządzeń wejścia audio.\nPodłącz mikrofon i spróbuj ponownie (Odśwież 🔄).",
-        "title": "Brak mikrofonu"
-      }
     },
     "model": {
       "unavailable": "Model niedostępny"
@@ -423,6 +484,10 @@
         "dark": "Ciemny",
         "label": "Motyw",
         "light": "Jasny"
+      },
+      "bulk_add_confirmation": {
+        "enabled": "Włącz ostrzeżenie przy dodawaniu wielu elementów",
+        "threshold": "Ostrzegaj od liczby elementów"
       }
     },
     "buttons": {
@@ -480,7 +545,11 @@
       "translation_max_new_tokens": "Ogranicza maksymalną długość generowanego tłumaczenia. Zwiększ, jeśli tekst jest ucinany; wyższe wartości mogą spowolnić działanie.",
       "translation_quality": "Steruje parametrami generowania w modelu tłumaczeń. Wyższa jakość jest wolniejsza, ale może poprawić płynność.",
       "ui_language": "Wybierz język interfejsu.",
-      "default_language": "Ustawia domyślny język mowy dla transkrypcji plików i na żywo. Automatyczne wykrywanie pozostawia rozpoznanie języka modelowi."
+      "default_language": "Ustawia domyślny język mowy dla transkrypcji plików i na żywo. Automatyczne wykrywanie pozostawia rozpoznanie języka modelowi.",
+      "bulk_add_confirmation": {
+        "enabled": "Pokazuj okno potwierdzenia przed dodaniem większej liczby elementów naraz.",
+        "threshold": "Minimalna liczba wykrytych elementów, od której ma pojawić się ostrzeżenie przed dodaniem zbiorczym."
+      }
     },
     "msg": {
       "saved": "✅ Ustawienia zostały zapisane."

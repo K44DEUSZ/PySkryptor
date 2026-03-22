@@ -12,6 +12,7 @@ from typing import Any, Callable
 import yt_dlp
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.domain.entities import PlaylistEntry, PlaylistResolveResult
 from app.model.domain.errors import AppError, OperationCancelled
 from app.model.helpers.string_utils import (
     is_youtube_url,
@@ -83,26 +84,41 @@ def _is_noisy(msg: str, extra_noise: tuple[str, ...] = ()) -> bool:
 class YtdlpLogger:
     """Minimal logger adapter for yt_dlp."""
 
-    def __init__(self, logger: logging.Logger, *, extra_noise: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        *,
+        extra_noise: tuple[str, ...] = (),
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> None:
         self._logger = logger
         self._extra_noise = tuple(extra_noise or ())
+        self._cancel_check = cancel_check
+
+    def _guard_cancel(self) -> None:
+        if self._cancel_check is not None and bool(self._cancel_check()):
+            raise OperationCancelled()
 
     def debug(self, msg) -> None:
+        self._guard_cancel()
         text = str(msg)
         if self._logger.isEnabledFor(logging.DEBUG) and not _is_noisy(text, self._extra_noise):
             self._logger.debug("yt_dlp debug message. text=%s", text)
 
     def info(self, msg) -> None:
+        self._guard_cancel()
         text = str(msg)
         if not _is_noisy(text, self._extra_noise):
             self._logger.info("yt_dlp info message. text=%s", text)
 
     def warning(self, msg) -> None:
+        self._guard_cancel()
         text = str(msg)
         if not _is_noisy(text, self._extra_noise):
             self._logger.warning("yt_dlp warning message. text=%s", text)
 
     def error(self, msg) -> None:
+        self._guard_cancel()
         text = str(msg)
         if not _is_noisy(text, self._extra_noise):
             self._logger.error("yt_dlp error message. text=%s", text)
@@ -808,13 +824,19 @@ class DownloadService:
 
     @staticmethod
 
-    def _base_ydl_opts(*, url: str, quiet: bool, skip_download: bool) -> dict[str, Any]:
+    def _base_ydl_opts(
+        *,
+        url: str,
+        quiet: bool,
+        skip_download: bool,
+        logger: YtdlpLogger | None = None,
+    ) -> dict[str, Any]:
         max_bandwidth_kbps = Config.network_max_bandwidth_kbps()
         concurrent_fragments = Config.network_concurrent_fragments()
         opts: dict[str, Any] = {
             "quiet": bool(quiet),
             "skip_download": bool(skip_download),
-            "logger": YtdlpLogger(_LOG),
+            "logger": logger or YtdlpLogger(_LOG),
             "retries": Config.network_retries(),
             "socket_timeout": Config.network_http_timeout_s(),
             "noprogress": True,
@@ -834,6 +856,98 @@ class DownloadService:
             opts["js_runtimes"] = jsr
             opts["remote_components"] = ["ejs:npm", "ejs:github"]
         return opts
+
+    def resolve_playlist(
+        self,
+        url: str,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> PlaylistResolveResult:
+        safe_url = sanitize_url_for_log(url)
+        ydl_opts: dict[str, Any] = self._base_ydl_opts(
+            url=url,
+            quiet=not _LOG.isEnabledFor(logging.DEBUG),
+            skip_download=True,
+            logger=YtdlpLogger(_LOG, cancel_check=cancel_check),
+        )
+        ydl_opts["noplaylist"] = False
+        ydl_opts["extract_flat"] = "in_playlist"
+
+        try:
+            info, _runtime = self._extract_info_with_fallback(url=url, ydl_opts=ydl_opts, download=False)
+        except OperationCancelled:
+            raise
+        except Exception as ex:
+            if isinstance(ex, OSError):
+                raise DownloadError("error.playlist.resolve_failed", detail=str(ex)) from ex
+            network_key = self._classify_network_error(ex)
+            if network_key:
+                self._log_network_error(action="playlist", url=url, ex=ex, error_key=network_key)
+            _LOG.debug("Playlist resolve failed. url=%s detail=%s", safe_url, str(ex))
+            raise DownloadError("error.playlist.resolve_failed", detail=str(ex)) from ex
+
+        info_dict = info if isinstance(info, dict) else {}
+        raw_type = str(info_dict.get("_type") or "").strip().lower()
+        raw_entries = list(info_dict.get("entries") or []) if isinstance(info_dict.get("entries"), (list, tuple)) else []
+        playlist_markers = (
+            str(info_dict.get("playlist") or "").strip(),
+            str(info_dict.get("playlist_id") or "").strip(),
+            str(info_dict.get("playlist_title") or "").strip(),
+        )
+        is_playlist = bool(raw_entries) and (
+            raw_type in {"playlist", "multi_video"}
+            or "playlist" in raw_type
+            or any(playlist_markers)
+            or len(raw_entries) > 1
+        )
+        if not is_playlist:
+            raise DownloadError("error.playlist.not_playlist", url=url)
+
+        if not raw_entries:
+            raise DownloadError("error.playlist.empty", url=url)
+
+        playlist_title = str(info_dict.get("title") or info_dict.get("playlist_title") or "").strip()
+        playlist_url = str(info_dict.get("webpage_url") or info_dict.get("original_url") or url).strip()
+
+        out: list[PlaylistEntry] = []
+        for idx, entry in enumerate(raw_entries, start=1):
+            if not isinstance(entry, dict):
+                continue
+            entry_url = str(entry.get("webpage_url") or entry.get("original_url") or "").strip()
+            raw_entry_url = str(entry.get("url") or "").strip()
+            if not entry_url and raw_entry_url.startswith(("http://", "https://")):
+                entry_url = raw_entry_url
+            if not entry_url:
+                entry_id = str(entry.get("id") or "").strip()
+                ie_key = str(entry.get("ie_key") or entry.get("extractor_key") or entry.get("extractor") or "").strip().lower()
+                if entry_id and "youtube" in ie_key:
+                    entry_url = f"https://www.youtube.com/watch?v={entry_id}"
+            if not entry_url:
+                continue
+            try:
+                duration_s = int(entry.get("duration")) if entry.get("duration") is not None else None
+            except (TypeError, ValueError):
+                duration_s = None
+            out.append(
+                PlaylistEntry(
+                    entry_url=entry_url,
+                    title=str(entry.get("title") or "").strip(),
+                    duration_s=duration_s,
+                    uploader=str(entry.get("uploader") or entry.get("channel") or "").strip(),
+                    position=idx,
+                )
+            )
+
+        if not out:
+            raise DownloadError("error.playlist.empty", url=url)
+
+        _LOG.info("Playlist resolved (flat). url=%s title=%s count=%s", safe_url, playlist_title or playlist_url, len(out))
+        return PlaylistResolveResult(
+            playlist_title=playlist_title or playlist_url,
+            playlist_url=playlist_url,
+            total_count=len(out),
+            entries=tuple(out),
+        )
 
     def probe(self, url: str) -> dict[str, Any]:
         safe_url = sanitize_url_for_log(url)
@@ -897,8 +1011,8 @@ class DownloadService:
             _LOG.debug("Download probe failed. url=%s detail=%s", safe_url, str(ex))
             raise DownloadError("error.down.probe_failed", detail=str(ex))
 
+    @staticmethod
     def _emit_download_progress(
-        self,
         progress_cb: Callable[[int, str], None] | None,
         *,
         pct: int,

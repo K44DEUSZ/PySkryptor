@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import threading
-from abc import abstractmethod
 
 from PyQt5 import QtCore
 
@@ -49,6 +48,6 @@ class SessionWorker(WorkerBase, metaclass=_WorkerMeta):
             else:
                 self._finish_failure(ex)
 
-    @abstractmethod
     def _start_session(self) -> None:
         """Initialize the long-running session on the worker thread."""
+        raise NotImplementedError

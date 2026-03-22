@@ -294,6 +294,24 @@ class SettingsService:
         ui_cfg = self._merge(ui_cfg, ui_schema)
 
         show_adv = bool(self._schema_value(ui_cfg, ui_schema, "show_advanced_settings", False))
+        bulk_cfg = ui_cfg.get("bulk_add_confirmation", {}) if isinstance(ui_cfg.get("bulk_add_confirmation"), dict) else {}
+        bulk_schema = ui_schema.get("bulk_add_confirmation", {}) if isinstance(ui_schema.get("bulk_add_confirmation"), dict) else {}
+        bulk_cfg = self._merge(bulk_cfg, bulk_schema)
+        bulk_enabled = bool(self._schema_value(bulk_cfg, bulk_schema, "enabled", True))
+        try:
+            bulk_threshold = int(self._schema_value(
+                bulk_cfg,
+                bulk_schema,
+                "threshold",
+                Config.BULK_ADD_CONFIRMATION_DEFAULT_THRESHOLD,
+            ))
+        except (TypeError, ValueError):
+            bulk_threshold = Config.BULK_ADD_CONFIRMATION_DEFAULT_THRESHOLD
+        bulk_threshold = max(
+            Config.BULK_ADD_CONFIRMATION_MIN_THRESHOLD,
+            min(Config.BULK_ADD_CONFIRMATION_MAX_THRESHOLD, bulk_threshold),
+        )
+
         live_cfg = ui_cfg.get("live", {}) if isinstance(ui_cfg.get("live"), dict) else {}
         live_schema = ui_schema.get("live", {}) if isinstance(ui_schema.get("live"), dict) else {}
         live_cfg = self._merge(live_cfg, live_schema)
@@ -324,6 +342,10 @@ class SettingsService:
             },
             "ui": {
                 "show_advanced_settings": show_adv,
+                "bulk_add_confirmation": {
+                    "enabled": bulk_enabled,
+                    "threshold": bulk_threshold,
+                },
                 "live": {
                     "mode": live_mode,
                     "preset": live_preset,
