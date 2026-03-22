@@ -1,4 +1,4 @@
-# app/controller/tasks/download_task.py
+# app/controller/workers/download_worker.py
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +9,7 @@ from pathlib import Path
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
-from app.controller.tasks.base_worker import BaseWorker, PendingDecision
+from app.controller.workers.task_worker import PendingDecision, TaskWorker
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.io.file_manager import FileManager
@@ -17,8 +17,8 @@ from app.model.services.download_service import DownloadService, DownloadError
 
 _LOG = logging.getLogger(__name__)
 
-
-class DownloadWorker(BaseWorker):
+class DownloadWorker(TaskWorker):
+    """Background worker that probes or downloads a single remote media source."""
 
     meta_ready = QtCore.pyqtSignal(dict)
 
@@ -66,13 +66,9 @@ class DownloadWorker(BaseWorker):
                 value=str(new_name or "").strip(),
             )
 
-    # ----- Errors -----
-
     def _handle_failure(self, ex: BaseException) -> None:
         key, params = self._exception_to_i18n(ex)
         self._emit_failure(str(key), dict(params or {}), self.download_error)
-
-    # ----- Core -----
 
     def _execute(self) -> None:
         if not self._url:
@@ -130,7 +126,7 @@ class DownloadWorker(BaseWorker):
                     return
                 v = int(max(0, min(100, int(pct))))
                 self.progress_pct.emit(v)
-            except Exception:
+            except (TypeError, ValueError, RuntimeError):
                 return
 
         path = svc.download(
@@ -160,8 +156,6 @@ class DownloadWorker(BaseWorker):
             raise DownloadError("error.down.download_failed", detail="download returned no output path")
 
         self.download_finished.emit(path)
-
-    # ----- Duplicate -----
 
     def _resolve_duplicate(self, title: str, expected: Path) -> str:
         if self._cancel.is_cancelled:
@@ -199,12 +193,12 @@ class DownloadWorker(BaseWorker):
         try:
             if path.exists():
                 path.unlink()
-        except Exception:
-            pass
+        except OSError as ex:
+            _LOG.debug("Download worker existing target cleanup skipped. path=%s detail=%s", path, ex)
 
         part = Path(str(path) + ".part")
         try:
             if part.exists():
                 part.unlink()
-        except Exception:
-            pass
+        except OSError as ex:
+            _LOG.debug("Download worker partial target cleanup skipped. path=%s detail=%s", part, ex)

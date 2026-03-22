@@ -2,25 +2,23 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
 
-from app.controller.support.localization import tr
+from app.controller.contracts import (
+    DownloaderPanelViewProtocol,
+    FilesPanelViewProtocol,
+    LivePanelViewProtocol,
+    SettingsPanelViewProtocol,
+)
 from app.model.config.app_config import AppConfig as Config
-
+from app.view.panels.registry import PanelTabSpec, build_main_tab_specs
 from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
 from app.view.support.view_runtime import normalize_network_status
 from app.view.support.widget_effects import enable_styled_background
 from app.view.ui_config import UIConfig, ui
-from app.view.panels.files_panel import FilesPanel
-from app.view.panels.live_panel import LivePanel
-from app.view.panels.downloader_panel import DownloaderPanel
-from app.view.panels.settings_panel import SettingsPanel
-from app.view.panels.about_panel import AboutPanel
 
 _LOG = logging.getLogger(__name__)
-BootContext = dict[str, Any]
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window hosting the primary panels."""
@@ -30,18 +28,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(
         self,
         parent: QtWidgets.QWidget | None = None,
-        boot_ctx: BootContext | None = None,
         ui_cfg: UIConfig | None = None,
     ) -> None:
         super().__init__(parent)
 
-        self._boot_ctx: BootContext | None = boot_ctx
+        self._dark_titlebar_applied = False
         self._ui = ui_cfg if ui_cfg is not None else ui(self)
-        self._network_status: str = "checking"
+        self._network_status: str = 'checking'
         self._network_cfg_manager: QtCore.QObject | None = None
         self._network_access_manager: QtNetwork.QNetworkAccessManager | None = None
+        self._panels: dict[str, QtWidgets.QWidget] = {}
 
-        self.setObjectName("MainWindow")
+        self.setObjectName('MainWindow')
         self.setWindowTitle(Config.APP_NAME)
         enable_styled_background(self)
 
@@ -50,7 +48,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setMinimumSize(self._ui.window_min_w, self._ui.window_min_h)
 
         central = QtWidgets.QWidget(self)
-        central.setObjectName("MainCentral")
+        central.setObjectName('MainCentral')
         enable_styled_background(central)
         central.setFocusPolicy(QtCore.Qt.FocusPolicy.ClickFocus)
         self.setCentralWidget(central)
@@ -59,45 +57,43 @@ class MainWindow(QtWidgets.QMainWindow):
         root.setContentsMargins(self._ui.margin, self._ui.margin, self._ui.margin, self._ui.margin)
         root.setSpacing(self._ui.spacing)
 
-        self.files_panel: QtWidgets.QWidget | None = None
-        self.live_panel: QtWidgets.QWidget | None = None
-        self.downloader_panel: QtWidgets.QWidget | None = None
-        self.settings_panel: QtWidgets.QWidget | None = None
-        self.about_panel: QtWidgets.QWidget | None = None
-
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setObjectName("MainTabs")
+        self.tabs.setObjectName('MainTabs')
         enable_styled_background(self.tabs)
         root.addWidget(self.tabs)
 
+        self.files_panel: FilesPanelViewProtocol | None = None
+        self.live_panel: LivePanelViewProtocol | None = None
+        self.downloader_panel: DownloaderPanelViewProtocol | None = None
+        self.settings_panel: SettingsPanelViewProtocol | None = None
+        self.about_panel: QtWidgets.QWidget | None = None
+
         self._init_network_monitor()
-
-        self.files_panel = FilesPanel(self, boot_ctx=self._boot_ctx)
-        self.live_panel = LivePanel(self, boot_ctx=self._boot_ctx)
-        self.downloader_panel = DownloaderPanel(self)
-        self.settings_panel = SettingsPanel(self)
-        self.about_panel = AboutPanel(self)
-
-        self.tabs.addTab(self.files_panel, tr("tabs.files"))
-        self.tabs.addTab(self.live_panel, tr("tabs.live"))
-        self.tabs.addTab(self.downloader_panel, tr("tabs.downloader"))
-        self.tabs.addTab(self.settings_panel, tr("tabs.settings"))
-        self.tabs.addTab(self.about_panel, tr("tabs.about"))
+        self._build_tabs()
 
         app = QtWidgets.QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
 
-        _LOG.debug("Main window initialized. network_status=%s", self._network_status)
+        _LOG.debug('Main window initialized. network_status=%s', self._network_status)
 
     def ui_config(self) -> UIConfig:
         """Return the UI configuration."""
         return self._ui
 
     def network_status(self) -> str:
-        return str(self._network_status or "checking")
+        return str(self._network_status or 'checking')
 
-    # ----- App icon -----
+    def _build_tabs(self) -> None:
+        for spec in build_main_tab_specs():
+            panel = self._create_panel(spec)
+            self._panels[spec.key] = panel
+            setattr(self, f'{spec.key}_panel', panel)
+            self.tabs.addTab(panel, spec.title())
+
+    def _create_panel(self, spec: PanelTabSpec) -> QtWidgets.QWidget:
+        return spec.factory(self)
+
     def _apply_window_icon(self) -> None:
         icon = QtWidgets.QApplication.windowIcon()
         if icon is None or icon.isNull():
@@ -105,53 +101,53 @@ class MainWindow(QtWidgets.QMainWindow):
         if icon is not None and not icon.isNull():
             self.setWindowIcon(icon)
 
-    # ----- Network status -----
     def _set_network_status(self, value: str) -> None:
         status = normalize_network_status(value)
         if status == self._network_status:
             return
         prev = self._network_status
         self._network_status = status
-        _LOG.debug("Network status changed. previous=%s current=%s", prev, status)
+        _LOG.debug('Network status changed. previous=%s current=%s', prev, status)
         self.network_status_changed.emit(status)
 
     def _init_network_monitor(self) -> None:
-        mgr_cls = getattr(QtNetwork, "QNetworkConfigurationManager", None)
+        mgr_cls = getattr(QtNetwork, 'QNetworkConfigurationManager', None)
         if mgr_cls is not None:
             try:
                 mgr = mgr_cls(self)
                 self._network_cfg_manager = mgr
-                if hasattr(mgr, "onlineStateChanged"):
+                if hasattr(mgr, 'onlineStateChanged'):
                     mgr.onlineStateChanged.connect(self._on_network_online_state_changed)
-                if hasattr(mgr, "configurationChanged"):
+                if hasattr(mgr, 'configurationChanged'):
                     mgr.configurationChanged.connect(lambda *_args: self._refresh_network_status())
-                if hasattr(mgr, "updateCompleted"):
+                if hasattr(mgr, 'updateCompleted'):
                     mgr.updateCompleted.connect(self._refresh_network_status)
                 self._refresh_network_status()
                 try:
                     mgr.updateConfigurations()
-                except Exception:
-                    pass
-                _LOG.debug("Network monitor initialized. backend=QNetworkConfigurationManager")
+                except (AttributeError, RuntimeError, TypeError) as ex:
+                    _LOG.debug('Network configuration refresh skipped. detail=%s', ex)
+                _LOG.debug('Network monitor initialized. backend=QNetworkConfigurationManager')
                 return
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError) as ex:
                 self._network_cfg_manager = None
+                _LOG.debug('Network configuration manager unavailable. detail=%s', ex)
 
         try:
             nam = QtNetwork.QNetworkAccessManager(self)
             self._network_access_manager = nam
-            if hasattr(nam, "networkAccessibleChanged"):
+            if hasattr(nam, 'networkAccessibleChanged'):
                 nam.networkAccessibleChanged.connect(self._on_network_accessible_changed)
             self._refresh_network_status()
-            _LOG.debug("Network monitor initialized. backend=QNetworkAccessManager")
-        except Exception:
+            _LOG.debug('Network monitor initialized. backend=QNetworkAccessManager')
+        except (AttributeError, RuntimeError, TypeError) as ex:
             self._network_access_manager = None
-            self._set_network_status("online")
-            _LOG.debug("Network monitor fallback applied. backend=default_online")
+            self._set_network_status('online')
+            _LOG.debug('Network monitor fallback applied. backend=default_online detail=%s', ex)
 
     @QtCore.pyqtSlot(bool)
     def _on_network_online_state_changed(self, is_online: bool) -> None:
-        self._set_network_status("online" if bool(is_online) else "offline")
+        self._set_network_status('online' if bool(is_online) else 'offline')
 
     @QtCore.pyqtSlot(int)
     def _on_network_accessible_changed(self, _state: int) -> None:
@@ -159,32 +155,34 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh_network_status(self) -> None:
         mgr = self._network_cfg_manager
-        if mgr is not None and hasattr(mgr, "isOnline"):
+        if mgr is not None and hasattr(mgr, 'isOnline'):
             try:
-                self._set_network_status("online" if bool(mgr.isOnline()) else "offline")
+                self._set_network_status('online' if bool(mgr.isOnline()) else 'offline')
                 return
-            except Exception:
-                pass
+            except (AttributeError, RuntimeError, TypeError):
+                self._set_network_status('online')
+                return
 
         nam = self._network_access_manager
         if nam is not None:
             try:
                 accessible = nam.networkAccessible()
-                net_accessibility = getattr(QtNetwork.QNetworkAccessManager, "NetworkAccessibility", None)
+                net_accessibility = getattr(QtNetwork.QNetworkAccessManager, 'NetworkAccessibility', None)
                 not_accessible = getattr(
                     net_accessibility,
-                    "NotAccessible",
-                    getattr(QtNetwork.QNetworkAccessManager, "NotAccessible", None),
+                    'NotAccessible',
+                    getattr(QtNetwork.QNetworkAccessManager, 'NotAccessible', None),
                 )
                 if accessible == not_accessible:
-                    self._set_network_status("offline")
+                    self._set_network_status('offline')
                 else:
-                    self._set_network_status("online")
+                    self._set_network_status('online')
                 return
-            except Exception:
-                pass
+            except (AttributeError, RuntimeError, TypeError):
+                self._set_network_status('online')
+                return
 
-        self._set_network_status("online")
+        self._set_network_status('online')
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if event.type() == QtCore.QEvent.Type.MouseButtonPress:
@@ -210,10 +208,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if target is focus_w or focus_w.isAncestorOf(target):
             return
 
-        popup_roles = {"comboPopupHost", "comboPopup", "comboPopupList", "comboPopupViewport", "hintPopupHost", "hintPopup"}
+        popup_roles = {'comboPopupHost', 'comboPopup', 'comboPopupList', 'comboPopupViewport', 'hintPopupHost', 'hintPopup'}
         w = target
         while w is not None:
-            if str(w.property("role") or "") in popup_roles:
+            if str(w.property('role') or '') in popup_roles:
                 return
             if w is focus_w:
                 return
@@ -226,30 +224,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if central is not None:
             central.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
 
-    def closeEvent(self, e: QtGui.QCloseEvent) -> None:
-        try:
-            if hasattr(self.files_panel, "on_parent_close"):
-                self.files_panel.on_parent_close()
-        except Exception:
-            pass
-
-        try:
-            if hasattr(self.live_panel, "on_parent_close"):
-                self.live_panel.on_parent_close()
-        except Exception:
-            pass
-
-        try:
-            if hasattr(self.downloader_panel, "on_parent_close"):
-                self.downloader_panel.on_parent_close()
-        except Exception:
-            pass
-
-        super().closeEvent(e)
-
-    def showEvent(self, e: QtGui.QShowEvent) -> None:
-        super().showEvent(e)
-        if getattr(self, "_titlebar_tuned", False):
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        super().showEvent(event)
+        if self._dark_titlebar_applied:
             return
-        setattr(self, "_titlebar_tuned", True)
-        apply_windows_dark_titlebar(self)
+        try:
+            apply_windows_dark_titlebar(self)
+            self._dark_titlebar_applied = True
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug('Dark titlebar application skipped. detail=%s', ex)
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        for panel in self._panels.values():
+            on_parent_close = getattr(panel, 'on_parent_close', None)
+            if not callable(on_parent_close):
+                continue
+            try:
+                on_parent_close()
+            except (AttributeError, RuntimeError, TypeError) as ex:
+                _LOG.debug('Panel close hook skipped. panel=%s detail=%s', type(panel).__name__, ex)
+        super().closeEvent(event)

@@ -7,19 +7,20 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+from app.controller.contracts import SettingsCoordinatorProtocol
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.components.popup_combo import PopupComboBox, set_combo_data
+from app.view.components.popup_combo import PopupComboBox, LanguageCombo, set_combo_data
 
-from app.controller.tasks.settings_task import SettingsWorker
 from app.model.config.app_config import AppConfig as Config
-from app.model.services.settings_service import SettingsSnapshot
-from app.controller.support.localization import tr, list_locales
+from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
+from app.model.services.runtime_resolver import transcription_language_codes
+from app.model.services.localization_service import tr, list_locales
 from app.view.components.choice_toggle import ChoiceToggle
-from app.view.components import dialogs
+from app.view import dialogs
 from app.view.components.section_group import SectionGroup
-from app.controller.support.task_thread_runner import TaskThreadRunner
-from app.controller.support.options_autosave_controller import OptionsAutosaveController
+from app.view.support.options_autosave import OptionsAutosave
 from app.view.support.theme_runtime import system_theme_key
 from app.view.support.settings_mapping import (
     collect_combo_fields,
@@ -41,7 +42,6 @@ from app.view.support.widget_setup import (
 )
 from app.view.ui_config import ui
 
-
 class _YesNoToggle(ChoiceToggle):
     """Convenience yes/no toggle."""
 
@@ -60,9 +60,14 @@ class _YesNoToggle(ChoiceToggle):
             parent=parent,
         )
 
-
 class SettingsPanel(QtWidgets.QWidget):
     """Settings page with app, engine and downloader configuration."""
+
+    _data: dict[str, Any]
+    _loaded_data: dict[str, Any] | None
+    _blocking_updates: bool
+    _pending_restart_prompt: bool
+    _restore_baseline_data: dict[str, Any] | None
 
     _RESTART_SENSITIVE_KEYS: tuple[tuple[str, ...], ...] = (
         ("app", "language"),
@@ -82,22 +87,29 @@ class SettingsPanel(QtWidgets.QWidget):
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
+        self._panel_coordinator: SettingsCoordinatorProtocol | None = None
 
         self._init_state()
         self._build_ui()
         self._wire_signals()
         self._restore_initial_state()
 
-    # ----- Initialization / build -----
+    def bind_coordinator(self, coordinator: SettingsCoordinatorProtocol) -> None:
+        self._panel_coordinator = coordinator
+
+    def coordinator(self) -> SettingsCoordinatorProtocol | None:
+        return self._panel_coordinator
+
+    def _coordinator_busy(self) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and coord.is_busy())
 
     def _init_state(self) -> None:
         self._data: dict[str, Any] = {}
         self._loaded_data: dict[str, Any] | None = None
-        self._runner = TaskThreadRunner(self)
-
         self._dirty = False
-        self._blocking_updates = False
-        self._pending_restart_prompt = False
+        self._blocking_updates: bool = False
+        self._pending_restart_prompt: bool = False
         self._restore_baseline_data: dict[str, Any] | None = None
 
         self._advanced_rows: list[QtWidgets.QWidget] = []
@@ -163,15 +175,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self.chk_show_advanced = QtWidgets.QCheckBox(tr("settings.advanced.toggle"))
         self.chk_show_advanced.setChecked(False)
 
-        self._adv_autosave = OptionsAutosaveController(
+        self._adv_autosave = OptionsAutosave(
             self,
             build_payload=self._build_advanced_payload,
-            apply_snapshot=self._on_advanced_saved_snapshot,
-            on_error=self._on_error,
-            is_busy=lambda: self._runner.is_running(),
+            commit=self._commit_advanced_payload,
+            is_busy=self._coordinator_busy,
             interval_ms=600,
             pending_delay_ms=250,
-            retry_delay_ms=600,
         )
 
         self.btn_restore = QtWidgets.QPushButton(tr("settings.buttons.restore_defaults"))
@@ -190,8 +200,6 @@ class SettingsPanel(QtWidgets.QWidget):
         bottom.addWidget(self.btn_save)
         return bottom
 
-    # ----- Signal wiring -----
-
     def _wire_signals(self) -> None:
         assert self.btn_undo is not None
         assert self.btn_save is not None
@@ -200,40 +208,32 @@ class SettingsPanel(QtWidgets.QWidget):
         self.btn_undo.clicked.connect(self._on_undo_clicked)
         self.btn_save.clicked.connect(self._on_save_clicked)
 
-    # ----- Restore / bootstrap -----
-
     def _restore_initial_state(self) -> None:
         self._populate_model_engines()
         self._refresh_runtime_capabilities()
         self._apply_advanced_visibility(False)
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
-        self._start_worker(action="load")
-
-    # ----- Lifecycle -----
 
     def showEvent(self, e: QtGui.QShowEvent) -> None:  # type: ignore[override]
         super().showEvent(e)
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
 
     def _equalize_section_widths(self) -> None:
-        try:
-            pairs = (
-                (self.grp_app, self.grp_engine),
-                (self.grp_transcription, self.grp_translation),
-            )
-            for a, b in pairs:
-                w = max(int(a.minimumSizeHint().width()), int(b.minimumSizeHint().width()), 0)
-                a.setMinimumWidth(w)
-                b.setMinimumWidth(w)
+        pairs = (
+            (self.grp_app, self.grp_engine),
+            (self.grp_transcription, self.grp_translation),
+        )
+        for a, b in pairs:
+            w = max(int(a.minimumSizeHint().width()), int(b.minimumSizeHint().width()), 0)
+            a.setMinimumWidth(w)
+            b.setMinimumWidth(w)
 
-            if hasattr(self, "_left_col_host") and hasattr(self, "_right_col_host"):
-                left_w = int(self._left_col_host.minimumSizeHint().width())
-                right_w = int(self._right_col_host.minimumSizeHint().width())
-                w = max(left_w, right_w, 0)
-                self._left_col_host.setMinimumWidth(w)
-                self._right_col_host.setMinimumWidth(w)
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
+        if hasattr(self, "_left_col_host") and hasattr(self, "_right_col_host"):
+            left_w = int(self._left_col_host.minimumSizeHint().width())
+            right_w = int(self._right_col_host.minimumSizeHint().width())
+            w = max(left_w, right_w, 0)
+            self._left_col_host.setMinimumWidth(w)
+            self._right_col_host.setMinimumWidth(w)
 
     def _sync_column_widths(self) -> None:
         """Keep paired Settings sections visually 50/50 by equalizing minimum widths."""
@@ -245,8 +245,6 @@ class SettingsPanel(QtWidgets.QWidget):
         lbl.setProperty("role", "sectionTitle")
         lbl.setWordWrap(True)
         return lbl
-
-    # ----- Shared row / layout builders -----
 
     def _build_labeled_row(
         self,
@@ -357,15 +355,31 @@ class SettingsPanel(QtWidgets.QWidget):
                 widget.setProperty("dirtyValue", dirty)
                 repolish_widget(widget)
 
+    @staticmethod
+    def _normalize_payload_for_compare(data: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(data, dict):
+            return None
+        normalized = copy.deepcopy(data)
+
+        model = normalized.get("model")
+        if isinstance(model, dict):
+            t_model = model.get("transcription_model")
+            if isinstance(t_model, dict):
+                raw_lang = t_model.get("default_language", None)
+                lang = str(raw_lang or "").strip().lower() if raw_lang is not None else ""
+                t_model["default_language"] = None if not lang or Config.is_auto_language_value(lang) else lang
+
+        return normalized
+
     def _refresh_dirty_markers(self) -> None:
-        baseline = self._loaded_data if isinstance(self._loaded_data, dict) else None
+        baseline = self._normalize_payload_for_compare(self._loaded_data if isinstance(self._loaded_data, dict) else None)
         if baseline is None:
             for _row, control, _paths in self._dirty_row_specs:
                 self._set_dirty_marker(control, False)
             self._set_dirty(False)
             return
 
-        current = self._collect_payload()
+        current = self._normalize_payload_for_compare(self._collect_payload()) or {}
         any_dirty = False
         for _row, control, paths in self._dirty_row_specs:
             row_dirty = any(self._get_nested(current, path) != self._get_nested(baseline, path) for path in paths)
@@ -441,8 +455,6 @@ class SettingsPanel(QtWidgets.QWidget):
     def _section_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
         value = data.get(key)
         return value if isinstance(value, dict) else {}
-
-    # ----- Section builders -----
 
     def _build_logging_level_row(self, cfg: Any) -> QtWidgets.QWidget:
         log_level_row = QtWidgets.QWidget()
@@ -587,14 +599,18 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_quality = self._new_combo(base_h)
         self._add_combo_option(self.cb_quality, "settings.quality.fast", "fast", tooltip_key="settings.quality.fast_tip")
-        self._add_combo_option(self.cb_quality, "settings.quality.balanced", "balanced",
+        self._add_combo_option(self.cb_quality, "settings.quality.balanced", Config.normalize_transcription_quality_preset(None),
                                tooltip_key="settings.quality.balanced_tip")
         self._add_combo_option(self.cb_quality, "settings.quality.accurate", "accurate",
                                tooltip_key="settings.quality.accurate_tip")
 
+        self.cb_default_language = LanguageCombo(
+            special_first=("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
+            codes_provider=transcription_language_codes,
+        )
+        self.cb_default_language.setMinimumHeight(base_h)
+
         self.tg_text_consistency = self._new_toggle()
-        self.sp_chunk_len = self._new_spinbox(base_h, 5, 3600, step=5)
-        self.sp_stride_len = self._new_spinbox(base_h, 0, 120, step=1)
         self.tg_ignore_warning = self._new_toggle()
 
         self._add_tracked_row(
@@ -609,32 +625,17 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self._add_tracked_row(
             lay,
+            self._row(tr("settings.transcription.default_language"), self.cb_default_language, tr("settings.help.default_language")),
+            ("model", "transcription_model", "default_language"),
+        )
+        self._add_tracked_row(
+            lay,
             self._row_toggle(
                 tr("settings.transcription.text_consistency"),
                 self.tg_text_consistency,
                 tr("settings.help.text_consistency"),
             ),
             ("model", "transcription_model", "text_consistency"),
-        )
-        self._add_tracked_row(
-            lay,
-            self._row(
-                tr("settings.transcription.chunk_length_s"),
-                self.sp_chunk_len,
-                tr("settings.help.chunk_length"),
-                advanced=True,
-            ),
-            ("model", "transcription_model", "chunk_length_s"),
-        )
-        self._add_tracked_row(
-            lay,
-            self._row(
-                tr("settings.transcription.stride_length_s"),
-                self.sp_stride_len,
-                tr("settings.help.stride_length"),
-                advanced=True,
-            ),
-            ("model", "transcription_model", "stride_length_s"),
         )
         self._add_tracked_row(
             lay,
@@ -652,9 +653,8 @@ class SettingsPanel(QtWidgets.QWidget):
         self._connect_mark_dirty(
             self.cb_trans_engine.currentIndexChanged,
             self.cb_quality.currentIndexChanged,
+            self.cb_default_language.currentIndexChanged,
             self.tg_text_consistency.changed,
-            self.sp_chunk_len.valueChanged,
-            self.sp_stride_len.valueChanged,
             self.tg_ignore_warning.changed,
         )
 
@@ -664,7 +664,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_tr_engine = self._new_combo(base_h)
         self.cb_tr_quality = self._new_combo(base_h)
         self._add_combo_option(self.cb_tr_quality, "settings.quality.fast", "fast", tooltip_key="settings.quality.fast_tip")
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.balanced", "balanced",
+        self._add_combo_option(self.cb_tr_quality, "settings.quality.balanced", Config.normalize_transcription_quality_preset(None),
                                tooltip_key="settings.quality.balanced_tip")
         self._add_combo_option(self.cb_tr_quality, "settings.quality.accurate", "accurate",
                                tooltip_key="settings.quality.accurate_tip")
@@ -801,27 +801,10 @@ class SettingsPanel(QtWidgets.QWidget):
             self.sp_timeout.valueChanged,
         )
 
-    # ----- Worker flow -----
-
-    def _start_worker(self, *, action: str, payload: dict[str, Any] | None = None) -> None:
-        if self._runner.is_running():
-            return
-
-        wk = SettingsWorker(action=action, payload=payload)
-
-        def _connect(worker: SettingsWorker) -> None:
-            worker.settings_loaded.connect(self._on_settings_loaded)
-            worker.settings_loaded_snapshot.connect(self._on_settings_loaded_snapshot)
-            worker.saved.connect(self._on_saved)
-            worker.saved_snapshot.connect(self._on_saved_snapshot)
-            worker.error.connect(self._on_error)
-
-        self._runner.start(wk, connect=_connect)
-
-    def _on_settings_loaded(self, data: object) -> None:
-        if isinstance(data, dict):
-            self._data = data
-            self._loaded_data = copy.deepcopy(data)
+    def on_settings_loaded(self, snap: SettingsSnapshot) -> None:
+        data = snapshot_to_dict(snap)
+        self._data = data
+        self._loaded_data = copy.deepcopy(data)
 
         self._blocking_updates = True
         try:
@@ -829,38 +812,43 @@ class SettingsPanel(QtWidgets.QWidget):
             self._refresh_runtime_capabilities()
         finally:
             self._blocking_updates = False
+        self._sync_effective_baseline()
         self._refresh_dirty_markers()
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
 
     @staticmethod
-    def _on_settings_loaded_snapshot(snap: object) -> None:
-        try:
-            Config.initialize_from_snapshot(cast(SettingsSnapshot, snap))
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
+    def _merge_effective_payload(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+        out = copy.deepcopy(base)
+        for key, value in (patch or {}).items():
+            if isinstance(value, dict) and isinstance(out.get(key), dict):
+                out[key] = SettingsPanel._merge_effective_payload(cast(dict[str, Any], out.get(key)), cast(dict[str, Any], value))
+            else:
+                out[key] = copy.deepcopy(value)
+        return out
 
-    @staticmethod
-    def _on_saved_snapshot(snap: object) -> None:
-        try:
-            Config.initialize_from_snapshot(cast(SettingsSnapshot, snap))
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
+    def _sync_effective_baseline(self) -> None:
+        payload = self._collect_payload()
+        if isinstance(self._data, dict):
+            self._data = self._merge_effective_payload(self._data, payload)
+        if isinstance(self._loaded_data, dict):
+            self._loaded_data = self._merge_effective_payload(self._loaded_data, payload)
 
-    def _on_saved(self, data: object) -> None:
+    def on_saved(self, snap: SettingsSnapshot) -> None:
+        data = snapshot_to_dict(snap)
         need_restart = self._pending_restart_prompt
-        if self._restore_baseline_data is not None and isinstance(data, dict):
+        if self._restore_baseline_data is not None:
             need_restart = self._needs_restart_between(self._restore_baseline_data, data)
 
-        if isinstance(data, dict):
-            self._data = data
-            self._loaded_data = copy.deepcopy(data)
-            self._blocking_updates = True
-            try:
-                self._populate_from_data()
-                self._refresh_runtime_capabilities()
-            finally:
-                self._blocking_updates = False
+        self._data = data
+        self._loaded_data = copy.deepcopy(data)
+        self._blocking_updates = True
+        try:
+            self._populate_from_data()
+            self._refresh_runtime_capabilities()
+        finally:
+            self._blocking_updates = False
 
+        self._sync_effective_baseline()
         self._refresh_dirty_markers()
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
 
@@ -874,10 +862,8 @@ class SettingsPanel(QtWidgets.QWidget):
         else:
             dialogs.show_info(self, title=tr("dialog.info.title"), message=tr("settings.msg.saved"), header=tr("dialog.info.header"))
 
-    def _on_error(self, key: str, params: dict[str, Any]) -> None:
+    def on_error(self, key: str, params: dict[str, Any]) -> None:
         dialogs.show_error(self, key, params or {})
-
-    # ----- Dirty state / advanced UI -----
 
     def _set_dirty(self, dirty: bool) -> None:
         self._dirty = bool(dirty)
@@ -926,6 +912,13 @@ class SettingsPanel(QtWidgets.QWidget):
         for w in self._advanced_rows:
             w.setVisible(bool(show))
 
+
+    def _commit_advanced_payload(self, payload: dict[str, Any]) -> None:
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.save(payload)
+
     def _build_advanced_payload(self) -> dict[str, Any]:
         return {
             "app": {
@@ -935,15 +928,6 @@ class SettingsPanel(QtWidgets.QWidget):
             }
         }
 
-    @staticmethod
-    def _on_advanced_saved_snapshot(snap: object) -> None:
-        try:
-            Config.update_from_snapshot(cast(SettingsSnapshot, snap), sections=("app",))
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
-
-    # ----- User actions -----
-
     def _on_undo_clicked(self) -> None:
         if not self._loaded_data:
             return
@@ -951,8 +935,10 @@ class SettingsPanel(QtWidgets.QWidget):
         try:
             self._data = copy.deepcopy(self._loaded_data)
             self._populate_from_data()
+            self._refresh_runtime_capabilities()
         finally:
             self._blocking_updates = False
+        self._sync_effective_baseline()
         self._refresh_dirty_markers()
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
 
@@ -960,7 +946,9 @@ class SettingsPanel(QtWidgets.QWidget):
         if not dialogs.ask_restore_defaults(self):
             return
         self._restore_baseline_data = copy.deepcopy(self._data or {})
-        self._start_worker(action="restore_defaults")
+        coord = self.coordinator()
+        if coord is not None:
+            coord.restore_defaults()
 
     def _on_save_clicked(self) -> None:
         if not dialogs.ask_save_settings(self):
@@ -968,7 +956,9 @@ class SettingsPanel(QtWidgets.QWidget):
         self._restore_baseline_data = None
         payload = self._collect_payload()
         self._pending_restart_prompt = self._needs_restart(payload)
-        self._start_worker(action="save", payload=payload)
+        coord = self.coordinator()
+        if coord is not None:
+            coord.save(payload)
 
     @staticmethod
     def _restart_application() -> None:
@@ -1052,7 +1042,13 @@ class SettingsPanel(QtWidgets.QWidget):
         if trans_engine_name == Config.MISSING_VALUE:
             trans_engine_name = str(t_model.get("engine_name", "none"))
         set_combo_data(self.cb_trans_engine, trans_engine_name, fallback_data="none")
-        populate_combo_fields(t_model, (("quality_preset", self.cb_quality, "balanced"),))
+        populate_combo_fields(
+            t_model,
+            (
+                ("quality_preset", self.cb_quality, Config.normalize_transcription_quality_preset(None)),
+                ("default_language", self.cb_default_language, Config.LANGUAGE_AUTO_VALUE),
+            ),
+        )
         populate_toggle_fields(
             t_model,
             (
@@ -1060,19 +1056,12 @@ class SettingsPanel(QtWidgets.QWidget):
                 ("ignore_warning", self.tg_ignore_warning, False),
             ),
         )
-        populate_spin_fields(
-            t_model,
-            (
-                ("chunk_length_s", self.sp_chunk_len, 60),
-                ("stride_length_s", self.sp_stride_len, 5),
-            ),
-        )
 
         tr_engine_name = Config.resolve_translation_engine_name(model)
         if tr_engine_name == Config.MISSING_VALUE:
             tr_engine_name = str(x_model.get("engine_name", "none"))
         set_combo_data(self.cb_tr_engine, tr_engine_name, fallback_data="none")
-        populate_combo_fields(x_model, (("quality_preset", self.cb_tr_quality, "balanced"),))
+        populate_combo_fields(x_model, (("quality_preset", self.cb_tr_quality, Config.normalize_transcription_quality_preset(None)),))
         populate_spin_fields(
             x_model,
             (
@@ -1146,35 +1135,30 @@ class SettingsPanel(QtWidgets.QWidget):
         return payload
 
     def _collect_model_payload(self) -> dict[str, Any]:
+        transcription_model = {
+            **collect_combo_fields(
+                (
+                    ("engine_name", self.cb_trans_engine, "none"),
+                    ("quality_preset", self.cb_quality, Config.normalize_transcription_quality_preset(None)),
+                ),
+            ),
+            **collect_toggle_fields(
+                (
+                    ("text_consistency", self.tg_text_consistency),
+                    ("ignore_warning", self.tg_ignore_warning),
+                ),
+            ),
+        }
+        raw_default_language = self.cb_default_language.currentData()
+        default_language = str(raw_default_language or Config.LANGUAGE_AUTO_VALUE).strip().lower()
+        transcription_model["default_language"] = None if (not default_language or Config.is_auto_language_value(default_language)) else default_language
         return {
-            "transcription_model": {
-                **collect_combo_fields(
-                    (
-                        ("engine_name", self.cb_trans_engine, "none"),
-                        ("quality_preset", self.cb_quality, "balanced"),
-                    ),
-                ),
-                **collect_toggle_fields(
-                    (
-                        ("text_consistency", self.tg_text_consistency),
-                        ("ignore_warning", self.tg_ignore_warning),
-                    ),
-                ),
-                **cast(
-                    dict[str, Any],
-                    collect_spin_fields(
-                        (
-                            ("chunk_length_s", self.sp_chunk_len),
-                            ("stride_length_s", self.sp_stride_len),
-                        ),
-                    ),
-                ),
-            },
+            "transcription_model": transcription_model,
             "translation_model": {
                 **collect_combo_fields(
                     (
                         ("engine_name", self.cb_tr_engine, "none"),
-                        ("quality_preset", self.cb_tr_quality, "balanced"),
+                        ("quality_preset", self.cb_tr_quality, Config.normalize_transcription_quality_preset(None)),
                     ),
                 ),
                 **cast(
@@ -1232,8 +1216,6 @@ class SettingsPanel(QtWidgets.QWidget):
             cur = cur.get(key)
         return cur
 
-    # ----- Runtime capability helpers -----
-
     @staticmethod
     def _short_label(text: str) -> str:
         s = str(text or "").strip()
@@ -1242,39 +1224,30 @@ class SettingsPanel(QtWidgets.QWidget):
         return s or str(text or "").strip()
 
     def _refresh_auto_option_labels(self) -> None:
-        try:
-            sys_hint = QtCore.QLocale.system().name().split("_", 1)[0].lower()
-            available: dict[str, str] = {}
-            for i in range(self.cb_app_language.count()):
-                code = str(self.cb_app_language.itemData(i) or "").strip().lower()
-                if code and code != Config.LANGUAGE_AUTO_VALUE:
-                    available[code] = self.cb_app_language.itemText(i)
-            resolved_lang = available.get(sys_hint) or available.get("en") or next(iter(available.values()), sys_hint or "")
-            idx_auto = self.cb_app_language.findData(Config.LANGUAGE_AUTO_VALUE)
-            if idx_auto >= 0:
-                self.cb_app_language.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_lang})')
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
+        sys_hint = QtCore.QLocale.system().name().split("_", 1)[0].lower()
+        available: dict[str, str] = {}
+        for i in range(self.cb_app_language.count()):
+            code = str(self.cb_app_language.itemData(i) or "").strip().lower()
+            if code and code != Config.LANGUAGE_AUTO_VALUE:
+                available[code] = self.cb_app_language.itemText(i)
+        resolved_lang = available.get(sys_hint) or available.get("en") or next(iter(available.values()), sys_hint or "")
+        idx_auto = self.cb_app_language.findData(Config.LANGUAGE_AUTO_VALUE)
+        if idx_auto >= 0:
+            self.cb_app_language.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_lang})')
 
-        try:
-            app_obj = QtWidgets.QApplication.instance()
-            app = app_obj if isinstance(app_obj, QtWidgets.QApplication) else None
-            theme = system_theme_key(app)
-            resolved_theme = tr("settings.app.theme.dark") if theme == "dark" else tr("settings.app.theme.light")
-            idx_auto = self.cb_app_theme.findData(Config.LANGUAGE_AUTO_VALUE)
-            if idx_auto >= 0:
-                self.cb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
+        app_obj = QtWidgets.QApplication.instance()
+        app = app_obj if isinstance(app_obj, QtWidgets.QApplication) else None
+        theme = system_theme_key(app)
+        resolved_theme = tr("settings.app.theme.dark") if theme == "dark" else tr("settings.app.theme.light")
+        idx_auto = self.cb_app_theme.findData(Config.LANGUAGE_AUTO_VALUE)
+        if idx_auto >= 0:
+            self.cb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
 
-        try:
-            auto_dev = Config.auto_device_key()
-            resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
-            idx_auto = self.cb_engine_device.findData(Config.LANGUAGE_AUTO_VALUE)
-            if idx_auto >= 0:
-                self.cb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            pass
+        auto_dev = Config.auto_device_key()
+        resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
+        idx_auto = self.cb_engine_device.findData(Config.LANGUAGE_AUTO_VALUE)
+        if idx_auto >= 0:
+            self.cb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
 
         try:
             auto_prec = Config.auto_precision_key()
@@ -1285,8 +1258,8 @@ class SettingsPanel(QtWidgets.QWidget):
             idx_auto = self.cb_engine_precision.findData(Config.LANGUAGE_AUTO_VALUE)
             if idx_auto >= 0:
                 self.cb_engine_precision.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_prec})')
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return
 
     def _populate_model_engines(self) -> None:
         trans_names = Config.local_model_names_for_task("transcription")

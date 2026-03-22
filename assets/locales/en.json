@@ -228,7 +228,8 @@
       "json_invalid": "⚠️ Config file “{path}” contains invalid JSON. Details: {detail}",
       "section_invalid": "⚠️ Settings section “{section}” is invalid.",
       "settings_invalid": "⚠️ Settings file “{path}” is invalid. Details: {detail}",
-      "settings_missing": "⚠️ Missing settings file: {path}"
+      "settings_missing": "⚠️ Missing settings file: {path}",
+      "invalid_video_height_range": "The minimum video height ({min_height}) cannot exceed the maximum ({max_height})."
     },
     "startup": {
       "failed": "❌ Application startup failed. Details: {detail}"
@@ -257,6 +258,14 @@
     "type": {
       "enum": "⚠️ Field “{field}” has invalid value “{value}”. Allowed: {allowed}",
       "int": "⚠️ Field “{field}” must be an integer."
+    },
+    "chunking": {
+      "unsupported_sample_width": "Unsupported audio sample width: {sample_width}.",
+      "expected_mono_wav": "Expected a mono WAV file, but got {channels} channels.",
+      "invalid_sample_rate": "Invalid WAV sample rate: {sample_rate}.",
+      "invalid_sample_width": "Invalid WAV sample width: {sample_width}.",
+      "empty_audio": "The audio data is empty.",
+      "invalid_chunk_parameters": "Invalid chunking parameters."
     }
   },
   "files": {
@@ -419,7 +428,7 @@
     "buttons": {
       "restore_defaults": "Restore defaults ♻️",
       "save": "Save 💾",
-      "undo": "Undo"
+      "undo": "Undo ↩️"
     },
     "downloader": {
       "max_video_height": "Maximum video height (px)",
@@ -461,7 +470,7 @@
       "precision_hint": "Controls numeric precision. Lower precision can speed up inference and reduce memory usage; availability depends on the device.",
       "retries": "How many times to retry failed HTTP requests.",
       "stride_length": "Chunk overlap (seconds). More overlap improves continuity but increases load.",
-      "text_consistency": "Uses previous segments as context to keep names, terms and style consistent. May propagate earlier mistakes across segments.",
+      "text_consistency": "Uses previous text as context between segments to improve continuity. May reinforce earlier mistakes on difficult audio.",
       "tf32": "NVIDIA Ampere+ (and newer): speeds up FP32 matrix operations with a small loss of numerical precision.",
       "theme": "Choose the interface theme.",
       "trans_quality": "Controls decoding effort. Higher quality is slower but can reduce recognition errors.",
@@ -470,7 +479,8 @@
       "translation_engine": "Choose the model used for translating text.",
       "translation_max_new_tokens": "Limits the maximum length of generated text. Increase if translations get cut off; higher values can be slower.",
       "translation_quality": "Controls decoding parameters for the translation model. Higher quality is slower but can improve fluency.",
-      "ui_language": "Choose the interface language."
+      "ui_language": "Choose the interface language.",
+      "default_language": "Sets the default spoken language for file and live transcription. Auto-detect leaves language recognition to the model."
     },
     "msg": {
       "saved": "✅ Settings have been saved."
@@ -502,7 +512,8 @@
       "model": "Transcription engine",
       "quality_label": "Quality preset",
       "stride_length_s": "Stride length (s)",
-      "text_consistency": "Enhanced text consistency"
+      "text_consistency": "Text consistency",
+      "default_language": "Default transcription language"
     },
     "translation": {
       "chunk_max_chars": "Chunk max chars",

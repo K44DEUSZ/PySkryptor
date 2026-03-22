@@ -1,4 +1,4 @@
-# app/controller/tasks/media_probe_task.py
+# app/controller/workers/media_probe_worker.py
 from __future__ import annotations
 
 import logging
@@ -8,13 +8,13 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
-from app.controller.tasks.base_worker import BaseWorker
+from app.controller.workers.task_worker import TaskWorker
 from app.model.io.media_probe import MediaProbeService
 
 _LOG = logging.getLogger(__name__)
 
-
-class MediaProbeWorker(BaseWorker):
+class MediaProbeWorker(TaskWorker):
+    """Background worker that probes queued local or remote media entries."""
     table_ready = QtCore.pyqtSignal(list)
     item_error = QtCore.pyqtSignal(str, str, dict)
 

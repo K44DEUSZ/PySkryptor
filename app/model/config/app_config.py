@@ -9,18 +9,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.model.helpers.string_utils import sanitize_filename
-from app.model.helpers.errors import AppError
+from app.model.domain.errors import AppError
+from app.model.config.language_policy import LanguagePolicy
+from app.model.config.paths import PathCatalog
+from app.model.config.runtime_profiles import RuntimeProfiles
 
 if TYPE_CHECKING:
-    from app.model.services.settings_service import SettingsSnapshot
-
+    from app.model.domain.entities import SettingsSnapshot
 
 class ConfigError(AppError):
     """Key-based runtime configuration error."""
 
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
-
 
 class AppConfig:
     """Global runtime configuration and path mapping."""
@@ -91,35 +92,21 @@ class AppConfig:
     DOWNLOAD_DEFAULT_PURPOSE: str = DOWNLOAD_PURPOSE_DOWNLOAD
     DOWNLOAD_DEFAULT_STEM: str = "download"
 
-    LANGUAGE_AUTO_VALUE: str = "auto"
-    LANGUAGE_DEFAULT_VALUE: str = "default"
-    LANGUAGE_UI_VALUE: str = "ui"
-    LANGUAGE_APP_VALUE: str = "app"
-    LANGUAGE_DEFAULT_UI_VALUE: str = "default_ui"
+    LANGUAGE_AUTO_VALUE: str = LanguagePolicy.AUTO
+    LANGUAGE_DEFAULT_VALUE: str = LanguagePolicy.DEFAULT
+    LANGUAGE_UI_VALUE: str = LanguagePolicy.UI
+    LANGUAGE_APP_VALUE: str = LanguagePolicy.APP
+    LANGUAGE_DEFAULT_UI_VALUE: str = LanguagePolicy.DEFAULT_UI
 
-    DOWNLOAD_AUDIO_LANG_AUTO_VALUES: tuple[str, ...] = (
-        LANGUAGE_DEFAULT_VALUE,
-        LANGUAGE_AUTO_VALUE,
-        "-",
-    )
-    TRANSLATION_SOURCE_DEFERRED_VALUES: tuple[str, ...] = (
-        LANGUAGE_AUTO_VALUE,
-        LANGUAGE_UI_VALUE,
-        LANGUAGE_APP_VALUE,
-        LANGUAGE_DEFAULT_VALUE,
-        LANGUAGE_DEFAULT_UI_VALUE,
-    )
-    TRANSLATION_TARGET_DEFERRED_VALUES: tuple[str, ...] = (
-        LANGUAGE_AUTO_VALUE,
-        LANGUAGE_DEFAULT_VALUE,
-        LANGUAGE_UI_VALUE,
-        LANGUAGE_APP_VALUE,
-        LANGUAGE_DEFAULT_UI_VALUE,
-    )
+    DOWNLOAD_AUDIO_LANG_AUTO_VALUES: tuple[str, ...] = LanguagePolicy.DOWNLOAD_AUDIO_AUTO_VALUES
+    TRANSLATION_SOURCE_DEFERRED_VALUES: tuple[str, ...] = LanguagePolicy.TRANSLATION_SOURCE_DEFERRED_VALUES
+    TRANSLATION_TARGET_DEFERRED_VALUES: tuple[str, ...] = LanguagePolicy.TRANSLATION_TARGET_DEFERRED_VALUES
 
     DOWNLOAD_FALLBACK_AUDIO_SELECTOR: str = "bestaudio/best"
     DOWNLOAD_FALLBACK_VIDEO_SELECTOR: str = "bv*+ba/b"
     URL_DOWNLOAD_DEFAULT_QUALITY: str = "best"
+
+    DOWNLOAD_UI_DEFAULT_QUALITY: str = "auto"
 
     OUTPUT_DEFAULT_STEM: str = "item"
     TRANSCRIPT_DEFAULT_BASENAME: str = "transcript"
@@ -135,7 +122,6 @@ class AppConfig:
     ASR_WAV_FORMAT_TOKEN: str = "wav"
     ASR_WAV_CODEC_PREFIX: str = "pcm_"
 
-    # ----- Model tokenizer files -----
     TRANSCRIPTION_MODEL_TOKENIZER_FILE: str = "tokenizer_config.json"
     TRANSLATION_MODEL_TOKENIZER_FILE: str = "special_tokens_map.json"
 
@@ -289,7 +275,6 @@ class AppConfig:
             return ""
         return name
 
-    # ----- Model resolution -----
     @classmethod
     def resolve_transcription_engine_name(cls, model: dict[str, Any]) -> str:
         cfg = model.get("transcription_model", {}) if isinstance(model, dict) else {}
@@ -300,41 +285,11 @@ class AppConfig:
         cfg = model.get("translation_model", {}) if isinstance(model, dict) else {}
         return cls.resolve_model_engine_name(cfg if isinstance(cfg, dict) else {}, task="translation")
 
-    # ----- Root mapping -----
-
     @classmethod
     def set_root_dir(cls, root_dir: Path) -> None:
-        cls.ROOT_DIR = Path(root_dir).resolve()
         cls._DEFAULT_SETTINGS_CACHE = None
-        cls.APP_DIR = cls.ROOT_DIR / "app"
-        cls.LICENSE_FILE = cls.ROOT_DIR / "LICENSE"
-        cls.ASSETS_DIR = cls.ROOT_DIR / "assets"
-        cls.RUNTIME_DIR = cls.ROOT_DIR / "bin"
-        cls.AI_MODELS_DIR = cls.ROOT_DIR / "models"
-        cls.LOCALES_DIR = cls.ASSETS_DIR / "locales"
-        cls.STYLES_DIR = cls.APP_DIR / "view"
-        cls.IMAGES_DIR = cls.ASSETS_DIR / "images"
-        cls.ICONS_DIR = cls.ASSETS_DIR / "icons"
-        cls.FFMPEG_DIR = cls.RUNTIME_DIR / "ffmpeg"
-        cls.FFMPEG_BIN_DIR = cls.FFMPEG_DIR
-        cls.DENO_DIR = cls.RUNTIME_DIR / "deno"
-        cls.DENO_BIN = cls.DENO_DIR / ("deno.exe" if platform.system().lower().startswith("win") else "deno")
-        cls.TRANSCRIPTION_ENGINE_DIR = cls.AI_MODELS_DIR / cls.MISSING_VALUE
-        cls.TRANSLATION_ENGINE_DIR = cls.AI_MODELS_DIR / cls.MISSING_VALUE
-        cls.DATA_DIR = cls.ROOT_DIR / "userdata"
-        cls.DOWNLOADS_DIR = cls.DATA_DIR / "downloads"
-        cls.TRANSCRIPTIONS_DIR = cls.DATA_DIR / "transcriptions"
-        cls.LOGS_DIR = cls.DATA_DIR / "logs"
-        cls.APP_LOG_PATH = cls.LOGS_DIR / cls.APP_LOG_NAME
-        cls.CRASH_LOG_PATH = cls.LOGS_DIR / cls.CRASH_LOG_NAME
-        cls.USER_CONFIG_DIR = cls.DATA_DIR / "config"
-        cls.SETTINGS_FILE = cls.USER_CONFIG_DIR / "settings.json"
-        cls.MODEL_CONFIG_DIR = cls.APP_DIR / "model" / "config"
-        cls.DEFAULTS_FILE = cls.MODEL_CONFIG_DIR / "defaults.json"
-        cls.DOWNLOADS_TMP_DIR = cls.DOWNLOADS_DIR / "._tmp"
-        cls.TRANSCRIPTIONS_TMP_DIR = cls.TRANSCRIPTIONS_DIR / "._tmp"
+        PathCatalog.apply_to_config(cls, root_dir)
 
-    # ----- File input / download output extensions -----
     FILES_AUDIO_INPUT_EXTS: tuple[str, ...] = ("wav", "mp3", "flac", "m4a", "ogg", "aac")
     FILES_VIDEO_INPUT_EXTS: tuple[str, ...] = ("mp4", "webm", "mkv", "mov", "avi")
 
@@ -424,33 +379,27 @@ class AppConfig:
 
     @classmethod
     def normalize_policy_value(cls, value: Any) -> str:
-        return str(value or "").strip().lower()
+        return LanguagePolicy.normalize_policy_value(value)
 
     @classmethod
     def normalize_language_choice_value(cls, value: Any) -> str:
-        token = cls.normalize_policy_value(value)
-        if token == "default-ui":
-            return cls.LANGUAGE_DEFAULT_UI_VALUE
-        return token
+        return LanguagePolicy.normalize_choice_value(value)
 
     @classmethod
     def is_auto_language_value(cls, value: Any) -> bool:
-        return cls.normalize_language_choice_value(value) == cls.LANGUAGE_AUTO_VALUE
+        return LanguagePolicy.is_auto(value)
 
     @classmethod
     def is_download_audio_auto_value(cls, value: Any) -> bool:
-        token = cls.normalize_policy_value(value)
-        return token in set(cls.DOWNLOAD_AUDIO_LANG_AUTO_VALUES)
+        return LanguagePolicy.is_download_audio_auto(value)
 
     @classmethod
     def is_translation_source_deferred_value(cls, value: Any) -> bool:
-        token = cls.normalize_language_choice_value(value)
-        return (not token) or token in set(cls.TRANSLATION_SOURCE_DEFERRED_VALUES)
+        return LanguagePolicy.is_translation_source_deferred(value)
 
     @classmethod
     def is_translation_target_deferred_value(cls, value: Any) -> bool:
-        token = cls.normalize_language_choice_value(value)
-        return (not token) or token in set(cls.TRANSLATION_TARGET_DEFERRED_VALUES)
+        return LanguagePolicy.is_translation_target_deferred(value)
 
     @classmethod
     def files_audio_input_file_exts(cls) -> tuple[str, ...]:
@@ -466,87 +415,17 @@ class AppConfig:
         exts |= {e.lower() for e in cls.files_video_input_file_exts()}
         return tuple(sorted(exts))
 
-    # ----- Live transcription -----
-    LIVE_OUTPUT_MODE_STREAM: str = "stream"
-    LIVE_OUTPUT_MODE_CUMULATIVE: str = "cumulative"
-    LIVE_OUTPUT_MODES: tuple[str, ...] = (LIVE_OUTPUT_MODE_STREAM, LIVE_OUTPUT_MODE_CUMULATIVE)
-    LIVE_UI_MODE_TRANSCRIBE: str = "transcribe"
-    LIVE_UI_MODE_TRANSCRIBE_TRANSLATE: str = "transcribe_translate"
-    LIVE_UI_MODES: tuple[str, ...] = (LIVE_UI_MODE_TRANSCRIBE, LIVE_UI_MODE_TRANSCRIBE_TRANSLATE)
-    LIVE_UI_DEFAULT_MODE: str = LIVE_UI_MODE_TRANSCRIBE
-    LIVE_DEFAULT_PRESET: str = "balanced"
-    LIVE_PRESET_IDS: tuple[str, ...] = ("low_latency", "balanced", "high_context")
-
-    LIVE_AUDIO_SIGNAL_PROFILE: dict[str, Any] = {
-        "silence_level_threshold": 0.055,
-        "silence_audio_rms_min": 0.007,
-        "silence_tail_keep_s": 0.24,
-        "tail_flush_min_s": 0.20,
-        "weak_rms_threshold": 0.0115,
-        "weak_activity_floor": 0.0055,
-        "weak_active_ratio_threshold": 0.012,
-        "weak_active_ms_threshold": 55.0,
-        "solid_rms_threshold": 0.0145,
-        "solid_activity_floor": 0.0065,
-        "solid_active_ratio_threshold": 0.022,
-        "solid_active_ms_threshold": 85.0,
-        "language_detect_rms_threshold": 0.03,
-        "language_detect_activity_floor": 0.009,
-        "language_detect_active_ratio_threshold": 0.07,
-        "language_detect_active_ms_threshold": 160.0,
-        "artifact_min_chars": 3,
-        "artifact_min_words": 2,
-        "artifact_tail_max_words": 2,
-        "artifact_tail_max_chars": 14,
-    }
-
-    LIVE_PRESET_PROFILES: dict[str, dict[str, Any]] = {
-        "low_latency": {
-            "chunk_length_s": 3,
-            "stride_length_s": 2,
-            "stream_commit_silence_s": 0.52,
-            "cumulative_commit_silence_s": 0.58,
-            "stream_clear_after_s": 1.05,
-            "stream_replace_prefix_ratio": 0.58,
-            "stream_commit_min_words": 5,
-            "cumulative_merge_overlap_min": 2,
-            "stream_show_previous_caption": False,
-            "stream_max_pending_chunks": 2,
-            "cumulative_max_pending_chunks": 3,
-            "stream_translation_min_chars": 16,
-            "cumulative_translation_min_chars": 18,
-        },
-        "balanced": {
-            "chunk_length_s": 5,
-            "stride_length_s": 4,
-            "stream_commit_silence_s": 0.64,
-            "cumulative_commit_silence_s": 0.72,
-            "stream_clear_after_s": 1.30,
-            "stream_replace_prefix_ratio": 0.64,
-            "stream_commit_min_words": 6,
-            "cumulative_merge_overlap_min": 2,
-            "stream_show_previous_caption": False,
-            "stream_max_pending_chunks": 3,
-            "cumulative_max_pending_chunks": 4,
-            "stream_translation_min_chars": 18,
-            "cumulative_translation_min_chars": 20,
-        },
-        "high_context": {
-            "chunk_length_s": 7,
-            "stride_length_s": 5,
-            "stream_commit_silence_s": 0.78,
-            "cumulative_commit_silence_s": 0.86,
-            "stream_clear_after_s": 1.55,
-            "stream_replace_prefix_ratio": 0.70,
-            "stream_commit_min_words": 7,
-            "cumulative_merge_overlap_min": 3,
-            "stream_show_previous_caption": False,
-            "stream_max_pending_chunks": 3,
-            "cumulative_max_pending_chunks": 5,
-            "stream_translation_min_chars": 22,
-            "cumulative_translation_min_chars": 24,
-        },
-    }
+    LIVE_OUTPUT_MODE_STREAM: str = RuntimeProfiles.LIVE_OUTPUT_MODE_STREAM
+    LIVE_OUTPUT_MODE_CUMULATIVE: str = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE
+    LIVE_OUTPUT_MODES: tuple[str, ...] = RuntimeProfiles.LIVE_OUTPUT_MODES
+    LIVE_UI_MODE_TRANSCRIBE: str = RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
+    LIVE_UI_MODE_TRANSCRIBE_TRANSLATE: str = RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE
+    LIVE_UI_MODES: tuple[str, ...] = RuntimeProfiles.LIVE_UI_MODES
+    LIVE_UI_DEFAULT_MODE: str = RuntimeProfiles.LIVE_UI_DEFAULT_MODE
+    LIVE_DEFAULT_PRESET: str = RuntimeProfiles.LIVE_DEFAULT_PRESET
+    LIVE_PRESET_IDS: tuple[str, ...] = RuntimeProfiles.LIVE_PRESET_IDS
+    LIVE_AUDIO_SIGNAL_PROFILE: dict[str, Any] = RuntimeProfiles.LIVE_AUDIO_SIGNAL_PROFILE
+    LIVE_PRESET_PROFILES: dict[str, dict[str, Any]] = RuntimeProfiles.LIVE_PRESET_PROFILES
 
     @classmethod
     def live_ui_cfg_dict(cls) -> dict[str, Any]:
@@ -576,63 +455,37 @@ class AppConfig:
         return cls.normalize_live_output_mode(cfg.get("output_mode"))
 
     @classmethod
-    def live_ui_show_source(cls) -> bool:
-        cfg = cls.live_ui_cfg_dict()
-        return bool(cfg.get("show_source"))
-
-    @classmethod
     def normalize_live_ui_mode(cls, value: Any) -> str:
-        token = cls.normalize_policy_value(value)
-        if token not in set(cls.LIVE_UI_MODES):
-            return cls.LIVE_UI_DEFAULT_MODE
-        return token
+        return RuntimeProfiles.normalize_live_ui_mode(value)
 
     @classmethod
     def normalize_live_output_mode(cls, value: Any) -> str:
-        token = cls.normalize_policy_value(value)
-        if token not in set(cls.LIVE_OUTPUT_MODES):
-            return cls.LIVE_OUTPUT_MODE_CUMULATIVE
-        return token
+        return RuntimeProfiles.normalize_live_output_mode(value)
 
     @classmethod
     def normalize_live_preset(cls, value: Any) -> str:
-        token = cls.normalize_policy_value(value)
-        if token not in set(cls.LIVE_PRESET_IDS):
-            return cls.LIVE_DEFAULT_PRESET
-        return token
+        return RuntimeProfiles.normalize_live_preset(value)
 
     @classmethod
     def live_audio_profile(cls) -> dict[str, Any]:
-        return dict(cls.LIVE_AUDIO_SIGNAL_PROFILE)
+        return RuntimeProfiles.live_audio_profile()
 
     @classmethod
     def live_preset_profile(cls, preset: Any) -> dict[str, Any]:
-        preset_id = cls.normalize_live_preset(preset)
-        profile = cls.LIVE_PRESET_PROFILES.get(preset_id) or cls.LIVE_PRESET_PROFILES[cls.LIVE_DEFAULT_PRESET]
-        return dict(profile)
+        return RuntimeProfiles.live_preset_profile(preset)
 
     @classmethod
     def live_runtime_profile(cls, *, output_mode: Any, preset: Any) -> dict[str, Any]:
-        output_mode_id = cls.normalize_live_output_mode(output_mode)
-        preset_id = cls.normalize_live_preset(preset)
-        profile = cls.live_audio_profile()
-        profile.update(cls.live_preset_profile(preset_id))
-        profile["output_mode"] = output_mode_id
-        profile["preset_id"] = preset_id
-        profile["stream_mode"] = output_mode_id == cls.LIVE_OUTPUT_MODE_STREAM
-        profile["commit_silence_s"] = float(
-            profile["stream_commit_silence_s"]
-            if profile["stream_mode"]
-            else profile["cumulative_commit_silence_s"]
-        )
-        profile["max_pending_chunks"] = int(
-            profile["stream_max_pending_chunks"]
-            if profile["stream_mode"]
-            else profile["cumulative_max_pending_chunks"]
-        )
-        return profile
+        return RuntimeProfiles.live_runtime_profile(output_mode=output_mode, preset=preset)
 
-    # ----- Transcript output -----
+    @classmethod
+    def normalize_transcription_quality_preset(cls, value: Any) -> str:
+        return RuntimeProfiles.normalize_transcription_preset(value)
+
+    @classmethod
+    def transcription_quality_profile(cls, preset: Any) -> dict[str, Any]:
+        return RuntimeProfiles.transcription_preset_profile(preset)
+
     TRANSCRIPTION_OUTPUT_MODES: tuple[dict[str, Any], ...] = (
         {"id": "txt", "ext": "txt", "timestamps": False, "tr_key": "transcription.output_mode.plain_txt.label"},
         {"id": "txt_ts", "ext": "txt", "timestamps": True, "tr_key": "transcription.output_mode.txt_timestamps.label"},
@@ -685,7 +538,6 @@ class AppConfig:
     SETTINGS: "SettingsSnapshot | None" = None
     _DEFAULT_SETTINGS_CACHE: dict[str, Any] | None = None
 
-    # ----- Snapshot accessors (UI/Controller helpers) -----
     @classmethod
     def _default_settings_dict(cls) -> dict[str, Any]:
         cache = cls._DEFAULT_SETTINGS_CACHE
@@ -794,6 +646,12 @@ class AppConfig:
         return str(cfg.get("engine_name", "none") or "none").strip()
 
     @classmethod
+    def transcription_default_language(cls) -> str:
+        cfg = cls.transcription_model_raw_cfg_dict()
+        value = cls.normalize_policy_value(cfg.get("default_language") or cls.LANGUAGE_AUTO_VALUE)
+        return value or cls.LANGUAGE_AUTO_VALUE
+
+    @classmethod
     def translation_model_engine_name(cls) -> str:
         cfg = cls.translation_model_raw_cfg_dict()
         return str(cfg.get("engine_name", "none") or "none").strip()
@@ -821,7 +679,7 @@ class AppConfig:
         raw = cls._snapshot_section_value("network", "max_bandwidth_kbps")
         try:
             value = int(raw) if raw is not None else None
-        except Exception:
+        except (TypeError, ValueError):
             return None
         if value is not None and value <= 0:
             return None
@@ -841,10 +699,6 @@ class AppConfig:
     def network_http_timeout_s(cls) -> int:
         raw = cls._snapshot_section_value("network", "http_timeout_s")
         return max(1, cls._coerce_int(raw, 1))
-
-    @classmethod
-    def network_no_check_certificate(cls) -> bool:
-        return bool(cls._snapshot_section_value("network", "no_check_certificate"))
 
     @classmethod
     def engine_low_cpu_mem_usage(cls) -> bool:
@@ -893,7 +747,19 @@ class AppConfig:
         value = str(cls._snapshot_section_value("transcription", "url_video_ext") or "").strip().lower().lstrip(".")
         return value or "mp4"
 
-    # ----- Snapshot mapping -----
+    @classmethod
+    def download_ui_default_quality(cls) -> str:
+        value = str(cls.DOWNLOAD_UI_DEFAULT_QUALITY or "").strip().lower()
+        return value or "auto"
+
+    @classmethod
+    def download_default_video_ext(cls) -> str:
+        exts = tuple(str(ext or "").strip().lower().lstrip(".") for ext in cls.DOWNLOAD_VIDEO_OUTPUT_EXTS)
+        for ext in exts:
+            if ext:
+                return ext
+        return "mp4"
+
     @classmethod
     def initialize_from_snapshot(cls, snap: "SettingsSnapshot") -> None:
         cls.SETTINGS = snap
@@ -913,34 +779,17 @@ class AppConfig:
             cls._apply_transcription_engine_dir(snap.model)
             cls._apply_translation_engine_dir(snap.model)
 
-    # ----- Startup -----
     @classmethod
     def ensure_dirs(cls) -> None:
-        for p in (
-            cls.RUNTIME_DIR,
-            cls.FFMPEG_DIR,
-            cls.AI_MODELS_DIR,
-            cls.LOCALES_DIR,
-            cls.STYLES_DIR,
-            cls.IMAGES_DIR,
-            cls.ICONS_DIR,
-            cls.DOWNLOADS_DIR,
-            cls.TRANSCRIPTIONS_DIR,
-            cls.LOGS_DIR,
-            cls.USER_CONFIG_DIR,
-            cls.DOWNLOADS_TMP_DIR,
-            cls.TRANSCRIPTIONS_TMP_DIR,
-        ):
-            p.mkdir(parents=True, exist_ok=True)
+        PathCatalog.ensure_runtime_dirs(cls)
 
     @staticmethod
     def _coerce_int(value: Any, default: int) -> int:
         try:
             return int(value)
-        except Exception:
+        except (TypeError, ValueError):
             return default
 
-    # ----- Apply sections -----
     @classmethod
     def _apply_translation_engine_dir(cls, model: dict[str, Any]) -> None:
         tcfg = model.get("translation_model", {})
@@ -953,7 +802,6 @@ class AppConfig:
         resolved = cls.resolve_model_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="transcription")
         cls.TRANSCRIPTION_ENGINE_DIR = cls.AI_MODELS_DIR / resolved
 
-    # ----- Runtime capabilities -----
     @classmethod
     def has_cuda(cls) -> bool:
         return bool(cls.HAS_CUDA)

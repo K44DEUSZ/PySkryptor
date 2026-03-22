@@ -3,12 +3,11 @@ from __future__ import annotations
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.controller.support.localization import tr
+from app.model.services.localization_service import tr
 from app.view.support.widget_effects import repolish_widget
 from app.view.ui_config import ui
 
 _VALID_RUNTIME_STATES = {"ready", "loading", "offline", "disabled", "missing", "neutral"}
-
 
 class RuntimeBadgeWidget(QtWidgets.QFrame):
     """Compact runtime information badge for the Files tab."""

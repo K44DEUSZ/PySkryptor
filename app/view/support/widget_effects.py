@@ -3,24 +3,26 @@ from __future__ import annotations
 
 from PyQt5 import QtCore, QtWidgets
 
+from app.view.support.theme_runtime import floating_shadow_color
 from app.view.ui_config import UIConfig, ui
 
+
+def _app_instance() -> QtWidgets.QApplication | None:
+    app = QtWidgets.QApplication.instance()
+    return app if isinstance(app, QtWidgets.QApplication) else None
 
 def enable_styled_background(w: QtWidgets.QWidget) -> None:
     w.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
 
-
 def overlay_edge_gap(cfg: UIConfig) -> int:
     return max(4, int(cfg.space_s) + 1)
 
-
 def install_app_event_filter(owner: QtCore.QObject, *, installed: bool) -> bool:
-    app = QtWidgets.QApplication.instance()
+    app = _app_instance()
     if app is None or installed:
         return bool(installed)
     app.installEventFilter(owner)
     return True
-
 
 def bind_tracked_window(
     owner: QtCore.QObject,
@@ -39,7 +41,6 @@ def bind_tracked_window(
         tracked.installEventFilter(owner)
     return tracked
 
-
 def contains_widget_chain(widget: QtWidgets.QWidget | None, *roots: QtWidgets.QWidget | None) -> bool:
     valid_roots = [root for root in roots if isinstance(root, QtWidgets.QWidget)]
     current = widget
@@ -50,19 +51,14 @@ def contains_widget_chain(widget: QtWidgets.QWidget | None, *roots: QtWidgets.QW
         current = current.parentWidget()
     return False
 
-
 def repolish_widget(w: QtWidgets.QWidget | None) -> None:
     if w is None:
         return
-    try:
-        style = w.style()
-        if style is not None:
-            style.unpolish(w)
-            style.polish(w)
-    except Exception:
-        pass
+    style = w.style()
+    if style is not None:
+        style.unpolish(w)
+        style.polish(w)
     w.update()
-
 
 def sync_progress_text_role(progress_bar: QtWidgets.QProgressBar) -> None:
     cfg = ui(progress_bar)
@@ -77,22 +73,16 @@ def sync_progress_text_role(progress_bar: QtWidgets.QProgressBar) -> None:
     progress_bar.setProperty("progressTextRole", role)
     repolish_widget(progress_bar)
 
-
 def apply_floating_shadow(w: QtWidgets.QWidget) -> QtWidgets.QGraphicsDropShadowEffect:
     cfg = ui(w)
     effect = QtWidgets.QGraphicsDropShadowEffect(w)
     effect.setBlurRadius(float(cfg.floating_shadow_blur))
     effect.setOffset(0.0, float(cfg.floating_shadow_offset_y))
     effect.setColor(QtCore.Qt.GlobalColor.transparent)
-    try:
-        from PyQt5 import QtGui
-
-        effect.setColor(QtGui.QColor(str(cfg.floating_shadow_color)))
-    except Exception:
-        pass
+    app = _app_instance()
+    effect.setColor(floating_shadow_color(app=app))
     w.setGraphicsEffect(effect)
     return effect
-
 
 def floating_shadow_margins(
     widget: QtWidgets.QWidget | None,

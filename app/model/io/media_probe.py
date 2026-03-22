@@ -4,17 +4,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.model.io.audio_extractor import AudioExtractor
-from app.model.services.download_service import DownloadService
+
+if TYPE_CHECKING:
+    from app.model.services.download_service import DownloadService
 
 _URL_RE = re.compile(r"^(?:https?://|ftp://)", re.IGNORECASE)
 
 def is_url_source(value: str) -> bool:
     """Return True if value looks like a URL."""
     return bool(value) and bool(_URL_RE.match(value.strip()))
-
 
 @dataclass
 class MediaProbe:
@@ -43,14 +44,15 @@ class MediaProbe:
             "probe_diag": self.probe_diag or {},
         }
 
-
 class MediaProbeService:
     """Central place for building MediaProbe from local files and URLs."""
 
-    def __init__(self, down: DownloadService | None = None) -> None:
-        self._down = down or DownloadService()
+    def __init__(self, down: "DownloadService | None" = None) -> None:
+        if down is None:
+            from app.model.services.download_service import DownloadService
 
-    # ----- URL / remote -----
+            down = DownloadService()
+        self._down = down
 
     def from_url(self, url: str) -> MediaProbe:
         """Probe remote media (yt_dlp) and normalize into MediaProbe."""
@@ -72,8 +74,6 @@ class MediaProbeService:
             audio_langs=audio_tracks,
             probe_diag=raw.get("probe_diag") or None,
         )
-
-    # ----- Local file -----
 
     @staticmethod
     def from_local(path: Path) -> MediaProbe | None:

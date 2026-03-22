@@ -1,4 +1,4 @@
-# app/controller/tasks/transcription_task.py
+# app/controller/workers/transcription_worker.py
 from __future__ import annotations
 
 from typing import Any
@@ -6,13 +6,13 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
-from app.controller.tasks.base_worker import BaseWorker, PendingDecision
+from app.controller.workers.task_worker import PendingDecision, TaskWorker
 from app.model.services.transcription_service import TranscriptionService
+from app.model.domain.entities import TranscriptionSessionRequest
 
 SourceEntry = str | dict[str, Any]
 
-
-class TranscriptionWorker(BaseWorker):
+class TranscriptionWorker(TaskWorker):
     """Background worker that orchestrates a transcription session."""
 
     item_status = QtCore.pyqtSignal(str, str)
@@ -30,21 +30,19 @@ class TranscriptionWorker(BaseWorker):
         *,
         pipe: Any,
         entries: list[SourceEntry],
-        overrides: dict[str, Any] | None = None,
+        session_request: TranscriptionSessionRequest,
         cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
         self._pipe = pipe
         self._entries = list(entries or [])
-        self._overrides = dict(overrides or {})
+        self._session_request = session_request
         self._session_reported = False
 
         self.failed.connect(self._on_failed)
         self.cancelled.connect(self._on_cancelled)
 
         self._conflict_decision = PendingDecision(default_action="skip")
-
-    # ----- Control -----
 
     def cancel(self) -> None:
         super().cancel()
@@ -58,8 +56,6 @@ class TranscriptionWorker(BaseWorker):
             value=str(new_stem or "").strip(),
         )
 
-    # ----- Internals -----
-
     def _conflict_resolver(self, stem: str, existing_dir: str) -> tuple[str, str, bool]:
         self._conflict_decision.reset()
 
@@ -72,8 +68,6 @@ class TranscriptionWorker(BaseWorker):
         action = str(action or "skip").strip().lower()
         new_stem = str(new_stem or "").strip()
         return action, new_stem, False
-
-    # ----- Run -----
 
     def _on_failed(self, err_key: str, params: dict) -> None:
         if self._session_reported:
@@ -93,7 +87,7 @@ class TranscriptionWorker(BaseWorker):
         res = svc.run_session(
             pipe=self._pipe,
             entries=self._entries,
-            overrides=self._overrides,
+            session_request=self._session_request,
             progress=lambda pct: self.progress.emit(int(pct)),
             item_status=lambda key, st: self.item_status.emit(str(key), str(st)),
             item_progress=lambda key, pct: self.item_progress.emit(str(key), int(pct)),

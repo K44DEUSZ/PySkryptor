@@ -6,9 +6,9 @@ from typing import Any
 
 from PyQt5 import QtWidgets
 
-
 @dataclass(frozen=True)
 class UIConfig:
+    """Immutable UI sizing and spacing tokens shared across the application."""
     window_default_w: int = 1380
     window_default_h: int = 820
     window_min_w: int = 1280
@@ -25,6 +25,7 @@ class UIConfig:
     button_min_w: int = 140
 
     option_row_min_h: int = 24
+    table_check_indicator_size: int = 16
     radius_l: int = 10
     radius_m: int = 8
     radius_s: int = 6
@@ -39,7 +40,6 @@ class UIConfig:
 
     floating_shadow_blur: int = 18
     floating_shadow_offset_y: int = 4
-    floating_shadow_color: str = "#24000000"
     floating_shadow_margin: int = 8
 
     live_render_interval_ms: int = 100
@@ -56,9 +56,7 @@ class UIConfig:
     def spacing(self) -> int:
         return int(self.space_m)
 
-
 _DEFAULT_UI = UIConfig()
-
 
 def _coerce_cfg(obj: Any) -> UIConfig | None:
     if obj is None:
@@ -84,20 +82,20 @@ def _coerce_cfg(obj: Any) -> UIConfig | None:
     merged = {key: data.get(key, getattr(_DEFAULT_UI, key)) for key in keys}
     try:
         return UIConfig(**merged)
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
-
 def ui(widget: QtWidgets.QWidget | None) -> UIConfig:
+    """Resolve the nearest available UIConfig for a widget or the application."""
     w = widget
     while w is not None:
         if hasattr(w, "ui_config"):
             try:
                 cfg = _coerce_cfg(w.ui_config())  # type: ignore[attr-defined]
-                if cfg is not None:
-                    return cfg
-            except Exception:
-                pass
+            except (AttributeError, TypeError):
+                cfg = None
+            if cfg is not None:
+                return cfg
         w = w.parentWidget()
 
     app = QtWidgets.QApplication.instance()

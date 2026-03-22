@@ -8,17 +8,32 @@ from pathlib import Path
 import numpy as np
 import wave
 
-from app.model.helpers.errors import AppError
-
+from app.model.domain.errors import AppError
 
 class ChunkingError(AppError):
-    """Chunking/runtime audio validation error surfaced through the standard dialog path."""
+    """Chunking/runtime audio validation error described by semantic ``error.chunking.*`` keys."""
 
-    def __init__(self, detail: str) -> None:
-        super().__init__("dialog.error.unexpected", {"msg": str(detail or "")})
+    def __init__(self, key: str, **params: object) -> None:
+        super().__init__(str(key), dict(params or {}))
 
+    @classmethod
+    def unsupported_sample_width(cls, sample_width: int) -> "ChunkingError":
+        return cls("error.chunking.unsupported_sample_width", sample_width=int(sample_width))
+
+    @classmethod
+    def expected_mono_wav(cls, channels: int) -> "ChunkingError":
+        return cls("error.chunking.expected_mono_wav", channels=int(channels))
+
+    @classmethod
+    def invalid_sample_rate(cls, sample_rate: int) -> "ChunkingError":
+        return cls("error.chunking.invalid_sample_rate", sample_rate=int(sample_rate))
+
+    @classmethod
+    def invalid_sample_width(cls, sample_width: int) -> "ChunkingError":
+        return cls("error.chunking.invalid_sample_width", sample_width=int(sample_width))
 
 def normalize_chunk_params(chunk_len_s: int, stride_len_s: int) -> tuple[int, int, int]:
+    """Normalize chunk and stride lengths and return chunk, stride, and step seconds."""
     chunk = max(1, int(chunk_len_s))
     stride = max(0, int(stride_len_s))
     if stride >= chunk:
@@ -26,8 +41,8 @@ def normalize_chunk_params(chunk_len_s: int, stride_len_s: int) -> tuple[int, in
     step = max(1, chunk - stride)
     return chunk, stride, step
 
-
 def seconds_to_frames(sr: int, chunk_len_s: int, stride_len_s: int) -> tuple[int, int, int]:
+    """Convert chunk and stride lengths from seconds to frame counts for the sample rate."""
     chunk_s, stride_s, step_s = normalize_chunk_params(chunk_len_s, stride_len_s)
     sr_i = max(1, int(sr))
     chunk_f = max(1, int(chunk_s * sr_i))
@@ -37,7 +52,6 @@ def seconds_to_frames(sr: int, chunk_len_s: int, stride_len_s: int) -> tuple[int
     step_f = max(1, chunk_f - stride_f)
     return chunk_f, stride_f, step_f
 
-
 def pcm16le_bytes_to_float32(data: bytes) -> np.ndarray:
     """Convert little-endian PCM16 mono bytes into float32 [-1, 1]."""
     if not data:
@@ -45,8 +59,8 @@ def pcm16le_bytes_to_float32(data: bytes) -> np.ndarray:
     arr = np.frombuffer(data, dtype="<i2").astype(np.float32)
     return arr / 32768.0
 
-
 def estimate_chunks(total_dur_s: float, chunk_len_s: int, stride_len_s: int) -> int:
+    """Estimate how many overlapping chunks will be produced for the waveform duration."""
     try:
         dur = float(total_dur_s)
     except (TypeError, ValueError):
@@ -58,7 +72,6 @@ def estimate_chunks(total_dur_s: float, chunk_len_s: int, stride_len_s: int) -> 
     step = float(step_s)
     n = int(np.ceil(dur / step))
     return max(1, n)
-
 
 def _pcm_bytes_to_float32(frames: bytes, sampwidth: int) -> np.ndarray:
     if not frames:
@@ -95,17 +108,16 @@ def _pcm_bytes_to_float32(frames: bytes, sampwidth: int) -> np.ndarray:
         a = np.frombuffer(frames, dtype=np.int32).astype(np.float32)
         return a / 2147483648.0
 
-    raise ChunkingError(f"unsupported-sample-width; got {sw}")
-
+    raise ChunkingError.unsupported_sample_width(sw)
 
 @dataclass(frozen=True)
 class WavChunk:
+    """PCM chunk prepared for transcription together with timing metadata."""
     idx: int
     n_chunks: int
     offset_s: float
     audio: np.ndarray
     sr: int
-
 
 def iter_wav_mono_chunks(
     wav_path: Path,
@@ -113,20 +125,21 @@ def iter_wav_mono_chunks(
     chunk_len_s: int,
     stride_len_s: int,
 ) -> Iterator[WavChunk]:
+    """Yield mono WAV chunks with overlap and timing metadata."""
     chunk_s, stride_s, step_s = normalize_chunk_params(chunk_len_s, stride_len_s)
 
     with wave.open(str(wav_path), "rb") as wf:
         n_channels = int(wf.getnchannels() or 0)
         if n_channels != 1:
-            raise ChunkingError(f"expected-mono-wav; channels={n_channels}")
+            raise ChunkingError.expected_mono_wav(n_channels)
 
         sr = int(wf.getframerate() or 0)
         if sr <= 0:
-            raise ChunkingError(f"invalid-sample-rate; sr={sr}")
+            raise ChunkingError.invalid_sample_rate(sr)
 
         sampwidth = int(wf.getsampwidth() or 0)
         if sampwidth <= 0:
-            raise ChunkingError(f"invalid-sample-width; sampwidth={sampwidth}")
+            raise ChunkingError.invalid_sample_width(sampwidth)
 
         n_frames = int(wf.getnframes() or 0)
         duration_s = float(n_frames) / float(sr) if n_frames > 0 else 0.0

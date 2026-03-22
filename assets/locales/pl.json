@@ -228,7 +228,8 @@
       "json_invalid": "⚠️ Plik konfiguracyjny „{path}” zawiera nieprawidłowy JSON. Szczegóły: {detail}",
       "section_invalid": "⚠️ Sekcja ustawień „{section}” jest nieprawidłowa.",
       "settings_invalid": "⚠️ Plik ustawień „{path}” jest nieprawidłowy. Szczegóły: {detail}",
-      "settings_missing": "⚠️ Brak pliku ustawień: {path}"
+      "settings_missing": "⚠️ Brak pliku ustawień: {path}",
+      "invalid_video_height_range": "Minimalna wysokość wideo ({min_height}) nie może być większa niż maksymalna ({max_height})."
     },
     "startup": {
       "failed": "❌ Uruchamianie aplikacji nie powiodło się. Szczegóły: {detail}"
@@ -257,6 +258,14 @@
     "type": {
       "enum": "⚠️ Pole „{field}” ma nieprawidłową wartość „{value}”. Dozwolone: {allowed}",
       "int": "⚠️ Pole „{field}” musi być liczbą całkowitą."
+    },
+    "chunking": {
+      "unsupported_sample_width": "Nieobsługiwana szerokość próbki audio: {sample_width}.",
+      "expected_mono_wav": "Oczekiwano monofonicznego pliku WAV, ale wykryto {channels} kanały.",
+      "invalid_sample_rate": "Nieprawidłowa częstotliwość próbkowania WAV: {sample_rate}.",
+      "invalid_sample_width": "Nieprawidłowa szerokość próbki WAV: {sample_width}.",
+      "empty_audio": "Dane audio są puste.",
+      "invalid_chunk_parameters": "Nieprawidłowe parametry chunkingu."
     }
   },
   "files": {
@@ -419,7 +428,7 @@
     "buttons": {
       "restore_defaults": "Przywróć domyślne ♻️",
       "save": "Zapisz 💾",
-      "undo": "Cofnij"
+      "undo": "Cofnij ↩️"
     },
     "downloader": {
       "max_video_height": "Maksymalna wysokość wideo (px)",
@@ -461,7 +470,7 @@
       "precision_hint": "Steruje precyzją obliczeń. Niższa precyzja może przyspieszyć działanie i zmniejszyć zużycie pamięci; dostępność zależy od urządzenia.",
       "retries": "Ile razy ponawiać nieudane żądania HTTP.",
       "stride_length": "Nakładanie fragmentów (sekundy). Większe nakładanie poprawia ciągłość, ale zwiększa obciążenie.",
-      "text_consistency": "Wykorzystuje poprzednie fragmenty jako kontekst, aby utrzymać spójność nazw, terminów i stylu. Może przenosić wcześniejsze błędy na kolejne fragmenty.",
+      "text_consistency": "Używa poprzedniego tekstu jako kontekstu między segmentami, aby poprawić ciągłość transkrypcji. Może utrwalać wcześniejsze pomyłki przy trudnym audio.",
       "tf32": "NVIDIA Ampere+ (i nowsze): przyspiesza obliczenia macierzy w FP32 kosztem minimalnej utraty precyzji numerycznej.",
       "theme": "Wybierz motyw interfejsu.",
       "trans_quality": "Steruje wysiłkiem dekodowania. Wyższa jakość jest wolniejsza, ale może zmniejszyć liczbę błędów.",
@@ -470,7 +479,8 @@
       "translation_engine": "Wybierz model używany do tłumaczenia tekstu.",
       "translation_max_new_tokens": "Ogranicza maksymalną długość generowanego tłumaczenia. Zwiększ, jeśli tekst jest ucinany; wyższe wartości mogą spowolnić działanie.",
       "translation_quality": "Steruje parametrami generowania w modelu tłumaczeń. Wyższa jakość jest wolniejsza, ale może poprawić płynność.",
-      "ui_language": "Wybierz język interfejsu."
+      "ui_language": "Wybierz język interfejsu.",
+      "default_language": "Ustawia domyślny język mowy dla transkrypcji plików i na żywo. Automatyczne wykrywanie pozostawia rozpoznanie języka modelowi."
     },
     "msg": {
       "saved": "✅ Ustawienia zostały zapisane."
@@ -502,7 +512,8 @@
       "model": "Silnik transkrypcji",
       "quality_label": "Profil jakości",
       "stride_length_s": "Nakładanie (s)",
-      "text_consistency": "Zwiększona spójność tekstu"
+      "text_consistency": "Spójność tekstu",
+      "default_language": "Domyślny język transkrypcji"
     },
     "translation": {
       "chunk_max_chars": "Maks. znaków w fragmencie",

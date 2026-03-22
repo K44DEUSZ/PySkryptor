@@ -1,4 +1,4 @@
-﻿# app/controller/tasks/live_transcription_task.py
+# app/controller/workers/live_transcription_worker.py
 from __future__ import annotations
 
 import logging
@@ -15,24 +15,23 @@ from app.controller.platform.microphone import (
     make_pcm16_mono_format,
     resolve_input_device,
 )
-from app.controller.tasks.live_session import LiveSession, LiveUpdate
 from app.controller.support.cancellation import CancellationToken
+from app.controller.workers.session_worker import SessionWorker
 from app.model.config.app_config import AppConfig as Config
+from app.model.domain.errors import AppError
+from app.model.domain.results import LiveUpdate
 from app.model.helpers.chunking import pcm16le_bytes_to_float32
-from app.model.helpers.errors import AppError
+from app.model.services.live_transcription_service import LiveTranscriptionService
 
 _LOG = logging.getLogger(__name__)
 
-
-# ----- Errors -----
 class LiveError(AppError):
     """Key-based error used for i18n-friendly live task failures."""
 
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
 
-
-class LiveTranscriptionWorker(QtCore.QObject):
+class LiveTranscriptionWorker(SessionWorker):
     """Captures audio from an input device and performs live transcription."""
 
     status = QtCore.pyqtSignal(str)
@@ -42,8 +41,6 @@ class LiveTranscriptionWorker(QtCore.QObject):
     archive_source_text = QtCore.pyqtSignal(str)
     archive_target_text = QtCore.pyqtSignal(str)
     spectrum = QtCore.pyqtSignal(object)
-    error = QtCore.pyqtSignal(str, dict)
-    finished = QtCore.pyqtSignal()
 
     def __init__(
         self,
@@ -54,10 +51,10 @@ class LiveTranscriptionWorker(QtCore.QObject):
         target_language: str = "",
         translate_enabled: bool = False,
         preset_id: str = Config.LIVE_DEFAULT_PRESET,
-        output_mode: str = LiveSession.OUTPUT_MODE_CUMULATIVE,
+        output_mode: str = LiveTranscriptionService.OUTPUT_MODE_CUMULATIVE,
         cancel_token: CancellationToken | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(cancel_token=cancel_token)
         self._pipe = pipe
         self._device_name = str(device_name or "").strip()
 
@@ -67,12 +64,9 @@ class LiveTranscriptionWorker(QtCore.QObject):
         self._preset_id = Config.normalize_live_preset(preset_id)
         self._output_mode = Config.normalize_live_output_mode(output_mode)
 
-        self._cancel = cancel_token or CancellationToken()
         self._pause = threading.Event()
-        self._stop = threading.Event()
-        self._run_finished = False
 
-        self._session: LiveSession | None = None
+        self._session: LiveTranscriptionService | None = None
         self._qtmm: Any = None
         self._fmt: Any = None
         self._device_info: Any = None
@@ -91,7 +85,9 @@ class LiveTranscriptionWorker(QtCore.QObject):
         self._backlog_debug_interval_s: float = 0.6
         self._backlog_compactions: int = 0
         self._pending_chunks: deque[tuple[bytes, float]] = deque()
-        self._max_pending_chunks: int = int(Config.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id).get("max_pending_chunks", 4))
+        self._max_pending_chunks: int = int(
+            Config.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id).get("max_pending_chunks", 4)
+        )
         self._pending_chunks_lock = threading.Lock()
         self._ready_updates: deque[LiveUpdate] = deque()
         self._ready_updates_lock = threading.Lock()
@@ -100,15 +96,13 @@ class LiveTranscriptionWorker(QtCore.QObject):
         self._inference_thread: threading.Thread | None = None
         self._inference_error: Exception | None = None
 
-    # ----- External controls -----
-
     def cancel(self) -> None:
         _LOG.debug("Live worker cancel requested. worker=live_transcription")
-        self._cancel.cancel()
+        super().cancel()
 
     def stop(self) -> None:
         _LOG.debug("Live worker stop requested. worker=live_transcription")
-        self._stop.set()
+        super().stop()
 
     def pause(self) -> None:
         _LOG.debug("Live worker pause requested. worker=live_transcription")
@@ -118,18 +112,19 @@ class LiveTranscriptionWorker(QtCore.QObject):
         _LOG.debug("Live worker resume requested. worker=live_transcription")
         self._pause.clear()
 
-    # ----- Internals -----
+    def _handle_failure(self, ex: BaseException) -> None:
+        self._set_status("status.error")
 
-    def _is_cancelled(self) -> bool:
-        if self._cancel.is_cancelled:
-            return True
-        try:
-            th = QtCore.QThread.currentThread()
-            if th is not None and th.isInterruptionRequested():
-                return True
-        except (AttributeError, RuntimeError):
-            pass
-        return False
+        err_key = getattr(ex, "key", None)
+        err_params = getattr(ex, "params", None)
+        if err_key:
+            self._emit_failure(str(err_key), dict(err_params or {}))
+            return
+
+        self._emit_failure("error.live.failed", {"detail": str(ex)})
+
+    def _request_stop(self) -> None:
+        self._inference_wakeup.set()
 
     def _set_status(self, key: str) -> None:
         key = str(key or "").strip()
@@ -172,9 +167,6 @@ class LiveTranscriptionWorker(QtCore.QObject):
             self.detected_language.emit(detected_language)
 
         self._emit_text_update(u, force=force)
-
-    def _stop_requested(self) -> bool:
-        return self._stop.is_set() or self._is_cancelled()
 
     def _clear_pending_chunks(self) -> None:
         with self._pending_chunks_lock:
@@ -219,133 +211,115 @@ class LiveTranscriptionWorker(QtCore.QObject):
 
     @staticmethod
     def _meter_from_level(level: float) -> list[float]:
-        bars = 18
-        lvl = max(0.0, min(1.0, float(level or 0.0)))
-        filled = lvl * float(bars)
-        full = int(filled)
-        frac = float(filled - full)
-
-        out = [0.0] * bars
+        level = float(max(0.0, min(1.0, level)))
+        bars = 16
+        eased = min(1.0, level * 1.2)
+        count = int(round(eased * bars))
+        values: list[float] = []
         for idx in range(bars):
-            if idx < full:
-                out[idx] = 1.0
-            elif idx == full and frac > 0.0:
-                out[idx] = min(1.0, frac)
-        return out
+            if idx < count:
+                bar = level * (0.85 + 0.15 * (idx / max(1, bars - 1)))
+                values.append(float(max(0.0, min(1.0, bar))))
+            else:
+                values.append(0.0)
+        return values
 
     @staticmethod
     def _resample(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
-        if audio.size == 0:
-            return np.zeros((0,), dtype=np.float32)
-        src = int(src_sr)
-        dst = int(dst_sr)
-        if src <= 0 or dst <= 0 or src == dst:
-            return audio.astype(np.float32, copy=False)
-        n = int(round(float(audio.size) * float(dst) / float(src)))
-        if n <= 0:
-            return np.zeros((0,), dtype=np.float32)
-        x_old = np.arange(int(audio.size), dtype=np.float32)
-        x_new = np.linspace(0.0, float(audio.size - 1), n, dtype=np.float32)
-        return np.interp(x_new, x_old, audio.astype(np.float32, copy=False)).astype(np.float32)
+        if audio.size == 0 or src_sr <= 0 or dst_sr <= 0 or src_sr == dst_sr:
+            return audio
+
+        if audio.size == 1:
+            return np.repeat(audio, max(1, int(round(dst_sr / float(src_sr))))).astype(np.float32, copy=False)
+
+        src_idx = np.arange(audio.shape[0], dtype=np.float32)
+        dst_len = int(round(audio.shape[0] * (float(dst_sr) / float(src_sr))))
+        if dst_len <= 1:
+            return audio[:1].astype(np.float32, copy=False)
+        dst_idx = np.linspace(0.0, float(audio.shape[0] - 1), dst_len, dtype=np.float32)
+        out = np.interp(dst_idx, src_idx, audio.astype(np.float32, copy=False))
+        return out.astype(np.float32, copy=False)
 
     @staticmethod
     def _normalize_pcm16(chunk: bytes, fmt: Any, qt_multimedia: Any) -> bytes:
         if not chunk:
             return b""
 
-        try:
-            ch = int(fmt.channelCount() or 1)
-        except Exception:
-            ch = 1
-        if ch <= 0:
-            ch = 1
+        byte_order = fmt.byteOrder()
+        sample_type = fmt.sampleType()
+        sample_size = int(fmt.sampleSize() or 0)
+        channels = int(fmt.channelCount() or 0)
+        sample_rate = int(fmt.sampleRate() or 0)
 
-        try:
-            sr = int(fmt.sampleRate() or 16000)
-        except Exception:
-            sr = 16000
-        if sr <= 0:
-            sr = 16000
+        if sample_size != 16:
+            raise LiveError("error.live.microphone_format_unsupported")
 
-        try:
-            sample_type = fmt.sampleType()
-        except Exception:
-            sample_type = qt_multimedia.QAudioFormat.SignedInt
+        if sample_type == qt_multimedia.QAudioFormat.SignedInt:
+            dtype = np.dtype("<i2") if byte_order == qt_multimedia.QAudioFormat.LittleEndian else np.dtype(">i2")
+        elif sample_type == qt_multimedia.QAudioFormat.UnSignedInt:
+            dtype = np.dtype("<u2") if byte_order == qt_multimedia.QAudioFormat.LittleEndian else np.dtype(">u2")
+        else:
+            raise LiveError("error.live.microphone_format_unsupported")
 
-        try:
-            byte_order = fmt.byteOrder()
-        except Exception:
-            byte_order = qt_multimedia.QAudioFormat.LittleEndian
-
-        frame_bytes = int(ch) * 2
-        if frame_bytes <= 0:
-            frame_bytes = 2
-        if len(chunk) % frame_bytes != 0:
-            chunk = chunk[: len(chunk) - (len(chunk) % frame_bytes)]
-        if not chunk:
+        arr = np.frombuffer(chunk, dtype=dtype)
+        if arr.size == 0:
             return b""
-
-        if (
-            ch == 1
-            and sr == 16000
-            and sample_type == qt_multimedia.QAudioFormat.SignedInt
-            and byte_order == qt_multimedia.QAudioFormat.LittleEndian
-        ):
-            return chunk
-
-        endian = "<" if byte_order == qt_multimedia.QAudioFormat.LittleEndian else ">"
 
         if sample_type == qt_multimedia.QAudioFormat.UnSignedInt:
-            a = np.frombuffer(chunk, dtype=np.dtype(endian + "u2")).astype(np.int32)
-            a = (a - 32768).astype(np.int16)
+            arr = arr.astype(np.int32) - 32768
         else:
-            a = np.frombuffer(chunk, dtype=np.dtype(endian + "i2")).astype(np.int16)
+            arr = arr.astype(np.int32)
 
-        audio = a.astype(np.float32) / 32768.0
-        if ch > 1:
-            audio = audio.reshape(-1, ch).mean(axis=1)
+        if channels > 1:
+            usable = (arr.size // channels) * channels
+            if usable <= 0:
+                return b""
+            arr = arr[:usable].reshape(-1, channels)
+            arr = np.mean(arr, axis=1).astype(np.int32)
 
-        if sr != 16000:
-            audio = LiveTranscriptionWorker._resample(audio, sr, 16000)
+        if sample_rate > 0 and sample_rate != 16000:
+            mono = arr.astype(np.float32) / 32768.0
+            mono = LiveTranscriptionWorker._resample(mono, sample_rate, 16000)
+            mono = np.clip(np.round(mono * 32768.0), -32768, 32767).astype(np.int16)
+        else:
+            mono = np.clip(arr, -32768, 32767).astype(np.int16)
 
-        if audio.size == 0:
-            return b""
+        if byte_order == qt_multimedia.QAudioFormat.BigEndian:
+            mono = mono.byteswap()
 
-        audio = np.clip(audio, -1.0, 1.0)
-        out = (audio * 32767.0).astype(np.int16)
-        return out.astype("<i2", copy=False).tobytes()
+        return mono.tobytes()
 
     def _audio_error_detail(self, err: Any) -> str:
-        qt_multimedia = self._qtmm
-        if qt_multimedia is None:
-            return str(err)
-        try:
-            error_names = {
-                qt_multimedia.QAudio.NoError: "no_error",
-                qt_multimedia.QAudio.OpenError: "open_error",
-                qt_multimedia.QAudio.IOError: "io_error",
-                qt_multimedia.QAudio.UnderrunError: "underrun_error",
-                qt_multimedia.QAudio.FatalError: "fatal_error",
-            }
-            name = error_names.get(err, "unknown")
-            return f"audio_error:{name}"
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            return str(err)
+        qtmm = self._qtmm
+        if qtmm is None:
+            return str(err or "audio_error")
+
+        qaudio = getattr(qtmm, "QAudio", None)
+        mapping = {
+            getattr(qaudio, "OpenError", object()): "open_error",
+            getattr(qaudio, "IOError", object()): "io_error",
+            getattr(qaudio, "UnderrunError", object()): "underrun_error",
+            getattr(qaudio, "FatalError", object()): "fatal_error",
+        }
+        return str(mapping.get(err, str(err or "audio_error")))
 
     @staticmethod
     def _validate_audio_format(*, fmt: Any, qt_multimedia: Any) -> None:
         try:
-            if int(fmt.sampleSize() or 0) != 16:
-                raise LiveError("error.live.microphone_format_unsupported")
+            channels = int(fmt.channelCount() or 0)
+            sample_size = int(fmt.sampleSize() or 0)
             sample_type = fmt.sampleType()
-            if sample_type not in (qt_multimedia.QAudioFormat.SignedInt, qt_multimedia.QAudioFormat.UnSignedInt):
+            sample_rate = int(fmt.sampleRate() or 0)
+            if channels <= 0 or sample_size != 16 or sample_rate <= 0:
                 raise LiveError("error.live.microphone_format_unsupported")
-            codec = str(fmt.codec() or "").strip().lower()
-            if codec and codec != "audio/pcm":
+            if sample_type not in (
+                qt_multimedia.QAudioFormat.SignedInt,
+                qt_multimedia.QAudioFormat.UnSignedInt,
+            ):
                 raise LiveError("error.live.microphone_format_unsupported")
         except LiveError:
             raise
-        except Exception as exc:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
             raise LiveError("error.live.microphone_format_unsupported") from exc
 
     def _resolve_audio_runtime(self) -> tuple[Any, Any, Any]:
@@ -383,8 +357,8 @@ class LiveTranscriptionWorker(QtCore.QObject):
 
         try:
             self._audio_in.stateChanged.connect(self._on_audio_state_changed)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Live audio state signal hookup skipped. detail=%s", ex)
 
         self._io = self._audio_in.start()
         if self._io is None:
@@ -392,16 +366,16 @@ class LiveTranscriptionWorker(QtCore.QObject):
 
         try:
             self._io.readyRead.connect(self._on_ready_read)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Live audio readyRead hookup skipped. detail=%s", ex)
 
-    def _create_live_session(self) -> LiveSession:
-        return LiveSession(
+    def _create_live_session(self) -> LiveTranscriptionService:
+        return LiveTranscriptionService(
             pipe=self._pipe,
             source_language=self._src_lang,
             target_language=self._tgt_lang,
             translate_enabled=self._translate_enabled,
-            cancel_check=self._is_cancelled,
+            cancel_check=self.cancel_check,
             preset_id=self._preset_id,
             output_mode=self._output_mode,
         )
@@ -418,7 +392,7 @@ class LiveTranscriptionWorker(QtCore.QObject):
             return b""
         try:
             chunk = bytes(self._io.readAll())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             return b""
         if not chunk:
             return b""
@@ -432,42 +406,29 @@ class LiveTranscriptionWorker(QtCore.QObject):
         self._last_spectrum_emit_s = now_s
         try:
             self.spectrum.emit(meter)
-        except Exception:
-            pass
+        except (RuntimeError, TypeError) as ex:
+            _LOG.debug("Live spectrum update skipped. detail=%s", ex)
 
     def _update_audio_capture_state(self) -> None:
         if self._audio_in is None or self._qtmm is None:
             return
-        if self._stop_requested():
+        if self.is_stop_requested():
             return
         if self._pause.is_set():
             if self._audio_in.state() == self._qtmm.QAudio.ActiveState:
                 try:
                     self._audio_in.suspend()
-                except Exception:
-                    pass
+                except (AttributeError, RuntimeError, TypeError) as ex:
+                    _LOG.debug("Live audio suspend skipped. detail=%s", ex)
             self._set_status("status.paused")
             return
 
         if self._audio_in.state() == self._qtmm.QAudio.SuspendedState:
             try:
                 self._audio_in.resume()
-            except Exception:
-                pass
+            except (AttributeError, RuntimeError, TypeError) as ex:
+                _LOG.debug("Live audio resume skipped. detail=%s", ex)
         self._set_status("status.listening")
-
-    def _finalize_worker(self) -> bool:
-        if self._run_finished:
-            return False
-        self._run_finished = True
-        self._cleanup()
-        self.finished.emit()
-        return True
-
-    def _finish_requested_run(self) -> bool:
-        if not self._flush_live_session():
-            return False
-        return self._finalize_worker()
 
     def _flush_pending_audio_input(self) -> None:
         tail_chunk = self._read_available_audio_chunk()
@@ -475,51 +436,77 @@ class LiveTranscriptionWorker(QtCore.QObject):
             return
         self._queue_chunk(tail_chunk, self._chunk_level(tail_chunk))
 
-    def _flush_live_session(self) -> bool:
-        if self._session is None:
-            return True
+    def _complete_stop_sequence(self) -> None:
+        if self.is_finalized():
+            return
+
         try:
             self._flush_pending_audio_input()
             self._stop_inference_thread()
             self._emit_pending_updates(force=True)
             if self._inference_error is not None:
                 raise self._inference_error
-            return True
-        except Exception as ex:
-            self._clear_pending_chunks()
-            self._fail(ex)
-            return False
+            self._shutdown_session()
+        except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+            self._complete_failure_sequence(ex)
+            return
 
-    def _cleanup(self) -> None:
+        self._finish_success()
+
+    def _complete_cancel_sequence(self) -> None:
+        if self.is_finalized():
+            return
+
+        try:
+            self._stop_inference_thread()
+            self._clear_pending_chunks()
+            self._clear_ready_updates()
+            self._shutdown_session()
+        except Exception as ex:
+            self._complete_failure_sequence(ex)
+            return
+
+        self._finish_cancelled()
+
+    def _complete_failure_sequence(self, ex: BaseException) -> None:
+        if self.is_finalized():
+            return
+
+        try:
+            self._shutdown_session()
+        except (AttributeError, RuntimeError, TypeError, ValueError, OSError):
+            _LOG.exception("Live worker shutdown after failure failed.")
+
+        self._finish_failure(ex)
+
+    def _shutdown_session(self) -> None:
         try:
             if self._timer is not None:
                 self._timer.stop()
                 self._timer.deleteLater()
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Live timer shutdown skipped. detail=%s", ex)
         self._timer = None
+
         self._stop_inference_thread()
         self._clear_pending_chunks()
         self._clear_ready_updates()
 
-        try:
-            if self._io is not None:
-                try:
-                    self._io.readyRead.disconnect(self._on_ready_read)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        if self._io is not None:
+            try:
+                self._io.readyRead.disconnect(self._on_ready_read)
+            except (AttributeError, RuntimeError, TypeError) as ex:
+                _LOG.debug("Live readyRead disconnect skipped. detail=%s", ex)
 
-        try:
-            if self._audio_in is not None:
-                try:
-                    self._audio_in.stateChanged.disconnect(self._on_audio_state_changed)
-                except Exception:
-                    pass
+        if self._audio_in is not None:
+            try:
+                self._audio_in.stateChanged.disconnect(self._on_audio_state_changed)
+            except (AttributeError, RuntimeError, TypeError) as ex:
+                _LOG.debug("Live audio state disconnect skipped. detail=%s", ex)
+            try:
                 self._audio_in.stop()
-        except Exception:
-            pass
+            except (AttributeError, RuntimeError, TypeError) as ex:
+                _LOG.debug("Live audio stop skipped. detail=%s", ex)
 
         self._io = None
         self._audio_in = None
@@ -528,38 +515,18 @@ class LiveTranscriptionWorker(QtCore.QObject):
         self._qtmm = None
         self._session = None
 
-    def _fail(self, err: Any) -> None:
-        if self._run_finished:
-            return
-
-        err_key = getattr(err, "key", None)
-        err_params = getattr(err, "params", None)
-
-        if err_key:
-            _LOG.error("Live transcription failed. key=%s", err_key)
-            self.error.emit(str(err_key), dict(err_params or {}))
-        else:
-            detail = str(err)
-            _LOG.error("Live transcription failed. detail=%s", detail)
-            self.error.emit("error.live.failed", {"detail": detail})
-
-        self._set_status("status.error")
-        self._finalize_worker()
-
-    # ----- Qt slots -----
-
     def _on_audio_state_changed(self, state: int) -> None:
         if self._audio_in is None or self._qtmm is None:
             return
-        if self._is_cancelled():
+        if self.cancel_check():
             return
         try:
             if state == self._qtmm.QAudio.StoppedState:
                 err = self._audio_in.error()
                 if err != self._qtmm.QAudio.NoError:
-                    self._fail(self._audio_error_detail(err))
-        except Exception as ex:
-            self._fail(ex)
+                    self._complete_failure_sequence(RuntimeError(self._audio_error_detail(err)))
+        except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+            self._complete_failure_sequence(ex)
 
     def _start_inference_thread(self) -> None:
         self._inference_stop.clear()
@@ -682,7 +649,7 @@ class LiveTranscriptionWorker(QtCore.QObject):
         level = self._chunk_level(chunk)
         self._emit_spectrum_if_due(level=level)
 
-        if self._pause.is_set() or self._stop_requested() or self._session is None:
+        if self._pause.is_set() or self.is_stop_requested() or self._session is None:
             return
 
         self._queue_chunk(chunk, level)
@@ -692,55 +659,53 @@ class LiveTranscriptionWorker(QtCore.QObject):
         if self._audio_in is None or self._qtmm is None:
             return
 
+        if self.cancel_check():
+            self._complete_cancel_sequence()
+            return
+
         if self._inference_error is not None:
-            self._fail(self._inference_error)
+            self._complete_failure_sequence(self._inference_error)
             return
 
         self._emit_pending_updates()
 
-        if self._stop_requested():
-            self._finish_requested_run()
+        if self.is_stop_requested():
+            self._complete_stop_sequence()
             return
 
         try:
             self._update_audio_capture_state()
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+            self._complete_failure_sequence(ex)
 
-    # ----- Run -----
-
-    @QtCore.pyqtSlot()
-    def run(self) -> None:
+    def _start_session(self) -> None:
         self._set_status("status.initializing")
-        self._stop.clear()
+        self._stop_requested.clear()
+        self._pause.clear()
 
-        try:
-            _LOG.debug(
-                "Live worker starting. worker=live_transcription device=%s source_language=%s target_language=%s translate_enabled=%s preset=%s output_mode=%s",
-                self._device_name,
-                self._src_lang,
-                self._tgt_lang,
-                bool(self._translate_enabled),
-                self._preset_id,
-                self._output_mode,
-            )
+        _LOG.debug(
+            "Live worker starting. worker=live_transcription device=%s source_language=%s target_language=%s translate_enabled=%s preset=%s output_mode=%s",
+            self._device_name,
+            self._src_lang,
+            self._tgt_lang,
+            bool(self._translate_enabled),
+            self._preset_id,
+            self._output_mode,
+        )
 
-            self._qtmm, self._device_info, self._fmt = self._resolve_audio_runtime()
-            _LOG.debug(
-                "Live worker audio format resolved. sample_rate=%s channels=%s sample_size=%s codec=%s",
-                int(self._fmt.sampleRate() or 0),
-                int(self._fmt.channelCount() or 0),
-                int(self._fmt.sampleSize() or 0),
-                str(self._fmt.codec() or ""),
-            )
+        self._qtmm, self._device_info, self._fmt = self._resolve_audio_runtime()
+        _LOG.debug(
+            "Live worker audio format resolved. sample_rate=%s channels=%s sample_size=%s codec=%s",
+            int(self._fmt.sampleRate() or 0),
+            int(self._fmt.channelCount() or 0),
+            int(self._fmt.sampleSize() or 0),
+            str(self._fmt.codec() or ""),
+        )
 
-            self._start_audio_input()
-            self._session = self._create_live_session()
-            self._start_inference_thread()
-            self._set_status("status.listening")
-            _LOG.debug("Live worker session initialized. worker=live_transcription")
+        self._start_audio_input()
+        self._session = self._create_live_session()
+        self._start_inference_thread()
+        self._set_status("status.listening")
+        _LOG.debug("Live worker session initialized. worker=live_transcription")
 
-            self._start_tick_timer()
-        except Exception as ex:
-            _LOG.exception("Live transcription failed.")
-            self._fail(ex)
+        self._start_tick_timer()

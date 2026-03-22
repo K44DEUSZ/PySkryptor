@@ -12,8 +12,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view.components.section_group import SectionGroup
 from app.model.config.app_config import AppConfig as Config
-from app.controller.support.localization import tr
-from app.view.components import dialogs
+from app.model.services.localization_service import tr
+from app.view import dialogs
 from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
 from app.view.support.view_runtime import open_local_path
 from app.view.support.widget_effects import enable_styled_background
@@ -25,7 +25,6 @@ _LOG = logging.getLogger(__name__)
 _ABOUT_LOGO_WIDTH_RATIO = 0.42
 _ABOUT_LOGO_HEIGHT_RATIO = 0.55
 _ABOUT_LEFT_PANEL_MAX_RATIO = 0.45
-
 
 class AboutPanel(QtWidgets.QWidget):
     """About view with app metadata, scalable logo and local license link."""
@@ -42,8 +41,6 @@ class AboutPanel(QtWidgets.QWidget):
         self._build_ui()
         self._wire_signals()
         self._restore_initial_state()
-
-    # ----- Build -----
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -136,19 +133,13 @@ class AboutPanel(QtWidgets.QWidget):
 
         self._left = left
 
-    # ----- Wiring -----
-
     def _wire_signals(self) -> None:
         if self._license_browser is not None:
             self._license_browser.anchorClicked.connect(self._on_anchor_clicked)
 
-    # ----- Restore / bootstrap -----
-
     def _restore_initial_state(self) -> None:
         QtCore.QTimer.singleShot(0, self._tune_license_link_height)
         self._update_logo_geometry()
-
-    # ----- Lifecycle -----
 
     def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
         super().resizeEvent(e)
@@ -161,12 +152,12 @@ class AboutPanel(QtWidgets.QWidget):
             return
         try:
             b.document().setTextWidth(float(b.viewport().width()))
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return
 
         try:
             h = float(b.document().size().height())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             h = 0.0
 
         fm = b.fontMetrics()
@@ -216,7 +207,7 @@ class AboutPanel(QtWidgets.QWidget):
             if self._open_local_file(path):
                 return
             _LOG.error("Opening the license file with the system handler failed. path=%s", path)
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             _LOG.exception("Opening the license file failed. path=%s", path)
 
         dialogs.show_error(
@@ -241,7 +232,7 @@ class AboutPanel(QtWidgets.QWidget):
         try:
             subprocess.Popen(["notepad.exe", str(path)])
             return True
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
             _LOG.exception("Opening the extensionless text file in Notepad failed. path=%s", path)
             return False
 

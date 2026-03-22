@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -12,13 +13,13 @@ from app.model.io.audio_extractor import AudioExtractor
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.io.media_probe import is_url_source
 
+_LOG = logging.getLogger(__name__)
+
 class FileManager:
     """Filesystem helpers for inputs, downloads, session outputs and transcripts."""
 
     _session_dir: Path | None = None
     _session_created: bool = False
-
-    # ----- Base dirs -----
 
     @staticmethod
     def project_root() -> Path:
@@ -31,8 +32,6 @@ class FileManager:
     @staticmethod
     def transcriptions_dir() -> Path:
         return Config.TRANSCRIPTIONS_DIR
-
-    # ----- Session management -----
 
     @staticmethod
     def plan_session() -> Path:
@@ -72,8 +71,6 @@ class FileManager:
         except StopIteration:
             shutil.rmtree(sess, ignore_errors=True)
 
-    # ----- Outputs -----
-
     @staticmethod
     def output_dir_for(stem: str) -> Path:
         safe = sanitize_filename(stem) or Config.OUTPUT_DEFAULT_STEM
@@ -112,19 +109,20 @@ class FileManager:
             return
         try:
             p = Path(output_dir)
-        except Exception:
+        except (TypeError, ValueError):
             return
         if not p.exists() or not p.is_dir():
             return
 
         try:
             shutil.rmtree(p, ignore_errors=True)
-        except Exception:
+        except OSError as ex:
+            _LOG.debug("Output directory removal skipped. path=%s detail=%s", p, ex)
             return
 
+        parent = p.parent
         try:
             root = Config.TRANSCRIPTIONS_DIR
-            parent = p.parent
             if parent == root:
                 return
             if root in parent.parents and parent.is_dir():
@@ -132,19 +130,20 @@ class FileManager:
                     next(parent.iterdir())
                 except StopIteration:
                     shutil.rmtree(parent, ignore_errors=True)
-        except Exception:
-            pass
+        except OSError as ex:
+            _LOG.debug("Parent output directory pruning skipped. path=%s detail=%s", parent, ex)
 
     @staticmethod
     def clear_output_dir_contents(output_dir: Path) -> None:
         """Remove all children of `output_dir` but keep the directory itself."""
         try:
             p = Path(output_dir)
-        except Exception:
+        except (TypeError, ValueError):
             return
         try:
             p.mkdir(parents=True, exist_ok=True)
-        except Exception:
+        except OSError as ex:
+            _LOG.debug("Output directory creation skipped. path=%s detail=%s", p, ex)
             return
         try:
             for child in p.iterdir():
@@ -153,9 +152,11 @@ class FileManager:
                         shutil.rmtree(child, ignore_errors=True)
                     else:
                         child.unlink(missing_ok=True)
-                except Exception:
+                except OSError as ex:
+                    _LOG.debug("Output child cleanup skipped. path=%s detail=%s", child, ex)
                     continue
-        except Exception:
+        except OSError as ex:
+            _LOG.debug("Output directory iteration failed. path=%s detail=%s", p, ex)
             return
 
     @staticmethod
@@ -168,7 +169,7 @@ class FileManager:
         """Return a non-conflicting path by appending " (n)" before the suffix."""
         try:
             candidate = Path(path)
-        except Exception:
+        except (TypeError, ValueError):
             return Path(str(path))
 
         if not candidate.exists():
@@ -225,8 +226,6 @@ class FileManager:
         safe = sanitize_filename(str(base_name or "")) or Config.SOURCE_MEDIA_DEFAULT_BASENAME
         return out_dir / f"{safe}.{ext}"
 
-    # ----- Temp & downloads -----
-
     @staticmethod
     def clear_temp_dir(path: Path) -> None:
         """Remove temp dir if it exists; ignore errors."""
@@ -248,7 +247,7 @@ class FileManager:
         try:
             stat = source.stat()
             sig = f"{source.resolve()}|{int(stat.st_size)}|{int(stat.st_mtime_ns)}"
-        except Exception:
+        except OSError:
             sig = str(source)
         digest = hashlib.sha1(sig.encode("utf-8", errors="ignore")).hexdigest()[:12]
         return f"{safe_stem}_{digest}.wav"
@@ -273,8 +272,8 @@ class FileManager:
         try:
             if out.exists():
                 out.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except OSError as ex:
+            _LOG.debug("Existing temp WAV cleanup skipped. path=%s detail=%s", out, ex)
 
         AudioExtractor.ensure_mono_16k(
             source,
@@ -282,8 +281,6 @@ class FileManager:
             cancel_check=cancel_check,
         )
         return out
-
-    # ----- Source parsing -----
 
     @staticmethod
     def normalize_source_text(raw: str) -> str:

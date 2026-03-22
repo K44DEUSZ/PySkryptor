@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from app.model.config.app_config import AppConfig as Config
-from app.model.helpers.errors import AppError, OperationCancelled
-from app.model.io.command_runner import CommandRunner
+from app.model.domain.errors import AppError, OperationCancelled
+from app.model.infrastructure.external_tools import CommandRunner
 
 _LOG = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ class AudioError(AppError):
 
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
-
 
 class AudioExtractor:
     """FFmpeg-based helpers for audio preparation and probing."""

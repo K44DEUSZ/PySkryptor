@@ -5,48 +5,22 @@ import json
 import os
 import logging
 import re
-from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
 from app.model.config.app_config import AppConfig as Config
-from app.model.helpers.errors import AppError
+from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
+from app.model.domain.errors import AppError
 from app.model.helpers.string_utils import normalize_lang_code
 
 _LOG = logging.getLogger(__name__)
 
-# ----- Errors -----
 class SettingsError(AppError):
+    """Key-based settings error for validation and persistence failures."""
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
 
-# ----- Snapshot -----
-@dataclass(frozen=True)
-class SettingsSnapshot:
-    app: dict[str, Any]
-    engine: dict[str, Any]
-    model: dict[str, Any]
-    transcription: dict[str, Any]
-    translation: dict[str, Any]
-    downloader: dict[str, Any]
-    network: dict[str, Any]
-
-
-def snapshot_to_dict(snap: SettingsSnapshot) -> dict[str, Any]:
-    """Serialize a validated settings snapshot back to a plain dict."""
-
-    return {
-        "app": dict(snap.app),
-        "engine": dict(snap.engine),
-        "model": dict(snap.model),
-        "transcription": dict(snap.transcription),
-        "translation": dict(snap.translation),
-        "downloader": dict(snap.downloader),
-        "network": dict(snap.network),
-    }
-
-# ----- Catalog -----
 class SettingsCatalog:
     """Lightweight catalog of user-facing options sourced from AppConfig."""
 
@@ -74,7 +48,6 @@ class SettingsCatalog:
     def download_video_exts(cls) -> tuple[str, ...]:
         return tuple(Config.DOWNLOAD_VIDEO_OUTPUT_EXTS)
 
-    # ----- Language catalogs -----
     _LANG_CACHE: dict[str, tuple[float, set[str]]] = {}
 
     @staticmethod
@@ -171,7 +144,7 @@ class SettingsCatalog:
 
     @classmethod
     def translation_target_allowed(cls) -> set[str]:
-        return cls.translation_language_codes() | {Config.LANGUAGE_AUTO_VALUE}
+        return cls.translation_language_codes() | {Config.LANGUAGE_DEFAULT_UI_VALUE}
 
     @classmethod
     def transcription_language_codes(cls) -> set[str]:
@@ -187,8 +160,8 @@ class SettingsCatalog:
     def transcription_source_allowed(cls) -> set[str]:
         return cls.transcription_language_allowed()
 
-# ----- Runtime bridge -----
 class RuntimeConfigService:
+    """Apply validated settings snapshots to runtime configuration state."""
     @staticmethod
     def initialize(config_cls: Any, snap: "SettingsSnapshot") -> None:
         config_cls.initialize_from_snapshot(snap)
@@ -228,8 +201,8 @@ class RuntimeConfigService:
         if ffprobe_exe.exists():
             os.environ.setdefault("FFPROBE_BINARY", str(ffprobe_exe))
 
-# ----- Service -----
 class SettingsService:
+    """Load, validate, and persist application settings snapshots."""
     _LANG_CODE_RE = re.compile(r"^[a-z]{2,3}([_-][a-z]{2,4})?$", re.IGNORECASE)
 
     def __init__(
@@ -305,7 +278,6 @@ class SettingsService:
         norm = normalize_lang_code(str(raw or "").strip(), drop_region=False)
         return norm or ""
 
-    # ----- Validators -----
     def _validate_app(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
@@ -342,7 +314,6 @@ class SettingsService:
             "app.ui.live.output_mode",
         )
         live_device = str(self._schema_value(live_cfg, live_schema, "device_name", "") or "").strip()
-        live_show_source = bool(self._schema_value(live_cfg, live_schema, "show_source", True))
 
         return {
             "language": str(self._schema_value(src, schema, "language", "auto") or "auto"),
@@ -358,7 +329,6 @@ class SettingsService:
                     "preset": live_preset,
                     "output_mode": live_output_mode,
                     "device_name": live_device,
-                    "show_source": live_show_source,
                 },
             },
         }
@@ -445,8 +415,6 @@ class SettingsService:
                 "engine_signature": t_meta["engine_signature"],
                 "quality_preset": preset,
                 "text_consistency": bool(self._schema_value(t, t_schema, "text_consistency", True)),
-                "chunk_length_s": int(self._schema_value(t, t_schema, "chunk_length_s", 60)),
-                "stride_length_s": int(self._schema_value(t, t_schema, "stride_length_s", 5)),
                 "ignore_warning": bool(self._schema_value(t, t_schema, "ignore_warning", False)),
                 "default_language": default_lang,
             },
@@ -454,7 +422,6 @@ class SettingsService:
                 "engine_name": str(self._schema_value(x, x_schema, "engine_name", "none") or "none").strip(),
                 "engine_model_type": x_meta["engine_model_type"],
                 "engine_signature": x_meta["engine_signature"],
-                "dtype": str(self._schema_value(x, x_schema, "dtype", "auto") or "auto").strip().lower(),
                 "max_new_tokens": int(self._schema_value(x, x_schema, "max_new_tokens", 256)),
                 "chunk_max_chars": int(self._schema_value(x, x_schema, "chunk_max_chars", 1200)),
                 "quality_preset": preset_tr,
@@ -566,9 +533,17 @@ class SettingsService:
 
     def _validate_downloader(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
+        min_h = self._as_int(src.get("min_video_height"), "downloader.min_video_height")
+        max_h = self._as_int(src.get("max_video_height"), "downloader.max_video_height")
+        if min_h > max_h:
+            raise SettingsError(
+                "error.settings.invalid_video_height_range",
+                min_height=min_h,
+                max_height=max_h,
+            )
         return {
-            "min_video_height": self._as_int(src.get("min_video_height"), "downloader.min_video_height"),
-            "max_video_height": self._as_int(src.get("max_video_height"), "downloader.max_video_height"),
+            "min_video_height": min_h,
+            "max_video_height": max_h,
         }
 
     def _validate_network(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
@@ -581,10 +556,8 @@ class SettingsService:
             "retries": self._as_int(src.get("retries"), "network.retries"),
             "concurrent_fragments": self._as_int(src.get("concurrent_fragments"), "network.concurrent_fragments"),
             "http_timeout_s": self._as_int(src.get("http_timeout_s"), "network.http_timeout_s"),
-            "no_check_certificate": bool(self._schema_value(src, schema, "no_check_certificate", True)),
         }
 
-    # ----- IO -----
     def load(self) -> SettingsSnapshot:
         if not self._defaults_path.exists():
             raise SettingsError("error.settings.defaults_missing", path=str(self._defaults_path))
@@ -611,15 +584,12 @@ class SettingsService:
         network = self._ensure_dict(settings.get("network", {}), "network")
 
         if "low_cpu_mem_usage" not in engine:
-            try:
-                t_old = (model.get("transcription_model") or {}) if isinstance(model.get("transcription_model"), dict) else {}
-                x_old = (model.get("translation_model") or {}) if isinstance(model.get("translation_model"), dict) else {}
-                for cand in (t_old.get("low_cpu_mem_usage"), x_old.get("low_cpu_mem_usage")):
-                    if isinstance(cand, bool):
-                        engine["low_cpu_mem_usage"] = cand
-                        break
-            except Exception:
-                pass
+            t_old = (model.get("transcription_model") or {}) if isinstance(model.get("transcription_model"), dict) else {}
+            x_old = (model.get("translation_model") or {}) if isinstance(model.get("translation_model"), dict) else {}
+            for cand in (t_old.get("low_cpu_mem_usage"), x_old.get("low_cpu_mem_usage")):
+                if isinstance(cand, bool):
+                    engine["low_cpu_mem_usage"] = cand
+                    break
 
         model_validated = self._validate_model(model, schema_model)
         translation_enabled = self._translation_enabled(model_validated)
@@ -703,8 +673,8 @@ class SettingsService:
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            except OSError as ex:
+                _LOG.debug("Settings temp file cleanup skipped. path=%s detail=%s", tmp_path, ex)
 
         return self.load()
 
@@ -722,6 +692,6 @@ class SettingsService:
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            except OSError as ex:
+                _LOG.debug("Settings temp file cleanup skipped. path=%s detail=%s", tmp_path, ex)
         return self.load()

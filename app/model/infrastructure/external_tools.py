@@ -1,4 +1,4 @@
-# app/model/io/command_runner.py
+# app/model/infrastructure/external_tools.py
 from __future__ import annotations
 
 import logging
@@ -7,7 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
-from app.model.helpers.errors import AppError
+from app.model.domain.errors import AppError
 
 _LOG = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ class CommandResult:
     returncode: int
     stdout: str
     stderr: str
-
 
 class CommandRunner:
     """Runs external commands with consistent logging, cancel and error handling."""
@@ -86,15 +85,15 @@ class CommandRunner:
             if cancel_check is not None and bool(cancel_check()):
                 try:
                     proc.kill()
-                except OSError:
-                    pass
+                except (ProcessLookupError, OSError) as ex:
+                    _LOG.debug("Command cancellation kill skipped. cmd=%s detail=%s", " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args, ex)
                 raise AppError("error.cancelled", {})
 
             if timeout_s is not None and waited_s >= float(timeout_s):
                 try:
                     proc.kill()
-                except OSError:
-                    pass
+                except (ProcessLookupError, OSError) as ex:
+                    _LOG.debug("Command timeout kill skipped. cmd=%s detail=%s", " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args, ex)
                 raise AppError("error.external_tool_timeout", {"seconds": float(timeout_s)})
 
             if proc.poll() is not None:

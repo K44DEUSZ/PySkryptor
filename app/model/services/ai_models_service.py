@@ -8,21 +8,19 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
-from app.model.helpers.errors import AppError
+from app.model.domain.errors import AppError
 
 _LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import torch
 
-# ----- Errors -----
 class ModelNotInstalledError(AppError):
     """Raised when a required local model directory is missing."""
 
     def __init__(self, key: str, path: Path) -> None:
         super().__init__(str(key), {"path": str(path)})
 
-# ----- Current model configs -----
 def _enrich_model_cfg(
     model_cfg: dict[str, Any],
     *,
@@ -43,40 +41,33 @@ def _enrich_model_cfg(
     cfg["engine_signature"] = str(desc.get("signature", "") or "")
     return cfg
 
-
 def _raw_model_cfg_for_task(*, task: str) -> dict[str, Any]:
     task_id = str(task or "").strip().lower()
     if task_id == "translation":
         return Config.translation_model_raw_cfg_dict()
     return Config.transcription_model_raw_cfg_dict()
 
-
 def _current_model_cfg(*, task: str) -> dict[str, Any]:
     task_id = str(task or "").strip().lower()
     return _enrich_model_cfg(_raw_model_cfg_for_task(task=task_id), task=task_id)
-
 
 def current_transcription_model_cfg() -> dict[str, Any]:
     """Return the active transcription model configuration with runtime metadata."""
 
     return _current_model_cfg(task="transcription")
 
-
 def current_translation_model_cfg() -> dict[str, Any]:
     """Return the active translation model configuration with runtime metadata."""
 
     return _current_model_cfg(task="translation")
 
-# ----- Runtime helpers -----
 def _is_disabled_engine_name(name: str) -> bool:
     return Config.is_disabled_engine_name(name)
-
 
 def _require_dir(path: Path, *, error_key: str) -> None:
     if path.exists() and path.is_dir() and path.name != Config.MISSING_VALUE:
         return
     raise ModelNotInstalledError(error_key, path)
-
 
 def _resolve_torch_device(device_id: str) -> Any:
     import torch
@@ -87,10 +78,9 @@ def _resolve_torch_device(device_id: str) -> Any:
     if wanted.startswith("cuda") and torch.cuda.is_available():
         try:
             return torch.device(wanted)
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             return torch.device("cuda")
     return torch.device("cpu")
-
 
 def _resolve_torch_dtype(dtype_id: str, device: Any) -> Any:
     import torch
@@ -106,12 +96,10 @@ def _resolve_torch_dtype(dtype_id: str, device: Any) -> Any:
         return torch.float32
     return torch.float16
 
-
 def _resolve_torch_device_dtype() -> tuple[Any, Any]:
     device = _resolve_torch_device(getattr(Config, "DEVICE_ID", "cpu"))
     dtype = _resolve_torch_dtype(getattr(Config, "DTYPE_ID", "float32"), device)
     return device, dtype
-
 
 def _cpu_model_name() -> str | None:
     sysname = platform.system().lower()
@@ -129,10 +117,9 @@ def _cpu_model_name() -> str | None:
             for line in txt.splitlines():
                 if line.lower().startswith("model name"):
                     return line.split(":", 1)[-1].strip() or None
-    except Exception:
+    except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
         return None
     return None
-
 
 class TranscriptionModelLoader:
     """Load and cache the transcription pipeline."""
@@ -189,7 +176,7 @@ class TranscriptionModelLoader:
         )
         try:
             model = model.to(device)
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             model = model.to("cpu")
 
         processor = AutoProcessor.from_pretrained(str(model_path), local_files_only=True)
@@ -207,7 +194,6 @@ class TranscriptionModelLoader:
         )
         _LOG.info("Transcription engine ready.")
         return self._pipeline
-
 
 class TranslationModelLoader:
     """Ensure the translation worker is ready."""
@@ -236,7 +222,6 @@ class TranslationModelLoader:
         _LOG.info("Loading translation model '%s' from '%s'.", engine_name, model_path)
         return bool(TranslationService().warmup(log=None))
 
-
 class AIModelsService:
     """Centralized model readiness service (transcription + translation)."""
 
@@ -255,7 +240,7 @@ class AIModelsService:
             if has_cuda and hasattr(torch.cuda, "is_bf16_supported"):
                 try:
                     bf16_supported = bool(torch.cuda.is_bf16_supported())
-                except Exception:
+                except (AttributeError, RuntimeError, TypeError, ValueError):
                     bf16_supported = False
             Config.BF16_SUPPORTED = bool(bf16_supported)
 
@@ -287,7 +272,7 @@ class AIModelsService:
                     Config.DEVICE_MODEL = str(name) if name else None
                     Config.DEVICE_FRIENDLY_NAME = f"GPU ({name})" if name else "GPU"
                     Config.TF32_SUPPORTED = bool(major >= 8)
-                except Exception:
+                except (AttributeError, RuntimeError, TypeError, ValueError):
                     Config.DEVICE_KIND = "GPU"
                     Config.DEVICE_MODEL = None
                     Config.DEVICE_FRIENDLY_NAME = "GPU"
@@ -311,9 +296,9 @@ class AIModelsService:
                     torch.backends.cuda.matmul.allow_tf32 = bool(Config.TF32_ENABLED)
                     torch.backends.cudnn.allow_tf32 = bool(Config.TF32_ENABLED)
                     torch.set_float32_matmul_precision("medium")
-                except Exception:
-                    pass
-        except Exception:
+                except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+                    _LOG.debug("TF32 backend tuning skipped. detail=%s", ex)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             _LOG.exception("Engine runtime setup failed.")
             Config.DEVICE_ID = "cpu"
             Config.DTYPE_ID = "float32"

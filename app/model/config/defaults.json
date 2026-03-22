@@ -8,7 +8,6 @@
         "mode": "transcribe",
         "preset": "balanced",
         "device_name": "",
-        "show_source": true,
         "output_mode": "cumulative"
       }
     },
@@ -28,8 +27,6 @@
       "engine_name": "whisper-large-v3-turbo",
       "quality_preset": "balanced",
       "text_consistency": true,
-      "chunk_length_s": 60,
-      "stride_length_s": 5,
       "ignore_warning": false,
       "default_language": null
     },
@@ -63,7 +60,6 @@
     "retries": 3,
     "max_bandwidth_kbps": 0,
     "concurrent_fragments": 2,
-    "http_timeout_s": 30,
-    "no_check_certificate": true
+    "http_timeout_s": 30
   }
 }

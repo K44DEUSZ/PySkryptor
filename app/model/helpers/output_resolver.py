@@ -10,7 +10,6 @@ from app.model.io.file_manager import FileManager
 
 ConflictResolverFn = Callable[[str, str], tuple[str, str, bool]]
 
-
 @dataclass(frozen=True)
 class OutputDirectoryResolution:
     """Resolved output-directory decision for a single item."""
@@ -19,7 +18,6 @@ class OutputDirectoryResolution:
     stem: str
     apply_all: tuple[str, str] | None
     skipped: bool = False
-
 
 class OutputResolver:
     """Helpers for output directory/file name resolution across all sessions."""

@@ -228,7 +228,8 @@
       "json_invalid": "⚠️ Die Konfigurationsdatei „{path}” enthält ungültiges JSON. Details: {detail}",
       "section_invalid": "⚠️ Der Einstellungsabschnitt „{section}” ist ungültig.",
       "settings_invalid": "⚠️ Die Einstellungsdatei „{path}” ist ungültig. Details: {detail}",
-      "settings_missing": "⚠️ Die Einstellungsdatei fehlt: {path}"
+      "settings_missing": "⚠️ Die Einstellungsdatei fehlt: {path}",
+      "invalid_video_height_range": "Die minimale Videohöhe ({min_height}) darf nicht größer als die maximale ({max_height}) sein."
     },
     "startup": {
       "failed": "❌ Der Start der Anwendung ist fehlgeschlagen. Details: {detail}"
@@ -257,6 +258,14 @@
     "type": {
       "enum": "⚠️ Das Feld „{field}” hat einen ungültigen Wert „{value}”. Zulässig: {allowed}",
       "int": "⚠️ Das Feld „{field}” muss eine Ganzzahl sein."
+    },
+    "chunking": {
+      "unsupported_sample_width": "Nicht unterstützte Audio-Sample-Breite: {sample_width}.",
+      "expected_mono_wav": "Es wurde eine mono WAV-Datei erwartet, aber {channels} Kanäle wurden erkannt.",
+      "invalid_sample_rate": "Ungültige WAV-Abtastrate: {sample_rate}.",
+      "invalid_sample_width": "Ungültige WAV-Sample-Breite: {sample_width}.",
+      "empty_audio": "Die Audiodaten sind leer.",
+      "invalid_chunk_parameters": "Ungültige Chunking-Parameter."
     }
   },
   "files": {
@@ -419,7 +428,7 @@
     "buttons": {
       "restore_defaults": "Standardwerte wiederherstellen ♻️",
       "save": "Speichern 💾",
-      "undo": "Rückgängig"
+      "undo": "Rückgängig ↩️"
     },
     "downloader": {
       "max_video_height": "Maximale Videohöhe (px)",
@@ -461,7 +470,7 @@
       "precision_hint": "Steuert die numerische Präzision. Niedrigere Präzision kann die Inferenz beschleunigen und den Speicherverbrauch senken; die Verfügbarkeit hängt vom Gerät ab.",
       "retries": "Wie oft fehlgeschlagene HTTP-Anfragen wiederholt werden.",
       "stride_length": "Überlappung der Chunks (Sekunden). Mehr Überlappung verbessert die Kontinuität, erhöht aber die Last.",
-      "text_consistency": "Verwendet vorherige Segmente als Kontext, um Namen, Begriffe und Stil konsistent zu halten. Kann frühere Fehler in weitere Segmente forttragen.",
+      "text_consistency": "Verwendet vorherigen Text als Kontext zwischen Segmenten, um die Kontinuität der Transkription zu verbessern. Kann frühere Fehler bei schwierigem Audio verstärken.",
       "tf32": "NVIDIA Ampere+ (und neuer): beschleunigt FP32-Matrixoperationen mit geringem Verlust an numerischer Präzision.",
       "theme": "Wähle das Oberflächenthema.",
       "trans_quality": "Steuert den Dekodieraufwand. Höhere Qualität ist langsamer, kann aber Erkennungsfehler reduzieren.",
@@ -470,7 +479,8 @@
       "translation_engine": "Wähle das Modell für die Übersetzung von Text.",
       "translation_max_new_tokens": "Begrenzt die maximale Länge des generierten Textes. Erhöhe den Wert, wenn Übersetzungen abgeschnitten werden; höhere Werte können langsamer sein.",
       "translation_quality": "Steuert die Dekodierparameter des Übersetzungsmodells. Höhere Qualität ist langsamer, kann aber die Sprachflüssigkeit verbessern.",
-      "ui_language": "Wähle die Sprache der Benutzeroberfläche."
+      "ui_language": "Wähle die Sprache der Benutzeroberfläche.",
+      "default_language": "Legt die standardmäßige gesprochene Sprache für Datei- und Live-Transkription fest. Bei automatischer Erkennung entscheidet das Modell."
     },
     "msg": {
       "saved": "✅ Einstellungen wurden gespeichert."
@@ -502,7 +512,8 @@
       "model": "Transkriptions-Engine",
       "quality_label": "Qualitätsvorgabe",
       "stride_length_s": "Stride-Länge (s)",
-      "text_consistency": "Verbesserte Textkonsistenz"
+      "text_consistency": "Textkonsistenz",
+      "default_language": "Standardsprache der Transkription"
     },
     "translation": {
       "chunk_max_chars": "Max. Zeichen pro Chunk",

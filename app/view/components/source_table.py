@@ -1,40 +1,37 @@
 # app/view/components/source_table.py
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.controller.support.localization import tr
+from app.model.services.localization_service import tr
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.model.helpers.string_utils import normalize_lang_code
 from app.view.support.widget_effects import repolish_widget
 from app.view.support.widget_setup import build_layout_host, setup_button, setup_combo
 from app.view.ui_config import ui
 
+_LOG = logging.getLogger(__name__)
 
 def _source_row_height(cfg) -> int:
     return max(int(cfg.control_min_h) + int(cfg.space_s) * 2, 40)
 
-
 def _source_base_col_width(cfg) -> int:
     return max(36, int(cfg.control_min_h) + 8)
-
 
 def _source_number_col_width(cfg, raw_width: int | None = None) -> int:
     width = int(_source_base_col_width(cfg) + 6 if raw_width is None else raw_width)
     return max(_source_base_col_width(cfg), width)
 
-
 def _source_header_check_width(cfg, *, indicator_size: int) -> int:
     return max(_source_base_col_width(cfg), int(indicator_size) + int(cfg.pad_x_l) + int(cfg.space_s) + 1)
-
 
 def _source_cell_margins(cfg) -> tuple[int, int, int, int]:
     margin_x = max(2, int(cfg.space_s) - 1)
     margin_y = max(1, int(cfg.space_s) // 2)
     return margin_x, margin_y, margin_x, margin_y
-
 
 class SourceTable(QtWidgets.QTableWidget):
     """Table widget with drag-and-drop support used by Files and Downloader panels."""
@@ -64,8 +61,8 @@ class SourceTable(QtWidgets.QTableWidget):
         header.sectionResized.connect(self._on_header_section_resized)
         try:
             header.geometriesChanged.connect(self._update_header_checkbox_geometry)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Header geometry signal hookup skipped. detail=%s", ex)
 
         self._header_checkbox = QtWidgets.QCheckBox(header.viewport())
         self._header_checkbox.setObjectName("SourceTableHeaderCheckbox")
@@ -88,8 +85,6 @@ class SourceTable(QtWidgets.QTableWidget):
         vheader.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         vheader.setDefaultSectionSize(row_h)
         vheader.setMinimumSectionSize(row_h)
-
-    # ----- Row lifecycle / embedded widgets -----
 
     def setCellWidget(self, row: int, column: int, widget: QtWidgets.QWidget | None) -> None:  # type: ignore[override]
         super().setCellWidget(row, column, widget)
@@ -141,7 +136,7 @@ class SourceTable(QtWidgets.QTableWidget):
     def _row_for_widget(self, w: QtWidgets.QWidget) -> int:
         try:
             pt = w.mapTo(self.viewport(), QtCore.QPoint(max(0, int(w.width() / 2)), max(0, int(w.height() / 2))))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             return -1
         idx = self.indexAt(pt)
         return int(idx.row()) if idx.isValid() else -1
@@ -172,8 +167,6 @@ class SourceTable(QtWidgets.QTableWidget):
 
                 for w in [host, *host.findChildren(QtWidgets.QWidget)]:
                     self._apply_selected_row_state(w, row_selected)
-
-    # ----- Selection / drag-and-drop / keyboard -----
 
     def mousePressEvent(self, e: QtGui.QMouseEvent) -> None:
         if e.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -228,19 +221,12 @@ class SourceTable(QtWidgets.QTableWidget):
             self._mask_last_visible_gridline()
         return handled
 
-    # ----- Header checkbox / width mode helpers -----
-
     def _checkbox_indicator_size(self) -> int:
-        width = max(14, int(self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_IndicatorWidth, None, self)))
-        height = max(14, int(self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_IndicatorHeight, None, self)))
-        return max(int(width), int(height))
+        return max(14, int(ui(self).table_check_indicator_size))
 
     def _configure_table_checkbox(self, checkbox: QtWidgets.QCheckBox) -> None:
         indicator = self._checkbox_indicator_size()
-        checkbox.setStyleSheet(
-            "QCheckBox { spacing: 0px; padding: 0px; margin: 0px; }"
-            f"QCheckBox::indicator {{ width: {indicator}px; height: {indicator}px; margin: 0px; padding: 0px; }}"
-        )
+        checkbox.setProperty("role", "tableIndicator")
         checkbox.setFixedSize(indicator, indicator)
 
     def _header_checkbox_widget_size(self) -> int:
@@ -538,8 +524,6 @@ class SourceTable(QtWidgets.QTableWidget):
             cb.setChecked(bool(checked))
         self._schedule_header_checkbox_sync()
 
-    # ----- Header width distribution -----
-
     @staticmethod
     def _resizable_columns(state: dict[str, Any] | None) -> list[int]:
         if not state:
@@ -697,7 +681,7 @@ class SourceTable(QtWidgets.QTableWidget):
 
         try:
             active = bool(is_active())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             active = False
         if not active:
             return
@@ -708,7 +692,7 @@ class SourceTable(QtWidgets.QTableWidget):
             self._header_refresh_pending = False
             try:
                 active_now = bool(is_active())
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 active_now = False
             if active_now and self.rowCount() > 0:
                 reapply()
@@ -918,8 +902,6 @@ class SourceTable(QtWidgets.QTableWidget):
             self._header_layout_applying = False
         self._schedule_header_checkbox_sync()
 
-    # ----- Public cell accessors -----
-
     def checkbox_at(self, row: int, col: int) -> QtWidgets.QCheckBox | None:
         w = self.cellWidget(row, col)
         if w is None:
@@ -975,14 +957,14 @@ class SourceTable(QtWidgets.QTableWidget):
         for candidate in candidates:
             try:
                 prop = candidate.property("internal_key")
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError):
                 prop = None
             if prop is None:
                 continue
             try:
                 candidate.setProperty("internal_key", target)
                 updated = True
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError):
                 continue
 
         if updated:
@@ -990,8 +972,8 @@ class SourceTable(QtWidgets.QTableWidget):
 
         try:
             host.setProperty("internal_key", target)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            return
 
     def checked_rows(self, col: int) -> list[int]:
         rows: list[int] = []
@@ -1040,8 +1022,8 @@ class SourceTable(QtWidgets.QTableWidget):
 
             try:
                 cast(QtWidgets.QWidget, host).ensurePolished()
-            except Exception:
-                pass
+            except RuntimeError:
+                continue
 
             widget_host = cast(QtWidgets.QWidget, host)
             hints = [int(widget_host.minimumSizeHint().width()), int(widget_host.sizeHint().width()), int(widget_host.minimumWidth())]
@@ -1058,8 +1040,8 @@ class SourceTable(QtWidgets.QTableWidget):
             for child in child_widgets:
                 try:
                     cast(QtWidgets.QWidget, child).ensurePolished()
-                except Exception:
-                    pass
+                except RuntimeError:
+                    continue
                 widget_child = cast(QtWidgets.QWidget, child)
                 hints.append(int(widget_child.minimumSizeHint().width()) + margin_width)
                 hints.append(int(widget_child.sizeHint().width()) + margin_width)
@@ -1089,8 +1071,6 @@ class SourceTable(QtWidgets.QTableWidget):
             v = lang_codes[idx]
             return normalize_lang_code(v, drop_region=False) if v else None
         return None
-
-    # ----- Cell widget factories -----
 
     @staticmethod
     def _make_center_cell_host(
@@ -1127,8 +1107,8 @@ class SourceTable(QtWidgets.QTableWidget):
         for child in control.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindChildOption.FindDirectChildrenOnly):
             try:
                 cast(QtWidgets.QWidget, child).setMinimumWidth(0)
-            except Exception:
-                pass
+            except RuntimeError:
+                continue
         lay.addWidget(control, 1)
         lay.setAlignment(control, QtCore.Qt.AlignmentFlag.AlignVCenter)
         return host
@@ -1212,8 +1192,6 @@ class SourceTable(QtWidgets.QTableWidget):
         if key:
             self.preview_requested.emit(key)
 
-    # ----- Audio track / probe helpers -----
-
     def make_audio_track_combo(
         self,
         *,
@@ -1260,10 +1238,9 @@ class SourceTable(QtWidgets.QTableWidget):
 
         prev_idx = int(w.currentIndex())
         prev_codes = list(w.property("lang_codes") or [None])
-        prev_lang = None
         try:
             prev_lang = prev_codes[prev_idx] if 0 <= prev_idx < len(prev_codes) else None
-        except Exception:
+        except (IndexError, TypeError):
             prev_lang = None
         prev_base = normalize_lang_code(prev_lang, drop_region=True) if prev_lang else ""
         w.blockSignals(True)
@@ -1283,7 +1260,7 @@ class SourceTable(QtWidgets.QTableWidget):
         if desired:
             try:
                 idx = lang_codes.index(desired) if desired in lang_codes else -1
-            except Exception:
+            except ValueError:
                 idx = -1
             base = preferred_base or prev_base
             if idx < 0 and base:
@@ -1327,8 +1304,6 @@ class SourceTable(QtWidgets.QTableWidget):
 
         it_status.setToolTip(notice if should_notice else "")
         cb.setToolTip(notice if should_notice else "")
-
-    # ----- Text / tooltip helpers -----
 
     def set_cell_text(self, row: int, col: int, text: str, tooltip: str | None = None) -> None:
         it = self.item(row, col)

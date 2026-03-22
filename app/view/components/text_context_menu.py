@@ -18,19 +18,16 @@ from app.view.support.widget_effects import (
 from app.view.support.widget_setup import setup_layout
 from app.view.ui_config import ui
 
-
 def _text_menu_label(name: str) -> str:
-    from app.controller.support.localization import tr
+    from app.model.services.localization_service import tr
 
     return tr(f"common.edit_menu.{name}")
-
 
 def _text_menu_shortcut(shortcut: QtGui.QKeySequence | QtGui.QKeySequence.StandardKey) -> str:
     try:
         return QtGui.QKeySequence(shortcut).toString(QtGui.QKeySequence.NativeText)
-    except Exception:
+    except (AttributeError, RuntimeError, TypeError):
         return ""
-
 
 def _has_clipboard_text() -> bool:
     app = QtWidgets.QApplication.instance()
@@ -42,14 +39,12 @@ def _has_clipboard_text() -> bool:
     mime = clipboard.mimeData()
     return bool(mime is not None and mime.hasText())
 
-
 def _text_widget_has_content(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, QtWidgets.QLineEdit):
         return bool(widget.text())
     if isinstance(widget, (QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
         return bool(widget.toPlainText())
     return False
-
 
 def _text_widget_has_selection(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, QtWidgets.QLineEdit):
@@ -58,17 +53,15 @@ def _text_widget_has_selection(widget: QtWidgets.QWidget) -> bool:
         return bool(widget.textCursor().hasSelection())
     return False
 
-
 def _text_widget_can_undo(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, QtWidgets.QLineEdit):
         return bool(widget.isUndoAvailable())
     if isinstance(widget, (QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
         try:
             return bool(widget.document().isUndoAvailable())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError):
             return False
     return False
-
 
 def _text_widget_can_redo(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, QtWidgets.QLineEdit):
@@ -76,10 +69,9 @@ def _text_widget_can_redo(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, (QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
         try:
             return bool(widget.document().isRedoAvailable())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError):
             return False
     return False
-
 
 def _text_widget_is_read_only(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, QtWidgets.QLineEdit):
@@ -87,7 +79,6 @@ def _text_widget_is_read_only(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, (QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
         return bool(widget.isReadOnly())
     return True
-
 
 def _text_widget_can_paste(widget: QtWidgets.QWidget) -> bool:
     if _text_widget_is_read_only(widget):
@@ -97,10 +88,9 @@ def _text_widget_can_paste(widget: QtWidgets.QWidget) -> bool:
     if isinstance(widget, (QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
         try:
             return bool(widget.canPaste())
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError):
             return _has_clipboard_text()
     return False
-
 
 def _delete_text_selection(widget: QtWidgets.QWidget) -> None:
     if _text_widget_is_read_only(widget) or not _text_widget_has_selection(widget):
@@ -113,7 +103,6 @@ def _delete_text_selection(widget: QtWidgets.QWidget) -> None:
         if cursor.hasSelection():
             cursor.removeSelectedText()
             widget.setTextCursor(cursor)
-
 
 class _TextContextActionRow(QtWidgets.QFrame):
     triggered = QtCore.pyqtSignal()
@@ -196,13 +185,11 @@ class _TextContextActionRow(QtWidgets.QFrame):
             return
         super().mouseReleaseEvent(event)
 
-
 class _TextContextSeparator(QtWidgets.QFrame):
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setProperty("role", "textContextSeparator")
         self.setFixedHeight(1)
-
 
 class _TextContextPopup(QtWidgets.QWidget):
     def __init__(self) -> None:
@@ -325,16 +312,13 @@ class _TextContextPopup(QtWidgets.QWidget):
                 self.hide()
         return super().eventFilter(obj, event)
 
-
 _TEXT_CONTEXT_POPUP: _TextContextPopup | None = None
-
 
 def text_context_popup() -> _TextContextPopup:
     global _TEXT_CONTEXT_POPUP
     if _TEXT_CONTEXT_POPUP is None:
         _TEXT_CONTEXT_POPUP = _TextContextPopup()
     return _TEXT_CONTEXT_POPUP
-
 
 def build_text_context_menu(widget: QtWidgets.QWidget) -> list[Any]:
     if not isinstance(widget, (QtWidgets.QLineEdit, QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
@@ -373,7 +357,6 @@ def build_text_context_menu(widget: QtWidgets.QWidget) -> list[Any]:
         ),
     ]
 
-
 class _TextContextMenuFilter(QtCore.QObject):
     def __init__(self, widget: QtWidgets.QWidget) -> None:
         super().__init__(widget)
@@ -386,7 +369,6 @@ class _TextContextMenuFilter(QtCore.QObject):
             text_context_popup().show_for_widget(self._widget, event.globalPos())
             return True
         return super().eventFilter(obj, event)
-
 
 def install_text_context_menu(widget: QtWidgets.QWidget) -> None:
     if not isinstance(widget, (QtWidgets.QLineEdit, QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):

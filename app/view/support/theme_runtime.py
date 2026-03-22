@@ -2,30 +2,13 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
 
 from app.model.config.app_config import AppConfig as Config
 from app.view.ui_config import UIConfig, _DEFAULT_UI, _coerce_cfg
-
-_SPECTRUM_ALPHA_PROFILES: dict[str, dict[str, tuple[int, int, int, int]]] = {
-    'light': {
-        'idle': (36, 18, 18, 102),
-        'active': (44, 22, 20, 164),
-        'paused': (36, 18, 18, 78),
-        'disabled': (28, 14, 12, 48),
-        'error': (40, 20, 18, 126),
-    },
-    'dark': {
-        'idle': (54, 26, 26, 124),
-        'active': (66, 32, 30, 194),
-        'paused': (54, 26, 26, 94),
-        'disabled': (40, 18, 16, 62),
-        'error': (60, 30, 24, 150),
-    },
-}
-
 
 def _windows_dark_mode() -> bool:
     if sys.platform != 'win32':
@@ -37,9 +20,8 @@ def _windows_dark_mode() -> bool:
         )
         value = settings.value('AppsUseLightTheme', 1)
         return str(value).strip() in {'0', 'false', 'False'}
-    except Exception:
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
         return False
-
 
 def system_theme_key(app: QtWidgets.QApplication | None = None) -> str:
     app = app or QtWidgets.QApplication.instance()
@@ -48,9 +30,8 @@ def system_theme_key(app: QtWidgets.QApplication | None = None) -> str:
     try:
         pal = app.palette() if app is not None else QtWidgets.QApplication.palette()
         return 'dark' if pal.color(QtGui.QPalette.Window).lightness() < 128 else 'light'
-    except Exception:
+    except (AttributeError, RuntimeError, TypeError, ValueError):
         return 'light'
-
 
 def active_theme_key(theme: str | None = None, *, app: QtWidgets.QApplication | None = None) -> str:
     resolved = str(theme or '').strip().lower()
@@ -63,7 +44,6 @@ def active_theme_key(theme: str | None = None, *, app: QtWidgets.QApplication | 
         return app_theme
 
     return system_theme_key(app)
-
 
 def apply_windows_dark_titlebar(w: QtWidgets.QWidget, theme: str | None = None) -> None:
     if sys.platform != 'win32':
@@ -84,21 +64,66 @@ def apply_windows_dark_titlebar(w: QtWidgets.QWidget, theme: str | None = None) 
             try:
                 set_window_attribute(hwnd, attr, ctypes.byref(value), ctypes.sizeof(value))
                 break
-            except Exception:
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
                 continue
-    except Exception:
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
         return
-
-
-def spectrum_alpha_profile(*, dark: bool, state: str) -> tuple[int, int, int, int]:
-    theme_key = 'dark' if dark else 'light'
-    state_key = str(state or '').strip().lower()
-    return _SPECTRUM_ALPHA_PROFILES[theme_key].get(state_key, _SPECTRUM_ALPHA_PROFILES[theme_key]['idle'])
-
 
 def _parse_hex_color(value: str) -> QtGui.QColor:
     return QtGui.QColor(str(value or '').strip())
 
+def _color_with_alpha(color: QtGui.QColor, alpha: int | None = None) -> QtGui.QColor:
+    out = QtGui.QColor(color)
+    if alpha is not None:
+        out.setAlpha(max(0, min(255, int(alpha))))
+    return out
+
+@dataclass(frozen=True)
+class SpectrumPalette:
+    """Resolved color set used by the live audio spectrum widget."""
+    background: QtGui.QColor
+    border: QtGui.QColor
+    track: QtGui.QColor
+    bar: QtGui.QColor
+
+def app_palette_colors(theme: str) -> dict[str, QtGui.QColor]:
+    resolved = active_theme_key(theme)
+    return {
+        'highlight': theme_color(resolved, '@BORDER_ACTIVE@'),
+        'link': theme_color(resolved, '@BORDER_ACTIVE@'),
+        'link_visited': theme_color(resolved, '@LINK_VISITED@'),
+        'highlighted_text': theme_color(resolved, '@TEXT_ON_HIGHLIGHT@'),
+    }
+
+def floating_shadow_color(theme: str | None = None, *, app: QtWidgets.QApplication | None = None) -> QtGui.QColor:
+    resolved = active_theme_key(theme, app=app)
+    return theme_color(resolved, '@FLOATING_SHADOW@')
+
+def spectrum_palette(state: str, *, theme: str | None = None, app: QtWidgets.QApplication | None = None) -> SpectrumPalette:
+    resolved_theme = active_theme_key(theme, app=app)
+    state_key = str(state or '').strip().lower() or 'idle'
+
+    background = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL@'))
+    border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_BASE@'))
+    track = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_HOVER@'))
+    bar = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_ACCENT_SOFT_HOVER@'))
+
+    if state_key == 'active':
+        bar = _color_with_alpha(theme_color(resolved_theme, '@BORDER_ACTIVE@'))
+    elif state_key == 'paused':
+        border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_SUBTLE@'))
+        track = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_DISABLED@'))
+        bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_DISABLED@'), 180)
+    elif state_key == 'disabled':
+        background = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_DISABLED@'))
+        border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_SUBTLE@'))
+        track = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_DISABLED@'))
+        bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_DISABLED@'), 132)
+    elif state_key == 'error':
+        border = _color_with_alpha(theme_color(resolved_theme, '@TEXT_ERROR@'))
+        bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_ERROR@'))
+
+    return SpectrumPalette(background=background, border=border, track=track, bar=bar)
 
 def _theme_tokens() -> dict[str, dict[str, str]]:
     return {
@@ -115,6 +140,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@BORDER_HEADER@': '#CAD3CA',
             '@BORDER_ACTIVE@': '#70A82E',
             '@BORDER_PRESSED@': '#5E9326',
+            '@LINK_VISITED@': '#5E8F28',
             '@TEXT_SUCCESS@': '#4E7821',
             '@TEXT_ERROR@': '#B8473F',
             '@TEXT_PRIMARY@': '#3A3F3A',
@@ -122,6 +148,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@TEXT_DISABLED@': '#9AA39A',
             '@TEXT_ON_ACCENT@': '#FFFFFF',
             '@TEXT_ON_SELECTED@': '#1F241F',
+            '@TEXT_ON_HIGHLIGHT@': '#2B3328',
             '@TEXT_TAB_HOVER@': '#3A3F3A',
             '@PROGRESS_FILL@': '#4E7821',
             '@SELECTION_BG@': '#3070A82E',
@@ -135,6 +162,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@SCROLLBAR_TRACK@': '#0C3A3F3A',
             '@SCROLLBAR_HANDLE@': '#2D3A3F3A',
             '@SCROLLBAR_HANDLE_HOVER@': '#413A3F3A',
+            '@FLOATING_SHADOW@': '#24000000',
             '@ICON_INFO@': '@ASSETS@/icons/info_light.svg',
             '@ICON_ARROW_DOWN@': '@ASSETS@/icons/arrow_down_light.svg',
             '@ICON_ARROW_UP@': '@ASSETS@/icons/arrow_up_light.svg',
@@ -162,6 +190,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@BORDER_HEADER@': '#425045',
             '@BORDER_ACTIVE@': '#70A82E',
             '@BORDER_PRESSED@': '#5E9326',
+            '@LINK_VISITED@': '#5E8F28',
             '@TEXT_SUCCESS@': '#8FCD48',
             '@TEXT_ERROR@': '#F08F86',
             '@TEXT_PRIMARY@': '#E6EFE0',
@@ -169,6 +198,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@TEXT_DISABLED@': '#707B72',
             '@TEXT_ON_ACCENT@': '#F5FAEF',
             '@TEXT_ON_SELECTED@': '#F5FAEF',
+            '@TEXT_ON_HIGHLIGHT@': '#0F140F',
             '@TEXT_TAB_HOVER@': '#D2E5BB',
             '@PROGRESS_FILL@': '#4E7821',
             '@SELECTION_BG@': '#4670A82E',
@@ -182,6 +212,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@SCROLLBAR_TRACK@': '#0AE6EFE0',
             '@SCROLLBAR_HANDLE@': '#1AE6EFE0',
             '@SCROLLBAR_HANDLE_HOVER@': '#28E6EFE0',
+            '@FLOATING_SHADOW@': '#38000000',
             '@ICON_INFO@': '@ASSETS@/icons/info_dark.svg',
             '@ICON_ARROW_DOWN@': '@ASSETS@/icons/arrow_down_dark.svg',
             '@ICON_ARROW_UP@': '@ASSETS@/icons/arrow_up_dark.svg',
@@ -198,9 +229,7 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
         },
     }
 
-
 _THEME_STYLE_TOKENS = _theme_tokens()
-
 
 def theme_style_tokens(theme: str) -> dict[str, str]:
     key = 'dark' if str(theme or '').strip().lower() == 'dark' else 'light'
@@ -209,7 +238,6 @@ def theme_style_tokens(theme: str) -> dict[str, str]:
     for token, value in _THEME_STYLE_TOKENS[key].items():
         out[token] = str(value).replace('@ASSETS@', assets)
     return out
-
 
 def _ui_style_tokens(cfg: UIConfig) -> dict[str, str]:
     radius_l = max(int(cfg.radius_l), 2)
@@ -243,13 +271,12 @@ def _ui_style_tokens(cfg: UIConfig) -> dict[str, str]:
         '@TAB_MIN_HEIGHT@': f'{tab_min_h}px',
         '@PAD_TAB@': f'{pad_x_m}px {max(pad_x_l + 2, 0)}px',
         '@SCROLL_HANDLE_MIN@': f'{scroll_handle_min}px',
+        '@TABLE_CHECK_INDICATOR_SIZE@': f'{max(int(cfg.table_check_indicator_size), 14)}px',
     }
-
 
 def theme_color(theme: str, token: str) -> QtGui.QColor:
     value = theme_style_tokens(theme).get(str(token or '').strip(), '#000000')
     return _parse_hex_color(value)
-
 
 def render_theme_stylesheet(
     styles_dir: Path,
@@ -266,7 +293,7 @@ def render_theme_stylesheet(
         return theme, ''
     try:
         qss = qss_path.read_text(encoding='utf-8')
-    except Exception:
+    except OSError:
         return theme, ''
     for token, value in theme_style_tokens(theme).items():
         qss = qss.replace(token, value)
@@ -274,7 +301,6 @@ def render_theme_stylesheet(
         qss = qss.replace(token, value)
     qss = qss.replace('@ASSETS@', Config.ASSETS_DIR.resolve().as_posix())
     return theme, qss
-
 
 def _resolve_app_icon_path(theme: str | None = None) -> Path | None:
     resolved = active_theme_key(theme)
@@ -287,7 +313,6 @@ def _resolve_app_icon_path(theme: str | None = None) -> Path | None:
         if path.exists():
             return path
     return None
-
 
 def _render_svg_icon(path: Path, *, sizes: tuple[int, ...] = (16, 20, 24, 32, 48, 64, 128)) -> QtGui.QIcon:
     icon = QtGui.QIcon()
@@ -313,11 +338,9 @@ def _render_svg_icon(path: Path, *, sizes: tuple[int, ...] = (16, 20, 24, 32, 48
         icon.addPixmap(pm)
     return icon
 
-
 def app_icon(theme: str | None = None) -> QtGui.QIcon:
     path = _resolve_app_icon_path(theme)
     return _render_svg_icon(path) if path is not None else QtGui.QIcon()
-
 
 def status_icon(name: str, *, theme: str | None = None) -> QtGui.QIcon:
     resolved = active_theme_key(theme)
@@ -329,7 +352,6 @@ def status_icon(name: str, *, theme: str | None = None) -> QtGui.QIcon:
         if path.exists():
             return _render_svg_icon(path)
     return QtGui.QIcon()
-
 
 def logo_svg_path(theme: str | None = None) -> Path | None:
     resolved = active_theme_key(theme)
@@ -343,8 +365,8 @@ def logo_svg_path(theme: str | None = None) -> Path | None:
             return path
     return None
 
-
 class LogoSvgLabel(QtWidgets.QLabel):
+    """Label that renders an SVG logo scaled to the available bounds."""
     def __init__(self, path: Path, *, object_name: str | None = None, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self._path = Path(path)

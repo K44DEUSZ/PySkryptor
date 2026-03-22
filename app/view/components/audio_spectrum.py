@@ -1,12 +1,17 @@
+# app/view/components/audio_spectrum.py
 from __future__ import annotations
 
 from typing import Any
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.support.theme_runtime import spectrum_alpha_profile
+from app.view.support.theme_runtime import spectrum_palette
 from app.view.ui_config import ui
 
+
+def _app_instance() -> QtWidgets.QApplication | None:
+    app = QtWidgets.QApplication.instance()
+    return app if isinstance(app, QtWidgets.QApplication) else None
 
 class AudioSpectrumWidget(QtWidgets.QWidget):
     """Lightweight input-audio spectrum meter."""
@@ -19,10 +24,10 @@ class AudioSpectrumWidget(QtWidgets.QWidget):
 
     _VALID_STATES = {STATE_IDLE, STATE_ACTIVE, STATE_PAUSED, STATE_DISABLED, STATE_ERROR}
 
-    def __init__(self, parent: QtWidgets.QWidget | None = None, *, bars: int | None = None) -> None:
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         cfg = ui(self)
-        self._bars = max(8, int(cfg.spectrum_bar_count if bars is None else bars))
+        self._bars = max(8, int(cfg.spectrum_bar_count))
         self._target_values: list[float] = [0.0] * self._bars
         self._display_values: list[float] = [0.0] * self._bars
         self._visual_state = self.STATE_IDLE
@@ -73,14 +78,14 @@ class AudioSpectrumWidget(QtWidgets.QWidget):
     def _normalize_values(self, values: Any) -> list[float]:
         try:
             items = list(values)
-        except Exception:
+        except TypeError:
             return []
 
         out: list[float] = []
         for item in items:
             try:
                 value = float(item)
-            except Exception:
+            except (TypeError, ValueError):
                 value = 0.0
             out.append(self._clamp_value(value))
         return out
@@ -112,7 +117,7 @@ class AudioSpectrumWidget(QtWidgets.QWidget):
             return 1.0
         try:
             return max(abs(float(a) - float(b)) for a, b in zip(left, right))
-        except Exception:
+        except (TypeError, ValueError):
             return 1.0
 
     def _has_pending_animation(self) -> bool:
@@ -145,47 +150,6 @@ class AudioSpectrumWidget(QtWidgets.QWidget):
         if not self._has_pending_animation():
             self._anim_timer.stop()
 
-    def _palette_colors(self) -> dict[str, QtGui.QColor]:
-        pal = self.palette()
-        window = QtGui.QColor(pal.color(QtGui.QPalette.Window))
-        base = QtGui.QColor(pal.color(QtGui.QPalette.Base))
-        alt = QtGui.QColor(pal.color(QtGui.QPalette.AlternateBase))
-        text = QtGui.QColor(pal.color(QtGui.QPalette.Text))
-        highlight = QtGui.QColor(pal.color(QtGui.QPalette.Highlight))
-        disabled = QtGui.QColor(pal.color(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
-
-        is_dark = window.lightness() < 128
-        background = QtGui.QColor(alt if alt != window else base)
-        border = QtGui.QColor(text)
-        track = QtGui.QColor(text)
-        bar = QtGui.QColor(text)
-
-        if self._visual_state == self.STATE_ACTIVE:
-            bar = QtGui.QColor(highlight)
-        elif self._visual_state == self.STATE_DISABLED:
-            border = QtGui.QColor(disabled)
-            track = QtGui.QColor(disabled)
-            bar = QtGui.QColor(disabled)
-        elif self._visual_state == self.STATE_ERROR:
-            bar = QtGui.QColor(highlight)
-
-        background_alpha, border_alpha, track_alpha, bar_alpha = spectrum_alpha_profile(
-            dark=is_dark,
-            state=self._visual_state,
-        )
-
-        background.setAlpha(background_alpha)
-        border.setAlpha(border_alpha)
-        track.setAlpha(track_alpha)
-        bar.setAlpha(bar_alpha)
-
-        return {
-            "background": background,
-            "border": border,
-            "track": track,
-            "bar": bar,
-        }
-
     @staticmethod
     def _draw_background(
         painter: QtGui.QPainter,
@@ -194,7 +158,9 @@ class AudioSpectrumWidget(QtWidgets.QWidget):
         radius: float,
         colors: dict[str, QtGui.QColor],
     ) -> None:
-        painter.setPen(QtGui.QPen(colors["border"], 1.0))
+        pen = QtGui.QPen(colors["border"])
+        pen.setWidthF(0.8)
+        painter.setPen(pen)
         painter.setBrush(colors["background"])
         painter.drawRoundedRect(rect, radius, radius)
 
@@ -247,13 +213,19 @@ class AudioSpectrumWidget(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
 
-        outer = QtCore.QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
+        outer = QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         if outer.width() <= 2.0 or outer.height() <= 2.0:
             return
 
         cfg = ui(self)
         radius = max(4.0, float(cfg.radius_m))
-        colors = self._palette_colors()
+        palette = spectrum_palette(self._visual_state, app=_app_instance())
+        colors = {
+            "background": palette.background,
+            "border": palette.border,
+            "track": palette.track,
+            "bar": palette.bar,
+        }
 
         self._draw_background(painter, outer, radius=radius, colors=colors)
         self._draw_bars(painter, outer, radius=radius - 2.0, colors=colors)

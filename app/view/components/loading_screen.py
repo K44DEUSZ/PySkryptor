@@ -12,12 +12,11 @@ from app.view.support.widget_effects import (
 )
 from app.view.ui_config import ui
 
-from app.controller.support.localization import tr
+from app.model.services.localization_service import tr
 from app.model.config.app_config import AppConfig as Config
 
 _LOADING_LOGO_WIDTH_RATIO = 0.74
 _LOADING_LOGO_HEIGHT_RATIO = 0.34
-
 
 class LoadingScreenWidget(QtWidgets.QWidget):
     """Splash-like loading screen shown during app startup."""
@@ -142,8 +141,8 @@ class LoadingScreenWidget(QtWidgets.QWidget):
         super().showEvent(e)
         try:
             self.setWindowIcon(QtWidgets.QApplication.windowIcon())
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            return
 
     def _update_brand_geometry(self) -> None:
         brand = self._brand

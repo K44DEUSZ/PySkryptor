@@ -1,12 +1,16 @@
-# app/controller/support/task_thread_runner.py
+# app/controller/workers/task_thread_runner.py
 from __future__ import annotations
 
+import logging
 from typing import Callable, TypeVar, cast
 
 from PyQt5 import QtCore
 
-TWorker = TypeVar("TWorker", bound=QtCore.QObject)
+from app.controller.workers.worker_base import WorkerBase
 
+TWorker = TypeVar("TWorker", bound=WorkerBase)
+
+_LOG = logging.getLogger(__name__)
 
 class TaskThreadRunner(QtCore.QObject):
     """Small helper that standardizes QThread + Worker wiring."""
@@ -14,47 +18,42 @@ class TaskThreadRunner(QtCore.QObject):
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
         self._thread: QtCore.QThread | None = None
-        self._worker: QtCore.QObject | None = None
+        self._worker: WorkerBase | None = None
         self._on_finished: Callable[[], None] | None = None
-
-    # ----- State -----
 
     @property
     def thread(self) -> QtCore.QThread | None:
         return self._thread
 
     @property
-    def worker(self) -> QtCore.QObject | None:
+    def worker(self) -> WorkerBase | None:
         return self._worker
 
     def is_running(self) -> bool:
         return self._thread is not None
 
-    # ----- Control -----
-
     def cancel(self) -> None:
         wk = self._worker
         th = self._thread
-        try:
-            if th is not None:
+        if th is not None:
+            try:
                 th.requestInterruption()
-        except Exception:
-            pass
-        try:
-            if wk is not None and hasattr(wk, "cancel"):
-                getattr(wk, "cancel")()
-        except Exception:
-            pass
+            except RuntimeError as ex:
+                _LOG.debug("Thread interruption request skipped. detail=%s", ex)
+        if wk is not None:
+            try:
+                wk.cancel()
+            except RuntimeError as ex:
+                _LOG.debug("Worker cancel request skipped. detail=%s", ex)
 
     def stop(self) -> None:
         wk = self._worker
+        if wk is None:
+            return
         try:
-            if wk is not None and hasattr(wk, "stop"):
-                getattr(wk, "stop")()
-                return
-        except Exception:
-            pass
-        self.cancel()
+            wk.stop()
+        except RuntimeError as ex:
+            _LOG.debug("Worker stop request skipped. detail=%s", ex)
 
     def start(
         self,
@@ -73,27 +72,17 @@ class TaskThreadRunner(QtCore.QObject):
             connect(worker)
 
         self._on_finished = on_finished
-        run = getattr(worker, "run", None)
-        if not callable(run):
-            raise TypeError("TaskThreadRunner worker must define a callable run() method.")
-
-        if hasattr(worker, "finished"):
-            try:
-                worker.finished.connect(th.quit)
-                worker.finished.connect(worker.deleteLater)
-            except Exception:
-                pass
+        worker.finished.connect(th.quit)
+        worker.finished.connect(worker.deleteLater)
 
         th.finished.connect(th.deleteLater)
         th.finished.connect(self._cleanup)
-        th.started.connect(run)
+        th.started.connect(cast(Callable[[], None], worker.run))
 
         self._thread = th
         self._worker = worker
         th.start()
         return worker
-
-    # ----- Internals -----
 
     @QtCore.pyqtSlot()
     def _cleanup(self) -> None:

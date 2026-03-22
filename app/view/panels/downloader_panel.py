@@ -6,18 +6,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from app.controller.contracts import DownloaderCoordinatorProtocol
+
 from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
 
-from app.controller.support.localization import tr
-from app.controller.support.runtime_resolver import is_playlist_url
-from app.controller.tasks.download_task import DownloadWorker
+from app.model.services.localization_service import tr
+from app.model.services.runtime_resolver import available_audio_bitrates, available_video_heights, is_playlist_url
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code, sanitize_url_for_log
 from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.source_table import SourceTable
 from app.view.components.section_group import SectionGroup
-from app.controller.support.task_thread_runner import TaskThreadRunner
-from app.view.components import dialogs
+from app.view import dialogs
 from app.view.support.view_runtime import (
     normalize_network_status,
     open_external_url,
@@ -37,7 +37,6 @@ _PROGRESS_SCALE_PCT = 85
 _LINK_MAX_CHARS = 48
 _DESCRIPTION_MAX_CHARS = 320
 
-
 @dataclass
 class _Job:
     key: str
@@ -48,7 +47,6 @@ class _Job:
     audio_lang: str | None
     status: str
 
-
 @dataclass(frozen=True)
 class _DownloadQueueItem:
     key: str
@@ -58,11 +56,10 @@ class _DownloadQueueItem:
     ext: str
     audio_lang: str | None
 
-
 class DownloaderPanel(QtWidgets.QWidget):
     """Downloader tab UI and control logic."""
 
-    # ----- Table column map -----
+    _dup_apply_all_action: str | None
 
     COL_CHECK = 0
     COL_NO = 1
@@ -75,34 +72,46 @@ class DownloaderPanel(QtWidgets.QWidget):
     COL_LANGUAGE = 7
     COL_STATUS = 8
 
-    duplicate_decided = QtCore.pyqtSignal(str, str)
-
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("DownloaderPanel")
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
+        self._panel_coordinator: DownloaderCoordinatorProtocol | None = None
         self._queue_items: list[_DownloadQueueItem] = []
         self._active_download: _DownloadQueueItem | None = None
         self._preview_key = ""
         self._download_aborted = False
         self._closing = False
 
-        self._init_runtime_state(parent)
+        self._init_state(parent)
         self._build_ui()
         self._wire_signals(parent)
         self._restore_initial_state()
 
-    # ----- Initialization / build -----
+    def bind_coordinator(self, coordinator: DownloaderCoordinatorProtocol) -> None:
+        self._panel_coordinator = coordinator
 
-    def _init_runtime_state(self, parent: QtWidgets.QWidget | None) -> None:
+    def coordinator(self) -> DownloaderCoordinatorProtocol | None:
+        return self._panel_coordinator
+
+    def _download_is_running(self) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and coord.is_downloading())
+
+    def _probe_is_running(self, job_key: str | None = None) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and coord.is_probe_running(job_key))
+
+    def _init_state(self, parent: QtWidgets.QWidget | None) -> None:
         self._jobs: list[_Job] = []
         self._meta_by_key: dict[str, dict[str, Any]] = {}
         self._thumb_by_key: dict[str, QtGui.QPixmap] = {}
         self._thumb_reply_by_key: dict[str, QtNetwork.QNetworkReply] = {}
-        self._probe_runners: dict[str, TaskThreadRunner] = {}
         self._queue_items: list[_DownloadQueueItem] = []
+        self._pct_by_key: dict[str, int] = {}
+        self._status_base_by_key: dict[str, str] = {}
 
         self._active_download: _DownloadQueueItem | None = None
         self._preview_key: str = ""
@@ -113,7 +122,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._last_availability_debug_key: tuple | None = None
 
         self._net = QtNetwork.QNetworkAccessManager(self)
-        self._download_runner = TaskThreadRunner(self)
 
         self._post_timer = QtCore.QTimer(self)
         self._post_timer.setInterval(_POSTPROCESS_INTERVAL_MS)
@@ -200,8 +208,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.table.setSortingEnabled(False)
         self.table.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
         self.table.setAcceptDrops(False)
-        self.table.setWordWrap(False)
-        self.table.setTextElideMode(QtCore.Qt.TextElideMode.ElideRight)
+        self.table.setWordWrap(True)
+        self.table.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
 
         self._header_mode = "empty"
         self._apply_empty_header_mode()
@@ -303,8 +311,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._meta_group = meta_group
         root.addWidget(meta_group, 1)
 
-    # ----- Signal wiring -----
-
     def _wire_signals(self, parent: QtWidgets.QWidget | None) -> None:
         self.btn_add.clicked.connect(self._on_add_clicked)
         self.btn_open_downloads.clicked.connect(self._on_open_downloads_clicked)
@@ -327,17 +333,13 @@ class DownloaderPanel(QtWidgets.QWidget):
         if parent_signal is not None:
             try:
                 parent_signal.connect(self._on_network_status_changed)
-            except Exception:
-                pass
-
-    # ----- Restore / bootstrap -----
+            except (AttributeError, RuntimeError, TypeError) as ex:
+                _LOG.debug("Downloader network signal hookup skipped. detail=%s", ex)
 
     def _restore_initial_state(self) -> None:
         self._reset_meta_ui()
         self._update_open_in_browser_state()
         self._sync_buttons()
-
-    # ----- Lifecycle -----
 
     def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
         super().resizeEvent(e)
@@ -356,17 +358,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._active_download = None
         self._preview_key = ""
 
-        try:
-            self._download_runner.cancel()
-        except Exception:
-            pass
-
-        for runner in list(self._probe_runners.values()):
-            try:
-                runner.cancel()
-            except Exception:
-                pass
-        self._probe_runners.clear()
+        coord = self.coordinator()
+        if coord is not None:
+            coord.cancel_download()
+            coord.cancel_all_probes()
 
         for key in list(self._thumb_reply_by_key.keys()):
             self._cancel_thumb_reply(key)
@@ -376,8 +371,6 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         self.action_bar.set_busy(False)
         self.action_bar.reset()
-
-    # ----- Meta panel / preview helpers -----
 
     def _reset_meta_ui(self) -> None:
         for w in (
@@ -420,18 +413,18 @@ class DownloaderPanel(QtWidgets.QWidget):
             self.lbl_thumbnail.setProperty("uiEmpty", val)
             repolish_widget(self._thumb_host)
             repolish_widget(self.lbl_thumbnail)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+            _LOG.debug("Thumbnail empty-state update skipped. detail=%s", ex)
 
     def _show_thumbnail_placeholder(self) -> None:
         self._set_thumb_empty(True)
         try:
             self.lbl_thumbnail.setPixmap(QtGui.QPixmap())
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            self.lbl_thumbnail.clear()
         try:
             self.lbl_thumbnail.setText(tr("down.meta.thumb_placeholder"))
-        except Exception:
+        except (RuntimeError, TypeError, ValueError, KeyError):
             self.lbl_thumbnail.setText(tr("common.na"))
 
     def _network_available(self) -> bool:
@@ -444,7 +437,7 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _log_queue_state(self, *, reason: str) -> None:
         state = (
             self._network_status,
-            bool(self._download_runner.is_running()),
+            bool(self._download_is_running()),
             int(self.table.rowCount()),
             bool(self.action_bar.primary_btn.isEnabled()) if hasattr(self.action_bar, "primary_btn") else False,
             )
@@ -455,7 +448,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             "Downloader availability changed. reason=%s panel=downloader online=%s running=%s queued_rows=%s can_start=%s",
             reason,
             bool(self._network_available()),
-            bool(self._download_runner.is_running()),
+            bool(self._download_is_running()),
             self.table.rowCount(),
             bool(self.action_bar.primary_btn.isEnabled()) if hasattr(self.action_bar, "primary_btn") else False,
             )
@@ -475,7 +468,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._log_queue_state(reason="network_status_changed")
 
     def _sync_buttons(self) -> None:
-        running = self._download_runner.is_running()
+        running = self._download_is_running()
         online = self._network_available()
         can_start = bool((not running) and self.table.rowCount() > 0 and online)
         self.action_bar.set_primary_enabled(can_start)
@@ -601,8 +594,6 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._apply_meta_ui(meta, job_key=key)
             return
         self._reset_meta_ui()
-
-    # ----- Queue table layout -----
 
     def _status_width(self) -> int:
         labels: list[str] = []
@@ -796,15 +787,13 @@ class DownloaderPanel(QtWidgets.QWidget):
         }
         return mapping.get(st, st)
 
-    # ----- General actions -----
-
     @staticmethod
     def _on_open_downloads_clicked() -> None:
         try:
             Config.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
             if not open_local_path(Config.DOWNLOADS_DIR):
                 _LOG.error("Opening the downloads folder failed. path=%s", Config.DOWNLOADS_DIR)
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             _LOG.exception("Opening the downloads folder failed.")
 
     def _on_open_in_browser_clicked(self) -> None:
@@ -815,8 +804,6 @@ class DownloaderPanel(QtWidgets.QWidget):
             url = "https://" + url
         if not open_external_url(url):
             _LOG.error("Opening the URL in the browser failed. url=%s", sanitize_url_for_log(url))
-
-    # ----- Queue / row helpers -----
 
     def _collect_checked_job_keys(self) -> list[str]:
         keys: list[str] = []
@@ -855,9 +842,9 @@ class DownloaderPanel(QtWidgets.QWidget):
 
             for ext in exts:
                 kind = "audio" if ext in audio_exts else "video"
-                quality = str(job.quality or "auto").strip().lower()
+                quality = str(job.quality or Config.download_ui_default_quality()).strip().lower()
                 if kind == "audio" and not only_audio:
-                    quality = "auto"
+                    quality = Config.download_ui_default_quality()
                 items.append(
                     _DownloadQueueItem(
                         key=job.key,
@@ -893,13 +880,13 @@ class DownloaderPanel(QtWidgets.QWidget):
             return
 
         output_types = ["video"]
-        first_ext = str(list(Config.DOWNLOAD_VIDEO_OUTPUT_EXTS)[0] if Config.DOWNLOAD_VIDEO_OUTPUT_EXTS else "mp4")
+        first_ext = Config.download_default_video_ext()
         job = _Job(
             key=key,
             url=url,
             output_types=output_types,
             output_exts=[str(first_ext).strip().lower()],
-            quality="auto",
+            quality=Config.download_ui_default_quality(),
             audio_lang=None,
             status="queued",
             )
@@ -942,25 +929,24 @@ class DownloaderPanel(QtWidgets.QWidget):
             return
         try:
             reply.finished.disconnect()
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Thumbnail reply disconnect skipped. key=%s detail=%s", job_key, ex)
         try:
             reply.abort()
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Thumbnail reply abort skipped. key=%s detail=%s", job_key, ex)
         try:
             reply.deleteLater()
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError) as ex:
+            _LOG.debug("Thumbnail reply deleteLater skipped. key=%s detail=%s", job_key, ex)
 
     def _cancel_probe(self, job_key: str) -> None:
-        runner = self._probe_runners.pop(job_key, None)
-        if runner is None or not runner.is_running():
+        if not self._probe_is_running(job_key):
             return
-        try:
-            runner.cancel()
-        except Exception:
-            pass
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.cancel_probe(job_key)
 
     def _clear_job_state(self, job_key: str) -> None:
         self._cancel_thumb_reply(job_key)
@@ -980,7 +966,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._sync_buttons()
 
     def _on_remove_selected(self) -> None:
-        if self._download_runner.is_running():
+        if self._download_is_running():
             return
 
         rows = sorted(self.table.rows_for_removal(self.COL_CHECK), reverse=True)
@@ -1000,7 +986,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._finalize_queue_rows_changed(next_row=next_row)
 
     def _on_clear_list(self) -> None:
-        if self._download_runner.is_running():
+        if self._download_is_running():
             return
 
         for job in list(self._jobs):
@@ -1011,8 +997,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._meta_by_key = {}
         self._thumb_by_key = {}
         self._finalize_queue_rows_changed()
-
-    # ----- Metadata UI state -----
 
     def _append_job_row(self, job: _Job) -> int:
         row = self.table.rowCount()
@@ -1057,7 +1041,7 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _build_job_row_quality_cell(self, row: int, job: _Job) -> None:
         cb_quality = self.table.make_simple_combo(
             internal_key=job.key,
-            items=self._quality_items(job.output_types),
+            items=self._quality_items_for_job(job),
             on_changed=self._on_quality_changed,
             )
         self.table.setCellWidget(row, self.COL_QUALITY, cb_quality)
@@ -1096,7 +1080,6 @@ class DownloaderPanel(QtWidgets.QWidget):
                 is_active=lambda: self._header_mode == "populated",
                 reapply=self._apply_populated_header_mode,
             )
-
 
     def _select_row(self, row: int) -> None:
         if row < 0 or row >= self.table.rowCount():
@@ -1145,7 +1128,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         if isinstance(value, (int, float)):
             try:
                 return f"{int(value):,}".replace(",", " ")
-            except Exception:
+            except (OverflowError, TypeError, ValueError):
                 return str(int(value))
         return "-"
 
@@ -1163,7 +1146,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         if err_key:
             try:
                 desc = tr(str(err_key), **(err_params or {}))
-            except Exception:
+            except (RuntimeError, TypeError, ValueError, KeyError):
                 desc = str(err_key)
         else:
             desc = str(meta.get("description") or "").strip()
@@ -1273,8 +1256,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.lbl_thumbnail.setText("")
         self.lbl_thumbnail.setPixmap(scaled)
 
-    # ----- Metadata probe flow -----
-
     def _start_probe(self, job: _Job) -> None:
         meta = self._meta_by_key.get(job.key)
         if isinstance(meta, dict) and not meta.get("_error_key"):
@@ -1297,25 +1278,16 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._refresh_meta_panel()
             return
 
-        runner = self._probe_runners.get(job_key)
-        if runner is not None and runner.is_running():
+        if self._probe_is_running(job_key):
             _LOG.debug("Downloader probe skipped. reason=already_running job_key=%s", sanitize_url_for_log(job_key))
             return
 
-        runner = TaskThreadRunner(self)
-        self._probe_runners[job_key] = runner
-
-        wk = DownloadWorker(action="probe", url=url)
-
-        def _connect(worker: DownloadWorker, *, _job_key: str = job_key) -> None:
-            worker.meta_ready.connect(lambda meta, k=_job_key: self._on_probe_ready(k, meta))
-            worker.download_error.connect(lambda err_key, params, k=_job_key: self._on_probe_error(k, err_key, params))
-
-        def _done(k: str = job_key) -> None:
-            self._probe_runners.pop(k, None)
+        coord = self.coordinator()
+        if coord is None:
+            return
 
         _LOG.debug("Downloader probe request started. job_key=%s url=%s", sanitize_url_for_log(job_key), sanitize_url_for_log(url))
-        runner.start(wk, connect=_connect, on_finished=_done)
+        coord.start_probe(job_key=job_key, url=url)
 
         if self._row_for_key(job_key) >= 0:
             self._set_job_status(job_key, "probing")
@@ -1325,7 +1297,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         keep_state = bool(has_row or job_key == self._active_preview_key())
         return has_row, keep_state
 
-    def _on_probe_ready(self, job_key: str, meta: dict[str, Any]) -> None:
+    def on_probe_ready(self, job_key: str, meta: dict[str, Any]) -> None:
         has_row, keep_state = self._probe_target_relevant(job_key)
         if not keep_state:
             self._clear_job_state(job_key)
@@ -1341,7 +1313,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         _LOG.debug("Downloader probe ready. job_key=%s title=%s", sanitize_url_for_log(job_key), str((meta or {}).get("title") or (meta or {}).get("id") or ""))
         self._refresh_meta_panel()
 
-    def _on_probe_error(self, job_key: str, err_key: str, params: dict[str, Any]) -> None:
+    def on_probe_error(self, job_key: str, err_key: str, params: dict[str, Any]) -> None:
         has_row, keep_state = self._probe_target_relevant(job_key)
         if not keep_state:
             self._clear_job_state(job_key)
@@ -1350,12 +1322,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         if has_row:
             self._set_job_status(job_key, "error")
 
-        try:
-            self._meta_by_key.setdefault(job_key, {})
-            self._meta_by_key[job_key]["_error_key"] = str(err_key)
-            self._meta_by_key[job_key]["_error_params"] = (params or {})
-        except Exception:
-            pass
+        meta = self._meta_by_key.setdefault(job_key, {})
+        if isinstance(meta, dict):
+            meta["_error_key"] = str(err_key)
+            meta["_error_params"] = (params or {})
 
         _LOG.debug("Downloader probe error. job_key=%s key=%s", sanitize_url_for_log(job_key), err_key)
         self._refresh_meta_panel()
@@ -1383,6 +1353,9 @@ class DownloaderPanel(QtWidgets.QWidget):
             it_link.setToolTip(url)
 
         self._update_audio_tracks_row(r, meta)
+        job = self._job_for_key(job_key)
+        if job is not None:
+            self._refresh_quality_row_option(r, job)
         self.table.schedule_populated_header_refresh(
             is_active=lambda: self._header_mode == "populated",
             reapply=self._apply_populated_header_mode,
@@ -1403,8 +1376,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         cb_audio = self.table.combo_at(row, self.COL_LANGUAGE)
         if isinstance(cb_audio, QtWidgets.QComboBox):
             cb_audio.setEnabled(bool(len(codes) > 2))
-
-    # ----- Row option refresh -----
 
     def _row_for_key(self, key: str) -> int:
         return self.table.row_for_internal_key(self.COL_TITLE, key)
@@ -1458,12 +1429,21 @@ class DownloaderPanel(QtWidgets.QWidget):
         if not isinstance(cb_quality, QtWidgets.QComboBox):
             return
 
+        default_quality = Config.download_ui_default_quality()
+        previous_value = str(job.quality or cb_quality.currentText() or default_quality).strip().lower() or default_quality
+        items = self._quality_items_for_job(job)
+        selected_value = previous_value if previous_value in {x.lower() for x in items} else default_quality
+
         cb_quality.blockSignals(True)
         cb_quality.clear()
-        cb_quality.addItems(self._quality_items(job.output_types))
-        cb_quality.setCurrentIndex(0)
+        cb_quality.addItems(items)
+        match_flags = QtCore.Qt.MatchFlag.MatchFixedString | QtCore.Qt.MatchFlag.MatchCaseSensitive
+        match_index = max(0, cb_quality.findText(selected_value, match_flags))
+        if match_index < 0:
+            match_index = 0
+        cb_quality.setCurrentIndex(match_index)
         cb_quality.blockSignals(False)
-        job.quality = str(cb_quality.currentText() or "auto").strip().lower()
+        job.quality = str(cb_quality.currentText() or Config.download_ui_default_quality()).strip().lower()
 
     def _refresh_audio_row_option(self, row: int, job: _Job) -> None:
         cb_audio = self.table.combo_at(row, self.COL_LANGUAGE)
@@ -1474,11 +1454,34 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._update_audio_tracks_row(row, meta if isinstance(meta, dict) else {})
 
     @staticmethod
-    def _quality_items(output_types: list[str]) -> list[str]:
+    def _job_output_types(job: _Job) -> list[str]:
+        return [str(x).strip().lower() for x in (job.output_types or []) if str(x).strip()]
+
+    def _quality_items_for_job(self, job: _Job) -> list[str]:
+        output_types = self._job_output_types(job)
         only_audio = bool(output_types) and "audio" in output_types and "video" not in output_types
+        meta = self._meta_by_key.get(job.key)
+        meta_dict = meta if isinstance(meta, dict) else None
+
         if only_audio:
+            bitrates = available_audio_bitrates(meta_dict)
+            if bitrates:
+                return ["Auto", *[f"{int(v)}k" for v in bitrates if int(v) > 0]]
             return ["Auto", "320k", "256k", "192k", "128k"]
-        return ["Auto", "1080p", "720p", "480p", "360p", "240p", "144p"]
+
+        heights = available_video_heights(
+            meta_dict,
+            min_h=Config.downloader_min_video_height(),
+            max_h=Config.downloader_max_video_height(),
+        )
+        if heights:
+            return ["Auto", *[f"{int(v)}p" for v in heights if int(v) > 0]]
+
+        min_h = Config.downloader_min_video_height()
+        max_h = Config.downloader_max_video_height()
+        fallback_heights = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144]
+        filtered = [h for h in fallback_heights if min_h <= h <= max_h]
+        return ["Auto", *[f"{int(v)}p" for v in filtered]] if filtered else ["Auto"]
 
     @staticmethod
     def _format_items(output_types: list[str]) -> list[str]:
@@ -1530,7 +1533,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         row = self._row_for_key(job_key)
         cb = self.table.combo_at(row, self.COL_QUALITY) if row >= 0 else None
         if isinstance(cb, QtWidgets.QComboBox):
-            job.quality = str(cb.currentText() or "auto").strip().lower()
+            job.quality = str(cb.currentText() or Config.download_ui_default_quality()).strip().lower()
             self._schedule_queue_header_refresh()
 
     def _on_formats_changed(self, selected: list[str]) -> None:
@@ -1552,10 +1555,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         job.audio_lang = normalize_lang_code(self.table.audio_lang_code_at(row, self.COL_LANGUAGE), drop_region=True) or None
         self._schedule_queue_header_refresh()
 
-    # ----- Download flow -----
-
     def _on_download_selected(self) -> None:
-        if self._download_runner.is_running():
+        if self._download_is_running():
             return
 
         if not self._network_available():
@@ -1580,9 +1581,17 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         item = self._queue_items.pop(0)
         key = self._set_active_download(item)
-        worker = self._create_download_worker(item)
+        coord = self.coordinator()
+        if coord is None:
+            return
         self._set_job_status(key, "downloading")
-        self._start_download_worker(worker)
+        coord.start_download(
+            url=item.url,
+            kind=item.kind,
+            quality=item.quality,
+            ext=item.ext,
+            audio_lang=item.audio_lang,
+        )
         self._reset_download_action_bar()
         self._sync_buttons()
 
@@ -1604,44 +1613,24 @@ class DownloaderPanel(QtWidgets.QWidget):
             )
         return item.key
 
-    @staticmethod
-    def _create_download_worker(item: _DownloadQueueItem) -> DownloadWorker:
-        return DownloadWorker(
-            action="download",
-            url=item.url,
-            kind=item.kind,
-            quality=item.quality,
-            ext=item.ext,
-            audio_lang=item.audio_lang,
-            )
-
-    def _connect_download_worker_signals(self, worker: DownloadWorker) -> None:
-        worker.duplicate_check.connect(self._on_duplicate_check)
-        self.duplicate_decided.connect(
-            worker.on_duplicate_decided,
-            type=QtCore.Qt.ConnectionType.QueuedConnection,
-        )
-        worker.progress_pct.connect(self._on_progress_pct)
-        worker.stage_changed.connect(self._on_stage_changed)
-        worker.download_finished.connect(self._on_download_finished)
-        worker.download_error.connect(self._on_download_error)
-        worker.cancelled.connect(self._on_download_cancelled)
-
-    def _start_download_worker(self, worker: DownloadWorker) -> None:
-        self._download_runner.start(worker, connect=self._connect_download_worker_signals, on_finished=self._on_download_runner_finished)
-
     def _reset_download_action_bar(self) -> None:
         self.action_bar.reset()
         self.action_bar.set_busy(False)
 
-    def _on_duplicate_check(self, title: str, expected: str) -> None:
+    def _submit_duplicate_resolution(self, action: str, new_name: str = "") -> None:
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.resolve_duplicate(action, new_name)
+
+    def on_duplicate_check(self, title: str, expected: str) -> None:
         if self._closing:
-            self.duplicate_decided.emit("skip", "")
+            self._submit_duplicate_resolution("skip", "")
             return
 
         if self._dup_apply_all_action in ("skip", "overwrite"):
             _LOG.debug("Downloader duplicate decision reused. action=%s expected=%s", self._dup_apply_all_action, Path(expected).name)
-            self.duplicate_decided.emit(self._dup_apply_all_action, "")
+            self._submit_duplicate_resolution(self._dup_apply_all_action, "")
             return
 
         suggested_name = Path(str(expected or "")).name or str(expected or "")
@@ -1658,16 +1647,20 @@ class DownloaderPanel(QtWidgets.QWidget):
             bool(apply_all),
             suggested_name,
         )
-        self.duplicate_decided.emit(action, new_name)
+        self._submit_duplicate_resolution(action, new_name)
 
-    # ----- Worker events -----
-
-    def _on_progress_pct(self, pct: int) -> None:
+    def on_progress_pct(self, pct: int) -> None:
         v = int(max(0, min(100, int(pct))))
         mapped = _PROGRESS_BASE_PCT + int(v * (_PROGRESS_SCALE_PCT / 100.0))
         self.action_bar.set_progress(mapped)
 
-    def _on_stage_changed(self, stage: str) -> None:
+        active_key = self._active_download_key()
+        if active_key:
+            self._pct_by_key[active_key] = v
+            base_status = self._status_base_by_key.get(active_key, "status.downloading")
+            self._render_job_status_text(active_key, base_status)
+
+    def on_stage_changed(self, stage: str) -> None:
         st = str(stage or "").strip().lower()
         active_key = self._active_download_key()
 
@@ -1691,7 +1684,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             return
         self._post_timer.stop()
 
-    def _on_download_finished(self, path: Path) -> None:
+    def on_download_finished(self, path: Path) -> None:
         self._post_timer.stop()
         self.action_bar.set_progress(100)
         active_key = self._active_download_key()
@@ -1708,10 +1701,10 @@ class DownloaderPanel(QtWidgets.QWidget):
                     self._on_open_downloads_clicked()
                 else:
                     _LOG.debug("Downloader completion action declined. action=open_downloads_folder")
-            except Exception:
-                pass
+            except (OSError, RuntimeError, ValueError) as ex:
+                _LOG.debug("Downloader completion follow-up skipped. path=%s detail=%s", path, ex)
 
-    def _on_download_error(self, err_key: str, params: dict[str, Any]) -> None:
+    def on_download_error(self, err_key: str, params: dict[str, Any]) -> None:
         self._post_timer.stop()
         is_network_error = self._is_network_error_key(err_key)
         active_key = self._active_download_key()
@@ -1730,20 +1723,22 @@ class DownloaderPanel(QtWidgets.QWidget):
         dialogs.show_error(self, err_key, params or {})
 
     def _on_cancel_clicked(self) -> None:
-        if not self._download_runner.is_running():
+        if not self._download_is_running():
             return
         if not dialogs.ask_cancel(self):
             return
         self._download_aborted = True
         _LOG.debug("Downloader queue cancellation requested. job_key=%s", sanitize_url_for_log(self._active_download_key()))
-        self._download_runner.cancel()
+        coord = self.coordinator()
+        if coord is not None:
+            coord.cancel_download()
         self._post_timer.stop()
 
-    def _on_download_cancelled(self) -> None:
+    def on_download_cancelled(self) -> None:
         self._post_timer.stop()
         self._set_job_status(self._active_download_key(), "queued")
 
-    def _on_download_runner_finished(self) -> None:
+    def on_download_cycle_finished(self) -> None:
         self._post_timer.stop()
 
         if self._download_aborted:
@@ -1768,20 +1763,36 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.action_bar.reset()
         self._sync_buttons()
 
-    # ----- Final queue state helpers -----
+    @staticmethod
+    def _status_display_text(status_key: str, fallback: str) -> str:
+        return tr(status_key) if str(status_key or "").startswith("status.") else str(fallback or "")
+
+    def _render_job_status_text(self, key: str, status_key: str) -> None:
+        row = self._row_for_key(key)
+        if row < 0:
+            return
+
+        item = self.table.item(row, self.COL_STATUS)
+        if item is None:
+            return
+
+        base_text = self._status_display_text(status_key, status_key)
+        pct = self._pct_by_key.get(key)
+        text = base_text
+        if pct is not None and 0 <= int(pct) < 100 and status_key in {"status.downloading", "status.postprocessing"}:
+            text = f"{base_text} ({int(pct)}%)"
+        item.setText(text)
 
     def _set_job_status(self, key: str, status: str) -> None:
         idx = self._find_job_index(key)
         if idx >= 0:
             self._jobs[idx].status = str(status or "").strip().lower()
 
-        r = self._row_for_key(key)
-        if r < 0:
-            return
+        status_key = self._job_status_key(status)
+        self._status_base_by_key[key] = status_key
+        if status_key in {"status.done"}:
+            self._pct_by_key[key] = 100
+        elif status_key in {"status.error", "status.offline", "status.queued", "status.probing"}:
+            self._pct_by_key.pop(key, None)
 
-        it = self.table.item(r, self.COL_STATUS)
-        if it is None:
-            return
-
-        k = self._job_status_key(status)
-        it.setText(tr(k) if k.startswith("status.") else k)
+        self._render_job_status_text(key, status_key)

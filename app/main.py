@@ -2,108 +2,118 @@
 from __future__ import annotations
 
 import sys
+import logging
 from pathlib import Path
+from typing import Any
 
-# ----- Bootstrap -----
-if __package__ in (None, ""):
-    _root_dir = Path(__file__).resolve().parents[1]
-    if str(_root_dir) not in sys.path:
-        sys.path.insert(0, str(_root_dir))
+try:
+    from typing import TypeAlias
+except ImportError:  # pragma: no cover
+    TypeAlias = type
+
+LoggerLike: TypeAlias = Any
+
+if __package__ in (None, ''):
+    root_dir = Path(__file__).resolve().parents[1]
+    if str(root_dir) not in sys.path:
+        sys.path.insert(0, str(root_dir))
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.model.config.app_config import AppConfig as Config
+from app.controller.coordinators.app_coordinator import AppCoordinator
 from app.controller.platform.logging import LoggingSetup
-from app.model.services.settings_service import SettingsService, SettingsError
-from app.controller.support.localization import Translator
-from app.view.components.dialogs import (
+from app.model.services.localization_service import current_language, load, load_best, tr
+from app.model.config.app_config import AppConfig as Config
+from app.model.domain.runtime_state import AppRuntimeState
+from app.model.services.settings_service import SettingsError, SettingsService
+from app.view.dialogs import (
+    critical_config_load_failed_choice,
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,
     critical_startup_error_and_exit,
-    critical_config_load_failed_choice,
 )
-from app.view.support.theme_runtime import app_icon, render_theme_stylesheet, system_theme_key
+from app.view.components.loading_screen import LoadingScreenWidget
+from app.view.main_window import MainWindow
+from app.view.support.theme_runtime import app_icon, app_palette_colors, render_theme_stylesheet, system_theme_key
 from app.view.ui_config import UIConfig
 
+_LOG = logging.getLogger(__name__)
 
 def _load_fonts(app: QtWidgets.QApplication, fonts_dir: Path) -> None:
-    """Load packaged fonts and set the default family when available."""
+    """Load packaged fonts and apply the preferred application family when available."""
     try:
         if not fonts_dir.exists():
             return
-        for f in sorted(fonts_dir.rglob("*.ttf")):
-            try:
-                QtGui.QFontDatabase.addApplicationFont(str(f))
-            except Exception:
-                pass
 
-        fams = set()
+        for font_path in sorted(fonts_dir.rglob('*.ttf')):
+            try:
+                QtGui.QFontDatabase.addApplicationFont(str(font_path))
+            except (RuntimeError, OSError, TypeError, ValueError):
+                continue
+
+        families: set[str] = set()
         try:
             font_db = QtGui.QFontDatabase()
-            for fam in font_db.families():
-                fams.add(str(fam))
-        except Exception:
-            pass
+            for family in font_db.families():
+                families.add(str(family))
+        except (RuntimeError, TypeError, ValueError):
+            families = set()
 
-        if "Roboto" in fams:
-            base = app.font()
-            base.setFamily("Roboto")
-            app.setFont(base)
-    except Exception:
-        pass
-
+        if 'Roboto' in families:
+            base_font = app.font()
+            base_font.setFamily('Roboto')
+            app.setFont(base_font)
+    except (RuntimeError, OSError, TypeError, ValueError) as ex:
+        _LOG.debug("Font loading skipped. fonts_dir=%s detail=%s", fonts_dir, ex)
 
 def _apply_palette(app: QtWidgets.QApplication, theme: str) -> None:
     try:
-        pal = app.palette()
-        accent = QtGui.QColor("#70A82E")
-        pal.setColor(QtGui.QPalette.Highlight, accent)
-        pal.setColor(QtGui.QPalette.Link, accent)
-        pal.setColor(QtGui.QPalette.LinkVisited, QtGui.QColor("#5E8F28"))
+        palette = app.palette()
+        colors = app_palette_colors(theme)
+        palette.setColor(QtGui.QPalette.Highlight, colors['highlight'])
+        palette.setColor(QtGui.QPalette.Link, colors['link'])
+        palette.setColor(QtGui.QPalette.LinkVisited, colors['link_visited'])
+        palette.setColor(QtGui.QPalette.HighlightedText, colors['highlighted_text'])
 
-        if str(theme).strip().lower() == "dark":
-            pal.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#0F140F"))
-        else:
-            pal.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#2B3328"))
-
-        app.setPalette(pal)
-    except Exception:
-        pass
-
+        app.setPalette(palette)
+    except (KeyError, RuntimeError, TypeError, ValueError) as ex:
+        _LOG.debug("Palette application skipped. theme=%s detail=%s", theme, ex)
 
 def _apply_stylesheet(app: QtWidgets.QApplication, styles_dir: Path, theme_pref: str) -> str:
-    theme, qss = render_theme_stylesheet(styles_dir, theme_pref, app=app)
-    if qss:
-        app.setStyleSheet(qss)
+    theme, stylesheet = render_theme_stylesheet(styles_dir, theme_pref, app=app)
+    if stylesheet:
+        app.setStyleSheet(stylesheet)
 
     try:
-        app.setProperty("theme", theme)
-    except Exception:
-        pass
+        app.setProperty('theme', theme)
+    except (RuntimeError, TypeError) as ex:
+        _LOG.debug("Application theme property update skipped. theme=%s detail=%s", theme, ex)
 
     return theme
 
+def _create_application(argv: list[str] | None = None) -> QtWidgets.QApplication:
+    return QtWidgets.QApplication(list(argv or sys.argv))
 
-def run() -> int:
-    app = QtWidgets.QApplication(sys.argv)
-
+def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
     project_root = Path(__file__).resolve().parent.parent
     Config.set_root_dir(project_root)
 
     try:
         app.setApplicationName(Config.APP_NAME)
         app.setApplicationDisplayName(Config.APP_NAME)
-    except Exception:
-        pass
+    except (RuntimeError, TypeError, ValueError) as ex:
+        _LOG.debug("Application metadata update skipped. app_name=%s detail=%s", Config.APP_NAME, ex)
 
     ui_cfg = UIConfig()
     try:
-        app.setProperty("ui_config", ui_cfg)
-    except Exception:
-        pass
+        app.setProperty('ui_config', ui_cfg)
+    except (RuntimeError, TypeError) as ex:
+        _LOG.debug("Application ui_config property update skipped. detail=%s", ex)
 
-    _load_fonts(app, Config.ASSETS_DIR / "fonts")
+    _load_fonts(app, Config.ASSETS_DIR / 'fonts')
+    return ui_cfg
 
+def _setup_logging() -> Any:
     bootstrap_file_enabled, bootstrap_level = LoggingSetup.read_bootstrap_settings(
         Config.DEFAULTS_FILE,
         Config.SETTINGS_FILE,
@@ -114,9 +124,10 @@ def run() -> int:
         file_enabled=bootstrap_file_enabled,
         bootstrap_level=bootstrap_level,
     )
-    log = log_ctx.logger
-    log.debug(
-        "Bootstrap logging settings resolved. level=%s file_enabled=%s settings_file=%s defaults_file=%s",
+
+    logger = log_ctx.logger
+    logger.debug(
+        'Startup logging settings resolved. level=%s file_enabled=%s settings_file=%s defaults_file=%s',
         bootstrap_level,
         bool(bootstrap_file_enabled),
         Config.SETTINGS_FILE,
@@ -124,156 +135,166 @@ def run() -> int:
     )
 
     try:
-        QtCore.qInstallMessageHandler(LoggingSetup.make_qt_message_handler(log, log_ctx.crash_log_path))
-        log.debug("Qt message handler installed. crash_log=%s", log_ctx.crash_log_path)
-    except Exception:
-        pass
+        QtCore.qInstallMessageHandler(LoggingSetup.make_qt_message_handler(logger, log_ctx.crash_log_path))
+        logger.debug('Qt message handler installed. crash_log=%s', log_ctx.crash_log_path)
+    except (RuntimeError, TypeError) as ex:
+        logger.warning('Qt message handler installation failed. detail=%s', ex)
 
-    svc = SettingsService()
+    return log_ctx
+
+def _load_startup_localization(logger: LoggerLike) -> bool:
     try:
-        Translator.load_best(Config.LOCALES_DIR, system_first=False, fallback="en")
-        log.debug("Bootstrap localization loaded. locales_dir=%s", Config.LOCALES_DIR)
-    except Exception:
+        load_best(Config.LOCALES_DIR, system_first=False, fallback='en')
+        logger.debug('Startup localization loaded. locales_dir=%s', Config.LOCALES_DIR)
+        return True
+    except (OSError, RuntimeError, TypeError, ValueError):
         critical_locales_missing_and_exit(None)
-        return 1
+        return False
 
+def _load_settings(service: SettingsService, logger: LoggerLike) -> Any | None:
     try:
-        snap = svc.load()
+        return service.load()
     except SettingsError as settings_ex:
-        settings_error_key = getattr(settings_ex, "key", str(settings_ex))
-        if settings_error_key == "error.settings.defaults_missing":
+        settings_error_key = getattr(settings_ex, 'key', str(settings_ex))
+        if settings_error_key == 'error.settings.defaults_missing':
             critical_defaults_missing_and_exit(None)
-            return 1
+            return None
+
         try:
-            detail = Translator.tr(settings_error_key, **(getattr(settings_ex, "params", {}) or {}))
-        except Exception:
+            detail = tr(settings_error_key, **(getattr(settings_ex, 'params', {}) or {}))
+        except (RuntimeError, TypeError, ValueError, KeyError):
             detail = str(settings_error_key)
+
         action = critical_config_load_failed_choice(None, detail)
-        if action != "restore_defaults":
-            return 1
+        if action != 'restore_defaults':
+            return None
 
         try:
-            svc.restore_defaults()
-            snap = svc.load()
-            log.debug("Settings restored from defaults after load failure. detail=%s", detail)
-        except Exception as restore_ex:
+            service.restore_defaults()
+            logger.debug('Settings restored from defaults after load failure. detail=%s', detail)
+            return service.load()
+        except (OSError, RuntimeError, TypeError, ValueError, SettingsError) as restore_ex:
             critical_startup_error_and_exit(None, type(restore_ex).__name__)
-            return 1
-    except Exception as load_ex:
-        log.exception("Entrypoint settings load failed. detail=%s", load_ex)
+            return None
+    except (OSError, RuntimeError, TypeError, ValueError) as load_ex:
+        logger.exception('Entrypoint settings load failed. detail=%s', load_ex)
         critical_startup_error_and_exit(None, type(load_ex).__name__)
-        return 1
+        return None
 
-    logging_cfg: dict[str, object] = {}
+def _apply_logging_settings(log_ctx: Any, snap: Any) -> None:
     try:
-        logging_cfg = snap.app.get("logging", {}) if isinstance(snap.app.get("logging"), dict) else {}
+        logging_cfg = snap.app.get('logging', {}) if isinstance(snap.app.get('logging'), dict) else {}
         LoggingSetup.apply_settings(
             log_ctx,
-            file_enabled=bool(logging_cfg.get("enabled", True)),
-            level=str(logging_cfg.get("level", "warning") or "warning"),
+            file_enabled=bool(logging_cfg.get('enabled', True)),
+            level=str(logging_cfg.get('level', 'warning') or 'warning'),
         )
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+        log_ctx.logger.warning('Runtime logging settings apply failed. detail=%s', ex)
 
-    log.debug(
-        "Settings snapshot loaded. language=%s theme=%s logging_level=%s logging_enabled=%s",
-        snap.app.get("language", "auto"),
-        snap.app.get("theme", "auto"),
-        logging_cfg.get("level", "warning"),
-        bool(logging_cfg.get("enabled", True)),
-    )
-
-    locales_dir = Config.LOCALES_DIR
-    lang_pref = str(snap.app.get("language", "auto"))
-
+def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
+    lang_pref = str(snap.app.get('language', 'auto') or 'auto')
     try:
-        if lang_pref.lower() == "auto":
-            Translator.load_best(locales_dir, system_first=True, fallback="en")
+        if lang_pref.lower() == 'auto':
+            load_best(Config.LOCALES_DIR, system_first=True, fallback='en')
         else:
-            Translator.load(locales_dir, lang_pref)
-        log.debug("Application localization activated. language=%s locales_dir=%s", Translator.current_language(), locales_dir)
-    except Exception:
+            load(Config.LOCALES_DIR, lang_pref)
+        logger.debug(
+            'Application localization activated. language=%s locales_dir=%s',
+            current_language(),
+            Config.LOCALES_DIR,
+        )
+        return True
+    except (OSError, RuntimeError, TypeError, ValueError):
         critical_locales_missing_and_exit(None)
-        return 1
+        return False
 
+def _apply_theme(app: QtWidgets.QApplication, snap: Any, logger: Any) -> str:
     theme = system_theme_key(app)
     try:
-        theme = _apply_stylesheet(app, Config.STYLES_DIR, str(snap.app.get("theme", "auto")))
+        theme = _apply_stylesheet(app, Config.STYLES_DIR, str(snap.app.get('theme', 'auto') or 'auto'))
         _apply_palette(app, theme)
-        log.debug("Application theme applied. theme=%s styles_dir=%s", theme, Config.STYLES_DIR)
-    except Exception as stylesheet_ex:
-        log.exception("Entrypoint stylesheet failed. detail=%s", stylesheet_ex)
+        logger.debug('Application theme applied. theme=%s styles_dir=%s', theme, Config.STYLES_DIR)
+    except (OSError, RuntimeError, TypeError, ValueError) as stylesheet_ex:
+        logger.exception('Entrypoint stylesheet failed. detail=%s', stylesheet_ex)
+    return theme
 
+def _apply_window_icon(app: QtWidgets.QApplication, theme: str) -> None:
     try:
         icon = app_icon(theme)
         if icon is not None and not icon.isNull():
             app.setWindowIcon(icon)
-    except Exception:
-        pass
+    except (RuntimeError, TypeError) as ex:
+        _LOG.debug("Application window icon update skipped. theme=%s detail=%s", theme, ex)
 
+def _clamp_third_party_logging(logger: Any) -> None:
     try:
         from transformers.utils import logging as hf_logging
+
         hf_logging.set_verbosity_error()
-        log.debug("Transformers logging clamped to error level.")
-    except Exception:
-        pass
+        logger.debug('Transformers logging clamped to error level.')
+    except (ImportError, AttributeError, RuntimeError, TypeError, ValueError) as ex:
+        logger.debug('Transformers logging clamp skipped. detail=%s', ex)
 
-    from app.view.components.loading_screen import LoadingScreenWidget
-    from app.controller.tasks.startup_task import StartupWorker, build_startup_tasks
-    from app.controller.support.task_thread_runner import TaskThreadRunner
-
+def _build_startup_labels() -> dict[str, str]:
+    return {
+        'asr': tr('loading.stage.transcription_model'),
+        'tr': tr('loading.stage.translation_model'),
+        'init': tr('loading.stage.init'),
+        'dirs': tr('loading.stage.dirs'),
+        'ffmpeg': tr('loading.stage.ffmpeg'),
+    }
+def _start_loading_screen(app: QtWidgets.QApplication) -> LoadingScreenWidget:
     loading = LoadingScreenWidget()
     loading.set_indeterminate(True)
     loading.show()
     app.processEvents()
-    log.debug("Loading screen shown.")
+    return loading
 
-    labels = {
-        "asr": Translator.tr("loading.stage.transcription_model"),
-        "tr": Translator.tr("loading.stage.translation_model"),
-        "init": Translator.tr("loading.stage.init"),
-        "dirs": Translator.tr("loading.stage.dirs"),
-        "ffmpeg": Translator.tr("loading.stage.ffmpeg"),
-    }
-    tasks = build_startup_tasks(Config, snap, labels)
-    log.debug("Startup tasks built. count=%s", len(tasks))
+def _start_startup(
+    app: QtWidgets.QApplication,
+    *,
+    ui_cfg: UIConfig,
+    snap: Any,
+    logger: Any,
+) -> int:
+    loading = _start_loading_screen(app)
+    logger.debug('Loading screen shown.')
 
-    runner = TaskThreadRunner(app)
-    worker = StartupWorker(tasks)
-
-    boot_refs = {"loading": loading, "runner": runner, "win": None}
-    setattr(app, "_boot_refs", boot_refs)
+    controller = AppCoordinator(app)
+    startup = controller.startup
+    labels = _build_startup_labels()
 
     def _on_status(text: str) -> None:
         loading.set_status(text)
-        log.debug("Startup stage updated. label=%s", text)
+        logger.debug('Startup stage updated. label=%s', text)
 
     def _on_progress(pct: int) -> None:
         loading.set_indeterminate(False)
         loading.set_progress(pct)
 
-    def _on_failed(failed_key: str, params: dict) -> None:
-        log.error("Entrypoint startup worker failed. key=%s params=%s", failed_key, params)
+    def _on_failed(failed_key: str, params: dict[str, Any]) -> None:
+        logger.error('Entrypoint startup worker failed. key=%s params=%s', failed_key, params)
         loading.finish()
-        details = str((params or {}).get("detail") or failed_key or "StartupError")
+        details = str((params or {}).get('detail') or failed_key or 'StartupError')
         critical_startup_error_and_exit(None, details)
 
-    def _on_ready(ctx: dict) -> None:
+    def _on_ready(runtime_state: AppRuntimeState) -> None:
         try:
-            from app.view.main_window import MainWindow
-            win = MainWindow(boot_ctx=ctx, ui_cfg=ui_cfg)
-            boot_refs["win"] = win
+            controller.set_runtime_state(runtime_state)
+            win = MainWindow(ui_cfg=ui_cfg)
+            controller.bind_main_window(win)
             win.show()
-            live_has_audio = bool(getattr(getattr(win, "live_panel", None), "_has_audio_devices", False))
-            log.debug(
-                "Startup context ready. asr_ready=%s translation_ready=%s network_status=%s microphones_detected=%s",
-                bool(ctx.get("transcription_ready")),
-                bool(ctx.get("translation_ready")),
-                getattr(win, "network_status", lambda: "checking")(),
+            live_has_audio = bool(getattr(getattr(win, 'live_panel', None), '_has_audio_devices', False))
+            logger.debug(
+                'Startup context ready. asr_ready=%s translation_ready=%s network_status=%s microphones_detected=%s',
+                bool(runtime_state.transcription_ready),
+                bool(runtime_state.translation_ready),
+                getattr(win, 'network_status', lambda: 'checking')(),
                 live_has_audio,
             )
-        except Exception as ready_ex:
-            log.exception("Entrypoint main window creation failed. detail=%s", ready_ex)
+        except (OSError, RuntimeError, TypeError, ValueError, AttributeError) as ready_ex:
+            logger.exception('Entrypoint main window creation failed. detail=%s', ready_ex)
             loading.finish()
             critical_startup_error_and_exit(None, type(ready_ex).__name__)
             return
@@ -281,15 +302,53 @@ def run() -> int:
         loading.finish()
         loading.deleteLater()
 
-    def _connect(wk: StartupWorker) -> None:
-        wk.status.connect(_on_status)
-        wk.progress.connect(_on_progress)
-        wk.failed.connect(_on_failed)
-        wk.ready.connect(_on_ready)
+    def _connect_worker(startup_worker: Any) -> None:
+        startup_worker.status.connect(_on_status)
+        startup_worker.progress.connect(_on_progress)
+        startup_worker.failed.connect(_on_failed)
+        startup_worker.ready.connect(_on_ready)
 
-    runner.start(worker, connect=_connect)
-    log.debug("Startup worker scheduled.")
+    worker = startup.build_and_start(Config, snap, labels, connect=_connect_worker)
+    if worker is None:
+        logger.error('Entrypoint startup worker could not be scheduled. reason=busy')
+        loading.finish()
+        critical_startup_error_and_exit(None, "StartupBusy")
+        return 1
+
+    logger.debug('Startup worker scheduled.')
     return app.exec_()
 
-if __name__ == "__main__":
-    sys.exit(run())
+def run(argv: list[str] | None = None) -> int:
+    app = _create_application(argv)
+    ui_cfg = _configure_application(app)
+
+    log_ctx = _setup_logging()
+    logger = log_ctx.logger
+
+    if not _load_startup_localization(logger):
+        return 1
+
+    settings_service = SettingsService()
+    snap = _load_settings(settings_service, logger)
+    if snap is None:
+        return 1
+
+    _apply_logging_settings(log_ctx, snap)
+
+    logger.debug(
+        'Settings snapshot loaded. language=%s theme=%s',
+        snap.app.get('language', 'auto'),
+        snap.app.get('theme', 'auto'),
+    )
+
+    if not _activate_application_localization(snap, logger):
+        return 1
+
+    theme = _apply_theme(app, snap, logger)
+    _apply_window_icon(app, theme)
+    _clamp_third_party_logging(logger)
+
+    return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=logger)
+
+if __name__ == '__main__':
+    raise SystemExit(run())

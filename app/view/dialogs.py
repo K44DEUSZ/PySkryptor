@@ -1,4 +1,4 @@
-# app/view/components/dialogs.py
+# app/view/dialogs.py
 from __future__ import annotations
 
 import re
@@ -7,15 +7,14 @@ from typing import cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.controller.support.localization import Translator
+from app.model.services.localization_service import tr
 from app.model.config.app_config import AppConfig as Config
+from app.model.domain.errors import AppError
 from app.model.helpers.string_utils import sanitize_filename
 from app.view.support.theme_runtime import apply_windows_dark_titlebar
 from app.view.support.widget_setup import setup_button, setup_input
 from app.view.ui_config import ui
 
-
-# ----- Internal helpers -----
 class _NoCloseFilter(QtCore.QObject):
     """Event filter that blocks closing the dialog via window controls or ESC."""
 
@@ -29,10 +28,9 @@ class _NoCloseFilter(QtCore.QObject):
                 if event.key() == QtCore.Qt.Key.Key_Escape:
                     event.ignore()
                     return True
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            return False
         return False
-
 
 def _sanitize_window_flags(w: QtWidgets.QWidget) -> None:
     """Remove the Windows '?' (Context Help) button."""
@@ -40,29 +38,25 @@ def _sanitize_window_flags(w: QtWidgets.QWidget) -> None:
     flags &= ~QtCore.Qt.WindowType.WindowContextHelpButtonHint
     w.setWindowFlags(flags)
 
-
 def _lock_close(dlg: QtWidgets.QDialog) -> None:
     """Disable window close button and ignore close/ESC."""
     try:
         dlg.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, False)
         dlg.setWindowFlag(QtCore.Qt.WindowType.WindowSystemMenuHint, False)
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError):
+        return
 
     flt = _NoCloseFilter(dlg)
     dlg.installEventFilter(flt)
     setattr(dlg, "_no_close_filter", flt)
 
-
 def _tune_dialog_layout(layout: QtWidgets.QLayout, cfg) -> None:
     layout.setContentsMargins(cfg.margin, cfg.margin, cfg.margin, cfg.margin)
     layout.setSpacing(cfg.spacing)
 
-
 def _tune_buttons(cfg, *buttons: QtWidgets.QAbstractButton) -> None:
     for b in buttons:
         setup_button(b, min_h=cfg.control_min_h, min_w=cfg.button_min_w)
-
 
 def _tune_dialog_window(dlg: QtWidgets.QDialog, cfg) -> None:
     _sanitize_window_flags(dlg)
@@ -70,12 +64,11 @@ def _tune_dialog_window(dlg: QtWidgets.QDialog, cfg) -> None:
     dlg.setWindowTitle(Config.APP_NAME)
     try:
         dlg.setWindowIcon(QtWidgets.QApplication.windowIcon())
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError):
+        return
     dlg.setMinimumWidth(cfg.dialog_min_w)
     dlg.setMaximumWidth(cfg.dialog_max_w)
     apply_windows_dark_titlebar(dlg)
-
 
 def _bold_label(text: str) -> QtWidgets.QLabel:
     lbl = QtWidgets.QLabel(text)
@@ -85,14 +78,11 @@ def _bold_label(text: str) -> QtWidgets.QLabel:
     lbl.setWordWrap(True)
     return lbl
 
-
 def _wrap_label(text: str) -> QtWidgets.QLabel:
     lbl = QtWidgets.QLabel(text)
     lbl.setWordWrap(True)
     return lbl
 
-
-# ----- Base dialog / button builders -----
 def _message_dialog(
     parent: QtWidgets.QWidget | None,
     *,
@@ -121,14 +111,13 @@ def _message_dialog(
     btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
     ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
-        ok_btn.setText(ok_text or Translator.tr("ctrl.ok"))
+        ok_btn.setText(ok_text or tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
         ok_btn.setDefault(True)
     btns.accepted.connect(dlg.accept)
 
     lay.addWidget(btns)
     dlg.exec_()
-
 
 def _confirm_dialog(
     parent: QtWidgets.QWidget | None,
@@ -173,7 +162,6 @@ def _confirm_dialog(
 
     return dlg.exec_() == QtWidgets.QDialog.Accepted
 
-
 def _terminate_application() -> None:
     app = cast(QtWidgets.QApplication | None, QtWidgets.QApplication.instance())
     if app is None:
@@ -181,55 +169,48 @@ def _terminate_application() -> None:
 
     try:
         app.closeAllWindows()
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError):
+        return
 
     try:
         app.quit()
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError):
+        return
 
-
-# ----- Critical startup dialogs -----
 def critical_defaults_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
-    title = Translator.tr("dialog.critical.application_error.title")
-    text = Translator.tr("dialog.critical.defaults_missing.text")
+    title = tr("dialog.critical.application_error.title")
+    text = tr("dialog.critical.defaults_missing.text")
     _message_dialog(parent, title=title, message=text, header=title, no_close=True)
     _terminate_application()
-
 
 def critical_locales_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
-    title = Translator.tr("dialog.critical.localization_error.title")
-    text = Translator.tr("dialog.critical.locales_missing.text")
+    title = tr("dialog.critical.localization_error.title")
+    text = tr("dialog.critical.locales_missing.text")
     _message_dialog(parent, title=title, message=text, header=title, no_close=True)
     _terminate_application()
 
-
 def critical_startup_error_and_exit(parent: QtWidgets.QWidget | None, details: str = "") -> None:
-    title = Translator.tr("dialog.critical.pyskryptor_error.title")
-    msg = Translator.tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
+    title = tr("dialog.critical.pyskryptor_error.title")
+    msg = tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
     _message_dialog(parent, title=title, message=msg, header=title, no_close=True)
     _terminate_application()
 
-
 def critical_config_load_failed_choice(parent: QtWidgets.QWidget | None, details: str = "") -> str:
     """Returns: 'exit' | 'restore_defaults'."""
-    title = Translator.tr("dialog.critical.pyskryptor_error.title")
-    msg = Translator.tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
+    title = tr("dialog.critical.pyskryptor_error.title")
+    msg = tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
     ok_restore = _confirm_dialog(
         parent,
         title=title,
         message=msg,
-        accept_text=Translator.tr("settings.buttons.restore_defaults"),
-        reject_text=Translator.tr("ctrl.exit"),
+        accept_text=tr("settings.buttons.restore_defaults"),
+        reject_text=tr("ctrl.exit"),
         header=title,
         default_accept=False,
         no_close=True,
     )
     return "restore_defaults" if ok_restore else "exit"
 
-
-# ----- Live / audio dialogs -----
 def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     cfg = ui(parent)
     dlg = QtWidgets.QDialog(parent)
@@ -238,88 +219,70 @@ def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
 
-    lay.addWidget(_bold_label(Translator.tr("live.dialog.no_devices.title")))
-    lay.addWidget(_wrap_label(Translator.tr("live.dialog.no_devices.text")))
+    lay.addWidget(_bold_label(tr("live.dialog.no_devices.title")))
+    lay.addWidget(_wrap_label(tr("live.dialog.no_devices.text")))
     lay.addStretch(1)
 
     btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
     ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
-        ok_btn.setText(Translator.tr("ctrl.ok"))
+        ok_btn.setText(tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
     btns.accepted.connect(dlg.accept)
     lay.addWidget(btns)
 
     dlg.exec_()
 
-
-# ----- Downloader info dialogs -----
 def info_playlist_not_supported(parent: QtWidgets.QWidget | None = None) -> None:
-    _message_dialog(parent, title="", message=Translator.tr("down.dialog.playlist_not_supported.text"))
+    _message_dialog(parent, title="", message=tr("down.dialog.playlist_not_supported.text"))
 
-
-# ----- Availability / network dialogs -----
 def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> None:
     _message_dialog(
         parent,
-        title=Translator.tr("dialog.availability.network_offline.title"),
-        message=Translator.tr(text_key),
-        header=Translator.tr("dialog.availability.network_offline.header"),
-        ok_text=Translator.tr("ctrl.ok"),
+        title=tr("dialog.availability.network_offline.title"),
+        message=tr(text_key),
+        header=tr("dialog.availability.network_offline.header"),
+        ok_text=tr("ctrl.ok"),
     )
-
 
 def show_downloader_offline_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     _availability_dialog(parent, text_key="dialog.availability.downloader_offline.text")
 
-
-def show_files_url_offline_dialog(parent: QtWidgets.QWidget | None = None) -> None:
-    _availability_dialog(parent, text_key="dialog.availability.files_url_offline.text")
-
-
-def show_files_only_url_offline_dialog(parent: QtWidgets.QWidget | None = None) -> None:
-    _availability_dialog(parent, text_key="dialog.availability.files_only_url_offline.text")
-
-
-# ----- Runtime confirmation dialogs -----
 def ask_cancel(parent: QtWidgets.QWidget) -> bool:
-    text = Translator.tr("dialog.cancel_confirm", detail="")
+    text = tr("dialog.cancel_confirm", detail="")
     return _confirm_dialog(
         parent,
         title="",
         message=text,
-        accept_text=Translator.tr("action.cancel_now"),
-        reject_text=Translator.tr("action.keep_working"),
+        accept_text=tr("action.cancel_now"),
+        reject_text=tr("action.keep_working"),
         header=None,
         default_accept=False,
     )
-
 
 def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
-    text = Translator.tr("dialog.settings_save_confirm")
+    text = tr("dialog.settings_save_confirm")
     return _confirm_dialog(
         parent,
         title="",
         message=text,
-        accept_text=Translator.tr("settings.buttons.save"),
-        reject_text=Translator.tr("ctrl.cancel"),
+        accept_text=tr("settings.buttons.save"),
+        reject_text=tr("ctrl.cancel"),
         header=None,
         default_accept=False,
     )
-
 
 def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
-    text = Translator.tr("dialog.settings_restore_confirm")
+    text = tr("dialog.settings_restore_confirm")
     return _confirm_dialog(
         parent,
         title="",
         message=text,
-        accept_text=Translator.tr("settings.buttons.restore_defaults"),
-        reject_text=Translator.tr("ctrl.cancel"),
+        accept_text=tr("settings.buttons.restore_defaults"),
+        reject_text=tr("ctrl.cancel"),
         header=None,
         default_accept=False,
     )
-
 
 def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     """Transcript conflict dialog."""
@@ -331,12 +294,12 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout, cfg)
 
-    layout.addWidget(_bold_label(Translator.tr("dialog.conflict.title")))
-    layout.addWidget(_wrap_label(Translator.tr("dialog.conflict.text", name=stem)))
+    layout.addWidget(_bold_label(tr("dialog.conflict.title")))
+    layout.addWidget(_wrap_label(tr("dialog.conflict.text", name=stem)))
 
-    rb_skip = QtWidgets.QRadioButton(Translator.tr("dialog.conflict.skip"))
-    rb_over = QtWidgets.QRadioButton(Translator.tr("dialog.conflict.overwrite"))
-    rb_new = QtWidgets.QRadioButton(Translator.tr("dialog.conflict.new_name"))
+    rb_skip = QtWidgets.QRadioButton(tr("dialog.conflict.skip"))
+    rb_over = QtWidgets.QRadioButton(tr("dialog.conflict.overwrite"))
+    rb_new = QtWidgets.QRadioButton(tr("dialog.conflict.new_name"))
     rb_skip.setChecked(True)
 
     layout.addWidget(rb_skip)
@@ -348,7 +311,7 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     name_edit.setEnabled(False)
     layout.addWidget(name_edit)
 
-    cb_all = QtWidgets.QCheckBox(Translator.tr("dialog.conflict.apply_all"))
+    cb_all = QtWidgets.QCheckBox(tr("dialog.conflict.apply_all"))
     cb_all.setMinimumHeight(cfg.control_min_h)
     layout.addWidget(cb_all)
 
@@ -371,7 +334,7 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
 
     ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
-        ok_btn.setText(Translator.tr("ctrl.ok"))
+        ok_btn.setText(tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
         ok_btn.setDefault(True)
 
@@ -384,7 +347,6 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     if rb_new.isChecked():
         return "new", sanitize_filename(name_edit.text().strip()), False
     return "skip", "", cb_all.isChecked()
-
 
 def ask_download_duplicate(
     parent: QtWidgets.QWidget,
@@ -401,11 +363,11 @@ def ask_download_duplicate(
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout, cfg)
 
-    layout.addWidget(_wrap_label(Translator.tr("down.dialog.exists.text", title=title)))
+    layout.addWidget(_wrap_label(tr("down.dialog.exists.text", title=title)))
 
-    rb_skip = QtWidgets.QRadioButton(Translator.tr("down.dialog.exists.skip"))
-    rb_over = QtWidgets.QRadioButton(Translator.tr("down.dialog.exists.overwrite"))
-    rb_ren = QtWidgets.QRadioButton(Translator.tr("down.dialog.exists.rename"))
+    rb_skip = QtWidgets.QRadioButton(tr("down.dialog.exists.skip"))
+    rb_over = QtWidgets.QRadioButton(tr("down.dialog.exists.overwrite"))
+    rb_ren = QtWidgets.QRadioButton(tr("down.dialog.exists.rename"))
     rb_skip.setChecked(True)
 
     row = QtWidgets.QHBoxLayout()
@@ -420,7 +382,7 @@ def ask_download_duplicate(
     name_edit.setEnabled(False)
     layout.addWidget(name_edit)
 
-    cb_all = QtWidgets.QCheckBox(Translator.tr("down.dialog.exists.apply_all"))
+    cb_all = QtWidgets.QCheckBox(tr("down.dialog.exists.apply_all"))
     cb_all.setMinimumHeight(cfg.control_min_h)
     layout.addWidget(cb_all)
 
@@ -443,7 +405,7 @@ def ask_download_duplicate(
 
     ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
-        ok_btn.setText(Translator.tr("ctrl.ok"))
+        ok_btn.setText(tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
         ok_btn.setDefault(True)
 
@@ -457,7 +419,6 @@ def ask_download_duplicate(
         return "rename", sanitize_filename(name_edit.text().strip()), False
     return "skip", "", cb_all.isChecked()
 
-
 def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     """Restart decision dialog."""
     cfg = ui(parent)
@@ -467,13 +428,13 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
 
-    lay.addWidget(_bold_label(Translator.tr("dialog.restart_required.title")))
-    lay.addWidget(_wrap_label(Translator.tr("dialog.restart_required.text")))
+    lay.addWidget(_bold_label(tr("dialog.restart_required.title")))
+    lay.addWidget(_wrap_label(tr("dialog.restart_required.text")))
     lay.addStretch(1)
 
     btns = QtWidgets.QDialogButtonBox()
-    btn_restart = btns.addButton(Translator.tr("dialog.restart_required.restart"), QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_later = btns.addButton(Translator.tr("dialog.restart_required.later"), QtWidgets.QDialogButtonBox.RejectRole)
+    btn_restart = btns.addButton(tr("dialog.restart_required.restart"), QtWidgets.QDialogButtonBox.AcceptRole)
+    btn_later = btns.addButton(tr("dialog.restart_required.later"), QtWidgets.QDialogButtonBox.RejectRole)
     _tune_buttons(cfg, btn_restart, btn_later)
 
     btn_restart.clicked.connect(dlg.accept)
@@ -483,33 +444,28 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
 
     return dlg.exec_() == QtWidgets.QDialog.Accepted
 
-
-# ----- Session finish helpers -----
 def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> bool:
     """Returns True if user wants to open the session folder."""
-    base = Translator.tr("dialog.info.done")
+    base = tr("dialog.info.done")
     msg = f"{base}\n{session_dir}" if session_dir else base
     return _confirm_dialog(
         parent,
         title="",
         message=msg,
-        accept_text=Translator.tr("files.open_output"),
-        reject_text=Translator.tr("ctrl.ok"),
-        header=Translator.tr("status.done"),
+        accept_text=tr("files.open_output"),
+        reject_text=tr("ctrl.ok"),
+        header=tr("status.done"),
         default_accept=False,
     )
 
-
 def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -> bool:
     """Returns True if user wants to open downloads folder."""
-    file_name = ""
     try:
-        p = Path(downloaded_path)
-        file_name = p.name
-    except Exception:
+        file_name = Path(downloaded_path).name
+    except (TypeError, ValueError):
         file_name = str(downloaded_path or "")
 
-    msg = Translator.tr("dialog.info.downloaded_prefix")
+    msg = tr("dialog.info.downloaded_prefix")
     if file_name:
         msg = f"{msg} {file_name}"
 
@@ -517,17 +473,14 @@ def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -
         parent,
         title="",
         message=msg,
-        accept_text=Translator.tr("down.open_folder"),
-        reject_text=Translator.tr("ctrl.ok"),
-        header=Translator.tr("status.done"),
+        accept_text=tr("down.open_folder"),
+        reject_text=tr("ctrl.ok"),
+        header=tr("status.done"),
         default_accept=False,
     )
 
-
-# ----- Generic info / error wrappers -----
 def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
-    _message_dialog(parent, title=title, message=message, header=header, ok_text=Translator.tr("ctrl.ok"))
-
+    _message_dialog(parent, title=title, message=message, header=header, ok_text=tr("ctrl.ok"))
 
 def show_error(
     parent: QtWidgets.QWidget | None,
@@ -538,7 +491,11 @@ def show_error(
     message: str | None = None,
     header: str | None = None,
 ) -> None:
-    """Standard runtime error dialog (closable)."""
+    """Show a runtime error dialog.
+
+    ``key`` is intended for semantic ``error.*`` translation keys.
+    ``dialog.*`` keys remain an internal concern of the view layer itself.
+    """
 
     def _should_hide_detail(text: str) -> bool:
         s = str(text or "")
@@ -557,24 +514,28 @@ def show_error(
 
     def _sanitize_message(text: str) -> str:
         if _should_hide_detail(text):
-            return Translator.tr("dialog.error.unexpected", msg=Translator.tr("dialog.error.details_hidden"))
+            return tr("dialog.error.unexpected", msg=tr("dialog.error.details_hidden"))
         return text
 
     if title is not None or message is not None or header is not None:
         _message_dialog(
             parent,
-            title=title or Translator.tr("dialog.error.title"),
+            title=title or tr("dialog.error.title"),
             message=_sanitize_message(message or ""),
             header=header,
-            ok_text=Translator.tr("ctrl.ok"),
+            ok_text=tr("ctrl.ok"),
         )
         return
 
-    msg = _sanitize_message(Translator.tr(str(key or ""), **(params or {})))
+    msg = _sanitize_message(tr(str(key or ""), **(params or {})))
     _message_dialog(
         parent,
-        title=Translator.tr("dialog.error.title"),
+        title=tr("dialog.error.title"),
         message=msg,
-        header=Translator.tr("dialog.error.header"),
-        ok_text=Translator.tr("ctrl.ok"),
+        header=tr("dialog.error.header"),
+        ok_text=tr("ctrl.ok"),
     )
+
+def show_app_error(parent: QtWidgets.QWidget | None, err: AppError) -> None:
+    """Show an :class:`AppError` through the standard error dialog path."""
+    show_error(parent, key=str(err.key), params=dict(err.params or {}))

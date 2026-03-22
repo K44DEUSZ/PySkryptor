@@ -13,13 +13,12 @@ from typing import Any, Callable
 import torch
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
-from app.model.helpers.errors import AppError
+from app.model.domain.errors import AppError
 from app.model.services.settings_service import SettingsCatalog
 from app.model.helpers.string_utils import normalize_lang_code
 
 _LOG = logging.getLogger(__name__)
 
-# ----- Errors -----
 class TranslationError(AppError):
     """Key-based error used for i18n-friendly translation failures."""
 
@@ -28,14 +27,11 @@ class TranslationError(AppError):
 
 LogFn = Callable[[str], None]
 
-
 def _norm_lang(code: str) -> str:
     return normalize_lang_code(code, drop_region=True)
 
-
 def _supported() -> set[str]:
     return set(SettingsCatalog.translation_language_codes())
-
 
 def _dtype_name(dtype_name: str) -> str:
     name = str(dtype_name or "float32").strip().lower()
@@ -45,7 +41,6 @@ def _dtype_name(dtype_name: str) -> str:
         return "bfloat16"
     return "float32"
 
-
 @dataclass
 class _WorkerIO:
     proc: subprocess.Popen
@@ -53,7 +48,6 @@ class _WorkerIO:
 
 _WORKER: _WorkerIO | None = None
 _WORKER_GUARD = threading.Lock()
-
 
 class TranslationService:
     """Translation via a dedicated worker process."""
@@ -165,7 +159,6 @@ class TranslationService:
             )
         return out
 
-    # ----- Worker management -----
     def _ensure_worker(self, *, log: LogFn | None = None) -> None:
         global _WORKER
 
@@ -175,8 +168,8 @@ class TranslationService:
                 return
             try:
                 _WORKER.proc.kill()
-            except Exception:
-                pass
+            except (ProcessLookupError, OSError) as proc_ex:
+                _LOG.debug("Translation worker process kill skipped. detail=%s", proc_ex)
             _WORKER = None
 
         with _WORKER_GUARD:
@@ -197,7 +190,7 @@ class TranslationService:
                     bufsize=1,
                     cwd=str(Config.ROOT_DIR),
                 )
-            except Exception as ex:
+            except (OSError, ValueError, RuntimeError) as ex:
                 _WORKER = None
                 _LOG.warning("Translation worker start failed. detail=%s", ex)
                 raise TranslationError("error.translation.worker_start_failed", detail=str(ex))
@@ -278,11 +271,10 @@ class TranslationService:
             raise TranslationError("error.translation.no_response_from_worker")
         try:
             rep = json.loads(out)
-        except Exception as ex:
+        except json.JSONDecodeError as ex:
             raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
         return rep if isinstance(rep, dict) else {}
 
-# ----- Worker -----
 @dataclass
 class _LoadedM2M100:
     tokenizer: Any
@@ -290,7 +282,6 @@ class _LoadedM2M100:
     device: torch.device
 
 _WORKER_STATE: dict[tuple[str, str, str, bool], _LoadedM2M100] = {}
-
 
 def _chunk_text(text: str, *, max_chars: int) -> list[str]:
     t = str(text or "").strip()
@@ -320,16 +311,14 @@ def _chunk_text(text: str, *, max_chars: int) -> list[str]:
             parts.append(buf)
     return parts
 
-
 def _resolve_device(device_str: str) -> torch.device:
     wanted = str(device_str or "cpu").strip().lower()
     if wanted.startswith("cuda") and torch.cuda.is_available():
         try:
             return torch.device(device_str)
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             return torch.device("cuda")
     return torch.device("cpu")
-
 
 def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
     if str(device).startswith("cpu"):
@@ -342,7 +331,6 @@ def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
     if name in ("float32", "fp32"):
         return torch.float32
     return torch.float16
-
 
 def _load_m2m100(
     *,
@@ -368,7 +356,6 @@ def _load_m2m100(
     model.eval()
     return _LoadedM2M100(tokenizer=tok, model=model, device=device)
 
-
 def _load_worker_runtime(req: dict[str, Any]) -> _LoadedM2M100:
     model_ref = str(req.get("model_ref") or "").strip()
     device_str = str(req.get("device") or "").strip()
@@ -390,7 +377,6 @@ def _load_worker_runtime(req: dict[str, Any]) -> _LoadedM2M100:
     _WORKER_STATE[key] = loaded
     return loaded
 
-
 def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
     cmd = str(req.get("cmd", ""))
     if cmd == "ping":
@@ -399,7 +385,7 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
     if cmd == "warmup":
         try:
             _load_worker_runtime(req)
-        except Exception as ex:
+        except (OSError, RuntimeError, ValueError) as ex:
             return {"ok": False, "code": "warmup_failed", "error": str(ex)}
         return {"ok": True}
 
@@ -415,7 +401,7 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
 
         try:
             loaded = _load_worker_runtime(req)
-        except Exception as ex:
+        except (OSError, RuntimeError, ValueError) as ex:
             return {"ok": False, "code": "load_failed", "error": str(ex)}
 
         tok = loaded.tokenizer
@@ -462,7 +448,6 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
 
     return {"ok": False, "code": "bad_command", "error": f"unsupported cmd '{cmd}'"}
 
-
 def _run_worker() -> int:
     for line in sys.stdin:
         line = line.strip()
@@ -470,7 +455,7 @@ def _run_worker() -> int:
             continue
         try:
             req = json.loads(line)
-        except Exception as ex:
+        except json.JSONDecodeError as ex:
             sys.stdout.write(json.dumps({"ok": False, "code": "bad_json", "error": str(ex)}) + "\n")
             sys.stdout.flush()
             continue
@@ -481,7 +466,6 @@ def _run_worker() -> int:
         sys.stdout.write(json.dumps(rep, ensure_ascii=True) + "\n")
         sys.stdout.flush()
     return 0
-
 
 def _cli_entry(argv: list[str]) -> int:
     if "--worker" not in argv:

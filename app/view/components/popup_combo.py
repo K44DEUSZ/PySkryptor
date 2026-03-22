@@ -5,7 +5,7 @@ from typing import Any, Callable, Iterable, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
-from app.controller.support.localization import build_language_options
+from app.model.services.localization_service import build_language_options
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.string_utils import normalize_lang_code
 from app.view.components.hint_popup import hint_popup
@@ -27,20 +27,15 @@ _POPUP_MULTISELECT_VISIBLE_ROWS_DEFAULT = 8
 _POPUP_COMBO_EXTRA_W = 52
 _POPUP_MULTISELECT_EXTRA_W = 60
 
-
 def _popup_anchor_gap_y(cfg) -> int:
     return max(1, int(cfg.space_s) // 2)
-
 
 def _popup_content_extra_h(cfg) -> int:
     return int(cfg.pad_y_l) + int(cfg.space_s)
 
-
 def _popup_multiselect_inner_gap(cfg) -> int:
     return max(1, int(cfg.space_s) // 2)
 
-
-# ----- Style helpers -----
 def _widget_alive(w: QtWidgets.QWidget | None) -> bool:
     if not isinstance(w, QtWidgets.QWidget):
         return False
@@ -48,24 +43,21 @@ def _widget_alive(w: QtWidgets.QWidget | None) -> bool:
         return True
     try:
         return not bool(sip.isdeleted(w))
-    except Exception:
+    except (AttributeError, RuntimeError, TypeError):
         return False
-
 
 def _widget_visible(w: QtWidgets.QWidget | None) -> bool:
     return _widget_alive(w) and bool(w.isVisible())
-
 
 def _sum_list_row_heights(view: QtWidgets.QAbstractItemView, count: int, fallback: int) -> int:
     total = 0
     for row in range(max(0, int(count))):
         try:
             row_hint = int(view.sizeHintForRow(row) or 0)
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             row_hint = 0
         total += max(int(fallback), int(row_hint), 1)
     return total
-
 
 def _layout_vertical_extra(layout: QtWidgets.QLayout | None) -> int:
     if layout is None:
@@ -73,12 +65,10 @@ def _layout_vertical_extra(layout: QtWidgets.QLayout | None) -> int:
     margins = layout.contentsMargins()
     return int(margins.top() + margins.bottom())
 
-
 def _anchor_available_geometry(anchor: QtWidgets.QWidget) -> QtCore.QRect:
     screen_pos = anchor.mapToGlobal(QtCore.QPoint(0, anchor.height()))
     screen = QtWidgets.QApplication.screenAt(screen_pos) or anchor.screen() or QtWidgets.QApplication.primaryScreen()
     return screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1920, 1080)
-
 
 def _anchored_popup_geometry(anchor: QtWidgets.QWidget, *, width: int, height: int) -> QtCore.QRect:
     avail = _anchor_available_geometry(anchor)
@@ -97,8 +87,6 @@ def _anchored_popup_geometry(anchor: QtWidgets.QWidget, *, width: int, height: i
 
     return QtCore.QRect(int(x), int(y), int(width), int(height))
 
-
-# ----- Combo code helpers -----
 def normalize_combo_code(code: str, *, default: str = "") -> str:
     raw = Config.normalize_language_choice_value(code)
     if raw in {
@@ -129,8 +117,6 @@ def normalize_combo_code(code: str, *, default: str = "") -> str:
     fallback = normalize_lang_code(fallback_raw, drop_region=False)
     return fallback or fallback_raw
 
-
-# ----- Combo data helpers -----
 def set_combo_data(
     combo: QtWidgets.QComboBox,
     value: Any,
@@ -156,10 +142,9 @@ def set_combo_data(
                 idx = i
                 break
 
-    if idx < 0 and combo.count() > 0:
+    if idx < 0 < combo.count():
         idx = 0
     combo.setCurrentIndex(idx)
-
 
 def set_combo_code(
     combo: QtWidgets.QComboBox,
@@ -171,15 +156,13 @@ def set_combo_code(
     idx = combo.findData(wanted)
     if idx < 0:
         idx = combo.findData(normalize_combo_code(fallback_code, default=fallback_code))
-    if idx < 0 and combo.count() > 0:
+    if idx < 0 < combo.count():
         idx = 0
     combo.setCurrentIndex(idx)
-
 
 def combo_current_code(combo: QtWidgets.QComboBox, *, default: str) -> str:
     data = combo.currentData()
     return normalize_combo_code(str(data or ""), default=default)
-
 
 def rebuild_code_combo(
     combo: QtWidgets.QComboBox,
@@ -198,7 +181,6 @@ def rebuild_code_combo(
         set_combo_code(combo, target, fallback_code=fallback_code)
     finally:
         combo.blockSignals(False)
-
 
 class _ComboPopupItemDelegate(QtWidgets.QStyledItemDelegate):
     def sizeHint(
@@ -273,8 +255,7 @@ class _PopupCheckItem(QtWidgets.QWidget):
         self._set_hovered(False)
         super().leaveEvent(event)
 
-    # ----- Event handling -----
-
+    # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if obj is self.checkbox:
             if event.type() == QtCore.QEvent.Type.Enter:
@@ -283,7 +264,6 @@ class _PopupCheckItem(QtWidgets.QWidget):
                 self._set_hovered(False)
         return super().eventFilter(obj, event)
 
-# ----- Popup widgets -----
 class _ComboPopupList(QtWidgets.QListView):
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -308,6 +288,7 @@ class _ComboPopupList(QtWidgets.QListView):
             vp.setMouseTracking(True)
 
 class ComboPopup(QtWidgets.QWidget):
+    """Frameless popup list used as the custom dropdown for PopupComboBox."""
     closed = QtCore.pyqtSignal()
     index_chosen = QtCore.pyqtSignal(int)
 
@@ -482,6 +463,7 @@ class ComboPopup(QtWidgets.QWidget):
         self._hover_tip_text = text
         hint_popup().show_for_rect(self._list.viewport(), self._list.visualRect(index), text)
 
+    # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if obj is self._list.viewport():
             if event.type() == QtCore.QEvent.Type.MouseMove and isinstance(event, QtGui.QMouseEvent):
@@ -494,12 +476,14 @@ class ComboPopup(QtWidgets.QWidget):
         if index.isValid():
             self.index_chosen.emit(int(index.row()))
 
+    # noinspection PyPep8Naming
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         self._hide_hover_hint()
         super().hideEvent(event)
         self.closed.emit()
 
 class MultiSelectPopup(QtWidgets.QWidget):
+    """Frameless popup list of check items for multi-select fields."""
     closed = QtCore.pyqtSignal()
     selection_changed = QtCore.pyqtSignal()
 
@@ -616,19 +600,15 @@ class MultiSelectPopup(QtWidgets.QWidget):
         height = self._popup_height(field)
         self.setGeometry(_anchored_popup_geometry(field, width=width, height=height))
 
+    # noinspection PyPep8Naming
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         super().hideEvent(event)
         self.closed.emit()
-
-
-# ----- Popup host mixin -----
 
 class _PopupHostComboMixin:
     _tracked_window: QtWidgets.QWidget | None
     _app_filter_installed: bool
     _visual_state_sync_pending: bool
-
-    # ----- Popup plumbing -----
 
     def _popup_widget(self) -> QtWidgets.QWidget | None:
         return None
@@ -661,6 +641,7 @@ class _PopupHostComboMixin:
 
         QtCore.QTimer.singleShot(0, _sync)
 
+    # noinspection PyPep8Naming
     def hidePopup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
@@ -688,6 +669,7 @@ class _PopupHostComboMixin:
         popup = self._popup_widget()
         return contains_widget_chain(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
 
+    # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
@@ -719,36 +701,43 @@ class _PopupHostComboMixin:
                 self._schedule_visual_state_sync()
         return QtWidgets.QWidget.eventFilter(cast(QtWidgets.QWidget, cast(object, self)), obj, event)
 
+    # noinspection PyPep8Naming
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.showEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._bind_window()
         self._schedule_visual_state_sync()
 
+    # noinspection PyPep8Naming
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         self.hidePopup()
         QtWidgets.QWidget.hideEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
+    # noinspection PyPep8Naming
     def moveEvent(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.moveEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
+    # noinspection PyPep8Naming
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.resizeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
+    # noinspection PyPep8Naming
     def focusInEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusInEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
+    # noinspection PyPep8Naming
     def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusOutEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
+    # noinspection PyPep8Naming
     def changeEvent(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.changeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         if event.type() in {QtCore.QEvent.Type.EnabledChange, QtCore.QEvent.Type.ParentChange}:
@@ -768,17 +757,17 @@ class _PopupHostComboMixin:
         try:
             if self._tracked_window is not None:
                 self._tracked_window.removeEventFilter(cast(QtCore.QObject, cast(object, self)))
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            self._tracked_window = None
         try:
             app = QtWidgets.QApplication.instance()
             if app is not None and self._app_filter_installed:
                 app.removeEventFilter(cast(QtCore.QObject, cast(object, self)))
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            self._app_filter_installed = False
 
-# ----- Popup combo box -----
 class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
+    """Combo box that renders and controls the custom popup list widget."""
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setProperty("focusWithin", False)
@@ -792,8 +781,6 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
         self._bind_popup_focus_widget()
         self._bind_window()
         self._install_app_filter()
-
-    # ----- Popup bridge -----
 
     def _popup_widget(self) -> ComboPopup | None:
         popup = getattr(self, "_popup", None)
@@ -811,8 +798,6 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
         super().setLineEdit(edit)
         self._bind_popup_focus_widget()
         self._schedule_visual_state_sync()
-
-    # ----- Interaction -----
 
     def showPopup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
@@ -895,8 +880,8 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
             self.textActivated.emit(self.currentText())
         self.hidePopup()
 
-
 class LanguageCombo(PopupComboBox):
+    """Popup combo box preconfigured for normalized language-code options."""
     def __init__(
         self,
         *,
@@ -907,7 +892,8 @@ class LanguageCombo(PopupComboBox):
         super().__init__(parent)
         self._special_first = special_first
         self._codes_provider = codes_provider
-        self._fallback_code = str((special_first or ("", "auto"))[1] or "auto").strip().lower() or "auto"
+        default_code = Config.LANGUAGE_DEFAULT_UI_VALUE
+        self._fallback_code = str((special_first or ("", default_code))[1] or default_code).strip().lower() or default_code
         setup_combo(self)
         self.rebuild()
 
@@ -916,7 +902,7 @@ class LanguageCombo(PopupComboBox):
         try:
             provider_fn: Callable[[], Iterable[str]] | None = provider if callable(provider) else None
             codes = list(provider_fn()) if provider_fn is not None else []
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             codes = []
         items = build_language_options(codes, special_first=self._special_first)
         desired = self.code()
@@ -928,9 +914,8 @@ class LanguageCombo(PopupComboBox):
     def set_code(self, code: str) -> None:
         set_combo_code(self, code, fallback_code=self._fallback_code)
 
-
-# ----- Popup multi-select field -----
 class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
+    """Read-only field that opens a popup for multi-select choices."""
     selection_changed = QtCore.pyqtSignal(list)
 
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
@@ -961,8 +946,6 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
     def _popup_widget(self) -> MultiSelectPopup | None:
         popup = getattr(self, "_popup", None)
         return popup if isinstance(popup, MultiSelectPopup) and _widget_alive(popup) else None
-
-    # ----- State helpers -----
 
     def _sync_display_item(self, text: str) -> None:
         blocked = self.blockSignals(True)

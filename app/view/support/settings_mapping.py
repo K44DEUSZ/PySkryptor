@@ -8,13 +8,9 @@ from PyQt5 import QtWidgets
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view.components.popup_combo import set_combo_data
 
-
-# ----- Shared defaults -----
 def _resolve_field_default(default: Any) -> Any:
     return default() if callable(default) else default
 
-
-# ----- Populate helpers -----
 def populate_combo_fields(
     data: dict[str, Any],
     specs: tuple[tuple[str, QtWidgets.QComboBox, Any], ...],
@@ -22,8 +18,10 @@ def populate_combo_fields(
     """Populate combo boxes from a flat settings section."""
     for key, combo, default in specs:
         fallback = _resolve_field_default(default)
-        set_combo_data(combo, str(data.get(key, fallback)), fallback_data=fallback)
-
+        value = data.get(key, fallback)
+        if value is None:
+            value = fallback
+        set_combo_data(combo, str(value), fallback_data=fallback)
 
 def populate_toggle_fields(
     data: dict[str, Any],
@@ -32,7 +30,6 @@ def populate_toggle_fields(
     """Populate two-state toggles from a flat settings section."""
     for key, toggle, default in specs:
         toggle.set_first_checked(bool(data.get(key, default)))
-
 
 def populate_spin_fields(
     data: dict[str, Any],
@@ -46,8 +43,6 @@ def populate_spin_fields(
         except (TypeError, ValueError):
             spin.setValue(int(default))
 
-
-# ----- Collect helpers -----
 def collect_combo_fields(
     specs: tuple[tuple[str, QtWidgets.QComboBox, Any], ...],
 ) -> dict[str, Any]:
@@ -55,16 +50,15 @@ def collect_combo_fields(
     payload: dict[str, Any] = {}
     for key, combo, default in specs:
         fallback = _resolve_field_default(default)
-        payload[key] = str(combo.currentData() or fallback)
+        value = combo.currentData()
+        payload[key] = fallback if value is None else str(value)
     return payload
-
 
 def collect_toggle_fields(
     specs: tuple[tuple[str, ChoiceToggle], ...],
 ) -> dict[str, bool]:
     """Collect two-state toggles into a flat payload fragment."""
     return {key: bool(toggle.is_first_checked()) for key, toggle in specs}
-
 
 def collect_spin_fields(
     specs: tuple[tuple[str, QtWidgets.QSpinBox], ...],

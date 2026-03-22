@@ -1,0 +1,54 @@
+# app/controller/workers/session_worker.py
+from __future__ import annotations
+
+import threading
+from abc import abstractmethod
+
+from PyQt5 import QtCore
+
+from app.controller.support.cancellation import CancellationToken
+from app.controller.workers.worker_base import WorkerBase, _WorkerMeta
+from app.model.domain.errors import OperationCancelled
+
+class SessionWorker(WorkerBase, metaclass=_WorkerMeta):
+    """Worker whose lifecycle continues after run() returns."""
+
+    def __init__(self, *, cancel_token: CancellationToken | None = None) -> None:
+        super().__init__(cancel_token=cancel_token)
+        self._stop_requested = threading.Event()
+
+    def stop(self) -> None:
+        self._stop_requested.set()
+        self._request_stop()
+
+    def cancel(self) -> None:
+        super().cancel()
+        self._stop_requested.set()
+        self._request_stop()
+
+    def is_stop_requested(self) -> bool:
+        return self._stop_requested.is_set()
+
+    def _request_stop(self) -> None:
+        """Wake the session so it can move toward shutdown."""
+
+    def _shutdown_session(self) -> None:
+        """Release session resources without deciding final outcome."""
+
+    @QtCore.pyqtSlot()
+    def run(self) -> None:
+        try:
+            self._start_session()
+        except Exception as ex:
+            try:
+                self._shutdown_session()
+            except (RuntimeError, OSError, AttributeError, TypeError, ValueError):
+                self._log.exception("%s shutdown after startup failure failed.", self.__class__.__name__)
+            if isinstance(ex, OperationCancelled) or self.cancel_check():
+                self._finish_cancelled()
+            else:
+                self._finish_failure(ex)
+
+    @abstractmethod
+    def _start_session(self) -> None:
+        """Initialize the long-running session on the worker thread."""

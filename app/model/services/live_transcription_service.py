@@ -1,9 +1,8 @@
-# app/controller/tasks/live_session.py
+# app/model/services/live_transcription_service.py
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
@@ -13,35 +12,20 @@ from app.model.helpers.transcription_runtime import (
     audio_rms_level,
     detect_language_from_pipe_runtime,
     extract_detected_language_from_result,
+    whisper_prompt_ids_from_text,
 )
 from app.model.io.transcript_writer import TextPostprocessor
 from app.model.services.translation_service import TranslationService
 from app.model.services.transcription_service import TranscriptionError
+from app.model.domain.results import LiveUpdate
 
 _LOG = logging.getLogger(__name__)
 
-# ----- Session payloads -----
-
 LiveCancelCheckFn = Callable[[], bool]
-
-
-@dataclass(frozen=True)
-class LiveUpdate:
-    """Incremental update produced by live transcription."""
-
-    detected_language: str
-    display_source_text: str
-    display_target_text: str
-    archive_source_text: str
-    archive_target_text: str
-
 
 _MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
-
-# ----- Live session -----
-
-class LiveSession:
+class LiveTranscriptionService:
     """Stateful live transcription session fed with PCM16 audio bytes."""
 
     OUTPUT_MODE_STREAM = Config.LIVE_OUTPUT_MODE_STREAM
@@ -67,7 +51,10 @@ class LiveSession:
 
         self._src_lang = Config.normalize_policy_value(source_language)
         if Config.is_auto_language_value(self._src_lang):
+            self._src_lang = Config.normalize_policy_value(Config.transcription_default_language())
+        if Config.is_auto_language_value(self._src_lang):
             self._src_lang = ""
+        self._source_language_forced = bool(self._src_lang)
 
         self._tgt_lang = Config.normalize_policy_value(target_language)
         self._translate = bool(translate_enabled) and bool(self._tgt_lang) and not Config.is_auto_language_value(
@@ -135,12 +122,6 @@ class LiveSession:
             self._profile.get("cumulative_translation_min_chars", 20) or 20
         )
 
-        if not self._text_consistency:
-            self._commit_silence_s = max(0.38, self._commit_silence_s - 0.10)
-            self._stream_clear_after_s = max(self._commit_silence_s + 0.20, self._stream_clear_after_s - 0.15)
-            self._stream_replace_prefix_ratio = max(0.52, self._stream_replace_prefix_ratio - 0.08)
-            self._cumulative_merge_overlap_min = max(1, self._cumulative_merge_overlap_min - 1)
-
         self._post = TextPostprocessor()
         self._translator = TranslationService()
 
@@ -157,8 +138,6 @@ class LiveSession:
         self._current_target = ""
         self._stream_source = ""
         self._stream_target = ""
-
-    # ----- Text merge helpers -----
 
     @staticmethod
     def _normalized_merge_tokens(text: str) -> list[str]:
@@ -255,16 +234,14 @@ class LiveSession:
         if len(self._buf) > keep_bytes:
             del self._buf[:-keep_bytes]
 
-    # ----- Translation helpers -----
-
     def _resolved_translation_source_language(self) -> str:
-        src_lang = self._detected_lang or self._src_lang
+        src_lang = self._src_lang if self._source_language_forced else (self._detected_lang or self._src_lang)
         if not src_lang:
             try:
-                cfg_src = str(Config.translation_source_language() or "").strip().lower()
+                cfg_src = str(Config.transcription_default_language() or "").strip().lower()
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 cfg_src = ""
-            if cfg_src and not Config.is_translation_source_deferred_value(cfg_src):
+            if cfg_src and not Config.is_auto_language_value(cfg_src):
                 src_lang = cfg_src
         src_lang = str(src_lang or "").strip().replace("_", "-")
         if "-" in src_lang:
@@ -312,7 +289,6 @@ class LiveSession:
                 return True
         return False
 
-    # ----- Audio gating / ASR helpers -----
     def _classify_audio_signal(self, audio: Any) -> str:
         if not audio_has_meaningful_signal(
             audio,
@@ -348,11 +324,16 @@ class LiveSession:
         )
 
     def _transcribe_audio(self, audio: Any, *, signal_kind: str) -> tuple[str, bool]:
-        payload = {"array": audio, "sampling_rate": self._sr}
+        payload = {"raw": audio, "sampling_rate": self._sr}
 
-        generate_kwargs: dict[str, Any] = {"task": "transcribe"}
+        generate_kwargs: dict[str, Any] = {"task": "transcribe", "condition_on_prev_tokens": bool(self._text_consistency)}
         if self._src_lang:
             generate_kwargs["language"] = self._src_lang
+        if self._text_consistency:
+            prompt_source = self._draft_source or self._archive_source or self._previous_source or self._current_source
+            prompt_ids = whisper_prompt_ids_from_text(pipe=self._pipe, text=prompt_source)
+            if prompt_ids is not None:
+                generate_kwargs["prompt_ids"] = prompt_ids
 
         try:
             try:
@@ -364,12 +345,21 @@ class LiveSession:
                     ignore_warning=self._ignore_warning,
                 )
             except TypeError:
-                result = self._pipe(
-                    payload,
-                    return_language=True,
-                    return_timestamps=False,
-                    generate_kwargs=generate_kwargs,
-                )
+                fallback_kwargs = dict(generate_kwargs)
+                fallback_kwargs.pop("prompt_ids", None)
+                try:
+                    result = self._pipe(
+                        payload,
+                        return_language=True,
+                        return_timestamps=False,
+                        generate_kwargs=fallback_kwargs,
+                    )
+                except TypeError:
+                    result = self._pipe(
+                        payload,
+                        return_language=True,
+                        return_timestamps=False,
+                    )
         except Exception as exc:
             _LOG.exception("ASR pipeline call failed.")
             raise TranscriptionError("error.transcription.asr_failed") from exc
@@ -378,8 +368,8 @@ class LiveSession:
             result = {"text": str(result)}
 
         language_changed = False
-        detected = extract_detected_language_from_result(result)
-        if not detected and (self._translate or not self._src_lang) and self._can_detect_language_from_audio(
+        detected = "" if self._source_language_forced else extract_detected_language_from_result(result)
+        if not detected and not self._source_language_forced and (self._translate or not self._src_lang) and self._can_detect_language_from_audio(
             audio,
             signal_kind=signal_kind,
         ):
@@ -423,8 +413,6 @@ class LiveSession:
                 return ""
 
         return text
-
-    # ----- Caption state helpers -----
 
     def _refresh_stream_text(self) -> None:
         previous_source = str(self._previous_source or "").strip()
@@ -654,8 +642,6 @@ class LiveSession:
             return bool(str(self._current_source or "").strip() or str(self._previous_source or "").strip())
         return bool(str(self._draft_source or "").strip() or str(self._archive_source or "").strip())
 
-    # ----- PCM16 processing flow -----
-
     def _run_pipeline_on_pcm16(
         self,
         data: bytes,
@@ -819,3 +805,4 @@ class LiveSession:
 
         out.extend(self._drain_buffered_chunks(ignore_cancel=ignore_cancel))
         return out
+

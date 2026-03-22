@@ -12,7 +12,6 @@ def clean_text(text: str) -> str:
     t = re.sub(r"\n{3,}", "\n\n", t)
     return t.strip()
 
-
 def _format_ts_srt(seconds: float) -> str:
     """Format seconds into SRT timestamp HH:MM:SS,mmm."""
     if seconds < 0:
@@ -23,7 +22,6 @@ def _format_ts_srt(seconds: float) -> str:
     h, m = divmod(m, 60)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
-
 def _format_ts_plain(seconds: float) -> str:
     """Format seconds into HH:MM:SS for plain timestamped text."""
     if seconds < 0:
@@ -32,7 +30,6 @@ def _format_ts_plain(seconds: float) -> str:
     h, rem = divmod(s, 3600)
     m, s = divmod(rem, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
-
 
 class TextPostprocessor:
     """Helpers for post-processing ASR output."""
@@ -146,7 +143,6 @@ class TextPostprocessor:
             ts = _format_ts_plain(start)
             lines.append(f"{ts} {text}")
         return "\n".join(lines).rstrip()
-
 
 class TranscriptWriter:
     """Shared transcript rendering and saving helpers for batch and live flows."""

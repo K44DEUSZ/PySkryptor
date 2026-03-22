@@ -6,16 +6,6 @@ import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-__all__ = [
-    "format_bytes",
-    "format_hms",
-    "normalize_lang_code",
-    "sanitize_filename",
-    "sanitize_url_for_log",
-    "is_youtube_url",
-]
-
-
 def normalize_lang_code(code: str | None, *, drop_region: bool = True) -> str:
     """Normalize language codes (e.g. 'EN_us' -> 'en')."""
     s = str(code or "").strip().lower().replace("_", "-")
@@ -24,7 +14,6 @@ def normalize_lang_code(code: str | None, *, drop_region: bool = True) -> str:
     if drop_region:
         s = s.split("-", 1)[0]
     return s
-
 
 def sanitize_filename(name: str, max_len: int = 120) -> str:
     """Normalize and make a filename safe for most filesystems."""
@@ -54,7 +43,6 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
 
     return n or "file"
 
-
 def sanitize_url_for_log(url: str, *, max_len: int = 96) -> str:
     """Return a compact, query-free URL safe for logs and diagnostics."""
     raw = str(url or "").strip()
@@ -75,11 +63,10 @@ def sanitize_url_for_log(url: str, *, max_len: int = 96) -> str:
         return text
     return text[: max_len - 3] + "..."
 
-
 def is_youtube_url(url: str | None) -> bool:
+    """Return whether the given URL points to a YouTube resource."""
     s = str(url or "").lower()
     return "youtube.com" in s or "youtu.be" in s
-
 
 def format_bytes(num: int | None) -> str:
     """Return human-readable file size."""
@@ -94,7 +81,6 @@ def format_bytes(num: int | None) -> str:
         value /= 1024.0
 
     return f"{value:.0f} {units[-1]}"
-
 
 def format_hms(
     seconds: float | None,

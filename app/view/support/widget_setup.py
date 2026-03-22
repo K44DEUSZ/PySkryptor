@@ -1,13 +1,12 @@
 # app/view/support/widget_setup.py
 from __future__ import annotations
 
-from typing import Callable, Literal, cast, overload
+from typing import Any, Callable, Literal, cast, overload
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view.ui_config import UIConfig, _DEFAULT_UI, ui
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
-
 
 class _SpinboxFocusProxy(QtCore.QObject):
     def __init__(self, spinbox: QtWidgets.QAbstractSpinBox) -> None:
@@ -34,7 +33,6 @@ class _SpinboxFocusProxy(QtCore.QObject):
             spinbox.setProperty('focusWithin', focus_within)
             repolish_widget(spinbox)
 
-
 def make_grid(columns: int, cfg: UIConfig | None = None) -> QtWidgets.QGridLayout:
     cfg = cfg or _DEFAULT_UI
     layout = QtWidgets.QGridLayout()
@@ -44,7 +42,6 @@ def make_grid(columns: int, cfg: UIConfig | None = None) -> QtWidgets.QGridLayou
     for index in range(max(0, int(columns))):
         layout.setColumnStretch(index, 1)
     return layout
-
 
 def set_widget_style_role(
     w: QtWidgets.QWidget,
@@ -58,14 +55,12 @@ def set_widget_style_role(
     if ui_role is not None:
         w.setProperty('role', str(ui_role))
 
-
 def setup_control(w: QtWidgets.QWidget, *, min_h: int | None = None, min_w: int | None = None) -> None:
     cfg = ui(w)
     height = int(min_h if min_h is not None else cfg.control_min_h)
     width = int(min_w if min_w is not None else cfg.control_min_w)
     w.setMinimumHeight(height)
     w.setMinimumWidth(width)
-
 
 def setup_button(
     btn: QtWidgets.QAbstractButton,
@@ -78,7 +73,6 @@ def setup_button(
     btn.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
     btn.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
     setup_control(btn, min_h=min_h, min_w=min_w)
-
 
 def setup_combo(cb: QtWidgets.QComboBox, *, min_h: int | None = None, min_w: int | None = None) -> None:
     set_widget_style_role(cb, chrome='field', ui_role='combo')
@@ -94,14 +88,10 @@ def setup_combo(cb: QtWidgets.QComboBox, *, min_h: int | None = None, min_w: int
     if sync_visual_state is not None:
         QtCore.QTimer.singleShot(0, sync_visual_state)
 
-
 def setup_spinbox(sp: QtWidgets.QAbstractSpinBox, *, min_h: int | None = None, min_w: int | None = None) -> None:
     set_widget_style_role(sp, chrome='field', ui_role='spinbox')
     sp.setProperty('focusWithin', False)
-    try:
-        sp.setFrame(False)
-    except Exception:
-        pass
+    sp.setFrame(False)
 
     focus_proxy = getattr(sp, '_focus_proxy', None)
     if not isinstance(focus_proxy, _SpinboxFocusProxy):
@@ -110,29 +100,13 @@ def setup_spinbox(sp: QtWidgets.QAbstractSpinBox, *, min_h: int | None = None, m
         sp.installEventFilter(focus_proxy)
         line_edit = sp.lineEdit()
         if line_edit is not None:
-            try:
-                line_edit.setFrame(False)
-            except Exception:
-                pass
-            try:
-                line_edit.setAttribute(QtCore.Qt.WidgetAttribute.WA_MacShowFocusRect, False)
-            except Exception:
-                pass
-            line_edit.setStyleSheet(
-                'QLineEdit {'
-                ' background: transparent;'
-                ' border: none;'
-                ' border-radius: 0px;'
-                ' padding: 0px;'
-                ' margin: 0px;'
-                ' }'
-            )
+            line_edit.setFrame(False)
+            line_edit.setAttribute(QtCore.Qt.WidgetAttribute.WA_MacShowFocusRect, False)
             line_edit.installEventFilter(focus_proxy)
             from app.view.components.text_context_menu import install_text_context_menu
 
             install_text_context_menu(line_edit)
     setup_control(sp, min_h=min_h, min_w=min_w)
-
 
 def setup_input(edit: QtWidgets.QLineEdit, *, placeholder: str | None = None, min_h: int | None = None) -> None:
     set_widget_style_role(edit, chrome='field', ui_role='input')
@@ -142,7 +116,6 @@ def setup_input(edit: QtWidgets.QLineEdit, *, placeholder: str | None = None, mi
     from app.view.components.text_context_menu import install_text_context_menu
 
     install_text_context_menu(edit)
-
 
 def setup_text_editor(
     edit: QtWidgets.QTextEdit | QtWidgets.QPlainTextEdit,
@@ -156,7 +129,6 @@ def setup_text_editor(
 
     install_text_context_menu(edit)
 
-
 def setup_label(
     label: QtWidgets.QLabel,
     *,
@@ -168,7 +140,6 @@ def setup_label(
         label.setBuddy(buddy)
     return label
 
-
 def setup_option_checkbox(
     cb: QtWidgets.QCheckBox,
     *,
@@ -179,7 +150,6 @@ def setup_option_checkbox(
     cb.setMinimumHeight(row_h)
     cb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
     return cb
-
 
 def build_field_stack(
     parent: QtWidgets.QWidget,
@@ -207,7 +177,6 @@ def build_field_stack(
         lay.addWidget(content)
 
     return host, label
-
 
 def build_setting_row(
     *,
@@ -255,7 +224,6 @@ def build_setting_row(
 
     return host, label
 
-
 def setup_layout(
     layout: QtWidgets.QLayout,
     *,
@@ -268,31 +236,15 @@ def setup_layout(
 ) -> None:
     cfg = cfg or _DEFAULT_UI
     resolved_margins = tuple(int(v) for v in (margins or (cfg.margin, cfg.margin, cfg.margin, cfg.margin)))
-    try:
-        layout.setContentsMargins(*resolved_margins)
-    except Exception:
-        pass
-    try:
-        layout.setSpacing(int(cfg.space_m if spacing is None else spacing))
-    except Exception:
-        pass
-    if hspacing is not None:
-        try:
-            layout.setHorizontalSpacing(int(hspacing))  # type: ignore[attr-defined]
-        except Exception:
-            pass
-    if vspacing is not None:
-        try:
-            layout.setVerticalSpacing(int(vspacing))  # type: ignore[attr-defined]
-        except Exception:
-            pass
+    layout.setContentsMargins(*resolved_margins)
+    layout.setSpacing(int(cfg.space_m if spacing is None else spacing))
+    if hspacing is not None and hasattr(layout, "setHorizontalSpacing"):
+        cast(Any, layout).setHorizontalSpacing(int(hspacing))
+    if vspacing is not None and hasattr(layout, "setVerticalSpacing"):
+        cast(Any, layout).setVerticalSpacing(int(vspacing))
     if isinstance(layout, QtWidgets.QGridLayout):
         for index, stretch in (column_stretches or {}).items():
-            try:
-                layout.setColumnStretch(int(index), int(stretch))
-            except Exception:
-                pass
-
+            layout.setColumnStretch(int(index), int(stretch))
 
 @overload
 def build_layout_host(
@@ -308,7 +260,6 @@ def build_layout_host(
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QHBoxLayout]:
     ...
 
-
 @overload
 def build_layout_host(
     *,
@@ -322,7 +273,6 @@ def build_layout_host(
     object_name: str | None = None,
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QVBoxLayout]:
     ...
-
 
 @overload
 def build_layout_host(
@@ -338,7 +288,6 @@ def build_layout_host(
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QGridLayout]:
     ...
 
-
 @overload
 def build_layout_host(
     *,
@@ -352,7 +301,6 @@ def build_layout_host(
     object_name: str | None = None,
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QFormLayout]:
     ...
-
 
 def build_layout_host(
     *,

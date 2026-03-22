@@ -1,14 +1,15 @@
-# app/controller/tasks/startup_task.py
+# app/controller/workers/startup_worker.py
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from PyQt5 import QtCore
 
-from app.controller.tasks.base_worker import BaseWorker
+from app.controller.workers.task_worker import TaskWorker
+from app.model.domain.runtime_state import AppRuntimeState
 from app.model.io.file_manager import FileManager
 from app.model.services.ai_models_service import AIModelsService, ModelNotInstalledError
 from app.model.services.settings_service import RuntimeConfigService
@@ -17,8 +18,7 @@ _LOG = logging.getLogger(__name__)
 _ROOT = logging.getLogger()
 
 ProgressCb = Callable[[int], None]
-TaskFn = Callable[["_StartupRuntime", ProgressCb, dict[str, Any]], None]
-
+TaskFn = Callable[["_StartupRuntime", ProgressCb, AppRuntimeState], AppRuntimeState]
 
 @dataclass(frozen=True)
 class _StartupRuntime:
@@ -27,46 +27,42 @@ class _StartupRuntime:
 
 @dataclass(frozen=True)
 class StartupTask:
+    """Weighted startup step executed by StartupWorker."""
+
     label: str
     weight: int
     min_display_ms: int
     fn: TaskFn
     runtime: _StartupRuntime
 
-    def run(self, progress: ProgressCb, ctx: dict[str, Any]) -> None:
-        self.fn(self.runtime, progress, ctx)
+    def run(self, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
+        return self.fn(self.runtime, progress, state)
 
-
-# ----- Startup steps -----
-def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, ctx: dict[str, Any]) -> None:
+def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     config_cls = runtime.config_cls
     snap = runtime.snap
 
     config_cls.initialize_from_snapshot(snap)
     AIModelsService.apply_engine_runtime(snap.engine)
-    ctx["settings_snapshot"] = snap
 
-    try:
-        dev_str = str(getattr(config_cls, "DEVICE_ID", "cpu"))
-        dtype_str = str(getattr(config_cls, "DTYPE_ID", "float32"))
-        friendly = str(getattr(config_cls, "DEVICE_FRIENDLY_NAME", dev_str))
-        _ROOT.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
-        _LOG.debug(
-            "Runtime engine settings applied. preferred_device=%s precision=%s allow_tf32=%s low_cpu_mem_usage=%s device=%s dtype=%s",
-            str((snap.engine or {}).get("preferred_device", "auto")),
-            str((snap.engine or {}).get("precision", "auto")),
-            bool((snap.engine or {}).get("allow_tf32", False)),
-            bool((snap.engine or {}).get("low_cpu_mem_usage", False)),
-            dev_str,
-            dtype_str,
-        )
-    except Exception:
-        pass
+    dev_str = str(getattr(config_cls, "DEVICE_ID", "cpu"))
+    dtype_str = str(getattr(config_cls, "DTYPE_ID", "float32"))
+    friendly = str(getattr(config_cls, "DEVICE_FRIENDLY_NAME", dev_str))
+    _ROOT.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
+    _LOG.debug(
+        "Runtime engine settings applied. preferred_device=%s precision=%s allow_tf32=%s low_cpu_mem_usage=%s device=%s dtype=%s",
+        str((snap.engine or {}).get("preferred_device", "auto")),
+        str((snap.engine or {}).get("precision", "auto")),
+        bool((snap.engine or {}).get("allow_tf32", False)),
+        bool((snap.engine or {}).get("low_cpu_mem_usage", False)),
+        dev_str,
+        dtype_str,
+    )
 
     progress(100)
+    return replace(state, settings_snapshot=snap)
 
-
-def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, _ctx: dict[str, Any]) -> None:
+def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     config_cls = runtime.config_cls
     config_cls.ensure_dirs()
     try:
@@ -79,19 +75,19 @@ def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, _ctx: dict
             config_cls.DOWNLOADS_TMP_DIR,
             config_cls.TRANSCRIPTIONS_TMP_DIR,
         )
-    except Exception:
+    except OSError:
         _LOG.exception("Startup temp directory cleanup failed.")
     progress(100)
+    return state
 
-
-def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, _ctx: dict[str, Any]) -> None:
+def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     RuntimeConfigService.setup_ffmpeg_on_path(runtime.config_cls)
     _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", getattr(runtime.config_cls, "FFMPEG_BIN_DIR", ""))
     progress(100)
-
+    return state
 
 def _warmup_model_runtime(
-    ctx: dict[str, Any],
+    state: AppRuntimeState,
     *,
     name: str,
     enabled: bool,
@@ -101,38 +97,51 @@ def _warmup_model_runtime(
     error_key_key: str,
     error_params_key: str,
     result_key: str | None = None,
-) -> None:
+) -> AppRuntimeState:
     if not enabled:
-        if result_key:
-            ctx[result_key] = None
-        ctx[ready_key] = False
+        changes: dict[str, Any] = {
+            ready_key: False,
+            error_key_key: None,
+            error_params_key: {},
+        }
+        if result_key is not None:
+            changes[result_key] = None
         _LOG.debug("Startup %s warmup skipped. reason=disabled", name)
-        return
+        return replace(state, **changes)
 
     try:
         result = ensure_ready()
-        if result_key:
-            ctx[result_key] = result
-        ctx[ready_key] = bool(result)
-        _LOG.debug("Startup %s model ready. %s=%s", name, ready_log_key, bool(ctx[ready_key]))
+        changes = {
+            ready_key: bool(result),
+            error_key_key: None,
+            error_params_key: {},
+        }
+        if result_key is not None:
+            changes[result_key] = result
+        next_state = replace(state, **changes)
+        _LOG.debug("Startup %s model ready. %s=%s", name, ready_log_key, bool(getattr(next_state, ready_key)))
+        return next_state
     except ModelNotInstalledError as ex:
-        if result_key:
-            ctx[result_key] = None
-        ctx[ready_key] = False
-        ctx[error_key_key] = getattr(ex, "key", "error.model.not_installed")
-        ctx[error_params_key] = {"path": str(getattr(ex, "path", ""))}
+        changes = {
+            ready_key: False,
+            error_key_key: getattr(ex, "key", "error.model.not_installed"),
+            error_params_key: {"path": str(getattr(ex, "path", ""))},
+        }
+        if result_key is not None:
+            changes[result_key] = None
+        next_state = replace(state, **changes)
         _LOG.debug(
             "Startup %s model missing. key=%s path=%s",
             name,
-            ctx[error_key_key],
-            ctx[error_params_key].get("path", ""),
+            getattr(next_state, error_key_key),
+            getattr(next_state, error_params_key).get("path", ""),
         )
+        return next_state
 
-
-def _task_load_transcription_model(_runtime: _StartupRuntime, progress: ProgressCb, ctx: dict[str, Any]) -> None:
+def _task_load_transcription_model(_runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     svc = AIModelsService()
-    _warmup_model_runtime(
-        ctx,
+    next_state = _warmup_model_runtime(
+        state,
         name="transcription",
         enabled=bool(svc.transcription.is_enabled()),
         ensure_ready=svc.ensure_transcription_ready,
@@ -143,12 +152,12 @@ def _task_load_transcription_model(_runtime: _StartupRuntime, progress: Progress
         result_key="transcription_pipeline",
     )
     progress(100)
+    return next_state
 
-
-def _task_warmup_translation_model(_runtime: _StartupRuntime, progress: ProgressCb, ctx: dict[str, Any]) -> None:
+def _task_warmup_translation_model(_runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     svc = AIModelsService()
-    _warmup_model_runtime(
-        ctx,
+    next_state = _warmup_model_runtime(
+        state,
         name="translation",
         enabled=bool(svc.translation.is_enabled()),
         ensure_ready=svc.ensure_translation_ready,
@@ -158,9 +167,10 @@ def _task_warmup_translation_model(_runtime: _StartupRuntime, progress: Progress
         error_params_key="translation_error_params",
     )
     progress(100)
-
+    return next_state
 
 def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> list[StartupTask]:
+    """Build the ordered startup task plan for the splash workflow."""
     runtime = _StartupRuntime(config_cls=config_cls, snap=snap)
     return [
         StartupTask(label=labels["init"], weight=2, min_display_ms=300, fn=_task_init_runtime, runtime=runtime),
@@ -170,28 +180,16 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> l
         StartupTask(label=labels["tr"], weight=3, min_display_ms=0, fn=_task_warmup_translation_model, runtime=runtime),
     ]
 
+class StartupWorker(TaskWorker):
+    """Background worker that executes startup tasks and emits a ready runtime state."""
 
-def _build_initial_context() -> dict[str, Any]:
-    return {
-        "settings_snapshot": None,
-        "transcription_pipeline": None,
-        "transcription_ready": False,
-        "transcription_error_key": None,
-        "transcription_error_params": {},
-        "translation_ready": False,
-        "translation_error_key": None,
-        "translation_error_params": {},
-    }
-
-
-class StartupWorker(BaseWorker):
     status = QtCore.pyqtSignal(str)
-    ready = QtCore.pyqtSignal(dict)
+    ready = QtCore.pyqtSignal(object)
 
     def __init__(self, tasks: list[StartupTask]) -> None:
         super().__init__()
         self._tasks = tasks
-        self._ctx: dict[str, Any] = _build_initial_context()
+        self._state = AppRuntimeState()
 
     def _execute(self) -> None:
         total = sum(max(1, int(t.weight)) for t in self._tasks) or 1
@@ -211,7 +209,7 @@ class StartupWorker(BaseWorker):
                 overall = int(((done + (w * pct_i / 100.0)) / total) * 100.0)
                 self.progress.emit(max(0, min(100, overall)))
 
-            t.run(phase_progress, self._ctx)
+            self._state = t.run(phase_progress, self._state)
 
             duration_ms = int((time.perf_counter() - phase_started) * 1000.0)
             remaining_ms = max(0, int(t.min_display_ms) - duration_ms)
@@ -238,10 +236,10 @@ class StartupWorker(BaseWorker):
         _LOG.debug(
             "Startup worker finished. duration_ms=%s asr_ready=%s translation_ready=%s",
             int((time.perf_counter() - startup_started) * 1000.0),
-            bool(self._ctx.get("transcription_ready")),
-            bool(self._ctx.get("translation_ready")),
+            bool(self._state.transcription_ready),
+            bool(self._state.translation_ready),
         )
-        self.ready.emit(self._ctx)
+        self.ready.emit(self._state)
 
     def _handle_failure(self, ex: BaseException) -> None:
         _LOG.exception("Startup worker failed.")

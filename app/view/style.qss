@@ -473,6 +473,14 @@ QAbstractSpinBox[chrome="field"] {
     padding: @PAD_FIELD_CHROME@;
 }
 
+QAbstractSpinBox[chrome="field"] QLineEdit {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 0px;
+    margin: 0px;
+}
+
 QAbstractSpinBox[chrome="field"]::up-button {
     subcontrol-position: top right;
     border-top-right-radius: @RADIUS_M@;
@@ -774,6 +782,14 @@ QCheckBox[role="menuCheck"] {
     min-height: 20px;
 }
 
+QCheckBox[role="tableIndicator"] {
+    spacing: 0px;
+    padding: 0px;
+    margin: 0px;
+    min-height: 0px;
+    max-height: @TABLE_CHECK_INDICATOR_SIZE@;
+}
+
 QCheckBox,
 QRadioButton {
     spacing: 8px;
@@ -783,6 +799,13 @@ QCheckBox::indicator,
 QRadioButton::indicator {
     width: 16px;
     height: 16px;
+}
+
+QCheckBox[role="tableIndicator"]::indicator {
+    width: @TABLE_CHECK_INDICATOR_SIZE@;
+    height: @TABLE_CHECK_INDICATOR_SIZE@;
+    margin: 0px;
+    padding: 0px;
 }
 
 QCheckBox::indicator {

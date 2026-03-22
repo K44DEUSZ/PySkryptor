@@ -12,7 +12,7 @@ from typing import Any, Callable
 import yt_dlp
 
 from app.model.config.app_config import AppConfig as Config
-from app.model.helpers.errors import AppError, OperationCancelled
+from app.model.domain.errors import AppError, OperationCancelled
 from app.model.helpers.string_utils import (
     is_youtube_url,
     normalize_lang_code,
@@ -21,8 +21,6 @@ from app.model.helpers.string_utils import (
 )
 
 _LOG = logging.getLogger(__name__)
-
-# ----- yt-dlp logger adapter -----
 
 _NOISE_PATTERNS: tuple[str, ...] = (
     "UNPLAYABLE formats",
@@ -82,7 +80,6 @@ def _is_noisy(msg: str, extra_noise: tuple[str, ...] = ()) -> bool:
             return True
     return False
 
-
 class YtdlpLogger:
     """Minimal logger adapter for yt_dlp."""
 
@@ -110,18 +107,14 @@ class YtdlpLogger:
         if not _is_noisy(text, self._extra_noise):
             self._logger.error("yt_dlp error message. text=%s", text)
 
-
 class DownloadError(AppError):
     """Error with i18n key and params to be localized by UI."""
 
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
 
-
 class DownloadService:
     """Thin wrapper over yt_dlp with simple probe + download API."""
-
-    # ----- Network / probe helpers -----
 
     @staticmethod
     def _classify_network_error(ex: Exception) -> str:
@@ -304,7 +297,7 @@ class DownloadService:
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url, download=download), diag
-        except Exception as ex:
+        except (yt_dlp.DownloadError, OSError, ValueError, RuntimeError) as ex:
             if "js_runtimes" not in ydl_opts:
                 raise
             if not DownloadService._is_js_runtime_error(ex):
@@ -324,7 +317,6 @@ class DownloadService:
             return ydl.extract_info(url, download=download), diag
 
     @staticmethod
-    # ----- Format / selector helpers -----
 
     def _parse_video_quality_height(quality: str) -> int | None:
         q = str(quality or "").strip().lower()
@@ -382,6 +374,45 @@ class DownloadService:
     def _formats(info: dict[str, Any] | None) -> list[dict[str, Any]]:
         raw = [] if not isinstance(info, dict) else list(info.get("formats") or [])
         return [f for f in raw if isinstance(f, dict)]
+
+    @staticmethod
+    def available_video_heights(
+        info: dict[str, Any] | None,
+        *,
+        min_h: int | None = None,
+        max_h: int | None = None,
+    ) -> list[int]:
+        heights: set[int] = set()
+        for fmt in DownloadService._formats(info):
+            if not DownloadService._has_video(fmt):
+                continue
+            try:
+                height = int(fmt.get("height") or 0)
+            except (TypeError, ValueError):
+                continue
+            if height <= 0:
+                continue
+            if isinstance(min_h, int) and min_h > 0 and height < min_h:
+                continue
+            if isinstance(max_h, int) and 0 < max_h < height:
+                continue
+            heights.add(height)
+        return sorted(heights, reverse=True)
+
+    @staticmethod
+    def available_audio_bitrates(info: dict[str, Any] | None) -> list[int]:
+        bitrates: set[int] = set()
+        for fmt in DownloadService._formats(info):
+            if not DownloadService._has_audio(fmt):
+                continue
+            raw = fmt.get("abr", fmt.get("tbr"))
+            try:
+                bitrate = int(round(float(raw or 0)))
+            except (TypeError, ValueError):
+                continue
+            if bitrate > 0:
+                bitrates.add(bitrate)
+        return sorted(bitrates, reverse=True)
 
     @staticmethod
     def _has_audio_only_ext(info: dict[str, Any] | None, *exts: str) -> bool:
@@ -457,7 +488,7 @@ class DownloadService:
 
         if isinstance(target_h, int) and target_h > 0:
             _append(f"[height={target_h}]")
-            _append(DownloadService._height_filter(max_h=target_h))
+            _append(DownloadService._height_filter(min_h=min_h, max_h=target_h))
         else:
             _append(DownloadService._height_filter(min_h=min_h, max_h=max_h))
 
@@ -512,6 +543,10 @@ class DownloadService:
         max_h: int | None,
     ) -> dict[str, Any]:
         target_h = DownloadService._parse_video_quality_height(quality)
+        if isinstance(max_h, int) and max_h > 0 and isinstance(target_h, int) and target_h > 0:
+            target_h = min(target_h, max_h)
+        if isinstance(min_h, int) and min_h > 0 and isinstance(target_h, int) and target_h > 0:
+            target_h = max(target_h, min_h)
         profile = Config.download_video_format_profile(ext_l)
         video_exts = tuple(profile.get("video_exts") or ())
         audio_exts = tuple(profile.get("audio_exts") or ())
@@ -574,7 +609,6 @@ class DownloadService:
         return plan
 
     @staticmethod
-    # ----- Stage / artifact helpers -----
 
     def _create_download_stage(*, stem: str) -> Path:
         root = Config.DOWNLOADS_TMP_DIR
@@ -606,7 +640,7 @@ class DownloadService:
                 p for p in stage_dir.iterdir()
                 if p.is_file() and not DownloadService._is_partial_artifact(p)
             ]
-        except Exception:
+        except OSError:
             return []
 
         return sorted(
@@ -624,7 +658,7 @@ class DownloadService:
                 return
             try:
                 p = Path(value)
-            except Exception:
+            except (TypeError, ValueError, OSError):
                 return
             if p.exists() and p.is_file() and not DownloadService._is_partial_artifact(p):
                 candidates.append(p)
@@ -650,7 +684,7 @@ class DownloadService:
                     continue
                 try:
                     p = Path(value)
-                except Exception:
+                except (TypeError, ValueError, OSError):
                     continue
                 if stage_dir in p.parents and p.exists() and p.is_file() and not DownloadService._is_partial_artifact(p):
                     paths.append(p)
@@ -773,7 +807,6 @@ class DownloadService:
         shutil.rmtree(stage_dir, ignore_errors=True)
 
     @staticmethod
-    # ----- yt-dlp option builders -----
 
     def _base_ydl_opts(*, url: str, quiet: bool, skip_download: bool) -> dict[str, Any]:
         max_bandwidth_kbps = Config.network_max_bandwidth_kbps()
@@ -781,7 +814,6 @@ class DownloadService:
         opts: dict[str, Any] = {
             "quiet": bool(quiet),
             "skip_download": bool(skip_download),
-            "nocheckcertificate": bool(Config.network_no_check_certificate()),
             "logger": YtdlpLogger(_LOG),
             "retries": Config.network_retries(),
             "socket_timeout": Config.network_http_timeout_s(),
@@ -802,8 +834,6 @@ class DownloadService:
             opts["js_runtimes"] = jsr
             opts["remote_components"] = ["ejs:npm", "ejs:github"]
         return opts
-
-    # ----- Public API: probe -----
 
     def probe(self, url: str) -> dict[str, Any]:
         safe_url = sanitize_url_for_log(url)
@@ -867,7 +897,113 @@ class DownloadService:
             _LOG.debug("Download probe failed. url=%s detail=%s", safe_url, str(ex))
             raise DownloadError("error.down.probe_failed", detail=str(ex))
 
-    # ----- Public API: download -----
+    def _emit_download_progress(
+        self,
+        progress_cb: Callable[[int, str], None] | None,
+        *,
+        pct: int,
+        status: str,
+    ) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(int(max(0, min(100, int(pct)))), str(status or ""))
+        except (RuntimeError, TypeError, ValueError):
+            return
+
+    @staticmethod
+    def _download_progress_pct(payload: dict[str, Any]) -> int:
+        raw_pct = str(payload.get("_percent_str") or "").strip().replace("%", "")
+        if raw_pct:
+            try:
+                return int(max(0.0, min(100.0, float(raw_pct))))
+            except (TypeError, ValueError, OverflowError):
+                return 0
+
+        downloaded = payload.get("downloaded_bytes") or 0
+        total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
+        try:
+            if total:
+                return int(max(0.0, min(100.0, (float(downloaded) / float(total)) * 100.0)))
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+            return 0
+        return 0
+
+    def _build_download_hooks(
+        self,
+        *,
+        progress_cb: Callable[[int, str], None] | None,
+        cancel_check: Callable[[], bool] | None,
+    ) -> tuple[Callable[[dict[str, Any]], None], Callable[[dict[str, Any]], None]]:
+        def _hook(payload: dict[str, Any]) -> None:
+            if cancel_check and cancel_check():
+                raise OperationCancelled()
+
+            status = str(payload.get("status") or "").strip().lower()
+            if status == "downloading":
+                self._emit_download_progress(
+                    progress_cb,
+                    pct=self._download_progress_pct(payload),
+                    status="downloading",
+                )
+                return
+            if status == "finished":
+                self._emit_download_progress(progress_cb, pct=100, status="downloaded")
+
+        def _post_hook(payload: dict[str, Any]) -> None:
+            if cancel_check and cancel_check():
+                raise OperationCancelled()
+
+            status = str(payload.get("status") or "").strip().lower()
+            if status == "started":
+                self._emit_download_progress(progress_cb, pct=100, status="postprocessing")
+                return
+            if status == "finished":
+                self._emit_download_progress(progress_cb, pct=100, status="postprocessed")
+
+        return _hook, _post_hook
+
+    def _build_download_plan(
+        self,
+        *,
+        kind: str,
+        quality: str,
+        plan_ext: str,
+        lang_base: str,
+        purpose: str,
+        keep_output: bool,
+        meta: dict[str, Any] | None,
+        min_h: int,
+        max_h: int,
+    ) -> dict[str, Any]:
+        if kind == "audio":
+            return self._build_audio_plan(
+                info=meta,
+                quality=quality,
+                ext_l=plan_ext,
+                lang_base=lang_base,
+                purpose=purpose,
+                keep_output=bool(keep_output),
+            )
+        return self._build_video_plan(
+            info=meta,
+            quality=quality,
+            ext_l=plan_ext,
+            lang_base=lang_base,
+            purpose=purpose,
+            keep_output=bool(keep_output),
+            min_h=min_h,
+            max_h=max_h,
+        )
+
+    @staticmethod
+    def _download_contract(kind: str, purpose: str, keep_output: bool, ext_l: str) -> dict[str, Any]:
+        return Config.resolve_download_contract(
+            kind=kind,
+            purpose=purpose,
+            keep_output=bool(keep_output),
+            ext=ext_l,
+        )
 
     def download(
         self,
@@ -890,12 +1026,7 @@ class DownloadService:
         max_h = Config.downloader_max_video_height()
         ext_l = (ext or "").lower().strip().lstrip(".")
         purpose_l = str(purpose or Config.DOWNLOAD_DEFAULT_PURPOSE).strip().lower()
-        contract = Config.resolve_download_contract(
-            kind=kind,
-            purpose=purpose_l,
-            keep_output=bool(keep_output),
-            ext=ext_l,
-        )
+        contract = self._download_contract(kind=kind, purpose=purpose_l, keep_output=bool(keep_output), ext_l=ext_l)
         plan_ext = str(contract.get("plan_ext") or "").strip().lower()
         final_ext = str(contract.get("final_ext") or "").strip().lower()
         artifact_policy = str(contract.get("artifact_policy") or Config.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT).strip().lower()
@@ -908,76 +1039,21 @@ class DownloadService:
         if meta is None:
             try:
                 meta = self.probe(url)
-            except Exception:
+            except DownloadError:
                 meta = None
 
-        if kind == "audio":
-            plan = self._build_audio_plan(
-                info=meta,
-                quality=quality,
-                ext_l=plan_ext,
-                lang_base=lang_base,
-                purpose=purpose_l,
-                keep_output=bool(keep_output),
-            )
-        else:
-            plan = self._build_video_plan(
-                info=meta,
-                quality=quality,
-                ext_l=plan_ext,
-                lang_base=lang_base,
-                purpose=purpose_l,
-                keep_output=bool(keep_output),
-                min_h=min_h,
-                max_h=max_h,
-            )
-
-        def _emit_progress(pct: int, status: str) -> None:
-            if not progress_cb:
-                return
-            try:
-                progress_cb(int(max(0, min(100, int(pct)))), str(status or ""))
-            except Exception:
-                return
-
-        def _download_pct(d: dict[str, Any]) -> int:
-            raw_pct = str(d.get("_percent_str") or "").strip().replace("%", "")
-            if raw_pct:
-                try:
-                    return int(max(0.0, min(100.0, float(raw_pct))))
-                except Exception:
-                    pass
-
-            downloaded = d.get("downloaded_bytes") or 0
-            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            try:
-                if total:
-                    return int(max(0.0, min(100.0, (float(downloaded) / float(total)) * 100.0)))
-            except Exception:
-                pass
-            return 0
-
-        def _hook(d: dict[str, Any]) -> None:
-            if cancel_check and cancel_check():
-                raise OperationCancelled()
-
-            status = str(d.get("status") or "").strip().lower()
-            if status == "downloading":
-                _emit_progress(_download_pct(d), "downloading")
-                return
-            if status == "finished":
-                _emit_progress(100, "downloaded")
-
-        def _post_hook(d: dict[str, Any]) -> None:
-            if cancel_check and cancel_check():
-                raise OperationCancelled()
-
-            status = str(d.get("status") or "").strip().lower()
-            if status == "started":
-                _emit_progress(100, "postprocessing")
-                return
-            if status == "finished":
-                _emit_progress(100, "postprocessed")
+        plan = self._build_download_plan(
+            kind=kind,
+            quality=quality,
+            plan_ext=plan_ext,
+            lang_base=lang_base,
+            purpose=purpose_l,
+            keep_output=bool(keep_output),
+            meta=meta,
+            min_h=min_h,
+            max_h=max_h,
+        )
+        _hook, _post_hook = self._build_download_hooks(progress_cb=progress_cb, cancel_check=cancel_check)
 
         stem = sanitize_filename(file_stem or "%(title)s") or Config.DOWNLOAD_DEFAULT_STEM
         stage_dir = self._create_download_stage(stem=stem)

@@ -7,7 +7,6 @@ from app.view.support.widget_effects import sync_progress_text_role
 from app.view.support.widget_setup import build_layout_host, setup_button, setup_layout
 from app.view.ui_config import ui
 
-# ----- Progress action bar -----
 class ProgressActionBar(QtWidgets.QWidget):
     """Reusable row: progress bar + two action buttons."""
 
@@ -75,8 +74,6 @@ class ProgressActionBar(QtWidgets.QWidget):
         self._anim_timer.timeout.connect(self._tick_progress)
         self._sync_progress_text_role()
 
-    # ----- Progress -----
-
     def _tick_progress(self) -> None:
         cur = int(self.progress.value())
         target = int(self._target_value)
@@ -105,7 +102,7 @@ class ProgressActionBar(QtWidgets.QWidget):
     def set_progress(self, value: int) -> None:
         try:
             v = max(0, min(100, int(value)))
-        except Exception:
+        except (TypeError, ValueError):
             v = 0
 
         if self.progress.maximum() == 0:
@@ -141,8 +138,6 @@ class ProgressActionBar(QtWidgets.QWidget):
             self.progress.setRange(0, 100)
             self.progress.setValue(int(self._target_value))
         self._sync_progress_text_role()
-
-# ----- Buttons -----
 
     def set_primary_enabled(self, enabled: bool) -> None:
         self.btn_primary.setEnabled(bool(enabled))

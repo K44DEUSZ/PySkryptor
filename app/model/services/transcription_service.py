@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
-from app.model.helpers.errors import AppError, OperationCancelled
+from app.model.domain.errors import AppError, OperationCancelled
+from app.model.domain.entities import TranscriptionSessionRequest
+from app.model.domain.results import SessionResult
 from app.model.helpers.chunking import (
     estimate_chunks,
     iter_wav_mono_chunks,
@@ -25,6 +27,7 @@ from app.model.helpers.transcription_runtime import (
     debug_source_key,
     extract_detected_language_from_result,
     normalize_detected_language,
+    whisper_prompt_ids_from_text,
 )
 from app.model.io.audio_extractor import AudioExtractor
 from app.model.io.file_manager import FileManager
@@ -35,7 +38,6 @@ from app.model.services.translation_service import TranslationService
 
 _LOG = logging.getLogger(__name__)
 
-# ----- Errors -----
 class TranscriptionError(AppError):
     """Key-based error used for i18n-friendly transcription failures."""
 
@@ -54,16 +56,6 @@ ItemErrorFn = Callable[[str, str, dict[str, Any]], None]
 ItemOutputDirFn = Callable[[str, str], None]
 ConflictResolverFn = Callable[[str, str], tuple[str, str, bool]]
 
-# ----- Results -----
-@dataclass(frozen=True)
-class SessionResult:
-    """Outcome of a transcription session."""
-    session_dir: str
-    processed_any: bool
-    had_errors: bool
-    was_cancelled: bool
-
-
 @dataclass(frozen=True)
 class _SessionOptions:
     """Resolved session options reused across all work items."""
@@ -75,12 +67,12 @@ class _SessionOptions:
     default_lang: str
     chunk_len_s: int
     stride_len_s: int
+    text_consistency: bool
     ignore_warning: bool
     url_download_kind: str
     url_download_ext: str
     url_keep_download: bool
     url_download_quality: str
-
 
 @dataclass(frozen=True)
 class _EntryRequest:
@@ -90,14 +82,12 @@ class _EntryRequest:
     audio_lang: str | None
     is_url: bool
 
-
 @dataclass(frozen=True)
 class _MaterializedWorkItem:
     """Single source resolved to a concrete local path."""
     source_key: str
     source_path: Path
     forced_stem: str | None
-
 
 @dataclass
 class _SessionRuntime:
@@ -107,7 +97,6 @@ class _SessionRuntime:
     options: _SessionOptions
     tracker: "_ProgressTracker"
     downloaded_to_delete: set[Path]
-
 
 @dataclass(frozen=True)
 class _SessionCallbacks:
@@ -121,14 +110,12 @@ class _SessionCallbacks:
     conflict_resolver: ConflictResolverFn
     cancel_check: CancelCheckFn
 
-
 @dataclass(frozen=True)
 class _MaterializeBatchResult:
     """Materialized work items and control flags for the current session."""
     work: list[_MaterializedWorkItem]
     had_errors: bool
     was_cancelled: bool
-
 
 @dataclass(frozen=True)
 class _ItemProcessResult:
@@ -138,14 +125,12 @@ class _ItemProcessResult:
     was_cancelled: bool
     apply_all: tuple[str, str] | None
 
-# ----- Progress tracking -----
 @dataclass
 class _ItemPlan:
     has_download: bool
     has_translate: bool
     weight: float
     stage_pct: dict[str, int]
-
 
 class _ProgressTracker:
     """Tracks global progress across multiple items and stages."""
@@ -231,12 +216,8 @@ class _ProgressTracker:
         self._last_pct = pct
         self._cb(pct)
 
-
-# ----- Transcription service -----
 class TranscriptionService:
     """Runs transcription sessions using an already-built ASR pipeline."""
-
-    # ----- Planning / session setup -----
 
     def __init__(self) -> None:
         self._download = DownloadService()
@@ -250,7 +231,7 @@ class TranscriptionService:
             return 15.0
         try:
             path = Path(p)
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             return 1.0
         if not path.exists() or not path.is_file():
             return 1.0
@@ -259,7 +240,7 @@ class TranscriptionService:
             return float(max(15.0, min(3600.0, float(dur))))
         try:
             size = path.stat().st_size
-        except Exception:
+        except OSError:
             size = 0
         mb = float(size) / (1024.0 * 1024.0) if size else 0.0
         if mb > 0:
@@ -271,45 +252,41 @@ class TranscriptionService:
         return str(entry.get("src") if isinstance(entry, dict) else entry)
 
     @staticmethod
-    def _build_session_options(*, overrides: dict[str, Any] | None) -> _SessionOptions:
-        tr_cfg = Config.transcription_cfg_dict()
+    def _build_session_options(*, session_request: TranscriptionSessionRequest) -> _SessionOptions:
         model_cfg = Config.transcription_model_raw_cfg_dict()
 
-        ov = dict(overrides or {})
-        ov_src_lang = str(ov.get("source_language") or "").strip().lower()
-        ov_tgt_lang = str(ov.get("target_language") or "").strip().lower()
-        ov_translate_after = ov.get("translate_after_transcription")
+        output_mode_ids = [str(mode_id or "").strip().lower() for mode_id in session_request.output_formats if str(mode_id or "").strip()]
+        if not output_mode_ids:
+            output_mode_ids = list(Config.transcription_output_mode_ids())
 
-        output_mode_ids = list(tr_cfg.get("output_formats") or [])
         output_modes = [Config.get_transcription_output_mode(str(mode_id)) for mode_id in output_mode_ids]
         want_timestamps = any(
             bool(mode.get("timestamps", False)) or str(mode.get("ext", "")).strip().lower() == "srt"
             for mode in output_modes
         )
 
-        translate_requested = bool(ov_translate_after) if ov_translate_after is not None else bool(
-            tr_cfg.get("translate_after_transcription", False)
-        )
-        tgt_lang = Config.normalize_policy_value(
-            ov_tgt_lang or Config.translation_target_language() or Config.LANGUAGE_DEFAULT_UI_VALUE
-        )
+        translate_requested = bool(session_request.translate_after_transcription)
+        tgt_lang = Config.normalize_policy_value(session_request.target_language or "")
         want_translate = bool(translate_requested and tgt_lang and not Config.is_auto_language_value(tgt_lang))
 
         default_lang = Config.normalize_policy_value(
-            ov_src_lang
+            session_request.source_language
             or str(model_cfg.get("default_language") or "")
-            or Config.translation_source_language()
             or Config.LANGUAGE_AUTO_VALUE
         )
 
-        download_audio_only = bool(tr_cfg.get("download_audio_only", False))
+        audio_ext = str(session_request.url_audio_ext or Config.transcription_url_audio_ext()).strip().lower()
+        video_ext = str(session_request.url_video_ext or Config.transcription_url_video_ext()).strip().lower()
+        download_audio_only = bool(session_request.download_audio_only)
         url_download_kind = "audio" if download_audio_only else "video"
-        url_download_ext = str(
-            tr_cfg.get("url_audio_ext" if download_audio_only else "url_video_ext") or ""
-        ).strip().lower()
-        url_keep_download = bool(
-            tr_cfg.get("url_keep_audio" if download_audio_only else "url_keep_video", False)
-        )
+        url_download_ext = audio_ext if download_audio_only else video_ext
+        url_keep_download = bool(session_request.url_keep_audio if download_audio_only else session_request.url_keep_video)
+
+        preset_id = Config.normalize_transcription_quality_preset(model_cfg.get("quality_preset", "balanced"))
+        preset_profile = Config.transcription_quality_profile(preset_id)
+        chunk_len_s = int(preset_profile.get("chunk_length_s", 45))
+        stride_len_s = int(preset_profile.get("stride_length_s", 5))
+        text_consistency = bool(model_cfg.get("text_consistency", True))
 
         return _SessionOptions(
             output_mode_ids=output_mode_ids,
@@ -318,8 +295,9 @@ class TranscriptionService:
             want_timestamps=want_timestamps,
             tgt_lang=tgt_lang,
             default_lang=default_lang,
-            chunk_len_s=int(model_cfg.get("chunk_length_s", 30)),
-            stride_len_s=int(model_cfg.get("stride_length_s", 5)),
+            chunk_len_s=chunk_len_s,
+            stride_len_s=stride_len_s,
+            text_consistency=text_consistency,
             ignore_warning=bool(model_cfg.get("ignore_warning", False)),
             url_download_kind=url_download_kind,
             url_download_ext=url_download_ext,
@@ -351,12 +329,12 @@ class TranscriptionService:
         self,
         *,
         entries: list[SourceEntry],
-        overrides: dict[str, Any] | None,
+        session_request: TranscriptionSessionRequest,
         progress: ProgressFn,
     ) -> _SessionRuntime:
         session_dir = FileManager.plan_session()
         session_id = Path(session_dir).name
-        options = self._build_session_options(overrides=overrides)
+        options = self._build_session_options(session_request=session_request)
         tracker = _ProgressTracker(progress)
         self._register_session_tracker(
             tracker=tracker,
@@ -646,15 +624,9 @@ class TranscriptionService:
 
         return _MaterializeBatchResult(work=work, had_errors=had_errors, was_cancelled=was_cancelled)
 
-    # ----- Session execution -----
-
-    def run_session(
+    def _build_session_callbacks(
         self,
         *,
-        pipe: Any,
-        entries: list[SourceEntry],
-        overrides: dict[str, Any] | None = None,
-        progress: ProgressFn,
         item_status: ItemStatusFn,
         item_progress: ItemProgressFn,
         item_path_update: ItemPathUpdateFn,
@@ -663,9 +635,8 @@ class TranscriptionService:
         item_output_dir: ItemOutputDirFn,
         conflict_resolver: ConflictResolverFn,
         cancel_check: CancelCheckFn,
-    ) -> SessionResult:
-        entries = list(entries or [])
-        callbacks = _SessionCallbacks(
+    ) -> _SessionCallbacks:
+        return _SessionCallbacks(
             item_status=item_status,
             item_progress=item_progress,
             item_path_update=item_path_update,
@@ -675,14 +646,9 @@ class TranscriptionService:
             conflict_resolver=conflict_resolver,
             cancel_check=cancel_check,
         )
-        runtime = self._prepare_session_runtime(
-            entries=entries,
-            overrides=overrides,
-            progress=progress,
-        )
 
+    def _log_session_plan(self, *, runtime: _SessionRuntime, entries: list[SourceEntry]) -> None:
         local_count, url_count = self._count_session_sources(entries=entries)
-
         _LOG.info("Transcription session started. items=%d", len(entries))
         _LOG.debug(
             "Transcription session planned. session_id=%s items=%s local_count=%s url_count=%s translate_requested=%s translate_effective=%s source_language=%s target_language=%s output_modes=%s",
@@ -697,6 +663,63 @@ class TranscriptionService:
             ",".join(runtime.options.output_mode_ids),
         )
 
+    def _finish_session_if_no_work(
+        self,
+        *,
+        runtime: _SessionRuntime,
+        materialized: _MaterializeBatchResult,
+    ) -> SessionResult | None:
+        if not materialized.was_cancelled and materialized.work:
+            return None
+        _LOG.debug(
+            "Transcription session ended early. session_id=%s cancelled=%s work_items=%s errors=%s",
+            runtime.session_id,
+            bool(materialized.was_cancelled),
+            len(materialized.work),
+            bool(materialized.had_errors),
+        )
+        return self._finish_session(
+            runtime=runtime,
+            processed_any=False,
+            had_errors=bool(materialized.had_errors),
+            was_cancelled=bool(materialized.was_cancelled),
+        )
+
+    def run_session(
+        self,
+        *,
+        pipe: Any,
+        entries: list[SourceEntry],
+        session_request: TranscriptionSessionRequest,
+        progress: ProgressFn,
+        item_status: ItemStatusFn,
+        item_progress: ItemProgressFn,
+        item_path_update: ItemPathUpdateFn,
+        transcript_ready: TranscriptReadyFn,
+        item_error: ItemErrorFn,
+        item_output_dir: ItemOutputDirFn,
+        conflict_resolver: ConflictResolverFn,
+        cancel_check: CancelCheckFn,
+    ) -> SessionResult:
+        entries = list(entries or [])
+        callbacks = self._build_session_callbacks(
+            item_status=item_status,
+            item_progress=item_progress,
+            item_path_update=item_path_update,
+            transcript_ready=transcript_ready,
+            item_error=item_error,
+            item_output_dir=item_output_dir,
+            conflict_resolver=conflict_resolver,
+            cancel_check=cancel_check,
+        )
+        runtime = self._prepare_session_runtime(
+            entries=entries,
+            session_request=session_request,
+            progress=progress,
+        )
+
+        self._log_session_plan(runtime=runtime, entries=entries)
+
         materialized = self._materialize_work_items(
             entries=entries,
             runtime=runtime,
@@ -706,20 +729,9 @@ class TranscriptionService:
         had_errors = bool(materialized.had_errors)
         was_cancelled = bool(materialized.was_cancelled)
 
-        if was_cancelled or not materialized.work:
-            _LOG.debug(
-                "Transcription session ended early. session_id=%s cancelled=%s work_items=%s errors=%s",
-                runtime.session_id,
-                bool(was_cancelled),
-                len(materialized.work),
-                bool(had_errors),
-            )
-            return self._finish_session(
-                runtime=runtime,
-                processed_any=False,
-                had_errors=had_errors,
-                was_cancelled=was_cancelled,
-            )
+        early_finish = self._finish_session_if_no_work(runtime=runtime, materialized=materialized)
+        if early_finish is not None:
+            return early_finish
 
         processed_any, had_errors, was_cancelled = self._process_materialized_work_items(
             pipe=pipe,
@@ -958,26 +970,24 @@ class TranscriptionService:
         try:
             if tmp_wav is not None and tmp_wav != src_path and tmp_wav.suffix.lower() == ".wav":
                 tmp_wav.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except OSError as ex:
+            _LOG.debug("Temp WAV cleanup skipped. path=%s detail=%s", tmp_wav, ex)
 
     @staticmethod
     def _cleanup_downloaded_sources(*, downloaded_to_delete: set[Path]) -> None:
         for path in downloaded_to_delete:
             try:
                 path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError as ex:
+                _LOG.debug("Downloaded source cleanup skipped. path=%s detail=%s", path, ex)
 
             try:
                 parent = path.parent
                 tmp_root = Config.DOWNLOADS_TMP_DIR.resolve()
                 if parent != tmp_root and tmp_root in parent.resolve().parents:
                     shutil.rmtree(parent, ignore_errors=True)
-            except Exception:
-                pass
-
-    # ----- Cleanup / materialization -----
+            except OSError as ex:
+                _LOG.debug("Downloaded source directory cleanup skipped. path=%s detail=%s", parent, ex)
 
     def _materialize_entry(
         self,
@@ -1074,8 +1084,6 @@ class TranscriptionService:
             forced_stem=stem,
         )
 
-    # ----- Transcription / translation -----
-
     def _transcribe_wav(
         self,
         *,
@@ -1090,6 +1098,8 @@ class TranscriptionService:
         item_progress: ItemProgressFn,
         cancel_check: CancelCheckFn,
         require_language: bool,
+        source_language: str = "",
+        text_consistency: bool = True,
     ) -> tuple[str, list[dict[str, Any]], str]:
         with wave.open(str(wav_path), "rb") as w:
             frames = w.getnframes()
@@ -1102,6 +1112,7 @@ class TranscriptionService:
         merged_parts: list[str] = []
         segments: list[dict[str, Any]] = []
         detected_lang = ""
+        previous_prompt_text = ""
 
         for i, ch in enumerate(iter_wav_mono_chunks(wav_path, chunk_len_s=chunk_len_s, stride_len_s=stride_len_s), start=1):
             if cancel_check():
@@ -1136,7 +1147,16 @@ class TranscriptionService:
                 )
                 continue
 
-            out = self._pipe_call(pipe=pipe, audio=ch.audio, sr=ch.sr, ignore_warning=ignore_warning, require_language=require_language)
+            out = self._pipe_call(
+                pipe=pipe,
+                audio=ch.audio,
+                sr=ch.sr,
+                ignore_warning=ignore_warning,
+                require_language=require_language,
+                source_language=source_language,
+                text_consistency=text_consistency,
+                previous_text=previous_prompt_text,
+            )
 
             if not detected_lang:
                 detected_lang = extract_detected_language_from_result(out)
@@ -1144,6 +1164,8 @@ class TranscriptionService:
             text = self._post.plain_from_result(out)
             if text:
                 merged_parts.append(text)
+                if text_consistency:
+                    previous_prompt_text = "\n".join([p for p in merged_parts[-3:] if p]).strip()
 
             if want_timestamps:
                 segments.extend(self._extract_segments(out, offset_s=ch.offset_s))
@@ -1173,14 +1195,36 @@ class TranscriptionService:
         return merged_text, segments, detected_lang
 
     @staticmethod
-    def _pipe_call(*, pipe: Any, audio: Any, sr: int, ignore_warning: bool, require_language: bool) -> dict[str, Any]:
+    def _pipe_call(
+        *,
+        pipe: Any,
+        audio: Any,
+        sr: int,
+        ignore_warning: bool,
+        require_language: bool,
+        source_language: str = "",
+        text_consistency: bool = True,
+        previous_text: str = "",
+    ) -> dict[str, Any]:
         try:
-            payload = {"array": audio, "sampling_rate": int(sr)}
+            payload = {"raw": audio, "sampling_rate": int(sr)}
+            normalized_lang = str(source_language or "").strip().lower()
+            if Config.is_auto_language_value(normalized_lang):
+                normalized_lang = ""
+            prompt_ids = whisper_prompt_ids_from_text(pipe=pipe, text=previous_text) if bool(text_consistency) else None
+            generate_kwargs: dict[str, Any] = {"task": "transcribe"}
+            if normalized_lang:
+                generate_kwargs["language"] = normalized_lang
+            generate_kwargs["condition_on_prev_tokens"] = bool(text_consistency)
+            if prompt_ids is not None:
+                generate_kwargs["prompt_ids"] = prompt_ids
+
             try:
                 out = pipe(
                     payload,
                     return_language=True,
                     return_timestamps=True,
+                    generate_kwargs=generate_kwargs,
                     ignore_warning=bool(ignore_warning),
                 )
             except TypeError as ex:
@@ -1189,11 +1233,22 @@ class TranscriptionService:
                     raise TranscriptionError("error.transcription.language_detection_unsupported") from ex
                 if "return_timestamps" in msg:
                     raise TranscriptionError("error.transcription.timestamps_unsupported") from ex
-                out = pipe(
-                    payload,
-                    return_timestamps=True,
-                    ignore_warning=bool(ignore_warning),
-                )
+                fallback_kwargs = dict(generate_kwargs)
+                fallback_kwargs.pop("prompt_ids", None)
+                try:
+                    out = pipe(
+                        payload,
+                        return_language=True,
+                        return_timestamps=True,
+                        generate_kwargs=fallback_kwargs,
+                        ignore_warning=bool(ignore_warning),
+                    )
+                except TypeError:
+                    out = pipe(
+                        payload,
+                        return_timestamps=True,
+                        ignore_warning=bool(ignore_warning),
+                    )
         except Exception as exc:
             _LOG.exception("ASR pipeline call failed.")
             raise TranscriptionError("error.transcription.asr_failed") from exc
@@ -1253,8 +1308,6 @@ class TranscriptionService:
                 progress_cb(int(round((i / float(total)) * 100)))
 
         return out
-
-    # ----- Output rendering / writeback -----
 
     @staticmethod
     def _write_outputs(

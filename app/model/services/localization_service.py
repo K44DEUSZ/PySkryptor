@@ -1,4 +1,4 @@
-# app/controller/support/localization.py
+# app/model/services/localization_service.py
 from __future__ import annotations
 
 import json
@@ -7,25 +7,23 @@ from typing import Any
 
 from PyQt5 import QtCore
 
-from app.model.helpers.errors import AppError
+from app.model.domain.errors import AppError
 
 _MESSAGES: dict[str, str] = {}
 _CURRENT_LANG: str = "en"
-
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception as ex:
-        raise AppError(key="error.i18n.locale_invalid", params={"path": str(path), "detail": str(ex)})
+    except (OSError, json.JSONDecodeError) as ex:
+        raise AppError(key="error.i18n.locale_invalid", params={"path": str(path), "detail": str(ex)}) from ex
     if not isinstance(data, dict):
         raise AppError(key="error.i18n.locale_invalid", params={"path": str(path), "detail": "root-not-object"})
     return data
 
-
 def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, str]:
-    """Flatten nested dicts into dot-separated keys (e.g., tabs.files)."""
+    """Flatten nested dicts into dot-separated keys (e.g. tabs.files)."""
     out: dict[str, str] = {}
     for k, v in d.items():
         if not isinstance(k, str):
@@ -39,8 +37,7 @@ def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, str]:
             out[key] = str(v)
     return out
 
-
-def system_lang_hint() -> str:
+def _system_lang_hint() -> str:
     loc = QtCore.QLocale.system()
     name = loc.name()
     parts = name.split("_")
@@ -48,8 +45,7 @@ def system_lang_hint() -> str:
     region = parts[1].lower() if len(parts) > 1 else ""
     return f"{lang}-{region}" if region else lang
 
-
-def discover_locales(locales_dir: Path) -> set[str]:
+def _discover_locales(locales_dir: Path) -> set[str]:
     available: set[str] = set()
     if not locales_dir.exists():
         return available
@@ -61,45 +57,27 @@ def discover_locales(locales_dir: Path) -> set[str]:
                 available.add(code.split("-", 1)[0])
     return available
 
-
 def _locale_display_name(locales_dir: Path, code: str) -> str:
     """Return a human-friendly name for a locale code (from meta.name when available)."""
-    try:
-        locales_dir = Path(locales_dir)
-        p = locales_dir / f"{str(code).lower()}.json"
-        if not p.exists():
-            base_code = str(code).split("-", 1)[0].lower()
-            p = locales_dir / f"{base_code}.json"
-        if not p.exists():
-            return str(code)
-
-        data = _read_json(p)
-        meta = data.get("meta") if isinstance(data, dict) else None
-        if isinstance(meta, dict):
-            name = str(meta.get("name") or "").strip()
-            if name:
-                return name
-    except Exception:
-        pass
-    return str(code)
-
-
-def list_locales(locales_dir: Path) -> list[tuple[str, str]]:
-    """List available locales as (code, display_name) sorted by display name."""
     locales_dir = Path(locales_dir)
-    items: list[tuple[str, str]] = []
-    if not locales_dir.exists():
-        return items
+    p = locales_dir / f"{str(code).lower()}.json"
+    if not p.exists():
+        base_code = str(code).split("-", 1)[0].lower()
+        p = locales_dir / f"{base_code}.json"
+    if not p.exists():
+        return str(code)
 
-    for p in locales_dir.glob("*.json"):
-        code = p.stem.strip().lower().replace("_", "-")
-        if not code:
-            continue
-        items.append((code, _locale_display_name(locales_dir, code)))
+    try:
+        data = _read_json(p)
+    except AppError:
+        return str(code)
 
-    items.sort(key=lambda x: (x[1].lower(), x[0]))
-    return items
-
+    meta = data.get("meta") if isinstance(data, dict) else None
+    if isinstance(meta, dict):
+        name = str(meta.get("name") or "").strip()
+        if name:
+            return name
+    return str(code)
 
 def _pick_best(sys_hint: str, available: set[str], fallback: str = "en") -> str:
     if sys_hint in available:
@@ -112,7 +90,6 @@ def _pick_best(sys_hint: str, available: set[str], fallback: str = "en") -> str:
     if "en" in available:
         return "en"
     return sorted(available)[0] if available else "en"
-
 
 def load(locales_dir: Path, lang: str) -> None:
     """Load exact language file (prefer exact, fallback to base), or raise."""
@@ -131,28 +108,46 @@ def load(locales_dir: Path, lang: str) -> None:
     _MESSAGES = _flatten(data)
     _CURRENT_LANG = lang
 
-
 def load_best(locales_dir: Path, system_first: bool = True, fallback: str = "en") -> None:
-    available = discover_locales(locales_dir)
+    """Load the best available locale using the system hint and fallback policy."""
+    available = _discover_locales(locales_dir)
     if not available:
         _MESSAGES.clear()
         return
-    hint = system_lang_hint() if system_first else fallback
+    hint = _system_lang_hint() if system_first else fallback
     picked = _pick_best(hint, available, fallback=fallback)
     load(locales_dir, picked)
 
-
 def tr(key: str, **params: Any) -> str:
+    """Translate a key using the currently loaded locale messages."""
     template = _MESSAGES.get(key, key)
     try:
         return template.format(**params)
-    except Exception:
+    except (KeyError, IndexError, ValueError):
         return template
 
+def current_language() -> str:
+    """Return the currently loaded locale code."""
+    return _CURRENT_LANG
+
+def list_locales(locales_dir: Path) -> list[tuple[str, str]]:
+    """List available locales as (code, display_name) sorted by display name."""
+    locales_dir = Path(locales_dir)
+    items: list[tuple[str, str]] = []
+    if not locales_dir.exists():
+        return items
+
+    for p in locales_dir.glob("*.json"):
+        code = p.stem.strip().lower().replace("_", "-")
+        if not code:
+            continue
+        items.append((code, _locale_display_name(locales_dir, code)))
+
+    items.sort(key=lambda x: (x[1].lower(), x[0]))
+    return items
 
 def _normalize_display_lang_code(code: str) -> str:
     return str(code or "").strip().lower().replace("_", "-")
-
 
 def language_display_name(code: str, *, ui_lang: str | None = None) -> str:
     """Return a user-facing language label, e.g. "polski (pl)"."""
@@ -174,9 +169,8 @@ def language_display_name(code: str, *, ui_lang: str | None = None) -> str:
         if best and best.lower() != norm.lower():
             return f"{best} ({norm})"
         return norm
-    except Exception:
+    except (ImportError, ValueError, AttributeError):
         return norm
-
 
 def build_language_options(
     codes: list[str] | tuple[str, ...] | set[str],
@@ -191,7 +185,7 @@ def build_language_options(
     if special_first is not None:
         label_key, raw_code = special_first
         code = _normalize_display_lang_code(raw_code)
-        label = Translator.tr(label_key).strip() or str(raw_code)
+        label = tr(label_key).strip() or str(raw_code)
         if code:
             items.append((code, label))
             seen.add(code)
@@ -210,25 +204,3 @@ def build_language_options(
     rows.sort(key=lambda item: (item[1].lower(), item[0]))
     items.extend(rows)
     return items
-
-
-class Translator:
-    @staticmethod
-    def load(locales_dir: Path, lang: str) -> None:
-        load(locales_dir, lang)
-
-    @staticmethod
-    def load_best(locales_dir: Path, system_first: bool = True, fallback: str = "en") -> None:
-        load_best(locales_dir, system_first=system_first, fallback=fallback)
-
-    @staticmethod
-    def tr(key: str, **params: Any) -> str:
-        return tr(key, **params)
-
-    @staticmethod
-    def current_language() -> str:
-        return _CURRENT_LANG
-
-    @staticmethod
-    def loaded_count() -> int:
-        return len(_MESSAGES)

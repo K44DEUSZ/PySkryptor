@@ -15,6 +15,8 @@ from typing import Any, TextIO
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
+_LOG = logging.getLogger(__name__)
+
 _APP_FILE_HANDLER_NAME = "PySkryptorAppFile"
 _CONSOLE_HANDLER_NAME = "PySkryptorConsole"
 _LEVEL_MAP = {
@@ -24,9 +26,9 @@ _LEVEL_MAP = {
     "error": logging.ERROR,
 }
 
-
 @dataclass(frozen=True)
 class LoggingContext:
+    """Resolved logging paths and root logger used during bootstrap."""
     logger: logging.Logger
     logs_dir: Path
     app_log_path: Path
@@ -177,8 +179,8 @@ class LoggingSetup:
         try:
             logger.removeHandler(handler)
             handler.close()
-        except (OSError, ValueError):
-            pass
+        except (OSError, RuntimeError, ValueError) as ex:
+            _LOG.debug("Named handler removal skipped. name=%s detail=%s", name, ex)
 
     @staticmethod
     def _ensure_app_file_handler(
@@ -229,8 +231,8 @@ class LoggingSetup:
                 f.write(str(text or ""))
                 if text and not str(text).endswith("\n"):
                     f.write("\n")
-        except OSError:
-            pass
+        except OSError as ex:
+            _LOG.debug("Crash log append skipped. path=%s detail=%s", crash_log_path, ex)
 
     @staticmethod
     def _write_startup_header(logger: logging.Logger) -> None:
@@ -257,8 +259,8 @@ class LoggingSetup:
             def _close() -> None:
                 try:
                     f.close()
-                except OSError:
-                    pass
+                except OSError as ex:
+                    _LOG.debug("Faulthandler file close skipped. path=%s detail=%s", crash_log_path, ex)
 
             atexit.register(_close)
             if logger:
@@ -288,7 +290,7 @@ class LoggingSetup:
                         parts.append(func_name)
                     if parts:
                         origin = " (" + ":".join(parts) + ")"
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     origin = ""
 
                 try:
@@ -298,7 +300,7 @@ class LoggingSetup:
                     qt_warning = getattr(QtCore, "QtWarningMsg", 1)
                     qt_critical = getattr(QtCore, "QtCriticalMsg", 2)
                     qt_fatal = getattr(QtCore, "QtFatalMsg", 3)
-                except Exception:
+                except (ImportError, AttributeError, TypeError, ValueError):
                     qt_debug = 0
                     qt_info = 4
                     qt_warning = 1
@@ -323,7 +325,10 @@ class LoggingSetup:
 
                 if crash_title is not None:
                     LoggingSetup._append_crash_entry(crash_log_path, crash_title, f"{msg}{origin}")
-            except Exception:
-                pass
+            except Exception as ex:
+                try:
+                    sys.stderr.write(f"Qt message handler failure: {ex}\n")
+                except OSError:
+                    return
 
         return _qt_handler
