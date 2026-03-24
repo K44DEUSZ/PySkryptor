@@ -12,6 +12,7 @@ from app.view.support.widget_effects import (
     enable_styled_background,
     floating_shadow_margins,
     install_app_event_filter,
+    is_windows_platform,
     overlay_edge_gap,
     repolish_widget,
 )
@@ -200,20 +201,22 @@ class _TextContextPopup(QtWidgets.QWidget):
             | QtCore.Qt.WindowType.NoDropShadowWindowHint,
         )
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        is_windows = is_windows_platform()
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setProperty("role", "textContextPopupHost")
 
         cfg = ui(self)
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*floating_shadow_margins(self))
+        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "textContextPopup")
         enable_styled_background(self._body)
-        apply_floating_shadow(self._body)
+        if not is_windows:
+            apply_floating_shadow(self._body)
 
         self._content = QtWidgets.QVBoxLayout(self._body)
         setup_layout(self._content, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=cfg.space_s)

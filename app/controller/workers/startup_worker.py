@@ -50,13 +50,14 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: Ap
     friendly = str(getattr(config_cls, "DEVICE_FRIENDLY_NAME", dev_str))
     _ROOT.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
     _LOG.debug(
-        "Runtime engine settings applied. preferred_device=%s precision=%s allow_tf32=%s low_cpu_mem_usage=%s device=%s dtype=%s",
+        "Runtime engine settings applied. preferred_device=%s precision=%s fp32_math_mode=%s low_cpu_mem_usage=%s device=%s dtype=%s tf32_enabled=%s",
         str((snap.engine or {}).get("preferred_device", "auto")),
         str((snap.engine or {}).get("precision", "auto")),
-        bool((snap.engine or {}).get("allow_tf32", False)),
+        str((snap.engine or {}).get("fp32_math_mode", "ieee")),
         bool((snap.engine or {}).get("low_cpu_mem_usage", False)),
         dev_str,
         dtype_str,
+        bool(getattr(config_cls, "TF32_ENABLED", False)),
     )
 
     progress(100)
@@ -131,9 +132,8 @@ def _warmup_model_runtime(
             changes[result_key] = None
         next_state = replace(state, **changes)
         _LOG.debug(
-            "Startup %s model missing. key=%s path=%s",
+            "Startup %s model missing. path=%s",
             name,
-            getattr(next_state, error_key_key),
             getattr(next_state, error_params_key).get("path", ""),
         )
         return next_state

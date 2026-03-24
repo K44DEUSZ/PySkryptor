@@ -1,8 +1,8 @@
 # app/main.py
 from __future__ import annotations
 
-import sys
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -22,22 +22,28 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.coordinators.app_coordinator import AppCoordinator
 from app.controller.platform.logging import LoggingSetup
-from app.model.services.localization_service import current_language, load, load_best, tr
 from app.model.config.app_config import AppConfig as Config
 from app.model.domain.runtime_state import AppRuntimeState
+from app.model.services.localization_service import current_language, load, load_best, tr
 from app.model.services.settings_service import SettingsError, SettingsService
+from app.view.components.loading_screen import LoadingScreenWidget
 from app.view.dialogs import (
     critical_config_load_failed_choice,
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,
     critical_startup_error_and_exit,
 )
-from app.view.components.loading_screen import LoadingScreenWidget
 from app.view.main_window import MainWindow
-from app.view.support.theme_runtime import app_icon, app_palette_colors, render_theme_stylesheet, system_theme_key
+from app.view.support.theme_runtime import (
+    app_icon,
+    app_palette_colors,
+    render_theme_stylesheet,
+    system_theme_key,
+)
 from app.view.ui_config import UIConfig
 
 _LOG = logging.getLogger(__name__)
+
 
 def _load_fonts(app: QtWidgets.QApplication, fonts_dir: Path) -> None:
     """Load packaged fonts and apply the preferred application family when available."""
@@ -66,6 +72,7 @@ def _load_fonts(app: QtWidgets.QApplication, fonts_dir: Path) -> None:
     except (RuntimeError, OSError, TypeError, ValueError) as ex:
         _LOG.debug("Font loading skipped. fonts_dir=%s detail=%s", fonts_dir, ex)
 
+
 def _apply_palette(app: QtWidgets.QApplication, theme: str) -> None:
     try:
         palette = app.palette()
@@ -74,10 +81,10 @@ def _apply_palette(app: QtWidgets.QApplication, theme: str) -> None:
         palette.setColor(QtGui.QPalette.Link, colors['link'])
         palette.setColor(QtGui.QPalette.LinkVisited, colors['link_visited'])
         palette.setColor(QtGui.QPalette.HighlightedText, colors['highlighted_text'])
-
         app.setPalette(palette)
     except (KeyError, RuntimeError, TypeError, ValueError) as ex:
         _LOG.debug("Palette application skipped. theme=%s detail=%s", theme, ex)
+
 
 def _apply_stylesheet(app: QtWidgets.QApplication, styles_dir: Path, theme_pref: str) -> str:
     theme, stylesheet = render_theme_stylesheet(styles_dir, theme_pref, app=app)
@@ -91,8 +98,10 @@ def _apply_stylesheet(app: QtWidgets.QApplication, styles_dir: Path, theme_pref:
 
     return theme
 
+
 def _create_application(argv: list[str] | None = None) -> QtWidgets.QApplication:
     return QtWidgets.QApplication(list(argv or sys.argv))
+
 
 def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
     project_root = Path(__file__).resolve().parent.parent
@@ -112,6 +121,7 @@ def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
 
     _load_fonts(app, Config.ASSETS_DIR / 'fonts')
     return ui_cfg
+
 
 def _setup_logging() -> Any:
     bootstrap_file_enabled, bootstrap_level = LoggingSetup.read_bootstrap_settings(
@@ -135,12 +145,15 @@ def _setup_logging() -> Any:
     )
 
     try:
-        QtCore.qInstallMessageHandler(LoggingSetup.make_qt_message_handler(logger, log_ctx.crash_log_path))
+        QtCore.qInstallMessageHandler(
+            LoggingSetup.make_qt_message_handler(logger, log_ctx.crash_log_path)
+        )
         logger.debug('Qt message handler installed. crash_log=%s', log_ctx.crash_log_path)
     except (RuntimeError, TypeError) as ex:
         logger.warning('Qt message handler installation failed. detail=%s', ex)
 
     return log_ctx
+
 
 def _load_startup_localization(logger: LoggerLike) -> bool:
     try:
@@ -150,6 +163,7 @@ def _load_startup_localization(logger: LoggerLike) -> bool:
     except (OSError, RuntimeError, TypeError, ValueError):
         critical_locales_missing_and_exit(None)
         return False
+
 
 def _load_settings(service: SettingsService, logger: LoggerLike) -> Any | None:
     try:
@@ -181,6 +195,7 @@ def _load_settings(service: SettingsService, logger: LoggerLike) -> Any | None:
         critical_startup_error_and_exit(None, type(load_ex).__name__)
         return None
 
+
 def _apply_logging_settings(log_ctx: Any, snap: Any) -> None:
     try:
         logging_cfg = snap.app.get('logging', {}) if isinstance(snap.app.get('logging'), dict) else {}
@@ -192,6 +207,7 @@ def _apply_logging_settings(log_ctx: Any, snap: Any) -> None:
     except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
         log_ctx.logger.warning('Runtime logging settings apply failed. detail=%s', ex)
 
+
 def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
     lang_pref = str(snap.app.get('language', 'auto') or 'auto')
     try:
@@ -199,6 +215,7 @@ def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
             load_best(Config.LOCALES_DIR, system_first=True, fallback='en')
         else:
             load(Config.LOCALES_DIR, lang_pref)
+
         logger.debug(
             'Application localization activated. language=%s locales_dir=%s',
             current_language(),
@@ -208,6 +225,7 @@ def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
     except (OSError, RuntimeError, TypeError, ValueError):
         critical_locales_missing_and_exit(None)
         return False
+
 
 def _apply_theme(app: QtWidgets.QApplication, snap: Any, logger: Any) -> str:
     theme = system_theme_key(app)
@@ -219,6 +237,7 @@ def _apply_theme(app: QtWidgets.QApplication, snap: Any, logger: Any) -> str:
         logger.exception('Entrypoint stylesheet failed. detail=%s', stylesheet_ex)
     return theme
 
+
 def _apply_window_icon(app: QtWidgets.QApplication, theme: str) -> None:
     try:
         icon = app_icon(theme)
@@ -226,6 +245,7 @@ def _apply_window_icon(app: QtWidgets.QApplication, theme: str) -> None:
             app.setWindowIcon(icon)
     except (RuntimeError, TypeError) as ex:
         _LOG.debug("Application window icon update skipped. theme=%s detail=%s", theme, ex)
+
 
 def _clamp_third_party_logging(logger: Any) -> None:
     try:
@@ -236,6 +256,7 @@ def _clamp_third_party_logging(logger: Any) -> None:
     except (ImportError, AttributeError, RuntimeError, TypeError, ValueError) as ex:
         logger.debug('Transformers logging clamp skipped. detail=%s', ex)
 
+
 def _build_startup_labels() -> dict[str, str]:
     return {
         'asr': tr('loading.stage.transcription_model'),
@@ -244,12 +265,15 @@ def _build_startup_labels() -> dict[str, str]:
         'dirs': tr('loading.stage.dirs'),
         'ffmpeg': tr('loading.stage.ffmpeg'),
     }
+
+
 def _start_loading_screen(app: QtWidgets.QApplication) -> LoadingScreenWidget:
     loading = LoadingScreenWidget()
     loading.set_indeterminate(True)
     loading.show()
     app.processEvents()
     return loading
+
 
 def _start_startup(
     app: QtWidgets.QApplication,
@@ -273,11 +297,13 @@ def _start_startup(
         loading.set_indeterminate(False)
         loading.set_progress(pct)
 
-    def _on_failed(failed_key: str, params: dict[str, Any]) -> None:
-        logger.error('Entrypoint startup worker failed. key=%s params=%s', failed_key, params)
+    def _on_failed(_failed_key: str, params: dict[str, Any]) -> None:
+        detail = str((params or {}).get('detail') or '').strip()
+        path = str((params or {}).get('path') or '').strip()
+        logger.error('Entrypoint startup worker failed. detail=%s path=%s', detail, path)
         loading.finish()
-        details = str((params or {}).get('detail') or failed_key or 'StartupError')
-        critical_startup_error_and_exit(None, details)
+        ui_detail = detail or path or 'StartupError'
+        critical_startup_error_and_exit(None, ui_detail)
 
     def _on_ready(runtime_state: AppRuntimeState) -> None:
         try:
@@ -312,11 +338,12 @@ def _start_startup(
     if worker is None:
         logger.error('Entrypoint startup worker could not be scheduled. reason=busy')
         loading.finish()
-        critical_startup_error_and_exit(None, "StartupBusy")
+        critical_startup_error_and_exit(None, 'StartupBusy')
         return 1
 
     logger.debug('Startup worker scheduled.')
     return app.exec_()
+
 
 def run(argv: list[str] | None = None) -> int:
     app = _create_application(argv)
@@ -349,6 +376,7 @@ def run(argv: list[str] | None = None) -> int:
     _clamp_third_party_logging(logger)
 
     return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=logger)
+
 
 if __name__ == '__main__':
     raise SystemExit(run())

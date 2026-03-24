@@ -29,7 +29,7 @@ class AppConfig:
     _UNSET = object()
 
     APP_NAME: str = "PySkryptor"
-    APP_VERSION: str = "1.1 ALPHA"
+    APP_VERSION: str = "1.1.1 ALPHA"
     APP_AUTHOR: str = "Bartosz Golat"
     APP_DEVELOPMENT_YEARS: str = "2025-2026"
     APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"
@@ -93,14 +93,12 @@ class AppConfig:
     DOWNLOAD_DEFAULT_STEM: str = "download"
 
     LANGUAGE_AUTO_VALUE: str = LanguagePolicy.AUTO
-    LANGUAGE_DEFAULT_VALUE: str = LanguagePolicy.DEFAULT
-    LANGUAGE_UI_VALUE: str = LanguagePolicy.UI
-    LANGUAGE_APP_VALUE: str = LanguagePolicy.APP
     LANGUAGE_DEFAULT_UI_VALUE: str = LanguagePolicy.DEFAULT_UI
+    LANGUAGE_LAST_USED_VALUE: str = LanguagePolicy.LAST_USED
+    LANGUAGE_PREFERRED_VALUE: str = LanguagePolicy.PREFERRED
 
-    DOWNLOAD_AUDIO_LANG_AUTO_VALUES: tuple[str, ...] = LanguagePolicy.DOWNLOAD_AUDIO_AUTO_VALUES
-    TRANSLATION_SOURCE_DEFERRED_VALUES: tuple[str, ...] = LanguagePolicy.TRANSLATION_SOURCE_DEFERRED_VALUES
-    TRANSLATION_TARGET_DEFERRED_VALUES: tuple[str, ...] = LanguagePolicy.TRANSLATION_TARGET_DEFERRED_VALUES
+    DOWNLOAD_AUDIO_DEFAULT_TOKEN: str = "default"
+    DOWNLOAD_AUDIO_LANG_AUTO_VALUES: tuple[str, ...] = (DOWNLOAD_AUDIO_DEFAULT_TOKEN, LANGUAGE_AUTO_VALUE, "-")
 
     DOWNLOAD_FALLBACK_AUDIO_SELECTOR: str = "bestaudio/best"
     DOWNLOAD_FALLBACK_VIDEO_SELECTOR: str = "bv*+ba/b"
@@ -391,15 +389,20 @@ class AppConfig:
 
     @classmethod
     def is_download_audio_auto_value(cls, value: Any) -> bool:
-        return LanguagePolicy.is_download_audio_auto(value)
+        token = cls.normalize_policy_value(value)
+        return token in set(cls.DOWNLOAD_AUDIO_LANG_AUTO_VALUES)
 
     @classmethod
-    def is_translation_source_deferred_value(cls, value: Any) -> bool:
-        return LanguagePolicy.is_translation_source_deferred(value)
+    def is_last_used_language_value(cls, value: Any) -> bool:
+        return LanguagePolicy.is_last_used(value)
 
     @classmethod
-    def is_translation_target_deferred_value(cls, value: Any) -> bool:
-        return LanguagePolicy.is_translation_target_deferred(value)
+    def is_default_ui_language_value(cls, value: Any) -> bool:
+        return LanguagePolicy.is_default_ui(value)
+
+    @classmethod
+    def is_preferred_language_value(cls, value: Any) -> bool:
+        return LanguagePolicy.is_preferred(value)
 
     @classmethod
     def files_audio_input_file_exts(cls) -> tuple[str, ...]:
@@ -444,6 +447,127 @@ class AppConfig:
         ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
         bulk_cfg = ui_cfg.get("bulk_add_confirmation", {}) if isinstance(ui_cfg.get("bulk_add_confirmation"), dict) else {}
         return dict(bulk_cfg) if isinstance(bulk_cfg, dict) else {}
+
+    @classmethod
+    def files_ui_cfg_dict(cls) -> dict[str, Any]:
+        app_cfg = cls._snapshot_section_dict("app")
+        ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
+        files_cfg = ui_cfg.get("files", {}) if isinstance(ui_cfg.get("files"), dict) else {}
+        return dict(files_cfg) if isinstance(files_cfg, dict) else {}
+
+    @classmethod
+    def _ui_tab_cfg_dict(cls, tab_name: str) -> dict[str, Any]:
+        tab = str(tab_name or "").strip().lower()
+        if tab == "files":
+            return cls.files_ui_cfg_dict()
+        if tab == "live":
+            return cls.live_ui_cfg_dict()
+        return {}
+
+    @classmethod
+    def normalize_default_source_language_policy(cls, value: Any) -> str:
+        token = cls.normalize_language_choice_value(value)
+        if cls.is_last_used_language_value(token):
+            return cls.LANGUAGE_LAST_USED_VALUE
+        if cls.is_auto_language_value(token):
+            return cls.LANGUAGE_AUTO_VALUE
+        norm = LanguagePolicy.normalize_code(token, drop_region=False)
+        return norm or cls.LANGUAGE_AUTO_VALUE
+
+    @classmethod
+    def normalize_default_target_language_policy(cls, value: Any) -> str:
+        token = cls.normalize_language_choice_value(value)
+        if cls.is_last_used_language_value(token):
+            return cls.LANGUAGE_LAST_USED_VALUE
+        if cls.is_default_ui_language_value(token) or not token:
+            return cls.LANGUAGE_DEFAULT_UI_VALUE
+        norm = LanguagePolicy.normalize_code(token, drop_region=False)
+        return norm or cls.LANGUAGE_DEFAULT_UI_VALUE
+
+    @classmethod
+    def normalize_last_used_source_language(cls, value: Any) -> str:
+        token = cls.normalize_language_choice_value(value)
+        if cls.is_auto_language_value(token) or not token:
+            return cls.LANGUAGE_AUTO_VALUE
+        norm = LanguagePolicy.normalize_code(token, drop_region=False)
+        return norm or cls.LANGUAGE_AUTO_VALUE
+
+    @classmethod
+    def normalize_last_used_target_language(cls, value: Any) -> str:
+        token = cls.normalize_language_choice_value(value)
+        if cls.is_default_ui_language_value(token) or not token:
+            return cls.LANGUAGE_DEFAULT_UI_VALUE
+        norm = LanguagePolicy.normalize_code(token, drop_region=False)
+        return norm or cls.LANGUAGE_DEFAULT_UI_VALUE
+
+    @classmethod
+    def default_source_language_policy(cls) -> str:
+        cfg = cls.transcription_cfg_dict()
+        value = cfg.get("default_source_language", cls.LANGUAGE_AUTO_VALUE)
+        return cls.normalize_default_source_language_policy(value)
+
+    @classmethod
+    def default_target_language_policy(cls) -> str:
+        cfg = cls.translation_cfg_dict()
+        value = cfg.get("default_target_language", cls.LANGUAGE_DEFAULT_UI_VALUE)
+        return cls.normalize_default_target_language_policy(value)
+
+    @classmethod
+    def _tab_last_used_source_language(cls, tab_name: str) -> str:
+        cfg = cls._ui_tab_cfg_dict(tab_name)
+        return cls.normalize_last_used_source_language(cfg.get("last_used_source_language", cls.LANGUAGE_AUTO_VALUE))
+
+    @classmethod
+    def _tab_last_used_target_language(cls, tab_name: str) -> str:
+        cfg = cls._ui_tab_cfg_dict(tab_name)
+        return cls.normalize_last_used_target_language(cfg.get("last_used_target_language", cls.LANGUAGE_DEFAULT_UI_VALUE))
+
+    @classmethod
+    def resolve_default_source_language_for_tab(cls, tab_name: str) -> str:
+        policy = cls.default_source_language_policy()
+        if cls.is_last_used_language_value(policy):
+            return cls._tab_last_used_source_language(tab_name)
+        if cls.is_auto_language_value(policy):
+            return cls.LANGUAGE_AUTO_VALUE
+        norm = LanguagePolicy.normalize_code(policy, drop_region=False)
+        return norm or cls.LANGUAGE_AUTO_VALUE
+
+    @classmethod
+    def resolve_default_target_language_for_tab(cls, tab_name: str, ui_language: str | None = None) -> str:
+        policy = cls.default_target_language_policy()
+        if cls.is_last_used_language_value(policy):
+            policy = cls._tab_last_used_target_language(tab_name)
+        if cls.is_default_ui_language_value(policy):
+            try:
+                from app.model.services.localization_service import current_language
+            except Exception:
+                resolved_ui = str(ui_language or "").strip().lower()
+            else:
+                resolved_ui = str(ui_language or current_language()).strip().lower()
+            norm_ui = LanguagePolicy.normalize_code(resolved_ui, drop_region=True)
+            return norm_ui or cls.LANGUAGE_DEFAULT_UI_VALUE
+        norm = LanguagePolicy.normalize_code(policy, drop_region=False)
+        return norm or cls.LANGUAGE_DEFAULT_UI_VALUE
+
+    @classmethod
+    def normalize_panel_source_language_selection(cls, value: Any) -> str:
+        token = cls.normalize_language_choice_value(value)
+        if cls.is_preferred_language_value(token):
+            return cls.LANGUAGE_PREFERRED_VALUE
+        if cls.is_auto_language_value(token):
+            return cls.LANGUAGE_AUTO_VALUE
+        norm = LanguagePolicy.normalize_code(token, drop_region=False)
+        return norm or cls.LANGUAGE_PREFERRED_VALUE
+
+    @classmethod
+    def normalize_panel_target_language_selection(cls, value: Any) -> str:
+        token = cls.normalize_language_choice_value(value)
+        if cls.is_preferred_language_value(token):
+            return cls.LANGUAGE_PREFERRED_VALUE
+        if cls.is_default_ui_language_value(token):
+            return cls.LANGUAGE_DEFAULT_UI_VALUE
+        norm = LanguagePolicy.normalize_code(token, drop_region=False)
+        return norm or cls.LANGUAGE_PREFERRED_VALUE
 
     @classmethod
     def ui_bulk_add_confirmation_enabled(cls) -> bool:
@@ -626,19 +750,6 @@ class AppConfig:
     def translation_cfg_dict(cls) -> dict[str, Any]:
         return cls._snapshot_section_dict("translation")
 
-    @classmethod
-    def translation_source_language(cls) -> str:
-        value = cls.normalize_language_choice_value(
-            cls._snapshot_section_value("translation", "source_language") or cls.LANGUAGE_AUTO_VALUE
-        )
-        return value or cls.LANGUAGE_AUTO_VALUE
-
-    @classmethod
-    def translation_target_language(cls) -> str:
-        value = cls.normalize_language_choice_value(
-            cls._snapshot_section_value("translation", "target_language") or cls.LANGUAGE_DEFAULT_UI_VALUE
-        )
-        return value or cls.LANGUAGE_DEFAULT_UI_VALUE
 
     @classmethod
     def engine_cfg_dict(cls) -> dict[str, Any]:
@@ -667,11 +778,6 @@ class AppConfig:
         cfg = cls.transcription_model_raw_cfg_dict()
         return str(cfg.get("engine_name", "none") or "none").strip()
 
-    @classmethod
-    def transcription_default_language(cls) -> str:
-        cfg = cls.transcription_model_raw_cfg_dict()
-        value = cls.normalize_policy_value(cfg.get("default_language") or cls.LANGUAGE_AUTO_VALUE)
-        return value or cls.LANGUAGE_AUTO_VALUE
 
     @classmethod
     def translation_model_engine_name(cls) -> str:
@@ -725,6 +831,7 @@ class AppConfig:
     @classmethod
     def engine_low_cpu_mem_usage(cls) -> bool:
         return bool(cls._snapshot_section_value("engine", "low_cpu_mem_usage"))
+
 
     @classmethod
     def transcription_output_mode_ids(cls) -> tuple[str, ...]:
@@ -834,7 +941,25 @@ class AppConfig:
 
     @classmethod
     def auto_precision_key(cls) -> str:
-        return "float16" if cls.has_cuda() else "float32"
+        if cls.has_cuda():
+            if bool(cls.BF16_SUPPORTED):
+                return "bfloat16"
+            return "float16"
+        return "float32"
+
+    @classmethod
+    def is_fp32_math_mode_applicable(cls, device_key: str, precision_key: str) -> bool:
+        raw_device = str(device_key or cls.LANGUAGE_AUTO_VALUE).strip().lower()
+        raw_precision = str(precision_key or cls.LANGUAGE_AUTO_VALUE).strip().lower()
+
+        resolved_device = cls.auto_device_key() if raw_device == cls.LANGUAGE_AUTO_VALUE else raw_device
+        resolved_precision = cls.auto_precision_key() if raw_precision == cls.LANGUAGE_AUTO_VALUE else raw_precision
+
+        return bool(
+            resolved_device.startswith("cuda")
+            and resolved_precision == "float32"
+            and bool(cls.TF32_SUPPORTED)
+        )
 
     @classmethod
     def runtime_capabilities(cls) -> dict[str, bool]:

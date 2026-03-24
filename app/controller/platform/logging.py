@@ -309,19 +309,19 @@ class LoggingSetup:
 
                 crash_title: str | None = None
                 if mode == qt_debug:
-                    logger.debug("[qt] %s%s", msg, origin)
+                    logger.debug("[qt-raw] %s%s", msg, origin)
                 elif qt_info is not None and mode == qt_info:
-                    logger.info("[qt] %s%s", msg, origin)
+                    logger.info("[qt-raw] %s%s", msg, origin)
                 elif mode == qt_warning:
-                    logger.warning("[qt] %s%s", msg, origin)
+                    logger.warning("[qt-raw] %s%s", msg, origin)
                 elif mode == qt_critical:
-                    logger.error("[qt] %s%s", msg, origin)
+                    logger.error("[qt-raw] %s%s", msg, origin)
                     crash_title = "qt critical"
                 elif mode == qt_fatal:
-                    logger.critical("[qt] %s%s", msg, origin)
+                    logger.critical("[qt-raw] %s%s", msg, origin)
                     crash_title = "qt fatal"
                 else:
-                    logger.info("[qt] %s%s", msg, origin)
+                    logger.info("[qt-raw] %s%s", msg, origin)
 
                 if crash_title is not None:
                     LoggingSetup._append_crash_entry(crash_log_path, crash_title, f"{msg}{origin}")

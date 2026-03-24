@@ -8,11 +8,17 @@
         "mode": "transcribe",
         "preset": "balanced",
         "device_name": "",
-        "output_mode": "cumulative"
+        "output_mode": "cumulative",
+        "last_used_source_language": "auto",
+        "last_used_target_language": "default_ui"
       },
       "bulk_add_confirmation": {
         "enabled": true,
         "threshold": 20
+      },
+      "files": {
+        "last_used_source_language": "auto",
+        "last_used_target_language": "default_ui"
       }
     },
     "logging": {
@@ -23,16 +29,15 @@
   "engine": {
     "preferred_device": "auto",
     "precision": "auto",
-    "allow_tf32": false,
-    "low_cpu_mem_usage": true
+    "low_cpu_mem_usage": true,
+    "fp32_math_mode": "ieee"
   },
   "model": {
     "transcription_model": {
       "engine_name": "whisper-large-v3-turbo",
       "quality_preset": "balanced",
       "text_consistency": true,
-      "ignore_warning": false,
-      "default_language": null
+      "ignore_warning": false
     },
     "translation_model": {
       "engine_name": "m2m100_418M",
@@ -42,6 +47,7 @@
     }
   },
   "transcription": {
+    "default_source_language": "auto",
     "output_formats": [
       "txt"
     ],
@@ -53,8 +59,7 @@
     "translate_after_transcription": false
   },
   "translation": {
-    "source_language": "auto",
-    "target_language": "default_ui"
+    "default_target_language": "default_ui"
   },
   "downloader": {
     "min_video_height": 144,

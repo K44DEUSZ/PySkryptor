@@ -16,6 +16,7 @@ from app.view.support.widget_effects import (
     enable_styled_background,
     floating_shadow_margins,
     install_app_event_filter,
+    is_windows_platform,
     overlay_edge_gap,
     repolish_widget,
 )
@@ -91,10 +92,9 @@ def normalize_combo_code(code: str, *, default: str = "") -> str:
     raw = Config.normalize_language_choice_value(code)
     if raw in {
         Config.LANGUAGE_AUTO_VALUE,
-        Config.LANGUAGE_DEFAULT_VALUE,
-        Config.LANGUAGE_UI_VALUE,
-        Config.LANGUAGE_APP_VALUE,
         Config.LANGUAGE_DEFAULT_UI_VALUE,
+        Config.LANGUAGE_LAST_USED_VALUE,
+        Config.LANGUAGE_PREFERRED_VALUE,
         "-",
     }:
         return raw
@@ -106,10 +106,9 @@ def normalize_combo_code(code: str, *, default: str = "") -> str:
     fallback_raw = Config.normalize_language_choice_value(default)
     if fallback_raw in {
         Config.LANGUAGE_AUTO_VALUE,
-        Config.LANGUAGE_DEFAULT_VALUE,
-        Config.LANGUAGE_UI_VALUE,
-        Config.LANGUAGE_APP_VALUE,
         Config.LANGUAGE_DEFAULT_UI_VALUE,
+        Config.LANGUAGE_LAST_USED_VALUE,
+        Config.LANGUAGE_PREFERRED_VALUE,
         "-",
     }:
         return fallback_raw
@@ -301,19 +300,21 @@ class ComboPopup(QtWidgets.QWidget):
         )
         self._combo = combo
         cfg = ui(self)
+        is_windows = is_windows_platform()
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setProperty("role", "comboPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*floating_shadow_margins(self))
+        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "comboPopup")
         enable_styled_background(self._body)
-        apply_floating_shadow(self._body)
+        if not is_windows:
+            apply_floating_shadow(self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
         setup_layout(body_lay, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=0)
@@ -497,19 +498,21 @@ class MultiSelectPopup(QtWidgets.QWidget):
         self._field = field
         self._rows: list[_PopupCheckItem] = []
         cfg = ui(self)
+        is_windows = is_windows_platform()
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setProperty("role", "comboPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*floating_shadow_margins(self))
+        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "comboPopup")
         enable_styled_background(self._body)
-        apply_floating_shadow(self._body)
+        if not is_windows:
+            apply_floating_shadow(self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
         setup_layout(body_lay, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=0)
@@ -893,7 +896,14 @@ class LanguageCombo(PopupComboBox):
         self._special_first = special_first
         self._codes_provider = codes_provider
         default_code = Config.LANGUAGE_DEFAULT_UI_VALUE
-        self._fallback_code = str((special_first or ("", default_code))[1] or default_code).strip().lower() or default_code
+        fallback_value = default_code
+        if isinstance(special_first, tuple) and len(special_first) == 2 and isinstance(special_first[0], str):
+            fallback_value = special_first[1]
+        elif isinstance(special_first, (list, tuple)) and special_first:
+            first = special_first[0]
+            if isinstance(first, (list, tuple)) and len(first) == 2:
+                fallback_value = first[1]
+        self._fallback_code = str(fallback_value or default_code).strip().lower() or default_code
         setup_combo(self)
         self.rebuild()
 

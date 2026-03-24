@@ -15,6 +15,7 @@ class SettingsCoordinator(QtCore.QObject):
 
     busy_changed = QtCore.pyqtSignal(bool)
     failed = QtCore.pyqtSignal(str, dict)
+    settings_applied = QtCore.pyqtSignal()
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
@@ -61,9 +62,15 @@ class SettingsCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: SettingsWorker) -> None:
+            def _on_saved(action: str, snap: object) -> None:
+                if self._view is not None:
+                    self._view.on_saved(action, snap)
+                if str(action or "").strip().lower() in {"save", "restore_defaults"}:
+                    self.settings_applied.emit()
+
             if self._view is not None:
                 wk.settings_loaded.connect(self._view.on_settings_loaded)
-                wk.saved.connect(self._view.on_saved)
+            wk.saved.connect(_on_saved)
             wk.failed.connect(self.failed)
 
         def _done() -> None:

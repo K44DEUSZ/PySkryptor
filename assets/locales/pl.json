@@ -43,7 +43,9 @@
       "mode": "Tryb",
       "source_language": "Język źródłowy",
       "target_language": "Język docelowy"
-    }
+    },
+    "enable": "Włącz",
+    "disable": "Wyłącz"
   },
   "ctrl": {
     "add": "Dodaj +",
@@ -106,7 +108,6 @@
     },
     "info": {
       "cancelled": "Operacja anulowana.",
-      "done": "Gotowe.",
       "downloaded_prefix": "Pobrany plik:",
       "header": "Info",
       "source_missing": "Wybrane źródło już nie istnieje.",
@@ -401,7 +402,10 @@
   "lang": {
     "special": {
       "auto_detect": "Automatyczne wykrywanie",
-      "default_ui": "Domyślny (język aplikacji)"
+      "default_ui": "Domyślny (język aplikacji)",
+      "preferred_named": "{name} (domyślna)",
+      "app_language": "Język aplikacji",
+      "last_used": "Ostatnio używany w zakładce"
     }
   },
   "live": {
@@ -469,13 +473,13 @@
         "enabled": "Zapisuj logi do pliku",
         "level": {
           "debug": "Debug",
-          "debug_tip": "Debug: szczegółowe informacje techniczne (większe pliki).",
+          "debug_tip": "Najbardziej szczegółowe logi techniczne. Przydatne przy analizie problemów, ale generują największe pliki.",
           "error": "Błędy",
-          "error_tip": "Błędy: sytuacje uniemożliwiające dokończenie działania.",
+          "error_tip": "Zapisuje tylko błędy uniemożliwiające poprawne wykonanie operacji.",
           "info": "Info",
-          "info_tip": "Standardowe logi: status aplikacji, postęp i zdarzenia niekrytyczne.",
+          "info_tip": "Standardowy poziom informacji o przebiegu działania aplikacji.",
           "warning": "Ostrzeżenia",
-          "warning_tip": "Ostrzeżenia: potencjalne problemy i sytuacje możliwe do naprawienia."
+          "warning_tip": "Zapisuje ostrzeżenia i sytuacje potencjalnie problematyczne, które zwykle da się naprawić."
         },
         "level_label": "Poziom logów",
         "open_folder": "Otwórz folder logów"
@@ -486,8 +490,8 @@
         "light": "Jasny"
       },
       "bulk_add_confirmation": {
-        "enabled": "Włącz ostrzeżenie przy dodawaniu wielu elementów",
-        "threshold": "Ostrzegaj od liczby elementów"
+        "threshold": "Ostrzegaj od liczby elementów",
+        "label": "Ostrzeżenia przy dodawaniu wielu elementów"
       }
     },
     "buttons": {
@@ -496,77 +500,78 @@
       "undo": "Cofnij ↩️"
     },
     "downloader": {
-      "max_video_height": "Maksymalna wysokość wideo (px)",
-      "min_video_height": "Minimalna wysokość wideo (px)"
+      "max_video_height": "Maksymalna wysokość wideo",
+      "min_video_height": "Minimalna wysokość wideo"
     },
     "engine": {
-      "allow_tf32": "Zezwalaj na TF32 na GPU",
       "device": {
         "auto": "Auto",
         "cpu": "CPU",
-        "gpu": "GPU",
-        "label": "Preferowane urządzenie"
+        "gpu": "GPU (CUDA)",
+        "label": "Urządzenie obliczeniowe"
       },
-      "low_cpu_mem_usage": "Oszczędzaj RAM (ładowanie modeli)",
+      "low_cpu_mem_usage": "Ogranicz zużycie RAM podczas ładowania modeli",
       "precision": {
         "auto": "Auto",
-        "auto_tip": "Silnik dobierze najlepszą precyzję dla Twojego urządzenia.",
-        "bfloat16": "bfloat16 (GPU obsługujące BF16)",
-        "bfloat16_tip": "Szybko i stabilnie na wspieranych GPU, dobry kompromis.",
-        "float16": "Float16 (szybciej, mniej pamięci)",
-        "float16_tip": "Szybciej na GPU, mniejsze zużycie pamięci, możliwy minimalny spadek jakości.",
-        "float32": "Float32 (najlepsza jakość)",
-        "float32_tip": "Najwyższa zgodność, wolniej, większe zużycie pamięci.",
+        "auto_tip": "Aplikacja dobiera precyzję do urządzenia: zwykle BFloat16 na zgodnych GPU CUDA, w przeciwnym razie Float16 na CUDA lub Float32 na CPU.",
+        "bfloat16": "BFloat16",
+        "bfloat16_tip": "16-bitowy format o większym zakresie liczbowym niż Float16. Na zgodnych GPU często daje dobry kompromis między szybkością, pamięcią i stabilnością.",
+        "float16": "Float16",
+        "float16_tip": "16-bitowa precyzja o mniejszym zużyciu pamięci. Zwykle przyspiesza pracę na GPU, ale ma mniejszy zakres liczbowy niż BFloat16 i Float32.",
+        "float32": "Float32",
+        "float32_tip": "Pełna precyzja 32-bitowa. Najbardziej zgodna i najbezpieczniejsza numerycznie, ale zwykle wolniejsza i bardziej pamięciożerna.",
         "label": "Precyzja obliczeń"
-      }
+      },
+      "fp32_math_mode": "Akceleracja FP32 (TF32)"
     },
     "help": {
-      "chunk_length": "Długość fragmentu audio dla pipeline (sekundy). Większe wartości mogą być szybsze, ale zużywają więcej pamięci.",
-      "concurrent_fragments": "Równoległe pobieranie fragmentów. Więcej może być szybciej, ale obciąża łącze.",
-      "device": "Wybierz urządzenie używane do obliczeń modeli AI.",
-      "http_timeout_s": "Limit czasu sieci dla pobierania (sekundy).",
-      "ignore_warning": "Gdy włączone, akceptowane są puste wyniki. Może to wystąpić przy ciszy, bardzo cichym nagraniu lub niewspieranym języku.",
-      "logging_enabled": "Włącz lub wyłącz zapisywanie logów do plików.",
+      "chunk_length": "Określa długość pojedynczego fragmentu audio przekazywanego do modelu. Większe fragmenty mogą przyspieszyć pracę i poprawić kontekst, ale zwiększają zużycie pamięci.",
+      "concurrent_fragments": "Liczba fragmentów pobieranych jednocześnie. Wyższe wartości mogą przyspieszyć pobieranie, ale bardziej obciążają łącze i serwer.",
+      "device": "Wybiera, gdzie modele wykonują obliczenia. Tryb Auto używa GPU CUDA, jeśli jest dostępne, a w przeciwnym razie CPU. Wymuszenie GPU może zostać pominięte, jeśli środowisko nie obsługuje CUDA.",
+      "http_timeout_s": "Maksymalny czas oczekiwania na odpowiedź serwera dla pojedynczego żądania.",
+      "ignore_warning": "Pozwala zachować wynik mimo ostrzeżeń, które nie zatrzymują działania modelu, na przykład przy ciszy, bardzo cichym nagraniu lub niejednoznacznym wejściu. Przydatne w automatycznych przebiegach, ale może ukryć sygnał, że materiał wymaga ręcznej kontroli.",
+      "logging_enabled": "Zapisuje zdarzenia aplikacji do plików logów. Przydatne przy diagnozowaniu błędów i analizie działania programu.",
       "logging_level": "Określa ilość informacji zapisywanych w logach.",
-      "low_cpu_mem_usage": "Zmniejsza zużycie RAM podczas ładowania modeli. Może działać wolniej i częściej korzystać z dysku.",
-      "max_bandwidth_kbps": "Ogranicza prędkość pobierania. Ustaw 0, aby wyłączyć limit.",
-      "max_video_height": "Pobieranie: maksymalne ograniczenie rozdzielczości wideo.",
-      "min_video_height": "Pobieranie: minimalne ograniczenie rozdzielczości wideo.",
-      "precision_hint": "Steruje precyzją obliczeń. Niższa precyzja może przyspieszyć działanie i zmniejszyć zużycie pamięci; dostępność zależy od urządzenia.",
-      "retries": "Ile razy ponawiać nieudane żądania HTTP.",
-      "stride_length": "Nakładanie fragmentów (sekundy). Większe nakładanie poprawia ciągłość, ale zwiększa obciążenie.",
-      "text_consistency": "Używa poprzedniego tekstu jako kontekstu między segmentami, aby poprawić ciągłość transkrypcji. Może utrwalać wcześniejsze pomyłki przy trudnym audio.",
-      "tf32": "NVIDIA Ampere+ (i nowsze): przyspiesza obliczenia macierzy w FP32 kosztem minimalnej utraty precyzji numerycznej.",
+      "low_cpu_mem_usage": "Zmniejsza zapotrzebowanie na pamięć operacyjną podczas wczytywania modeli. Może wydłużyć czas ładowania i zwiększyć liczbę operacji pośrednich przy inicjalizacji. Nie zmienia samej jakości transkrypcji ani tłumaczenia.",
+      "max_bandwidth_kbps": "Ogranicza maksymalną prędkość pobierania. Wartość 0 wyłącza limit.",
+      "max_video_height": "Ogranicza wybór do wariantów nieprzekraczających wskazanej wysokości.",
+      "min_video_height": "Pomija warianty wideo niższe od wskazanej wysokości.",
+      "precision_hint": "Precyzja określa format liczb używany przez model. Niższa precyzja zwykle przyspiesza działanie i zmniejsza zużycie pamięci, ale może zwiększyć ryzyko różnic numerycznych. Na CPU najbezpieczniejszym wyborem jest Float32, a na zgodnych GPU tryb Auto często wybiera BFloat16 lub Float16.",
+      "retries": "Określa, ile razy ponawiać nieudane żądania sieciowe przed uznaniem operacji za nieudaną.",
+      "stride_length": "Dodaje wspólny obszar między sąsiednimi fragmentami audio. Może poprawić ciągłość na granicach segmentów, ale zwiększa koszt obliczeń.",
+      "text_consistency": "Przekazuje wcześniejszy tekst jako dodatkowy kontekst przy kolejnych segmentach. Może poprawić ciągłość wypowiedzi i styl, ale przy błędzie wcześniejszego segmentu łatwiej przenosi tę pomyłkę dalej.",
       "theme": "Wybierz motyw interfejsu.",
-      "trans_quality": "Steruje wysiłkiem dekodowania. Wyższa jakość jest wolniejsza, ale może zmniejszyć liczbę błędów.",
-      "transcription_engine": "Wybierz model używany do transkrypcji mowy na tekst.",
-      "translation_chunk_max_chars": "Dzieli długi tekst na fragmenty przed tłumaczeniem. Mniejsze fragmenty są bezpieczniejsze, ale mogą zmniejszyć spójność między zdaniami.",
-      "translation_engine": "Wybierz model używany do tłumaczenia tekstu.",
-      "translation_max_new_tokens": "Ogranicza maksymalną długość generowanego tłumaczenia. Zwiększ, jeśli tekst jest ucinany; wyższe wartości mogą spowolnić działanie.",
-      "translation_quality": "Steruje parametrami generowania w modelu tłumaczeń. Wyższa jakość jest wolniejsza, ale może poprawić płynność.",
+      "trans_quality": "Steruje intensywnością dekodowania w modelu transkrypcji. Wyższe profile zwykle analizują więcej wariantów i mogą lepiej radzić sobie z trudnym audio, ale są wolniejsze.",
+      "transcription_engine": "Wybiera model używany do zamiany mowy na tekst. Różne modele mogą się różnić szybkością, wymaganiami sprzętowymi i odpornością na trudniejsze nagrania.",
+      "translation_chunk_max_chars": "Dzieli długi tekst na mniejsze części przed tłumaczeniem. Mniejsze fragmenty są bezpieczniejsze dla modelu, ale mogą osłabiać spójność między zdaniami i akapitami.",
+      "translation_engine": "Wybiera model używany do tłumaczenia tekstu. Różne modele mogą się różnić szybkością, płynnością i skutecznością na mniej typowych parach językowych.",
+      "translation_max_new_tokens": "Określa górny limit długości tekstu generowanego przez model tłumaczenia dla jednego fragmentu. Zbyt niska wartość może ucinać wynik, a wyższa może spowolnić generowanie.",
+      "translation_quality": "Steruje parametrami generowania tekstu przez model tłumaczeniowy. Wyższe profile zwykle dają pełniejsze i płynniejsze tłumaczenie, ale działają wolniej.",
       "ui_language": "Wybierz język interfejsu.",
-      "default_language": "Ustawia domyślny język mowy dla transkrypcji plików i na żywo. Automatyczne wykrywanie pozostawia rozpoznanie języka modelowi.",
+      "default_language": "Ustawia politykę domyślnego języka źródłowego dla transkrypcji plików i na żywo. Możesz wybrać stały język, automatyczne wykrywanie albo ostatnio używany w zakładce.",
       "bulk_add_confirmation": {
         "enabled": "Pokazuj okno potwierdzenia przed dodaniem większej liczby elementów naraz.",
         "threshold": "Minimalna liczba wykrytych elementów, od której ma pojawić się ostrzeżenie przed dodaniem zbiorczym."
-      }
+      },
+      "translation_default_language": "Ustawia politykę domyślnego języka docelowego tłumaczenia. Możesz wybrać język aplikacji, stały język albo ostatnio używany w zakładce.",
+      "fp32_math_mode": "Działa tylko dla CUDA i precyzji Float32. Przyspiesza część obliczeń FP32 na wspieranych GPU, ale może dawać wyniki minimalnie różniące się od ścisłego FP32."
     },
     "msg": {
       "saved": "✅ Ustawienia zostały zapisane."
     },
     "network": {
-      "concurrent_fragments": "Równoległe fragmenty",
+      "concurrent_fragments": "Równoległe pobieranie fragmentów",
       "http_timeout_s": "Limit czasu HTTP (s)",
-      "max_bandwidth_kbps": "Maks. pasmo (kbps)",
-      "retries": "Ponowienia HTTP"
+      "max_bandwidth_kbps": "Limit pasma (kb/s)",
+      "retries": "Liczba ponowień HTTP"
     },
     "quality": {
       "accurate": "Dokładny",
-      "accurate_tip": "Najwolniejszy profil, najwyższy wysiłek dekodowania.",
+      "accurate_tip": "Największy koszt dekodowania. Najwolniejszy, ale może lepiej radzić sobie z trudnym audio, akcentami i niejednoznaczną mową.",
       "balanced": "Zbalansowany",
-      "balanced_tip": "Dobry kompromis między szybkością a jakością.",
+      "balanced_tip": "Średni koszt dekodowania. Dobry kompromis między szybkością a odpornością na typowe problemy nagrania.",
       "fast": "Szybki",
-      "fast_tip": "Najszybszy profil, mniejszy wysiłek dekodowania."
+      "fast_tip": "Najmniejszy koszt dekodowania. Najszybszy, ale mniej odporny na szum, niewyraźną mowę i trudniejsze fragmenty."
     },
     "section": {
       "app": "Aplikacja 🖥️",
@@ -577,23 +582,24 @@
     },
     "transcription": {
       "chunk_length_s": "Długość fragmentu (s)",
-      "ignore_warning": "Ignoruj ostrzeżenia niekrytyczne",
+      "ignore_warning": "Akceptuj wyniki mimo ostrzeżeń niekrytycznych",
       "model": "Silnik transkrypcji",
-      "quality_label": "Profil jakości",
+      "quality_label": "Profil dekodowania",
       "stride_length_s": "Nakładanie (s)",
-      "text_consistency": "Spójność tekstu",
-      "default_language": "Domyślny język transkrypcji"
+      "text_consistency": "Spójność między segmentami",
+      "default_language": "Domyślny język źródłowy"
     },
     "translation": {
-      "chunk_max_chars": "Maks. znaków w fragmencie",
+      "chunk_max_chars": "Maksymalna długość fragmentu wejściowego",
       "engine": {
         "disabled": "Wyłączone",
         "label": "Silnik tłumaczenia"
       },
-      "max_new_tokens": "Maks. liczba tokenów",
+      "max_new_tokens": "Maksymalna długość generacji (tokeny)",
       "quality": {
-        "label": "Profil jakości"
-      }
+        "label": "Profil generowania"
+      },
+      "default_language": "Domyślny język docelowy"
     }
   },
   "status": {

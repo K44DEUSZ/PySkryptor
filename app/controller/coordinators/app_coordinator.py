@@ -41,6 +41,7 @@ class AppCoordinator(QtCore.QObject):
         self.live.busy_changed.connect(lambda busy: self._set_section_busy("live", busy))
         self.downloader.busy_changed.connect(lambda busy: self._set_section_busy("downloader", busy))
         self.settings.busy_changed.connect(lambda busy: self._set_section_busy("settings", busy))
+        self.settings.settings_applied.connect(self._on_settings_applied)
 
     def set_runtime_state(self, state: AppRuntimeState | None) -> None:
         self._runtime_state = state if state is not None else AppRuntimeState()
@@ -66,6 +67,17 @@ class AppCoordinator(QtCore.QObject):
         self.section_busy_changed.emit(key, bool(busy))
         if after != before:
             self.global_busy_changed.emit(after)
+
+    def _on_settings_applied(self) -> None:
+        window = self.main_window
+        if window is None:
+            return
+        files_panel = getattr(window, "files_panel", None)
+        if files_panel is not None:
+            files_panel.refresh_defaults_from_settings()
+        live_panel = getattr(window, "live_panel", None)
+        if live_panel is not None:
+            live_panel.refresh_defaults_from_settings()
 
     def bind_main_window(self, window: MainWindowPanelsHostProtocol) -> None:
         if isinstance(window, QtWidgets.QMainWindow):

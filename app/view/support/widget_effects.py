@@ -1,6 +1,8 @@
 # app/view/support/widget_effects.py
 from __future__ import annotations
 
+import sys
+
 from PyQt5 import QtCore, QtWidgets
 
 from app.view.support.theme_runtime import floating_shadow_color
@@ -10,6 +12,9 @@ from app.view.ui_config import UIConfig, ui
 def _app_instance() -> QtWidgets.QApplication | None:
     app = QtWidgets.QApplication.instance()
     return app if isinstance(app, QtWidgets.QApplication) else None
+
+def is_windows_platform() -> bool:
+    return sys.platform.startswith("win")
 
 def enable_styled_background(w: QtWidgets.QWidget) -> None:
     w.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)

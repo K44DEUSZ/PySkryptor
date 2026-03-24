@@ -616,8 +616,7 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
 
 def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> bool:
     """Returns True if user wants to open the session folder."""
-    base = tr("dialog.info.done")
-    msg = f"{base}\n{session_dir}" if session_dir else base
+    msg = str(session_dir or "")
     return _confirm_dialog(
         parent,
         title=tr("dialog.info.title"),

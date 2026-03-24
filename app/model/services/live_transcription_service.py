@@ -51,8 +51,6 @@ class LiveTranscriptionService:
 
         self._src_lang = Config.normalize_policy_value(source_language)
         if Config.is_auto_language_value(self._src_lang):
-            self._src_lang = Config.normalize_policy_value(Config.transcription_default_language())
-        if Config.is_auto_language_value(self._src_lang):
             self._src_lang = ""
         self._source_language_forced = bool(self._src_lang)
 
@@ -236,13 +234,6 @@ class LiveTranscriptionService:
 
     def _resolved_translation_source_language(self) -> str:
         src_lang = self._src_lang if self._source_language_forced else (self._detected_lang or self._src_lang)
-        if not src_lang:
-            try:
-                cfg_src = str(Config.transcription_default_language() or "").strip().lower()
-            except (AttributeError, RuntimeError, TypeError, ValueError):
-                cfg_src = ""
-            if cfg_src and not Config.is_auto_language_value(cfg_src):
-                src_lang = cfg_src
         src_lang = str(src_lang or "").strip().replace("_", "-")
         if "-" in src_lang:
             src_lang = src_lang.split("-", 1)[0]

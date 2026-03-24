@@ -15,7 +15,7 @@ from app.view.components.popup_combo import PopupComboBox, LanguageCombo, set_co
 
 from app.model.config.app_config import AppConfig as Config
 from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
-from app.model.services.runtime_resolver import transcription_language_codes
+from app.model.services.runtime_resolver import transcription_language_codes, translation_language_codes
 from app.model.services.localization_service import tr, list_locales
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view import dialogs
@@ -76,7 +76,7 @@ class SettingsPanel(QtWidgets.QWidget):
         ("app", "logging", "level"),
         ("engine", "preferred_device"),
         ("engine", "precision"),
-        ("engine", "allow_tf32"),
+        ("engine", "fp32_math_mode"),
         ("model", "transcription_model", "engine_name"),
         ("model", "translation_model", "engine_name"),
     )
@@ -296,7 +296,7 @@ class SettingsPanel(QtWidgets.QWidget):
             advanced=advanced,
         )
 
-    def _row_toggle(self, label: str, toggle: _YesNoToggle, tooltip: str, *,
+    def _row_toggle(self, label: str, toggle: ChoiceToggle, tooltip: str, *,
                     advanced: bool = False) -> QtWidgets.QWidget:
         toggle.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         return self._build_labeled_row(label=label, control=toggle, tooltip=tooltip, advanced=advanced)
@@ -363,11 +363,55 @@ class SettingsPanel(QtWidgets.QWidget):
 
         model = normalized.get("model")
         if isinstance(model, dict):
-            t_model = model.get("transcription_model")
-            if isinstance(t_model, dict):
-                raw_lang = t_model.get("default_language", None)
-                lang = str(raw_lang or "").strip().lower() if raw_lang is not None else ""
-                t_model["default_language"] = None if not lang or Config.is_auto_language_value(lang) else lang
+            x_model = model.get("translation_model")
+            if isinstance(x_model, dict):
+                for key, fallback in (("max_new_tokens", 256), ("chunk_max_chars", 1200)):
+                    try:
+                        x_model[key] = int(x_model.get(key, fallback))
+                    except (TypeError, ValueError):
+                        x_model[key] = int(fallback)
+
+        transcription = normalized.get("transcription")
+        if isinstance(transcription, dict):
+            raw_source = transcription.get("default_source_language", Config.LANGUAGE_AUTO_VALUE)
+            transcription["default_source_language"] = Config.normalize_default_source_language_policy(raw_source)
+
+        translation = normalized.get("translation")
+        if isinstance(translation, dict):
+            raw_target = translation.get("default_target_language", Config.LANGUAGE_DEFAULT_UI_VALUE)
+            translation["default_target_language"] = Config.normalize_default_target_language_policy(raw_target)
+
+        app = normalized.get("app")
+        if isinstance(app, dict):
+            ui_cfg = app.get("ui")
+            if isinstance(ui_cfg, dict):
+                bulk_cfg = ui_cfg.get("bulk_add_confirmation")
+                if isinstance(bulk_cfg, dict):
+                    try:
+                        bulk_cfg["threshold"] = int(bulk_cfg.get("threshold", Config.ui_bulk_add_confirmation_threshold()))
+                    except (TypeError, ValueError):
+                        bulk_cfg["threshold"] = int(Config.ui_bulk_add_confirmation_threshold())
+
+        downloader = normalized.get("downloader")
+        if isinstance(downloader, dict):
+            for key, fallback in (("min_video_height", Config.downloader_min_video_height()), ("max_video_height", Config.downloader_max_video_height())):
+                try:
+                    downloader[key] = int(downloader.get(key, fallback))
+                except (TypeError, ValueError):
+                    downloader[key] = int(fallback)
+
+        network = normalized.get("network")
+        if isinstance(network, dict):
+            for key, fallback in (("retries", Config.network_retries()), ("concurrent_fragments", Config.network_concurrent_fragments()), ("http_timeout_s", Config.network_http_timeout_s())):
+                try:
+                    network[key] = int(network.get(key, fallback))
+                except (TypeError, ValueError):
+                    network[key] = int(fallback)
+            try:
+                bandwidth = int(network.get("max_bandwidth_kbps", Config.network_max_bandwidth_kbps()) or 0)
+            except (TypeError, ValueError):
+                bandwidth = 0
+            network["max_bandwidth_kbps"] = None if bandwidth <= 0 else bandwidth
 
         return normalized
 
@@ -412,10 +456,15 @@ class SettingsPanel(QtWidgets.QWidget):
         setup_combo(combo, min_h=base_h)
         return combo
 
-    def _new_toggle(self) -> _YesNoToggle:
+    def _new_toggle(
+        self,
+        *,
+        yes_text: str | None = None,
+        no_text: str | None = None,
+    ) -> _YesNoToggle:
         return _YesNoToggle(
-            yes_text=tr("common.yes"),
-            no_text=tr("common.no"),
+            yes_text=yes_text or tr("common.yes"),
+            no_text=no_text or tr("common.no"),
             height=self._ui.control_min_h,
         )
 
@@ -451,6 +500,11 @@ class SettingsPanel(QtWidgets.QWidget):
         for signal in signals:
             signal.connect(self._mark_dirty)
 
+    def _connect_spinbox_mark_dirty(self, *spins: QtWidgets.QAbstractSpinBox) -> None:
+        for spin in spins:
+            spin.valueChanged.connect(self._mark_dirty)
+            spin.editingFinished.connect(self._mark_dirty)
+
     @staticmethod
     def _section_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
         value = data.get(key)
@@ -482,7 +536,10 @@ class SettingsPanel(QtWidgets.QWidget):
             Config.BULK_ADD_CONFIRMATION_MIN_THRESHOLD,
             Config.BULK_ADD_CONFIRMATION_MAX_THRESHOLD,
         )
-        self.tg_bulk_add_warning_enabled = self._new_toggle()
+        self.tg_bulk_add_warning_enabled = self._new_toggle(
+            yes_text=tr("common.enable"),
+            no_text=tr("common.disable"),
+        )
 
         self.tg_log_enabled = self._new_toggle()
 
@@ -522,7 +579,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self._add_tracked_row(
             lay,
             self._row_toggle(
-                tr("settings.app.bulk_add_confirmation.enabled"),
+                tr("settings.app.bulk_add_confirmation.label"),
                 self.tg_bulk_add_warning_enabled,
                 tr("settings.help.bulk_add_confirmation.enabled"),
                 advanced=True,
@@ -558,8 +615,8 @@ class SettingsPanel(QtWidgets.QWidget):
             self.cb_app_language.currentIndexChanged,
             self.cb_app_theme.currentIndexChanged,
             self.cb_log_level.currentIndexChanged,
-            self.sp_bulk_add_threshold.valueChanged,
         )
+        self._connect_spinbox_mark_dirty(self.sp_bulk_add_threshold)
         self.tg_bulk_add_warning_enabled.changed.connect(self._on_bulk_add_warning_toggle)
         self.tg_log_enabled.changed.connect(self._on_logging_toggle)
         self._on_bulk_add_warning_toggle()
@@ -583,7 +640,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self._add_combo_option(self.cb_engine_precision, "settings.engine.precision.bfloat16", "bfloat16",
                                tooltip_key="settings.engine.precision.bfloat16_tip")
 
-        self.tg_tf32 = self._new_toggle()
+        self.tg_fp32_math_mode = self._new_toggle()
         self.tg_low_cpu_mem = self._new_toggle()
 
         self._add_tracked_row(
@@ -600,10 +657,10 @@ class SettingsPanel(QtWidgets.QWidget):
             ),
             ("engine", "precision"),
         )
-        self._row_tf32 = self._add_tracked_row(
+        self._row_fp32_math_mode = self._add_tracked_row(
             lay,
-            self._row_toggle(tr("settings.engine.allow_tf32"), self.tg_tf32, tr("settings.help.tf32")),
-            ("engine", "allow_tf32"),
+            self._row_toggle(tr("settings.engine.fp32_math_mode"), self.tg_fp32_math_mode, tr("settings.help.fp32_math_mode")),
+            ("engine", "fp32_math_mode"),
         )
         self._add_tracked_row(
             lay,
@@ -619,7 +676,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_engine_device.currentIndexChanged.connect(self._on_device_changed)
         self.cb_engine_precision.currentIndexChanged.connect(self._on_precision_changed)
-        self._connect_mark_dirty(self.tg_tf32.changed, self.tg_low_cpu_mem.changed)
+        self._connect_mark_dirty(self.tg_fp32_math_mode.changed, self.tg_low_cpu_mem.changed)
 
     def _build_transcription_section(self, base_h: int) -> None:
         lay = self._prepare_section_layout(self.grp_transcription, title_key="settings.section.transcription")
@@ -634,7 +691,10 @@ class SettingsPanel(QtWidgets.QWidget):
                                tooltip_key="settings.quality.accurate_tip")
 
         self.cb_default_language = LanguageCombo(
-            special_first=("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
+            special_first=(
+                ("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
+                ("lang.special.last_used", Config.LANGUAGE_LAST_USED_VALUE),
+            ),
             codes_provider=transcription_language_codes,
         )
         self.cb_default_language.setMinimumHeight(base_h)
@@ -649,13 +709,13 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self._add_tracked_row(
             lay,
-            self._row(tr("settings.transcription.quality_label"), self.cb_quality, tr("settings.help.trans_quality")),
-            ("model", "transcription_model", "quality_preset"),
+            self._row(tr("settings.transcription.default_language"), self.cb_default_language, tr("settings.help.default_language")),
+            ("transcription", "default_source_language"),
         )
         self._add_tracked_row(
             lay,
-            self._row(tr("settings.transcription.default_language"), self.cb_default_language, tr("settings.help.default_language")),
-            ("model", "transcription_model", "default_language"),
+            self._row(tr("settings.transcription.quality_label"), self.cb_quality, tr("settings.help.trans_quality")),
+            ("model", "transcription_model", "quality_preset"),
         )
         self._add_tracked_row(
             lay,
@@ -699,6 +759,15 @@ class SettingsPanel(QtWidgets.QWidget):
                                tooltip_key="settings.quality.accurate_tip")
         self.cb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
+        self.cb_default_target_language = LanguageCombo(
+            special_first=(
+                ("lang.special.app_language", Config.LANGUAGE_DEFAULT_UI_VALUE),
+                ("lang.special.last_used", Config.LANGUAGE_LAST_USED_VALUE),
+            ),
+            codes_provider=translation_language_codes,
+        )
+        self.cb_default_target_language.setMinimumHeight(base_h)
+
         self.sp_tr_max_tokens = self._new_spinbox(base_h, 16, 8192, step=16)
         self.sp_tr_chunk_chars = self._new_spinbox(base_h, 200, 20000, step=100)
 
@@ -706,6 +775,15 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(tr("settings.translation.engine.label"), self.cb_tr_engine, tr("settings.help.translation_engine")),
             ("model", "translation_model", "engine_name"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.translation.default_language"),
+                self.cb_default_target_language,
+                tr("settings.help.translation_default_language"),
+            ),
+            ("translation", "default_target_language"),
         )
         self._add_tracked_row(
             lay,
@@ -741,10 +819,10 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._connect_mark_dirty(
             self.cb_tr_engine.currentIndexChanged,
+            self.cb_default_target_language.currentIndexChanged,
             self.cb_tr_quality.currentIndexChanged,
-            self.sp_tr_max_tokens.valueChanged,
-            self.sp_tr_chunk_chars.valueChanged,
         )
+        self._connect_spinbox_mark_dirty(self.sp_tr_max_tokens, self.sp_tr_chunk_chars)
 
     def _build_download_section(self, base_h: int) -> None:
         cfg = self._ui
@@ -821,13 +899,13 @@ class SettingsPanel(QtWidgets.QWidget):
 
         lay.addStretch(1)
 
-        self._connect_mark_dirty(
-            self.sp_min_height.valueChanged,
-            self.sp_max_height.valueChanged,
-            self.sp_retries.valueChanged,
-            self.sp_bandwidth.valueChanged,
-            self.sp_fragments.valueChanged,
-            self.sp_timeout.valueChanged,
+        self._connect_spinbox_mark_dirty(
+            self.sp_min_height,
+            self.sp_max_height,
+            self.sp_retries,
+            self.sp_bandwidth,
+            self.sp_fragments,
+            self.sp_timeout,
         )
 
     def on_settings_loaded(self, snap: SettingsSnapshot) -> None:
@@ -1021,12 +1099,16 @@ class SettingsPanel(QtWidgets.QWidget):
         app = self._section_dict(d, "app")
         eng = self._section_dict(d, "engine")
         model = self._section_dict(d, "model")
+        transcription = self._section_dict(d, "transcription")
+        translation = self._section_dict(d, "translation")
         downloader = self._section_dict(d, "downloader")
         network = self._section_dict(d, "network")
 
         self._populate_app_settings(app)
         self._populate_engine_settings(eng)
         self._populate_model_settings(model)
+        self._populate_transcription_settings(transcription)
+        self._populate_translation_settings(translation)
         self._populate_download_settings(downloader, network)
 
         self._refresh_auto_option_labels()
@@ -1066,10 +1148,10 @@ class SettingsPanel(QtWidgets.QWidget):
                 ("precision", self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE),
             ),
         )
+        self.tg_fp32_math_mode.set_first_checked(bool(str(eng.get("fp32_math_mode", "ieee") or "ieee").strip().lower() == "tf32"))
         populate_toggle_fields(
             eng,
             (
-                ("allow_tf32", self.tg_tf32, True),
                 ("low_cpu_mem_usage", self.tg_low_cpu_mem, True),
             ),
         )
@@ -1086,10 +1168,7 @@ class SettingsPanel(QtWidgets.QWidget):
         set_combo_data(self.cb_trans_engine, trans_engine_name, fallback_data="none")
         populate_combo_fields(
             t_model,
-            (
-                ("quality_preset", self.cb_quality, Config.normalize_transcription_quality_preset(None)),
-                ("default_language", self.cb_default_language, Config.LANGUAGE_AUTO_VALUE),
-            ),
+            (("quality_preset", self.cb_quality, Config.normalize_transcription_quality_preset(None)),),
         )
         populate_toggle_fields(
             t_model,
@@ -1110,6 +1189,18 @@ class SettingsPanel(QtWidgets.QWidget):
                 ("max_new_tokens", self.sp_tr_max_tokens, 256),
                 ("chunk_max_chars", self.sp_tr_chunk_chars, 1200),
             ),
+        )
+
+    def _populate_transcription_settings(self, transcription: dict[str, Any]) -> None:
+        populate_combo_fields(
+            transcription,
+            (("default_source_language", self.cb_default_language, Config.LANGUAGE_AUTO_VALUE),),
+        )
+
+    def _populate_translation_settings(self, translation: dict[str, Any]) -> None:
+        populate_combo_fields(
+            translation,
+            (("default_target_language", self.cb_default_target_language, Config.LANGUAGE_DEFAULT_UI_VALUE),),
         )
 
     def _populate_download_settings(self, downloader: dict[str, Any], network: dict[str, Any]) -> None:
@@ -1137,6 +1228,8 @@ class SettingsPanel(QtWidgets.QWidget):
             "app": self._collect_app_payload(),
             "engine": self._collect_engine_payload(),
             "model": self._collect_model_payload(),
+            "transcription": self._collect_transcription_payload(),
+            "translation": self._collect_translation_payload(),
             "downloader": self._collect_downloader_payload(),
             "network": self._collect_network_payload(),
         }
@@ -1170,10 +1263,10 @@ class SettingsPanel(QtWidgets.QWidget):
                 ("precision", self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE),
             ),
         )
+        payload["fp32_math_mode"] = "tf32" if self.tg_fp32_math_mode.is_first_checked() else "ieee"
         payload.update(
             collect_toggle_fields(
                 (
-                    ("allow_tf32", self.tg_tf32),
                     ("low_cpu_mem_usage", self.tg_low_cpu_mem),
                 ),
             )
@@ -1195,9 +1288,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 ),
             ),
         }
-        raw_default_language = self.cb_default_language.currentData()
-        default_language = str(raw_default_language or Config.LANGUAGE_AUTO_VALUE).strip().lower()
-        transcription_model["default_language"] = None if (not default_language or Config.is_auto_language_value(default_language)) else default_language
         return {
             "transcription_model": transcription_model,
             "translation_model": {
@@ -1217,6 +1307,18 @@ class SettingsPanel(QtWidgets.QWidget):
                     ),
                 ),
             },
+        }
+
+    def _collect_transcription_payload(self) -> dict[str, Any]:
+        code = str(self.cb_default_language.currentData() or Config.LANGUAGE_AUTO_VALUE).strip().lower()
+        return {
+            "default_source_language": Config.normalize_default_source_language_policy(code),
+        }
+
+    def _collect_translation_payload(self) -> dict[str, Any]:
+        code = str(self.cb_default_target_language.currentData() or Config.LANGUAGE_DEFAULT_UI_VALUE).strip().lower()
+        return {
+            "default_target_language": Config.normalize_default_target_language_policy(code),
         }
 
     def _collect_downloader_payload(self) -> dict[str, Any]:
@@ -1297,10 +1399,13 @@ class SettingsPanel(QtWidgets.QWidget):
 
         try:
             auto_prec = Config.auto_precision_key()
-            resolved_prec = self._short_label(
-                tr("settings.engine.precision.float16") if auto_prec == "float16" else tr(
-                    "settings.engine.precision.float32")
-            )
+            if auto_prec == "bfloat16":
+                resolved_prec_text = tr("settings.engine.precision.bfloat16")
+            elif auto_prec == "float16":
+                resolved_prec_text = tr("settings.engine.precision.float16")
+            else:
+                resolved_prec_text = tr("settings.engine.precision.float32")
+            resolved_prec = self._short_label(resolved_prec_text)
             idx_auto = self.cb_engine_precision.findData(Config.LANGUAGE_AUTO_VALUE)
             if idx_auto >= 0:
                 self.cb_engine_precision.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_prec})')
@@ -1341,7 +1446,6 @@ class SettingsPanel(QtWidgets.QWidget):
         caps = Config.runtime_capabilities()
         has_cuda = bool(caps.get("has_cuda", False))
         bf16_supported = bool(caps.get("bf16_supported", False))
-        tf32_supported = bool(caps.get("tf32_supported", False))
 
         idx_cuda = self.cb_engine_device.findData("cuda")
         if idx_cuda >= 0:
@@ -1375,11 +1479,11 @@ class SettingsPanel(QtWidgets.QWidget):
             set_combo_data(self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE, fallback_data=Config.LANGUAGE_AUTO_VALUE)
 
         cur_dev = str(self.cb_engine_device.currentData() or Config.LANGUAGE_AUTO_VALUE)
-        tf32_enable_allowed = bool(
-            has_cuda and tf32_supported and cur_dev in (Config.LANGUAGE_AUTO_VALUE, "cuda") and cur_prec in (Config.LANGUAGE_AUTO_VALUE, "float32"))
-        self._set_row_control_enabled(getattr(self, "_row_tf32", None), tf32_enable_allowed, control=self.tg_tf32)
-
-        if not tf32_enable_allowed:
-            self.tg_tf32.clear_selection()
+        fp32_mode_allowed = Config.is_fp32_math_mode_applicable(cur_dev, cur_prec)
+        self._set_row_control_enabled(
+            getattr(self, "_row_fp32_math_mode", None),
+            fp32_mode_allowed,
+            control=self.tg_fp32_math_mode,
+        )
 
         self._refresh_auto_option_labels()

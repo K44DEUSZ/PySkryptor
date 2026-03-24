@@ -87,11 +87,21 @@ def _resolve_torch_dtype(dtype_id: str, device: Any) -> Any:
 
     if getattr(device, "type", "cpu") != "cuda":
         return torch.float32
+
     name = str(dtype_id or "auto").strip().lower()
     if name in ("float16", "fp16", "half"):
         return torch.float16
     if name in ("bfloat16", "bf16"):
-        return torch.bfloat16
+        bf16_supported = False
+        if hasattr(torch.cuda, "is_bf16_supported"):
+            try:
+                bf16_supported = bool(torch.cuda.is_bf16_supported())
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                bf16_supported = False
+        if bf16_supported:
+            return torch.bfloat16
+        _LOG.warning("Requested bfloat16 is not supported on the active CUDA device. Falling back to float16.")
+        return torch.float16
     if name in ("float32", "fp32"):
         return torch.float32
     return torch.float16
@@ -100,6 +110,18 @@ def _resolve_torch_device_dtype() -> tuple[Any, Any]:
     device = _resolve_torch_device(getattr(Config, "DEVICE_ID", "cpu"))
     dtype = _resolve_torch_dtype(getattr(Config, "DTYPE_ID", "float32"), device)
     return device, dtype
+
+def _apply_fp32_math_mode(torch_module: Any, mode: str) -> None:
+    normalized = str(mode or "ieee").strip().lower()
+    precision_mode = "tf32" if normalized == "tf32" else "ieee"
+
+    try:
+        torch_module.backends.cuda.matmul.fp32_precision = precision_mode
+        torch_module.backends.cudnn.fp32_precision = precision_mode
+        torch_module.backends.cudnn.conv.fp32_precision = precision_mode
+        torch_module.backends.cudnn.rnn.fp32_precision = precision_mode
+    except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+        _LOG.debug("FP32 math mode tuning skipped. detail=%s", ex)
 
 def _cpu_model_name() -> str | None:
     sysname = platform.system().lower()
@@ -246,7 +268,9 @@ class AIModelsService:
 
             pref_dev = str((engine or {}).get("preferred_device", "auto") or "auto").strip().lower()
             pref_prec = str((engine or {}).get("precision", "auto") or "auto").strip().lower()
-            allow_tf32 = bool((engine or {}).get("allow_tf32", False))
+            fp32_math_mode = str((engine or {}).get("fp32_math_mode", "ieee") or "ieee").strip().lower()
+            if fp32_math_mode not in ("ieee", "tf32"):
+                fp32_math_mode = "ieee"
 
             if pref_dev in ("cpu",):
                 device_id = "cpu"
@@ -285,19 +309,14 @@ class AIModelsService:
                 Config.TF32_SUPPORTED = False
 
             Config.TF32_ENABLED = bool(
-                allow_tf32
+                fp32_math_mode == "tf32"
                 and bool(Config.TF32_SUPPORTED)
                 and getattr(device, "type", "cpu") == "cuda"
                 and dtype is torch.float32
             )
 
             if getattr(device, "type", "cpu") == "cuda":
-                try:
-                    torch.backends.cuda.matmul.allow_tf32 = bool(Config.TF32_ENABLED)
-                    torch.backends.cudnn.allow_tf32 = bool(Config.TF32_ENABLED)
-                    torch.set_float32_matmul_precision("medium")
-                except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
-                    _LOG.debug("TF32 backend tuning skipped. detail=%s", ex)
+                _apply_fp32_math_mode(torch, "tf32" if Config.TF32_ENABLED else "ieee")
         except (AttributeError, RuntimeError, TypeError, ValueError):
             _LOG.exception("Engine runtime setup failed.")
             Config.DEVICE_ID = "cpu"

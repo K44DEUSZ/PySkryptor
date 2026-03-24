@@ -16,6 +16,7 @@ from app.view.components.popup_combo import (
     LanguageCombo,
     PopupComboBox,
     combo_current_code,
+    rebuild_code_combo,
     set_combo_data,
 )
 from app.view.components.choice_toggle import ChoiceToggle
@@ -24,19 +25,20 @@ from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.runtime_badge import RuntimeBadgeWidget
 from app.view.components.section_group import SectionGroup
 from app.view.components.source_table import SourceTable
-from app.model.services.localization_service import current_language, tr
+from app.model.services.localization_service import build_language_options, current_language, language_display_name, tr
 from app.model.services.runtime_resolver import (
     active_transcription_model_cfg,
     active_translation_model_cfg,
     build_entries,
     build_files_quick_options_payload,
-    build_files_transcription_patch,
-    parse_source_input,
-    transcription_language_codes,
-    translation_language_codes,
-    transcription_output_modes,
-    try_add_source_key,
     build_transcription_session_request,
+    parse_source_input,
+    resolve_source_language_for_run,
+    resolve_target_language_for_run,
+    transcription_language_codes,
+    transcription_output_modes,
+    translation_language_codes,
+    try_add_source_key,
     translation_runtime_available,
 )
 from app.view.support.options_autosave import OptionsAutosave
@@ -157,9 +159,9 @@ class FilesPanel(QtWidgets.QWidget):
         self._audio_lang_by_key: dict[str, str | None] = {}
 
         self._network_status = read_network_status(parent)
-        self._session_target_language = Config.LANGUAGE_DEFAULT_UI_VALUE
+        self._session_target_language = Config.LANGUAGE_PREFERRED_VALUE
         self._expansion_progress_dialog: dialogs.ExpansionProgressDialog | None = None
-        self._session_source_language = Config.transcription_default_language()
+        self._session_source_language = Config.LANGUAGE_PREFERRED_VALUE
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -328,10 +330,7 @@ class FilesPanel(QtWidgets.QWidget):
         )
 
     def _build_target_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
-        self.cmb_target_lang = LanguageCombo(
-            special_first=("lang.special.default_ui", Config.LANGUAGE_DEFAULT_UI_VALUE),
-            codes_provider=translation_language_codes,
-        )
+        self.cmb_target_lang = LanguageCombo(codes_provider=translation_language_codes)
         self.cmb_target_lang.setMinimumHeight(base_h)
         return build_field_stack(
             self,
@@ -523,7 +522,7 @@ class FilesPanel(QtWidgets.QWidget):
                 if vext in Config.DOWNLOAD_VIDEO_OUTPUT_EXTS:
                     set_combo_data(self.cmb_video_ext, vext)
 
-            translate_after = bool(tcfg.get("translate_after_transcription", False))
+            translate_after = bool(tcfg.get("translate_after_transcription", Config.transcription_translate_after_enabled()))
             self.tg_mode.set_first_checked(not translate_after)
 
             tr_mdl = self._get_translation_model_cfg()
@@ -531,8 +530,12 @@ class FilesPanel(QtWidgets.QWidget):
             tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
             self.tg_mode.set_second_enabled(tr_enabled)
 
-            self.cmb_target_lang.set_code(Config.translation_target_language())
-            self.cmb_source_lang.set_code(Config.transcription_default_language())
+            self._rebuild_target_language_combo(
+                desired=Config.LANGUAGE_PREFERRED_VALUE,
+            )
+            self._rebuild_source_language_combo(
+                desired=Config.LANGUAGE_PREFERRED_VALUE,
+            )
 
             output_formats = tcfg.get("output_formats")
             if isinstance(output_formats, str):
@@ -545,8 +548,14 @@ class FilesPanel(QtWidgets.QWidget):
             for mid, cb in self._out_checks.items():
                 cb.setChecked(mid in selected)
         finally:
-            self._session_target_language = str(self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_UI_VALUE).strip().lower() or Config.LANGUAGE_DEFAULT_UI_VALUE
-            self._session_source_language = str(self.cmb_source_lang.code() or Config.transcription_default_language()).strip().lower() or Config.transcription_default_language()
+            self._session_target_language = combo_current_code(
+                self.cmb_target_lang,
+                default=Config.LANGUAGE_PREFERRED_VALUE,
+            )
+            self._session_source_language = combo_current_code(
+                self.cmb_source_lang,
+                default=Config.LANGUAGE_PREFERRED_VALUE,
+            )
             self._opt_autosave.set_blocked(False)
 
     def showEvent(self, e: QtGui.QShowEvent) -> None:
@@ -631,37 +640,47 @@ class FilesPanel(QtWidgets.QWidget):
         self._sync_options_and_autosave(refresh_targets=True)
 
     def _on_target_language_changed(self, *_args) -> None:
-        self._session_target_language = combo_current_code(self.cmb_target_lang, default=Config.LANGUAGE_DEFAULT_UI_VALUE)
+        current = combo_current_code(
+            self.cmb_target_lang,
+            default=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+        self._session_target_language = self._resolve_target_language_selection(current)
         self._sync_options_and_autosave()
 
     def _on_source_language_changed(self, *_args) -> None:
-        self._session_source_language = combo_current_code(self.cmb_source_lang, default=Config.transcription_default_language())
+        self._session_source_language = combo_current_code(
+            self.cmb_source_lang,
+            default=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+        self._sync_options_and_autosave()
 
     def _gather_quick_options_patch(self) -> dict[str, Any]:
-        translate_after = bool(not self.tg_mode.is_first_checked())
         output_formats = [mid for mid, cb in self._out_checks.items() if cb.isChecked()]
 
         audio_only = bool(self.opt_download_audio_only.isChecked())
         keep_audio = bool(self.chk_keep_url_audio.isChecked())
-        keep_video = bool(self.chk_keep_url_video.isChecked())
+        keep_video = bool(self.chk_keep_url_video.isChecked()) and (not audio_only)
 
-        audio_ext = str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext())
-        vext = str(self.cmb_video_ext.currentData() or Config.transcription_url_video_ext())
+        audio_ext = str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext()).strip().lower().lstrip(".")
+        video_ext = str(self.cmb_video_ext.currentData() or Config.transcription_url_video_ext()).strip().lower().lstrip(".")
 
-        return build_files_transcription_patch(
-            translate_after_transcription=translate_after,
-            output_formats=output_formats,
-            download_audio_only=audio_only,
-            url_keep_audio=keep_audio,
-            url_audio_ext=audio_ext,
-            url_keep_video=keep_video,
-            url_video_ext=vext,
-        )
+        if not output_formats:
+            output_formats = list(Config.transcription_output_mode_ids())
+
+        return {
+            "output_formats": output_formats,
+            "download_audio_only": audio_only,
+            "url_keep_audio": keep_audio,
+            "url_audio_ext": audio_ext or Config.transcription_url_audio_ext(),
+            "url_keep_video": keep_video,
+            "url_video_ext": video_ext or Config.transcription_url_video_ext(),
+        }
 
     def _build_quick_options_payload(self) -> dict[str, Any]:
         return build_files_quick_options_payload(
             transcription_patch=self._gather_quick_options_patch(),
-            target_language=self._session_target_language,
+            source_language_selection=self._session_source_language,
+            target_language_selection=self._session_target_language,
         )
 
     def _commit_quick_options_payload(self, payload: dict[str, Any]) -> None:
@@ -697,22 +716,193 @@ class FilesPanel(QtWidgets.QWidget):
     def _get_translation_model_cfg() -> dict[str, Any]:
         return active_translation_model_cfg()
 
-    def _refresh_target_languages_if_ready(self) -> None:
-        if not self._translation_enabled():
-            return
+    @staticmethod
+    def _supported_source_language_codes() -> list[str]:
         try:
-            codes = list(translation_language_codes())
+            raw_codes = list(transcription_language_codes())
         except (RuntimeError, TypeError, ValueError):
-            codes = []
-        if not codes:
-            return
+            return []
 
-        desired = str(
-            self._session_target_language or self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_UI_VALUE
-        ).strip()
-        self.cmb_target_lang.rebuild()
-        self.cmb_target_lang.set_code(desired)
-        self._session_target_language = self.cmb_target_lang.code() or Config.LANGUAGE_DEFAULT_UI_VALUE
+        out: list[str] = []
+        seen: set[str] = set()
+        for code in raw_codes:
+            norm = normalize_lang_code(str(code or ""), drop_region=False)
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            out.append(norm)
+        return out
+
+    def _default_source_language_code(self, *, supported: list[str] | None = None) -> str:
+        codes = supported if supported is not None else self._supported_source_language_codes()
+        resolved = Config.resolve_default_source_language_for_tab("files")
+        if Config.is_auto_language_value(resolved):
+            return Config.LANGUAGE_AUTO_VALUE
+        return resolved if resolved in codes else Config.LANGUAGE_AUTO_VALUE
+
+    def _effective_source_language_code(self, selection: str | None, *, supported: list[str] | None = None) -> str:
+        codes = supported if supported is not None else self._supported_source_language_codes()
+        return resolve_source_language_for_run(
+            "files",
+            str(selection or Config.LANGUAGE_PREFERRED_VALUE),
+            supported=codes,
+        )
+
+    def _resolve_source_language_selection(
+        self,
+        selection: str | None,
+        *,
+        supported: list[str] | None = None,
+    ) -> str:
+        codes = supported if supported is not None else self._supported_source_language_codes()
+        raw = Config.normalize_panel_source_language_selection(selection)
+        if Config.is_preferred_language_value(raw) or Config.is_auto_language_value(raw):
+            return raw
+        norm = normalize_lang_code(raw, drop_region=False)
+        if norm and norm in codes:
+            return norm
+        return Config.LANGUAGE_PREFERRED_VALUE
+
+    def _default_source_language_label(self, *, supported: list[str] | None = None) -> str:
+        default_code = self._default_source_language_code(supported=supported)
+        if Config.is_auto_language_value(default_code):
+            base_label = tr("lang.special.auto_detect")
+        else:
+            base_label = language_display_name(default_code, ui_lang=current_language())
+        base_label = str(base_label or tr("lang.special.auto_detect")).strip()
+        return tr("lang.special.preferred_named", name=base_label)
+
+    def _rebuild_source_language_combo(
+        self,
+        *,
+        desired: str,
+        supported: list[str] | None = None,
+    ) -> None:
+        codes = supported if supported is not None else self._supported_source_language_codes()
+        items = [
+            (Config.LANGUAGE_PREFERRED_VALUE, self._default_source_language_label(supported=codes)),
+            (Config.LANGUAGE_AUTO_VALUE, tr("lang.special.auto_detect")),
+        ]
+        items.extend(build_language_options(codes, ui_lang=current_language()))
+
+        wanted = self._resolve_source_language_selection(desired, supported=codes)
+        rebuild_code_combo(
+            self.cmb_source_lang,
+            items,
+            desired_code=wanted,
+            fallback_code=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+
+    def _refresh_source_languages_if_ready(self) -> None:
+        desired = (
+            self._session_source_language
+            or combo_current_code(self.cmb_source_lang, default=Config.LANGUAGE_PREFERRED_VALUE)
+            or Config.LANGUAGE_PREFERRED_VALUE
+        )
+        supported = self._supported_source_language_codes()
+        resolved_selection = self._resolve_source_language_selection(desired, supported=supported)
+        self._rebuild_source_language_combo(desired=resolved_selection, supported=supported)
+        self._session_source_language = combo_current_code(
+            self.cmb_source_lang,
+            default=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+
+    @staticmethod
+    def _supported_target_language_codes() -> list[str]:
+        try:
+            raw_codes = list(translation_language_codes())
+        except (RuntimeError, TypeError, ValueError):
+            return []
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for code in raw_codes:
+            norm = normalize_lang_code(str(code or ""), drop_region=True)
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            out.append(norm)
+        return out
+
+    def _resolve_target_language_selection(
+        self,
+        selection: str | None,
+        *,
+        supported: list[str] | None = None,
+    ) -> str:
+        raw = Config.normalize_panel_target_language_selection(selection)
+        if Config.is_preferred_language_value(raw) or Config.is_default_ui_language_value(raw):
+            return raw
+        codes = supported if supported is not None else self._supported_target_language_codes()
+        return raw if raw in codes else Config.LANGUAGE_PREFERRED_VALUE
+
+    def _effective_target_language_code(
+        self,
+        selection: str | None,
+        *,
+        supported: list[str] | None = None,
+    ) -> str:
+        codes = supported if supported is not None else self._supported_target_language_codes()
+        return resolve_target_language_for_run(
+            "files",
+            str(selection or Config.LANGUAGE_PREFERRED_VALUE),
+            ui_language=current_language(),
+            supported=codes,
+        )
+
+    def _refresh_target_languages_if_ready(self) -> None:
+        desired = (
+            self._session_target_language
+            or combo_current_code(self.cmb_target_lang, default=Config.LANGUAGE_PREFERRED_VALUE)
+            or Config.LANGUAGE_PREFERRED_VALUE
+        )
+        supported = self._supported_target_language_codes()
+        resolved_selection = self._resolve_target_language_selection(desired, supported=supported)
+        self._rebuild_target_language_combo(desired=resolved_selection, supported=supported)
+        self._session_target_language = combo_current_code(
+            self.cmb_target_lang,
+            default=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+
+    def refresh_defaults_from_settings(self) -> None:
+        self._opt_autosave.set_blocked(True)
+        try:
+            self._refresh_target_languages_if_ready()
+            self._refresh_source_languages_if_ready()
+            self._sync_options_ui()
+        finally:
+            self._opt_autosave.set_blocked(False)
+
+    def _preferred_target_language_label(self, *, supported: list[str] | None = None) -> str:
+        resolved = self._effective_target_language_code(
+            Config.LANGUAGE_PREFERRED_VALUE,
+            supported=supported,
+        )
+        ui_lang = current_language()
+        base_label = language_display_name(resolved, ui_lang=ui_lang) if resolved else tr("lang.special.default_ui")
+        base_label = str(base_label or tr("lang.special.default_ui")).strip()
+        return tr("lang.special.preferred_named", name=base_label)
+
+    def _rebuild_target_language_combo(
+        self,
+        *,
+        desired: str,
+        supported: list[str] | None = None,
+    ) -> None:
+        codes = supported if supported is not None else self._supported_target_language_codes()
+        items = [
+            (Config.LANGUAGE_PREFERRED_VALUE, self._preferred_target_language_label(supported=codes)),
+            (Config.LANGUAGE_DEFAULT_UI_VALUE, tr("lang.special.default_ui")),
+        ]
+        items.extend(build_language_options(codes, ui_lang=current_language()))
+
+        wanted = self._resolve_target_language_selection(desired, supported=codes)
+        rebuild_code_combo(
+            self.cmb_target_lang,
+            items,
+            desired_code=wanted,
+            fallback_code=Config.LANGUAGE_PREFERRED_VALUE,
+        )
 
     def _set_preview_enabled(self, key: str, enabled: bool) -> None:
         row = self._row_by_key.get(str(key))
@@ -1524,9 +1714,11 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_transcription_session_request(self) -> TranscriptionSessionRequest:
         output_formats = [mid for mid, cb in self._out_checks.items() if cb.isChecked()]
+        supported_source = self._supported_source_language_codes()
+        supported_target = self._supported_target_language_codes()
         return build_transcription_session_request(
-            source_language=str(self._session_source_language or Config.transcription_default_language()),
-            target_language=str(self._session_target_language or Config.LANGUAGE_DEFAULT_UI_VALUE),
+            source_language=self._effective_source_language_code(self._session_source_language, supported=supported_source),
+            target_language=self._effective_target_language_code(self._session_target_language, supported=supported_target),
             translate_after_transcription=bool(
                 (not self.tg_mode.is_first_checked()) and self._translation_enabled()
             ),
@@ -1536,9 +1728,6 @@ class FilesPanel(QtWidgets.QWidget):
             url_audio_ext=str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext()),
             url_keep_video=bool(self.chk_keep_url_video.isChecked()),
             url_video_ext=str(self.cmb_video_ext.currentData() or Config.transcription_url_video_ext()),
-            ui_language=current_language(),
-            cfg_target=Config.translation_target_language(),
-            supported=translation_language_codes(),
         )
 
     def _request_transcription_cancel(self) -> None:

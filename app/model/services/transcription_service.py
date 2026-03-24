@@ -270,9 +270,7 @@ class TranscriptionService:
         want_translate = bool(translate_requested and tgt_lang and not Config.is_auto_language_value(tgt_lang))
 
         default_lang = Config.normalize_policy_value(
-            session_request.source_language
-            or str(model_cfg.get("default_language") or "")
-            or Config.LANGUAGE_AUTO_VALUE
+            session_request.source_language or Config.LANGUAGE_AUTO_VALUE
         )
 
         audio_ext = str(session_request.url_audio_ext or Config.transcription_url_audio_ext()).strip().lower()

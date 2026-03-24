@@ -43,7 +43,9 @@
       "mode": "Modus",
       "source_language": "Quellsprache",
       "target_language": "Zielsprache"
-    }
+    },
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren"
   },
   "ctrl": {
     "add": "Hinzufügen +",
@@ -106,7 +108,6 @@
     },
     "info": {
       "cancelled": "Vorgang abgebrochen.",
-      "done": "Fertig.",
       "downloaded_prefix": "Heruntergeladene Datei:",
       "header": "Info",
       "source_missing": "Die ausgewählte Quelle existiert nicht mehr.",
@@ -401,7 +402,10 @@
   "lang": {
     "special": {
       "auto_detect": "Automatische Erkennung",
-      "default_ui": "Standard (App-Sprache)"
+      "default_ui": "Standard (App-Sprache)",
+      "preferred_named": "{name} (Standard)",
+      "app_language": "App-Sprache",
+      "last_used": "Zuletzt im Tab verwendet"
     }
   },
   "live": {
@@ -466,16 +470,16 @@
         "label": "Sprache"
       },
       "logging": {
-        "enabled": "Protokolle in Datei speichern",
+        "enabled": "Logs in Datei speichern",
         "level": {
           "debug": "Debug",
-          "debug_tip": "Debug: detailed technical information (larger files).",
+          "debug_tip": "Detaillierteste technischen Logs. Nützlich zur Fehlersuche, erzeugt aber die größten Logdateien.",
           "error": "Fehler",
-          "error_tip": "Fehler: Probleme, die den Abschluss einer Aktion verhindern.",
+          "error_tip": "Protokolliert nur Fehler, die eine Operation am korrekten Abschluss hindern.",
           "info": "Info",
-          "info_tip": "Standardprotokolle: Status, Fortschritt und nicht-kritische Ereignisse.",
+          "info_tip": "Standardinformationen über den Ablauf der Anwendung und normale Ereignisse.",
           "warning": "Warnung",
-          "warning_tip": "Warnungen: mögliche Probleme und behebbare Störungen."
+          "warning_tip": "Protokolliert Warnungen und potenziell problematische Situationen, die meist behebbar sind."
         },
         "level_label": "Protokollstufe",
         "open_folder": "Protokollordner öffnen"
@@ -486,8 +490,8 @@
         "light": "Hell"
       },
       "bulk_add_confirmation": {
-        "enabled": "Warnung für Massenhinzufügen aktivieren",
-        "threshold": "Warnen ab dieser Anzahl von Einträgen"
+        "threshold": "Warnen ab dieser Anzahl von Einträgen",
+        "label": "Warnungen beim Massenhinzufügen"
       }
     },
     "buttons": {
@@ -496,77 +500,78 @@
       "undo": "Rückgängig ↩️"
     },
     "downloader": {
-      "max_video_height": "Maximale Videohöhe (px)",
-      "min_video_height": "Minimale Videohöhe (px)"
+      "max_video_height": "Maximale Videohöhe",
+      "min_video_height": "Minimale Videohöhe"
     },
     "engine": {
-      "allow_tf32": "TF32 auf der GPU zulassen",
       "device": {
         "auto": "Auto",
         "cpu": "CPU",
-        "gpu": "GPU",
-        "label": "Bevorzugtes Gerät"
+        "gpu": "GPU (CUDA)",
+        "label": "Rechengerät"
       },
-      "low_cpu_mem_usage": "RAM sparen (Modellladen)",
+      "low_cpu_mem_usage": "RAM-Verbrauch beim Laden der Modelle reduzieren",
       "precision": {
         "auto": "Auto",
-        "auto_tip": "Die Engine wählt die beste Präzision für dein Gerät.",
-        "bfloat16": "bfloat16 (BF16-fähige GPU)",
-        "bfloat16_tip": "Schnell und stabil auf unterstützten GPUs, guter Kompromiss.",
-        "float16": "Float16 (schneller, weniger Speicher)",
-        "float16_tip": "Schneller auf der GPU, geringerer Speicherverbrauch, eventuell leicht geringere Genauigkeit.",
-        "float32": "Float32 (beste Qualität)",
-        "float32_tip": "Höchste Kompatibilität, langsamer, benötigt mehr Speicher.",
-        "label": "Rechenpräzision"
-      }
+        "auto_tip": "Die Anwendung wählt die Genauigkeit passend zum Gerät: meist BFloat16 auf kompatiblen CUDA-GPUs, sonst Float16 auf CUDA oder Float32 auf der CPU.",
+        "bfloat16": "BFloat16",
+        "bfloat16_tip": "16-Bit-Format mit größerem Zahlenbereich als Float16. Auf unterstützten GPUs oft ein guter Kompromiss aus Geschwindigkeit, Speicherbedarf und Stabilität.",
+        "float16": "Float16",
+        "float16_tip": "16-Bit-Präzision mit geringerem Speicherbedarf. Beschleunigt Inferenz auf der GPU meist, hat aber einen kleineren Zahlenbereich als BFloat16 und Float32.",
+        "float32": "Float32",
+        "float32_tip": "Volle 32-Bit-Präzision. Am kompatibelsten und numerisch am sichersten, aber meist langsamer und speicherintensiver.",
+        "label": "Rechengenauigkeit"
+      },
+      "fp32_math_mode": "FP32-Beschleunigung (TF32)"
     },
     "help": {
-      "chunk_length": "Audiolänge der Pipeline-Chunks (Sekunden). Größere Werte können schneller sein, benötigen aber mehr Speicher.",
-      "concurrent_fragments": "Parallele Fragment-Downloads. Höhere Werte können schneller sein, belasten aber die Verbindung stärker.",
-      "device": "Wähle das Gerät für die KI-Inferenz.",
-      "http_timeout_s": "Netzwerk-Timeout für Downloads (Sekunden).",
-      "ignore_warning": "Wenn aktiviert, werden leere Ergebnisse akzeptiert. Das kann bei Stille, sehr leisem Audio oder einer nicht unterstützten Sprache vorkommen.",
-      "logging_enabled": "Aktiviert oder deaktiviert das Schreiben von Protokollen in Dateien.",
+      "chunk_length": "Legt die Länge eines einzelnen Audioabschnitts fest, der an das Modell übergeben wird. Größere Abschnitte können Kontext und Tempo verbessern, erhöhen aber den Speicherbedarf.",
+      "concurrent_fragments": "Anzahl der gleichzeitig heruntergeladenen Fragmente. Höhere Werte können Downloads beschleunigen, belasten aber Verbindung und Server stärker.",
+      "device": "Legt fest, wo die Modelle ihre Berechnungen ausführen. Auto verwendet eine CUDA-GPU, wenn verfügbar, sonst die CPU. Eine erzwungene GPU-Auswahl kann ignoriert werden, wenn die Umgebung CUDA nicht unterstützt.",
+      "http_timeout_s": "Maximale Wartezeit auf eine Serverantwort für eine einzelne Anfrage.",
+      "ignore_warning": "Erlaubt, das Ergebnis trotz Warnungen zu behalten, die das Modell nicht stoppen, zum Beispiel bei Stille, sehr leiser Aufnahme oder uneindeutigem Eingang. Nützlich für automatisierte Abläufe, kann aber verdecken, dass Material manuell geprüft werden sollte.",
+      "logging_enabled": "Schreibt Anwendungsereignisse in Logdateien. Nützlich zur Fehlerdiagnose und zur Analyse des Programmverhaltens.",
       "logging_level": "Legt fest, wie viele Informationen in die Protokolle geschrieben werden.",
-      "low_cpu_mem_usage": "Reduziert den RAM-Verbrauch beim Laden von Modellen. Kann langsamer sein und mehr Festplatten-I/O verursachen.",
-      "max_bandwidth_kbps": "Begrenzt die Download-Geschwindigkeit. 0 deaktiviert das Limit.",
-      "max_video_height": "Download: obere Begrenzung der Videoauflösung.",
-      "min_video_height": "Download: untere Begrenzung der Videoauflösung.",
-      "precision_hint": "Steuert die numerische Präzision. Niedrigere Präzision kann die Inferenz beschleunigen und den Speicherverbrauch senken; die Verfügbarkeit hängt vom Gerät ab.",
-      "retries": "Wie oft fehlgeschlagene HTTP-Anfragen wiederholt werden.",
-      "stride_length": "Überlappung der Chunks (Sekunden). Mehr Überlappung verbessert die Kontinuität, erhöht aber die Last.",
-      "text_consistency": "Verwendet vorherigen Text als Kontext zwischen Segmenten, um die Kontinuität der Transkription zu verbessern. Kann frühere Fehler bei schwierigem Audio verstärken.",
-      "tf32": "NVIDIA Ampere+ (und neuer): beschleunigt FP32-Matrixoperationen mit geringem Verlust an numerischer Präzision.",
+      "low_cpu_mem_usage": "Verringert den Arbeitsspeicherbedarf beim Laden der Modelle. Kann die Ladezeit verlängern und mehr Zwischenschritte bei der Initialisierung verursachen. Beeinflusst nicht die Qualität von Transkription oder Übersetzung.",
+      "max_bandwidth_kbps": "Begrenzt die maximale Downloadgeschwindigkeit. Der Wert 0 deaktiviert die Begrenzung.",
+      "max_video_height": "Beschränkt die Auswahl auf Videovarianten, die die gewählte Höhe nicht überschreiten.",
+      "min_video_height": "Überspringt Videovarianten unterhalb der gewählten Höhe.",
+      "precision_hint": "Die Genauigkeit bestimmt das Zahlenformat des Modells. Geringere Präzision erhöht meist die Geschwindigkeit und senkt den Speicherbedarf, kann aber numerische Abweichungen wahrscheinlicher machen. Auf der CPU ist Float32 die sicherste Wahl; auf kompatiblen GPUs wählt Auto oft BFloat16 oder Float16.",
+      "retries": "Legt fest, wie oft fehlgeschlagene Netzwerkanfragen wiederholt werden, bevor die Operation als fehlgeschlagen gilt.",
+      "stride_length": "Fügt benachbarten Audioabschnitten eine Überlappung hinzu. Das kann die Kontinuität an Segmentgrenzen verbessern, erhöht aber den Rechenaufwand.",
+      "text_consistency": "Übergibt früheren Text als zusätzlichen Kontext für folgende Segmente. Das kann Kontinuität und Stil verbessern, trägt Fehler früherer Segmente aber leichter weiter.",
       "theme": "Wähle das Oberflächenthema.",
-      "trans_quality": "Steuert den Dekodieraufwand. Höhere Qualität ist langsamer, kann aber Erkennungsfehler reduzieren.",
-      "transcription_engine": "Wähle das Modell für die Sprach-zu-Text-Transkription.",
-      "translation_chunk_max_chars": "Teilt lange Texte vor der Übersetzung in Blöcke. Kleinere Blöcke sind sicherer, können aber die Kohärenz zwischen Sätzen verringern.",
-      "translation_engine": "Wähle das Modell für die Übersetzung von Text.",
-      "translation_max_new_tokens": "Begrenzt die maximale Länge des generierten Textes. Erhöhe den Wert, wenn Übersetzungen abgeschnitten werden; höhere Werte können langsamer sein.",
-      "translation_quality": "Steuert die Dekodierparameter des Übersetzungsmodells. Höhere Qualität ist langsamer, kann aber die Sprachflüssigkeit verbessern.",
+      "trans_quality": "Steuert, wie aufwendig die Dekodierung im Transkriptionsmodell ist. Höhere Profile prüfen meist mehr Varianten und können mit schwierigem Audio besser umgehen, sind aber langsamer.",
+      "transcription_engine": "Wählt das Modell zur Umwandlung von Sprache in Text. Verschiedene Modelle unterscheiden sich in Geschwindigkeit, Hardwareanforderungen und Robustheit bei schwierigen Aufnahmen.",
+      "translation_chunk_max_chars": "Teilt langen Text vor der Übersetzung in kleinere Abschnitte. Kleinere Abschnitte sind für das Modell sicherer, können aber die Kohärenz zwischen Sätzen und Absätzen verringern.",
+      "translation_engine": "Wählt das Modell zur Übersetzung von Text. Verschiedene Modelle unterscheiden sich in Geschwindigkeit, Sprachfluss und Leistung bei weniger üblichen Sprachpaaren.",
+      "translation_max_new_tokens": "Legt die Obergrenze für den vom Übersetzungsmodell pro Abschnitt erzeugten Text fest. Ein zu niedriger Wert kann Ausgaben abschneiden, höhere Werte können die Generierung verlangsamen.",
+      "translation_quality": "Steuert die Textgenerierungsparameter im Übersetzungsmodell. Höhere Profile erzeugen meist vollständigere und flüssigere Ausgaben, arbeiten aber langsamer.",
       "ui_language": "Wähle die Sprache der Benutzeroberfläche.",
-      "default_language": "Legt die standardmäßige gesprochene Sprache für Datei- und Live-Transkription fest. Bei automatischer Erkennung entscheidet das Modell.",
+      "default_language": "Legt die Standardrichtlinie für die Quellsprache bei Datei- und Live-Transkription fest. Wähle eine feste Sprache, automatische Erkennung oder Zuletzt im Tab verwendet.",
       "bulk_add_confirmation": {
         "enabled": "Vor dem Hinzufügen vieler Elemente gleichzeitig einen Bestätigungsdialog anzeigen.",
         "threshold": "Minimale Anzahl erkannter Elemente, ab der die Warnung für Sammelhinzufügung angezeigt wird."
-      }
+      },
+      "translation_default_language": "Legt die Standardrichtlinie für die Zielsprache der Übersetzung fest. Wähle App-Sprache, eine feste Sprache oder Zuletzt im Tab verwendet.",
+      "fp32_math_mode": "Gilt nur für CUDA mit Float32-Präzision. Beschleunigt einen Teil der FP32-Berechnungen auf unterstützten GPUs, Ergebnisse können aber leicht von strengem FP32 abweichen."
     },
     "msg": {
       "saved": "✅ Einstellungen wurden gespeichert."
     },
     "network": {
-      "concurrent_fragments": "Parallele Fragmente",
+      "concurrent_fragments": "Parallele Fragment-Downloads",
       "http_timeout_s": "HTTP-Timeout (s)",
-      "max_bandwidth_kbps": "Max. Bandbreite (kbps)",
+      "max_bandwidth_kbps": "Bandbreitenlimit (kb/s)",
       "retries": "HTTP-Wiederholungen"
     },
     "quality": {
       "accurate": "Genau",
-      "accurate_tip": "Am langsamsten, höchster Dekodieraufwand.",
+      "accurate_tip": "Höchster Dekodieraufwand. Am langsamsten, kann aber mit schwierigem Audio, Akzenten und uneindeutiger Sprache besser umgehen.",
       "balanced": "Ausgewogen",
-      "balanced_tip": "Guter Kompromiss zwischen Geschwindigkeit und Qualität.",
+      "balanced_tip": "Mittlerer Dekodieraufwand. Guter Kompromiss zwischen Geschwindigkeit und Robustheit bei typischen Aufnahmeproblemen.",
       "fast": "Schnell",
-      "fast_tip": "Am schnellsten, geringerer Dekodieraufwand."
+      "fast_tip": "Niedrigster Dekodieraufwand. Am schnellsten, aber weniger robust bei Rauschen, undeutlicher Sprache und schwierigeren Passagen."
     },
     "section": {
       "app": "Anwendung 🖥️",
@@ -577,23 +582,24 @@
     },
     "transcription": {
       "chunk_length_s": "Chunk-Länge (s)",
-      "ignore_warning": "Nicht-kritische Warnungen ignorieren",
+      "ignore_warning": "Ergebnisse trotz unkritischer Warnungen akzeptieren",
       "model": "Transkriptions-Engine",
-      "quality_label": "Qualitätsvorgabe",
+      "quality_label": "Dekodierprofil",
       "stride_length_s": "Stride-Länge (s)",
-      "text_consistency": "Textkonsistenz",
-      "default_language": "Standardsprache der Transkription"
+      "text_consistency": "Konsistenz zwischen Segmenten",
+      "default_language": "Standard-Quellsprache"
     },
     "translation": {
-      "chunk_max_chars": "Max. Zeichen pro Chunk",
+      "chunk_max_chars": "Maximale Eingabelänge pro Abschnitt",
       "engine": {
         "disabled": "Deaktiviert",
         "label": "Übersetzungs-Engine"
       },
-      "max_new_tokens": "Max. neue Tokens",
+      "max_new_tokens": "Maximale Generierungslänge (Token)",
       "quality": {
-        "label": "Qualitätsvorgabe"
-      }
+        "label": "Generierungsprofil"
+      },
+      "default_language": "Standard-Zielsprache"
     }
   },
   "status": {

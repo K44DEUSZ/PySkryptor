@@ -1543,7 +1543,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             meta["_error_key"] = str(err_key)
             meta["_error_params"] = (params or {})
 
-        _LOG.debug("Downloader probe error. job_key=%s key=%s", sanitize_url_for_log(job_key), err_key)
+        _LOG.debug("Downloader probe error. job_key=%s detail=%s", sanitize_url_for_log(job_key), str((params or {}).get("detail") or ""))
         self._refresh_meta_panel()
 
     def _refresh_row_from_meta(self, job_key: str) -> None:
@@ -1928,12 +1928,12 @@ class DownloaderPanel(QtWidgets.QWidget):
         if is_network_error:
             self._download_aborted = True
         _LOG.debug(
-            "Downloader item failed. job_key=%s err_key=%s network_error=%s remaining_items=%s",
+            "Downloader item failed. job_key=%s network_error=%s detail=%s remaining_items=%s",
             sanitize_url_for_log(active_key),
-            err_key,
             bool(is_network_error),
+            str((params or {}).get("detail") or ""),
             len(self._queue_items),
-            )
+        )
         if self._closing:
             return
         dialogs.show_error(self, err_key, params or {})

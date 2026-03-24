@@ -175,18 +175,25 @@ def language_display_name(code: str, *, ui_lang: str | None = None) -> str:
 def build_language_options(
     codes: list[str] | tuple[str, ...] | set[str],
     *,
-    special_first: tuple[str, str] | None = None,
+    special_first: tuple[str, str] | list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
     ui_lang: str | None = None,
 ) -> list[tuple[str, str]]:
     """Build sorted (code, label) pairs for plain language combo boxes."""
     items: list[tuple[str, str]] = []
     seen: set[str] = set()
 
-    if special_first is not None:
-        label_key, raw_code = special_first
+    specials: list[tuple[str, str]] = []
+    if isinstance(special_first, tuple) and len(special_first) == 2 and isinstance(special_first[0], str):
+        specials = [special_first]
+    elif isinstance(special_first, (list, tuple)):
+        for item in special_first:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                specials.append((str(item[0]), str(item[1])))
+
+    for label_key, raw_code in specials:
         code = _normalize_display_lang_code(raw_code)
         label = tr(label_key).strip() or str(raw_code)
-        if code:
+        if code and code not in seen:
             items.append((code, label))
             seen.add(code)
 

@@ -104,8 +104,17 @@ QLabel[role="sectionTitle"] {
 QPushButton[role="toggle"][dirtyValue="true"],
 QComboBox[chrome="field"][dirtyValue="true"],
 QAbstractSpinBox[chrome="field"][dirtyValue="true"],
+QAbstractSpinBox[chrome="field"][dirtyValue="true"] QLineEdit,
 QLineEdit[dirtyValue="true"] {
     font-weight: 700;
+}
+
+QPushButton[role="toggle"][dirtyValue="false"],
+QComboBox[chrome="field"][dirtyValue="false"],
+QAbstractSpinBox[chrome="field"][dirtyValue="false"],
+QAbstractSpinBox[chrome="field"][dirtyValue="false"] QLineEdit,
+QLineEdit[dirtyValue="false"] {
+    font-weight: 400;
 }
 
 QLabel[role="fieldLabel"] {

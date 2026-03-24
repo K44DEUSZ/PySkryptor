@@ -9,8 +9,8 @@ from app.controller.contracts import LiveCoordinatorProtocol
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view import dialogs
-from app.view.components.popup_combo import LanguageCombo, PopupComboBox
-from app.model.services.localization_service import current_language, language_display_name, tr
+from app.view.components.popup_combo import LanguageCombo, PopupComboBox, combo_current_code, rebuild_code_combo
+from app.model.services.localization_service import build_language_options, current_language, language_display_name, tr
 from app.model.services.runtime_resolver import (
     active_translation_model_cfg,
     compute_translation_runtime,
@@ -150,8 +150,8 @@ class LivePanel(QtWidgets.QWidget):
         self._saved_mode = Config.live_ui_mode()
         self._saved_output_mode = Config.live_ui_output_mode()
 
-        self._session_source_language = Config.transcription_default_language()
-        self._session_target_language = Config.translation_target_language()
+        self._session_source_language = Config.LANGUAGE_PREFERRED_VALUE
+        self._session_target_language = Config.LANGUAGE_PREFERRED_VALUE
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -225,16 +225,10 @@ class LivePanel(QtWidgets.QWidget):
             self.cmb_preset.setItemData(idx, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
         preset_host, _ = build_field_stack(self, tr("live.preset.label"), self.cmb_preset, buddy=self.cmb_preset)
 
-        self.cmb_src_lang = LanguageCombo(
-            special_first=("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
-            codes_provider=transcription_language_codes,
-        )
+        self.cmb_src_lang = LanguageCombo(codes_provider=transcription_language_codes)
         self.cmb_src_lang.setMinimumHeight(base_h)
 
-        self.cmb_tgt_lang = LanguageCombo(
-            special_first=("lang.special.default_ui", Config.LANGUAGE_DEFAULT_UI_VALUE),
-            codes_provider=translation_language_codes,
-        )
+        self.cmb_tgt_lang = LanguageCombo(codes_provider=translation_language_codes)
         self.cmb_tgt_lang.setMinimumHeight(base_h)
 
         src_lang_host, _ = build_field_stack(self, tr("common.field.source_language"), self.cmb_src_lang, buddy=self.cmb_src_lang)
@@ -363,8 +357,7 @@ class LivePanel(QtWidgets.QWidget):
             self._refresh_devices(show_dialog=True)
 
     def _apply_saved_options_to_ui(self) -> None:
-        self.cmb_src_lang.set_code(self._session_source_language)
-        self.cmb_tgt_lang.set_code(self._session_target_language)
+        self._refresh_language_combos()
 
         want_preset = Config.normalize_live_preset(self._saved_preset or Config.live_ui_preset())
         if want_preset not in Config.LIVE_PRESET_IDS:
@@ -389,6 +382,77 @@ class LivePanel(QtWidgets.QWidget):
         else:
             self.tg_mode.set_first_checked(True)
 
+    def _supported_source_language_codes(self) -> list[str]:
+        return [str(code or "").strip().lower() for code in transcription_language_codes() if str(code or "").strip()]
+
+    def _supported_target_language_codes(self) -> list[str]:
+        return [str(code or "").strip().lower() for code in translation_language_codes() if str(code or "").strip()]
+
+    def _resolve_source_language_selection(self, selection: str | None) -> str:
+        raw = Config.normalize_panel_source_language_selection(selection)
+        if Config.is_preferred_language_value(raw) or Config.is_auto_language_value(raw):
+            return raw
+        codes = set(self._supported_source_language_codes())
+        return raw if raw in codes else Config.LANGUAGE_PREFERRED_VALUE
+
+    def _resolve_target_language_selection(self, selection: str | None) -> str:
+        raw = Config.normalize_panel_target_language_selection(selection)
+        if Config.is_preferred_language_value(raw) or Config.is_default_ui_language_value(raw):
+            return raw
+        codes = set(self._supported_target_language_codes())
+        return raw if raw in codes else Config.LANGUAGE_PREFERRED_VALUE
+
+    def _default_source_language_label(self) -> str:
+        resolved = Config.resolve_default_source_language_for_tab("live")
+        if Config.is_auto_language_value(resolved):
+            base_label = tr("lang.special.auto_detect")
+        else:
+            base_label = language_display_name(resolved, ui_lang=current_language())
+        base_label = str(base_label or tr("lang.special.auto_detect")).strip()
+        return tr("lang.special.preferred_named", name=base_label)
+
+    def _default_target_language_label(self) -> str:
+        resolved = Config.resolve_default_target_language_for_tab("live", ui_language=current_language())
+        base_label = language_display_name(resolved, ui_lang=current_language()) if resolved else tr("lang.special.default_ui")
+        base_label = str(base_label or tr("lang.special.default_ui")).strip()
+        return tr("lang.special.preferred_named", name=base_label)
+
+    def refresh_defaults_from_settings(self) -> None:
+        self._refresh_language_combos()
+
+    def _refresh_language_combos(self) -> None:
+        src_items = [
+            (Config.LANGUAGE_PREFERRED_VALUE, self._default_source_language_label()),
+            (Config.LANGUAGE_AUTO_VALUE, tr("lang.special.auto_detect")),
+        ]
+        src_items.extend(build_language_options(self._supported_source_language_codes(), ui_lang=current_language()))
+        rebuild_code_combo(
+            self.cmb_src_lang,
+            src_items,
+            desired_code=self._resolve_source_language_selection(self._session_source_language),
+            fallback_code=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+        self._session_source_language = combo_current_code(self.cmb_src_lang, default=Config.LANGUAGE_PREFERRED_VALUE)
+
+        tgt_items = [
+            (Config.LANGUAGE_PREFERRED_VALUE, self._default_target_language_label()),
+            (Config.LANGUAGE_DEFAULT_UI_VALUE, tr("lang.special.default_ui")),
+        ]
+        tgt_items.extend(build_language_options(self._supported_target_language_codes(), ui_lang=current_language()))
+        rebuild_code_combo(
+            self.cmb_tgt_lang,
+            tgt_items,
+            desired_code=self._resolve_target_language_selection(self._session_target_language),
+            fallback_code=Config.LANGUAGE_PREFERRED_VALUE,
+        )
+        self._session_target_language = combo_current_code(self.cmb_tgt_lang, default=Config.LANGUAGE_PREFERRED_VALUE)
+
+    def _effective_source_language_code(self, selection: str) -> str:
+        raw = self._resolve_source_language_selection(selection)
+        if Config.is_preferred_language_value(raw):
+            return Config.resolve_default_source_language_for_tab("live")
+        return raw
+
     def _trigger_quick_options_autosave(self, *, sync_ui: bool = True) -> None:
         if sync_ui:
             self._sync_options_ui()
@@ -406,11 +470,12 @@ class LivePanel(QtWidgets.QWidget):
         self._trigger_quick_options_autosave(sync_ui=False)
 
     def _on_source_language_changed(self, *_args) -> None:
-        self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or Config.transcription_default_language())
+        self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or Config.LANGUAGE_PREFERRED_VALUE)
+        self._trigger_quick_options_autosave(sync_ui=False)
 
     def _on_target_language_changed(self, *_args) -> None:
-        self._session_target_language = self.cmb_tgt_lang.code()
-        self._trigger_quick_options_autosave()
+        self._session_target_language = str(self.cmb_tgt_lang.code() or self._session_target_language or Config.LANGUAGE_PREFERRED_VALUE)
+        self._trigger_quick_options_autosave(sync_ui=False)
 
     def _build_quick_options_payload(self) -> dict[str, Any]:
         mode = "transcribe_translate" if self._is_translate_mode_checked() else "transcribe"
@@ -422,7 +487,8 @@ class LivePanel(QtWidgets.QWidget):
             preset=preset,
             output_mode=output_mode,
             device_name=device_name,
-            target_language=self._session_target_language,
+            source_language_selection=self._session_source_language,
+            target_language_selection=self._session_target_language,
         )
 
     def _on_quick_options_saved(self, _snap: object) -> None:
@@ -430,8 +496,8 @@ class LivePanel(QtWidgets.QWidget):
         self._saved_preset = Config.normalize_live_preset(self.cmb_preset.currentData() or self._saved_preset)
         self._saved_mode = "transcribe_translate" if self._is_translate_mode_checked() else "transcribe"
         self._saved_output_mode = self._current_output_mode()
-        self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or Config.transcription_default_language())
-        self._session_target_language = str(self.cmb_tgt_lang.code() or Config.translation_target_language())
+        self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or Config.LANGUAGE_PREFERRED_VALUE)
+        self._session_target_language = str(self.cmb_tgt_lang.code() or self._session_target_language or Config.LANGUAGE_PREFERRED_VALUE)
 
     def _commit_quick_options_payload(self, payload: dict[str, Any]) -> None:
         coord = self.coordinator()
@@ -557,7 +623,9 @@ class LivePanel(QtWidgets.QWidget):
 
     def _build_live_session_request(self) -> dict[str, Any]:
         device_name = str(self.cmb_device.currentData() or "").strip()
-        source_language = str(self.cmb_src_lang.code() or self._session_source_language or Config.transcription_default_language())
+        source_language = self._effective_source_language_code(
+            str(self.cmb_src_lang.code() or self._session_source_language or Config.LANGUAGE_PREFERRED_VALUE)
+        )
 
         tr_ready = self._translation_engine_ready()
         translate_requested = self._is_translate_mode_checked() and tr_ready
@@ -760,7 +828,7 @@ class LivePanel(QtWidgets.QWidget):
             requested_enabled=enabled,
             target_code=target,
             ui_language=current_language(),
-            cfg_target=Config.translation_target_language(),
+            tab_name="live",
             supported=translation_language_codes(),
         )
 
@@ -983,7 +1051,7 @@ class LivePanel(QtWidgets.QWidget):
 
     def on_worker_failed(self, key: str, params: dict[str, Any]) -> None:
         self._set_panel_state(self.STATE_STOPPED, status="status.error", update_buttons=False)
-        _LOG.debug("Live worker failure received. key=%s params=%s", key, params)
+        _LOG.debug("Live worker failure received. detail=%s path=%s", str((params or {}).get("detail") or ""), str((params or {}).get("path") or ""))
         self.spectrum.clear()
         self._sync_spectrum_state()
         dialogs.show_error(self, key=key, params=params)

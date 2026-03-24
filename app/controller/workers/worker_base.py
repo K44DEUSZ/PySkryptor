@@ -13,6 +13,18 @@ from app.model.domain.errors import AppError
 class _WorkerMeta(type(QtCore.QObject), ABCMeta):
     pass
 
+def _app_error_log_detail(ex: AppError) -> str:
+    params = dict(getattr(ex, "params", {}) or {})
+    parts: list[str] = []
+    for field in ("detail", "path", "reason", "code", "field", "action", "lang", "seconds", "cmd"):
+        value = params.get(field)
+        if value in (None, "", [], {}, ()):
+            continue
+        parts.append(f"{field}={value}")
+    if parts:
+        return " ".join(parts)
+    return f"error_type={ex.__class__.__name__}"
+
 class WorkerBase(QtCore.QObject, metaclass=_WorkerMeta):
     """Shared lifecycle contract for all background workers."""
 
@@ -75,12 +87,7 @@ class WorkerBase(QtCore.QObject, metaclass=_WorkerMeta):
 
     def _log_failure(self, ex: BaseException) -> None:
         if isinstance(ex, AppError):
-            self._log.warning(
-                "%s failed. key=%s params=%s",
-                self.__class__.__name__,
-                getattr(ex, "key", "error.generic"),
-                dict(getattr(ex, "params", {}) or {}),
-            )
+            self._log.warning("%s failed. %s", self.__class__.__name__, _app_error_log_detail(ex))
             return
         self._log.exception("%s failed.", self.__class__.__name__)
 

@@ -103,25 +103,25 @@ class YtdlpLogger:
         self._guard_cancel()
         text = str(msg)
         if self._logger.isEnabledFor(logging.DEBUG) and not _is_noisy(text, self._extra_noise):
-            self._logger.debug("yt_dlp debug message. text=%s", text)
+            self._logger.debug("yt_dlp raw debug output. text=%s", text)
 
     def info(self, msg) -> None:
         self._guard_cancel()
         text = str(msg)
         if not _is_noisy(text, self._extra_noise):
-            self._logger.info("yt_dlp info message. text=%s", text)
+            self._logger.info("yt_dlp raw info output. text=%s", text)
 
     def warning(self, msg) -> None:
         self._guard_cancel()
         text = str(msg)
         if not _is_noisy(text, self._extra_noise):
-            self._logger.warning("yt_dlp warning message. text=%s", text)
+            self._logger.warning("yt_dlp raw warning output. text=%s", text)
 
     def error(self, msg) -> None:
         self._guard_cancel()
         text = str(msg)
         if not _is_noisy(text, self._extra_noise):
-            self._logger.error("yt_dlp error message. text=%s", text)
+            self._logger.error("yt_dlp raw error output. text=%s", text)
 
 class DownloadError(AppError):
     """Error with i18n key and params to be localized by UI."""
@@ -147,12 +147,11 @@ class DownloadService:
         return ""
 
     @staticmethod
-    def _log_network_error(*, action: str, url: str, ex: Exception, error_key: str) -> None:
+    def _log_network_error(*, action: str, url: str, ex: Exception) -> None:
         _LOG.debug(
-            "Download network error classified. action=%s url=%s key=%s detail=%s",
+            "Download network error classified. action=%s url=%s detail=%s",
             action,
             sanitize_url_for_log(url),
-            error_key,
             str(ex),
         )
 
@@ -882,7 +881,7 @@ class DownloadService:
                 raise DownloadError("error.playlist.resolve_failed", detail=str(ex)) from ex
             network_key = self._classify_network_error(ex)
             if network_key:
-                self._log_network_error(action="playlist", url=url, ex=ex, error_key=network_key)
+                self._log_network_error(action="playlist", url=url, ex=ex)
             _LOG.debug("Playlist resolve failed. url=%s detail=%s", safe_url, str(ex))
             raise DownloadError("error.playlist.resolve_failed", detail=str(ex)) from ex
 
@@ -1006,7 +1005,7 @@ class DownloadService:
         except Exception as ex:
             network_key = self._classify_network_error(ex)
             if network_key:
-                self._log_network_error(action="probe", url=url, ex=ex, error_key=network_key)
+                self._log_network_error(action="probe", url=url, ex=ex)
                 raise DownloadError(network_key)
             _LOG.debug("Download probe failed. url=%s detail=%s", safe_url, str(ex))
             raise DownloadError("error.down.probe_failed", detail=str(ex))
@@ -1299,7 +1298,7 @@ class DownloadService:
             self._cleanup_stage_dir(stage_dir)
             network_key = self._classify_network_error(ex)
             if network_key:
-                self._log_network_error(action="download", url=url, ex=ex, error_key=network_key)
+                self._log_network_error(action="download", url=url, ex=ex)
                 raise DownloadError(network_key)
             _LOG.debug(
                 "Download failed. url=%s requested_ext=%s final_ext=%s artifact_policy=%s info_ext=%s info_filepath=%s stage_dir=%s stage_files=%s detail=%s",

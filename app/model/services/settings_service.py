@@ -144,7 +144,7 @@ class SettingsCatalog:
 
     @classmethod
     def translation_target_allowed(cls) -> set[str]:
-        return cls.translation_language_codes() | {Config.LANGUAGE_DEFAULT_UI_VALUE}
+        return cls.translation_language_codes() | {Config.LANGUAGE_DEFAULT_UI_VALUE, Config.LANGUAGE_LAST_USED_VALUE}
 
     @classmethod
     def transcription_language_codes(cls) -> set[str]:
@@ -154,7 +154,7 @@ class SettingsCatalog:
 
     @classmethod
     def transcription_language_allowed(cls) -> set[str]:
-        return cls.transcription_language_codes() | {Config.LANGUAGE_AUTO_VALUE}
+        return cls.transcription_language_codes() | {Config.LANGUAGE_AUTO_VALUE, Config.LANGUAGE_LAST_USED_VALUE}
 
     @classmethod
     def transcription_source_allowed(cls) -> set[str]:
@@ -263,12 +263,6 @@ class SettingsService:
             return value
         return schema.get(key, default)
 
-    @staticmethod
-    def _translation_enabled(model_cfg: dict[str, Any]) -> bool:
-        cfg = (model_cfg.get("translation_model") or {}) if isinstance(model_cfg.get("translation_model"), dict) else {}
-        eng = str(cfg.get("engine_name", "none") or "none").strip().lower()
-        return not Config.is_disabled_engine_name(eng)
-
     @classmethod
     def _looks_like_lang_code(cls, s: str) -> bool:
         return bool(cls._LANG_CODE_RE.match((s or "").strip()))
@@ -316,6 +310,10 @@ class SettingsService:
         live_schema = ui_schema.get("live", {}) if isinstance(ui_schema.get("live"), dict) else {}
         live_cfg = self._merge(live_cfg, live_schema)
 
+        files_cfg = ui_cfg.get("files", {}) if isinstance(ui_cfg.get("files"), dict) else {}
+        files_schema = ui_schema.get("files", {}) if isinstance(ui_schema.get("files"), dict) else {}
+        files_cfg = self._merge(files_cfg, files_schema)
+
         live_mode = self._enum_str(
             self._schema_value(live_cfg, live_schema, "mode", "transcribe"),
             ("transcribe", "transcribe_translate"),
@@ -332,6 +330,26 @@ class SettingsService:
             "app.ui.live.output_mode",
         )
         live_device = str(self._schema_value(live_cfg, live_schema, "device_name", "") or "").strip()
+
+        def _last_used_source(cfg: dict[str, Any], cfg_schema: dict[str, Any], field: str) -> str:
+            raw = self._schema_value(cfg, cfg_schema, field, Config.LANGUAGE_AUTO_VALUE)
+            value = Config.normalize_last_used_source_language(raw)
+            supported = set(SettingsCatalog.transcription_language_codes())
+            if Config.is_auto_language_value(value):
+                return Config.LANGUAGE_AUTO_VALUE
+            if supported:
+                return value if value in supported else Config.LANGUAGE_AUTO_VALUE
+            return value if self._looks_like_lang_code(value) else Config.LANGUAGE_AUTO_VALUE
+
+        def _last_used_target(cfg: dict[str, Any], cfg_schema: dict[str, Any], field: str) -> str:
+            raw = self._schema_value(cfg, cfg_schema, field, Config.LANGUAGE_DEFAULT_UI_VALUE)
+            value = Config.normalize_last_used_target_language(raw)
+            supported = set(SettingsCatalog.translation_language_codes())
+            if Config.is_default_ui_language_value(value):
+                return Config.LANGUAGE_DEFAULT_UI_VALUE
+            if supported:
+                return value if value in supported else Config.LANGUAGE_DEFAULT_UI_VALUE
+            return value if self._looks_like_lang_code(value) else Config.LANGUAGE_DEFAULT_UI_VALUE
 
         return {
             "language": str(self._schema_value(src, schema, "language", "auto") or "auto"),
@@ -351,6 +369,12 @@ class SettingsService:
                     "preset": live_preset,
                     "output_mode": live_output_mode,
                     "device_name": live_device,
+                    "last_used_source_language": _last_used_source(live_cfg, live_schema, "last_used_source_language"),
+                    "last_used_target_language": _last_used_target(live_cfg, live_schema, "last_used_target_language"),
+                },
+                "files": {
+                    "last_used_source_language": _last_used_source(files_cfg, files_schema, "last_used_source_language"),
+                    "last_used_target_language": _last_used_target(files_cfg, files_schema, "last_used_target_language"),
                 },
             },
         }
@@ -368,7 +392,11 @@ class SettingsService:
                 ("auto", "float32", "float16", "bfloat16"),
                 "engine.precision",
             ),
-            "allow_tf32": bool(self._schema_value(src, schema, "allow_tf32", True)),
+            "fp32_math_mode": self._enum_str(
+                self._schema_value(src, schema, "fp32_math_mode", "ieee"),
+                ("ieee", "tf32"),
+                "engine.fp32_math_mode",
+            ),
             "low_cpu_mem_usage": bool(self._schema_value(src, schema, "low_cpu_mem_usage", True)),
         }
 
@@ -383,19 +411,6 @@ class SettingsService:
 
         t = self._merge(_d(src.get("transcription_model")), t_schema)
         x = self._merge(_d(src.get("translation_model")), x_schema)
-
-        default_lang_raw = t.get("default_language", None)
-        default_lang: str | None = None
-        if default_lang_raw is not None:
-            s = str(default_lang_raw).strip().lower()
-            if s and s != "auto":
-                if s not in SettingsCatalog.transcription_language_codes():
-                    raise SettingsError(
-                        "error.type.enum",
-                        field="model.transcription_model.default_language",
-                        allowed=", ".join(sorted(SettingsCatalog.transcription_language_allowed())),
-                    )
-                default_lang = s
 
         preset = str(self._schema_value(t, t_schema, "quality_preset", "balanced") or "balanced").strip().lower()
         if preset not in ("fast", "balanced", "accurate"):
@@ -438,7 +453,6 @@ class SettingsService:
                 "quality_preset": preset,
                 "text_consistency": bool(self._schema_value(t, t_schema, "text_consistency", True)),
                 "ignore_warning": bool(self._schema_value(t, t_schema, "ignore_warning", False)),
-                "default_language": default_lang,
             },
             "translation_model": {
                 "engine_name": str(self._schema_value(x, x_schema, "engine_name", "none") or "none").strip(),
@@ -452,6 +466,21 @@ class SettingsService:
 
     def _validate_transcription(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
+
+        default_source_raw = Config.normalize_language_choice_value(
+            self._schema_value(src, schema, "default_source_language", Config.LANGUAGE_AUTO_VALUE)
+        )
+        supported_source = set(SettingsCatalog.transcription_language_codes())
+        if Config.is_last_used_language_value(default_source_raw):
+            default_source = Config.LANGUAGE_LAST_USED_VALUE
+        elif Config.is_auto_language_value(default_source_raw):
+            default_source = Config.LANGUAGE_AUTO_VALUE
+        else:
+            norm_source = self._coerce_lang_code(default_source_raw)
+            if supported_source:
+                default_source = norm_source if norm_source in supported_source else Config.LANGUAGE_AUTO_VALUE
+            else:
+                default_source = norm_source if self._looks_like_lang_code(norm_source) else Config.LANGUAGE_AUTO_VALUE
 
         mode_ids = [str(m.get("id", "")).strip().lower() for m in SettingsCatalog.transcription_output_modes()]
         mode_ids = [m for m in mode_ids if m]
@@ -477,6 +506,7 @@ class SettingsService:
             norm = default_selected[:1] if default_selected else ["txt"]
 
         return {
+            "default_source_language": default_source,
             "output_formats": tuple(norm),
             "download_audio_only": bool(self._schema_value(src, schema, "download_audio_only", True)),
             "url_keep_audio": bool(self._schema_value(src, schema, "url_keep_audio", False)),
@@ -494,63 +524,33 @@ class SettingsService:
             "translate_after_transcription": bool(self._schema_value(src, schema, "translate_after_transcription", False)),
         }
 
-    def _validate_translation(
-        self,
-        src: dict[str, Any],
-        schema: dict[str, Any],
-        *,
-        translation_enabled: bool,
-    ) -> dict[str, Any]:
+    def _validate_translation(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
-        src_lang_raw = Config.normalize_language_choice_value(
-            src.get("source_language", "") or Config.LANGUAGE_AUTO_VALUE
-        )
         tgt_lang_raw = Config.normalize_language_choice_value(
-            src.get("target_language", "") or Config.LANGUAGE_DEFAULT_UI_VALUE
+            src.get("default_target_language", "") or Config.LANGUAGE_DEFAULT_UI_VALUE
         )
         deferred_target = Config.LANGUAGE_DEFAULT_UI_VALUE
 
-        if not translation_enabled:
+        if Config.is_last_used_language_value(tgt_lang_raw):
             return {
-                "source_language": Config.LANGUAGE_AUTO_VALUE
-                if Config.is_auto_language_value(src_lang_raw)
-                else (self._coerce_lang_code(src_lang_raw) or Config.LANGUAGE_AUTO_VALUE),
-                "target_language": deferred_target
-                if Config.is_translation_target_deferred_value(tgt_lang_raw)
-                else (self._coerce_lang_code(tgt_lang_raw) or deferred_target),
+                "default_target_language": Config.LANGUAGE_LAST_USED_VALUE,
             }
 
-        src_allowed = set(SettingsCatalog.transcription_source_allowed())
         tgt_codes = set(SettingsCatalog.translation_language_codes())
-        tgt_allowed = set(tgt_codes) | {deferred_target, Config.LANGUAGE_AUTO_VALUE}
-
-        src_lang = Config.LANGUAGE_AUTO_VALUE
-        if not Config.is_auto_language_value(src_lang_raw):
-            norm = self._coerce_lang_code(src_lang_raw)
-            if norm and (norm in src_allowed or (src_allowed == {Config.LANGUAGE_AUTO_VALUE} and self._looks_like_lang_code(norm))):
-                src_lang = norm
-
-        tgt_lang = deferred_target
-        if not Config.is_translation_target_deferred_value(tgt_lang_raw):
+        if Config.is_default_ui_language_value(tgt_lang_raw) or not tgt_lang_raw:
+            tgt_lang = deferred_target
+        else:
             norm = self._coerce_lang_code(tgt_lang_raw)
             if not norm:
                 tgt_lang = deferred_target
             elif tgt_codes:
-                tgt_lang = norm if norm in tgt_allowed else deferred_target
+                tgt_lang = norm if norm in tgt_codes else deferred_target
             else:
                 tgt_lang = norm if self._looks_like_lang_code(norm) else deferred_target
 
-        if (not Config.is_translation_target_deferred_value(tgt_lang_raw)) and tgt_lang == deferred_target:
-            _LOG.warning(
-                "Invalid translation.target_language=%r; falling back to %r.",
-                tgt_lang_raw,
-                deferred_target,
-            )
-
         return {
-            "source_language": src_lang,
-            "target_language": tgt_lang,
+            "default_target_language": tgt_lang,
         }
 
     def _validate_downloader(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
@@ -614,18 +614,12 @@ class SettingsService:
                     break
 
         model_validated = self._validate_model(model, schema_model)
-        translation_enabled = self._translation_enabled(model_validated)
-
         return SettingsSnapshot(
             app=self._validate_app(app, schema_app),
             engine=self._validate_engine(engine, schema_engine),
             model=model_validated,
             transcription=self._validate_transcription(transcription, schema_transcription),
-            translation=self._validate_translation(
-                translation,
-                schema_translation,
-                translation_enabled=translation_enabled,
-            ),
+            translation=self._validate_translation(translation, schema_translation),
             downloader=self._validate_downloader(downloader, schema_downloader),
             network=self._validate_network(network, schema_network),
         )
