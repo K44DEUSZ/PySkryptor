@@ -21,7 +21,6 @@ from app.view.support.widget_setup import (
 )
 from app.view.ui_config import ui
 
-# ----- Shared helpers -----
 
 class _NoCloseFilter(QtCore.QObject):
     """Event filter that blocks closing the dialog via window controls or ESC."""
@@ -185,7 +184,6 @@ def _terminate_application() -> None:
     except (AttributeError, RuntimeError, TypeError):
         return
 
-# ----- Critical startup dialogs -----
 
 def critical_defaults_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
     title = tr("dialog.critical.application_error.title")
@@ -221,7 +219,6 @@ def critical_config_load_failed_choice(parent: QtWidgets.QWidget | None, details
     )
     return "restore_defaults" if ok_restore else "exit"
 
-# ----- Source expansion and runtime dialogs -----
 
 def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     cfg = ui(parent)
@@ -400,7 +397,6 @@ class ExpansionProgressDialog(QtWidgets.QDialog):
         self._message_label.setText(str(text or tr("dialog.expansion_progress.generic")))
 
 
-# ----- Confirmation dialogs -----
 
 def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> None:
     _message_dialog(
@@ -648,7 +644,6 @@ def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -
         default_accept=False,
     )
 
-# ----- General message helpers -----
 
 def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
     _message_dialog(parent, title=title, message=message, header=header, ok_text=tr("ctrl.ok"))

@@ -66,13 +66,16 @@ class DownloadWorker(TaskWorker):
                 value=str(new_name or "").strip(),
             )
 
+    def _emit_download_failure(self, key: str, params: dict[str, object] | None = None) -> None:
+        self._emit_failure(str(key), dict(params or {}), self.download_error)
+
     def _handle_failure(self, ex: BaseException) -> None:
         key, params = self._exception_to_i18n(ex)
-        self._emit_failure(str(key), dict(params or {}), self.download_error)
+        self._emit_download_failure(str(key), dict(params or {}))
 
     def _execute(self) -> None:
         if not self._url:
-            self.download_error.emit("error.generic", {"detail": "missing url"})
+            self._emit_download_failure("error.generic", {"detail": "missing url"})
             return
 
         svc = DownloadService()
@@ -84,11 +87,11 @@ class DownloadWorker(TaskWorker):
             return
 
         if self._action != "download":
-            self.download_error.emit("error.generic", {"detail": f"unsupported action: {self._action}"})
+            self._emit_download_failure("error.generic", {"detail": f"unsupported action: {self._action}"})
             return
 
         if not self._kind or not self._quality or not self._ext:
-            self.download_error.emit("error.generic", {"detail": "missing download options"})
+            self._emit_download_failure("error.generic", {"detail": "missing download options"})
             return
 
         meta = svc.probe(self._url)

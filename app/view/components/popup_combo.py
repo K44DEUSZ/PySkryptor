@@ -254,7 +254,6 @@ class _PopupCheckItem(QtWidgets.QWidget):
         self._set_hovered(False)
         super().leaveEvent(event)
 
-    # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if obj is self.checkbox:
             if event.type() == QtCore.QEvent.Type.Enter:
@@ -464,7 +463,6 @@ class ComboPopup(QtWidgets.QWidget):
         self._hover_tip_text = text
         hint_popup().show_for_rect(self._list.viewport(), self._list.visualRect(index), text)
 
-    # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if obj is self._list.viewport():
             if event.type() == QtCore.QEvent.Type.MouseMove and isinstance(event, QtGui.QMouseEvent):
@@ -477,7 +475,6 @@ class ComboPopup(QtWidgets.QWidget):
         if index.isValid():
             self.index_chosen.emit(int(index.row()))
 
-    # noinspection PyPep8Naming
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         self._hide_hover_hint()
         super().hideEvent(event)
@@ -603,7 +600,6 @@ class MultiSelectPopup(QtWidgets.QWidget):
         height = self._popup_height(field)
         self.setGeometry(_anchored_popup_geometry(field, width=width, height=height))
 
-    # noinspection PyPep8Naming
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         super().hideEvent(event)
         self.closed.emit()
@@ -644,7 +640,6 @@ class _PopupHostComboMixin:
 
         QtCore.QTimer.singleShot(0, _sync)
 
-    # noinspection PyPep8Naming
     def hidePopup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
@@ -672,7 +667,6 @@ class _PopupHostComboMixin:
         popup = self._popup_widget()
         return contains_widget_chain(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
 
-    # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
@@ -704,43 +698,36 @@ class _PopupHostComboMixin:
                 self._schedule_visual_state_sync()
         return QtWidgets.QWidget.eventFilter(cast(QtWidgets.QWidget, cast(object, self)), obj, event)
 
-    # noinspection PyPep8Naming
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.showEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._bind_window()
         self._schedule_visual_state_sync()
 
-    # noinspection PyPep8Naming
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         self.hidePopup()
         QtWidgets.QWidget.hideEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    # noinspection PyPep8Naming
     def moveEvent(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.moveEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
-    # noinspection PyPep8Naming
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.resizeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
-    # noinspection PyPep8Naming
     def focusInEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusInEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    # noinspection PyPep8Naming
     def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusOutEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    # noinspection PyPep8Naming
     def changeEvent(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.changeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         if event.type() in {QtCore.QEvent.Type.EnabledChange, QtCore.QEvent.Type.ParentChange}:

@@ -10,6 +10,7 @@ from app.controller.workers.media_probe_worker import MediaProbeWorker
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
+from app.controller.support.quick_settings import start_settings_save
 from app.controller.workers.transcription_worker import TranscriptionWorker
 from app.model.domain.entities import TranscriptionSessionRequest
 from app.model.domain.runtime_state import AppRuntimeState
@@ -256,18 +257,16 @@ class FilesCoordinator(QtCore.QObject):
         self._transcription_runner.cancel()
 
     def save_quick_options(self, payload: dict[str, Any]) -> SettingsWorker | None:
-        if self._settings_runner.is_running():
-            return self._settings_worker
-        worker = SettingsWorker(action="save", payload=dict(payload or {}))
+        return start_settings_save(
+            runner=self._settings_runner,
+            current_worker=self._settings_worker,
+            payload=payload,
+            on_failed=lambda wk: wk.failed.connect(self.quick_options_save_failed),
+            set_worker=self._set_settings_worker,
+        )
+
+    def _set_settings_worker(self, worker: SettingsWorker | None) -> None:
         self._settings_worker = worker
-
-        def _connect(wk: SettingsWorker) -> None:
-            wk.failed.connect(self.quick_options_save_failed)
-
-        def _done() -> None:
-            self._settings_worker = None
-
-        return self._settings_runner.start(worker, connect=_connect, on_finished=_done)
 
     def resolve_conflict(self, action: str, new_stem: str = "") -> None:
         wk = self._transcription_worker

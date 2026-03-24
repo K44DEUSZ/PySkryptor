@@ -29,7 +29,7 @@ class AppConfig:
     _UNSET = object()
 
     APP_NAME: str = "PySkryptor"
-    APP_VERSION: str = "1.1.1 ALPHA"
+    APP_VERSION: str = "1.1.2 ALPHA"
     APP_AUTHOR: str = "Bartosz Golat"
     APP_DEVELOPMENT_YEARS: str = "2025-2026"
     APP_REPO_URL: str = "https://github.com/K44DEUSZ/PySkryptor"

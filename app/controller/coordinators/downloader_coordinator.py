@@ -120,7 +120,6 @@ class DownloaderCoordinator(QtCore.QObject):
 
             wk.meta_ready.connect(_emit_probe_ready)
             wk.download_error.connect(_emit_probe_failed)
-            wk.failed.connect(_emit_probe_failed)
 
         def _done(*, _job_key: str = key) -> None:
             self._probe_runners.pop(_job_key, None)
@@ -144,6 +143,9 @@ class DownloaderCoordinator(QtCore.QObject):
             return self._expansion_worker
 
         worker = SourceExpansionWorker(mode="manual_input", raw=str(raw or ""))
+        return self._start_expansion_worker(worker)
+
+    def _start_expansion_worker(self, worker: SourceExpansionWorker) -> SourceExpansionWorker | None:
         self._expansion_worker = worker
         self.expansion_busy_changed.emit(True)
         self.busy_changed.emit(True)
@@ -195,7 +197,6 @@ class DownloaderCoordinator(QtCore.QObject):
             wk.duplicate_check.connect(self.duplicate_check)
             wk.download_finished.connect(self.download_finished)
             wk.download_error.connect(self.failed)
-            wk.failed.connect(self.failed)
             wk.cancelled.connect(self.cancelled)
 
         def _done() -> None:
