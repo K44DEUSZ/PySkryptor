@@ -67,14 +67,14 @@ def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, state: App
     config_cls = runtime.config_cls
     config_cls.ensure_dirs()
     try:
-        FileManager.clear_temp_dir(config_cls.DOWNLOADS_TMP_DIR)
-        FileManager.clear_temp_dir(config_cls.TRANSCRIPTIONS_TMP_DIR)
-        config_cls.DOWNLOADS_TMP_DIR.mkdir(parents=True, exist_ok=True)
-        config_cls.TRANSCRIPTIONS_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        FileManager.clear_temp_dir(config_cls.PATHS.DOWNLOADS_TMP_DIR)
+        FileManager.clear_temp_dir(config_cls.PATHS.TRANSCRIPTIONS_TMP_DIR)
+        config_cls.PATHS.DOWNLOADS_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        config_cls.PATHS.TRANSCRIPTIONS_TMP_DIR.mkdir(parents=True, exist_ok=True)
         _LOG.debug(
             "Startup directories prepared. downloads_tmp=%s transcriptions_tmp=%s",
-            config_cls.DOWNLOADS_TMP_DIR,
-            config_cls.TRANSCRIPTIONS_TMP_DIR,
+            config_cls.PATHS.DOWNLOADS_TMP_DIR,
+            config_cls.PATHS.TRANSCRIPTIONS_TMP_DIR,
         )
     except OSError:
         _LOG.exception("Startup temp directory cleanup failed.")
@@ -83,7 +83,7 @@ def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, state: App
 
 def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     RuntimeConfigService.setup_ffmpeg_on_path(runtime.config_cls)
-    _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", getattr(runtime.config_cls, "FFMPEG_BIN_DIR", ""))
+    _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", getattr(runtime.config_cls.PATHS, "FFMPEG_BIN_DIR", ""))
     progress(100)
     return state
 

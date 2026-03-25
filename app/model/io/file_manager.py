@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.transcription_output_policy import TranscriptionOutputPolicy
 from app.model.io.audio_extractor import AudioExtractor
 from app.model.domain.errors import OperationCancelled
 from app.model.helpers.string_utils import sanitize_filename
@@ -24,38 +25,38 @@ class FileManager:
 
     @staticmethod
     def project_root() -> Path:
-        return Config.ROOT_DIR
+        return Config.PATHS.ROOT_DIR
 
     @staticmethod
     def downloads_dir() -> Path:
-        return Config.DOWNLOADS_DIR
+        return Config.PATHS.DOWNLOADS_DIR
 
     @staticmethod
     def transcriptions_dir() -> Path:
-        return Config.TRANSCRIPTIONS_DIR
+        return Config.PATHS.TRANSCRIPTIONS_DIR
 
     @staticmethod
     def plan_session() -> Path:
         """Plan a new session folder (timestamped), create lazily on first write."""
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        FileManager._session_dir = Config.TRANSCRIPTIONS_DIR / stamp
+        FileManager._session_dir = Config.PATHS.TRANSCRIPTIONS_DIR / stamp
         FileManager._session_created = False
         return FileManager._session_dir
 
     @staticmethod
     def ensure_session() -> Path:
-        if FileManager._session_dir is None:
-            FileManager.plan_session()
-        assert FileManager._session_dir is not None
+        session_dir = FileManager._session_dir
+        if session_dir is None:
+            session_dir = FileManager.plan_session()
         if not FileManager._session_created:
-            FileManager._session_dir.mkdir(parents=True, exist_ok=True)
+            session_dir.mkdir(parents=True, exist_ok=True)
             FileManager._session_created = True
-        return FileManager._session_dir
+        return session_dir
 
     @staticmethod
     def session_dir() -> Path:
         """Return current planned/active session dir or TRANSCRIPTIONS_DIR fallback."""
-        return FileManager._session_dir or Config.TRANSCRIPTIONS_DIR
+        return FileManager._session_dir or Config.PATHS.TRANSCRIPTIONS_DIR
 
     @staticmethod
     def end_session() -> None:
@@ -74,7 +75,7 @@ class FileManager:
 
     @staticmethod
     def output_dir_for(stem: str) -> Path:
-        safe = sanitize_filename(stem) or Config.OUTPUT_DEFAULT_STEM
+        safe = sanitize_filename(stem) or TranscriptionOutputPolicy.OUTPUT_DEFAULT_STEM
         return FileManager.session_dir() / safe
 
     @staticmethod
@@ -87,8 +88,8 @@ class FileManager:
     @staticmethod
     def find_existing_output(stem: str) -> Path | None:
         """Find existing output folder for `stem` across legacy layout and session layout."""
-        safe = sanitize_filename(stem) or Config.OUTPUT_DEFAULT_STEM
-        root = Config.TRANSCRIPTIONS_DIR
+        safe = sanitize_filename(stem) or TranscriptionOutputPolicy.OUTPUT_DEFAULT_STEM
+        root = Config.PATHS.TRANSCRIPTIONS_DIR
 
         direct = root / safe
         if direct.exists():
@@ -123,7 +124,7 @@ class FileManager:
 
         parent = p.parent
         try:
-            root = Config.TRANSCRIPTIONS_DIR
+            root = Config.PATHS.TRANSCRIPTIONS_DIR
             if parent == root:
                 return
             if root in parent.parents and parent.is_dir():
@@ -163,7 +164,7 @@ class FileManager:
     @staticmethod
     def transcript_filename(mode_id: str) -> str:
         """Return a deterministic transcript filename for a given output mode."""
-        return Config.transcript_filename(mode_id)
+        return TranscriptionOutputPolicy.transcript_filename(mode_id)
 
     @staticmethod
     def ensure_unique_path(path: Path) -> Path:
@@ -177,7 +178,7 @@ class FileManager:
             return candidate
 
         parent = candidate.parent
-        stem = str(candidate.stem or "").strip() or Config.OUTPUT_DEFAULT_STEM
+        stem = str(candidate.stem or "").strip() or TranscriptionOutputPolicy.OUTPUT_DEFAULT_STEM
         suffix = str(candidate.suffix or "")
 
         idx = 1
@@ -200,17 +201,17 @@ class FileManager:
             return out_dir / filename
 
         ext = Config.transcription_output_default_ext()
-        name = sanitize_filename(str(base_name or "")) or Config.TRANSCRIPT_DEFAULT_BASENAME
+        name = sanitize_filename(str(base_name or "")) or TranscriptionOutputPolicy.TRANSCRIPT_DEFAULT_BASENAME
         return out_dir / f"{name}.{ext}"
 
     @staticmethod
-    def audio_wav_path(stem: str, *, filename: str = Config.AUDIO_OUTPUT_DEFAULT_FILENAME) -> Path:
+    def audio_wav_path(stem: str, *, filename: str = TranscriptionOutputPolicy.AUDIO_OUTPUT_DEFAULT_FILENAME) -> Path:
         """Return a WAV asset path inside the item's output folder."""
         out_dir = FileManager.ensure_output(stem)
 
-        name = str(filename or Config.AUDIO_OUTPUT_DEFAULT_FILENAME).strip()
+        name = str(filename or TranscriptionOutputPolicy.AUDIO_OUTPUT_DEFAULT_FILENAME).strip()
         base = Path(name).stem
-        safe = sanitize_filename(base) or Config.AUDIO_OUTPUT_DEFAULT_BASENAME
+        safe = sanitize_filename(base) or TranscriptionOutputPolicy.AUDIO_OUTPUT_DEFAULT_BASENAME
         return out_dir / f"{safe}.wav"
 
     @staticmethod
@@ -218,13 +219,13 @@ class FileManager:
         stem: str,
         *,
         src_ext: str,
-        base_name: str = Config.SOURCE_MEDIA_DEFAULT_BASENAME,
+        base_name: str = TranscriptionOutputPolicy.SOURCE_MEDIA_DEFAULT_BASENAME,
     ) -> Path:
         """Return a path for keeping the downloaded source media inside the item's output folder."""
         out_dir = FileManager.ensure_output(stem)
 
-        ext = str(src_ext or "").strip().lstrip(".") or Config.SOURCE_MEDIA_DEFAULT_EXT
-        safe = sanitize_filename(str(base_name or "")) or Config.SOURCE_MEDIA_DEFAULT_BASENAME
+        ext = str(src_ext or "").strip().lstrip(".") or TranscriptionOutputPolicy.SOURCE_MEDIA_DEFAULT_EXT
+        safe = sanitize_filename(str(base_name or "")) or TranscriptionOutputPolicy.SOURCE_MEDIA_DEFAULT_BASENAME
         return out_dir / f"{safe}.{ext}"
 
     @staticmethod
@@ -237,14 +238,14 @@ class FileManager:
     @staticmethod
     def url_tmp_dir() -> Path:
         """Temp directory for media downloaded from URLs."""
-        p = Config.DOWNLOADS_TMP_DIR
+        p = Config.PATHS.DOWNLOADS_TMP_DIR
         p.mkdir(parents=True, exist_ok=True)
         return p
 
     @staticmethod
     def _tmp_wav_name_for(source: Path) -> str:
         """Return a stable temp WAV filename for a specific source file version."""
-        safe_stem = sanitize_filename(source.stem) or Config.TMP_AUDIO_DEFAULT_STEM
+        safe_stem = sanitize_filename(source.stem) or TranscriptionOutputPolicy.TMP_AUDIO_DEFAULT_STEM
         try:
             stat = source.stat()
             sig = f"{source.resolve()}|{int(stat.st_size)}|{int(stat.st_mtime_ns)}"
@@ -263,7 +264,7 @@ class FileManager:
         if AudioExtractor.is_wav_mono_16k(source):
             return source
 
-        tmp_dir = Config.TRANSCRIPTIONS_TMP_DIR
+        tmp_dir = Config.PATHS.TRANSCRIPTIONS_TMP_DIR
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         out = tmp_dir / FileManager._tmp_wav_name_for(source)

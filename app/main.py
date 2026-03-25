@@ -23,6 +23,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from app.controller.coordinators.app_coordinator import AppCoordinator
 from app.controller.platform.logging import LoggingSetup
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.app_meta import AppMeta
 from app.model.domain.runtime_state import AppRuntimeState
 from app.model.services.localization_service import current_language, load, load_best, tr
 from app.model.services.settings_service import SettingsError, SettingsService
@@ -108,10 +109,10 @@ def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
     Config.set_root_dir(project_root)
 
     try:
-        app.setApplicationName(Config.APP_NAME)
-        app.setApplicationDisplayName(Config.APP_NAME)
+        app.setApplicationName(AppMeta.NAME)
+        app.setApplicationDisplayName(AppMeta.NAME)
     except (RuntimeError, TypeError, ValueError) as ex:
-        _LOG.debug("Application metadata update skipped. app_name=%s detail=%s", Config.APP_NAME, ex)
+        _LOG.debug("Application metadata update skipped. app_name=%s detail=%s", AppMeta.NAME, ex)
 
     ui_cfg = UIConfig()
     try:
@@ -119,18 +120,18 @@ def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
     except (RuntimeError, TypeError) as ex:
         _LOG.debug("Application ui_config property update skipped. detail=%s", ex)
 
-    _load_fonts(app, Config.ASSETS_DIR / 'fonts')
+    _load_fonts(app, Config.PATHS.ASSETS_DIR / 'fonts')
     return ui_cfg
 
 
 def _setup_logging() -> Any:
     bootstrap_file_enabled, bootstrap_level = LoggingSetup.read_bootstrap_settings(
-        Config.DEFAULTS_FILE,
-        Config.SETTINGS_FILE,
+        Config.PATHS.DEFAULTS_FILE,
+        Config.PATHS.SETTINGS_FILE,
     )
     log_ctx = LoggingSetup.setup(
-        Config.APP_LOG_PATH,
-        Config.CRASH_LOG_PATH,
+        Config.PATHS.APP_LOG_PATH,
+        Config.PATHS.CRASH_LOG_PATH,
         file_enabled=bootstrap_file_enabled,
         bootstrap_level=bootstrap_level,
     )
@@ -140,8 +141,8 @@ def _setup_logging() -> Any:
         'Startup logging settings resolved. level=%s file_enabled=%s settings_file=%s defaults_file=%s',
         bootstrap_level,
         bool(bootstrap_file_enabled),
-        Config.SETTINGS_FILE,
-        Config.DEFAULTS_FILE,
+        Config.PATHS.SETTINGS_FILE,
+        Config.PATHS.DEFAULTS_FILE,
     )
 
     try:
@@ -157,8 +158,8 @@ def _setup_logging() -> Any:
 
 def _load_startup_localization(logger: LoggerLike) -> bool:
     try:
-        load_best(Config.LOCALES_DIR, system_first=False, fallback='en')
-        logger.debug('Startup localization loaded. locales_dir=%s', Config.LOCALES_DIR)
+        load_best(Config.PATHS.LOCALES_DIR, system_first=False, fallback='en')
+        logger.debug('Startup localization loaded. locales_dir=%s', Config.PATHS.LOCALES_DIR)
         return True
     except (OSError, RuntimeError, TypeError, ValueError):
         critical_locales_missing_and_exit(None)
@@ -212,14 +213,14 @@ def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
     lang_pref = str(snap.app.get('language', 'auto') or 'auto')
     try:
         if lang_pref.lower() == 'auto':
-            load_best(Config.LOCALES_DIR, system_first=True, fallback='en')
+            load_best(Config.PATHS.LOCALES_DIR, system_first=True, fallback='en')
         else:
-            load(Config.LOCALES_DIR, lang_pref)
+            load(Config.PATHS.LOCALES_DIR, lang_pref)
 
         logger.debug(
             'Application localization activated. language=%s locales_dir=%s',
             current_language(),
-            Config.LOCALES_DIR,
+            Config.PATHS.LOCALES_DIR,
         )
         return True
     except (OSError, RuntimeError, TypeError, ValueError):
@@ -230,9 +231,9 @@ def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
 def _apply_theme(app: QtWidgets.QApplication, snap: Any, logger: Any) -> str:
     theme = system_theme_key(app)
     try:
-        theme = _apply_stylesheet(app, Config.STYLES_DIR, str(snap.app.get('theme', 'auto') or 'auto'))
+        theme = _apply_stylesheet(app, Config.PATHS.STYLES_DIR, str(snap.app.get('theme', 'auto') or 'auto'))
         _apply_palette(app, theme)
-        logger.debug('Application theme applied. theme=%s styles_dir=%s', theme, Config.STYLES_DIR)
+        logger.debug('Application theme applied. theme=%s styles_dir=%s', theme, Config.PATHS.STYLES_DIR)
     except (OSError, RuntimeError, TypeError, ValueError) as stylesheet_ex:
         logger.exception('Entrypoint stylesheet failed. detail=%s', stylesheet_ex)
     return theme

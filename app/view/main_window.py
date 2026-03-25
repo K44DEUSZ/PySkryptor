@@ -11,7 +11,7 @@ from app.controller.contracts import (
     LivePanelViewProtocol,
     SettingsPanelViewProtocol,
 )
-from app.model.config.app_config import AppConfig as Config
+from app.model.config.app_meta import AppMeta
 from app.view.panels.registry import PanelTabSpec, build_main_tab_specs
 from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
 from app.view.support.view_runtime import normalize_network_status
@@ -40,7 +40,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._panels: dict[str, QtWidgets.QWidget] = {}
 
         self.setObjectName('MainWindow')
-        self.setWindowTitle(Config.APP_NAME)
+        self.setWindowTitle(AppMeta.NAME)
         enable_styled_background(self)
 
         self._apply_window_icon()

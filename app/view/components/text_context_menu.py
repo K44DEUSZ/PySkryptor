@@ -6,14 +6,12 @@ from typing import Any, Callable, cast
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view.support.widget_effects import (
-    apply_floating_shadow,
     bind_tracked_window,
+    configure_floating_popup_surface,
     contains_widget_chain,
-    enable_styled_background,
-    floating_shadow_margins,
     install_app_event_filter,
-    is_windows_platform,
     overlay_edge_gap,
+    popup_host_root_margins,
     repolish_widget,
 )
 from app.view.support.widget_setup import setup_layout
@@ -200,23 +198,17 @@ class _TextContextPopup(QtWidgets.QWidget):
             | QtCore.Qt.WindowType.FramelessWindowHint
             | QtCore.Qt.WindowType.NoDropShadowWindowHint,
         )
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        is_windows = is_windows_platform()
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
-        self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setProperty("role", "textContextPopupHost")
 
         cfg = ui(self)
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
+        root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "textContextPopup")
-        enable_styled_background(self._body)
-        if not is_windows:
-            apply_floating_shadow(self._body)
+        configure_floating_popup_surface(self, self._body)
 
         self._content = QtWidgets.QVBoxLayout(self._body)
         setup_layout(self._content, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=cfg.space_s)
@@ -287,6 +279,7 @@ class _TextContextPopup(QtWidgets.QWidget):
         self.move(geom.topLeft())
         self.show()
         self.raise_()
+
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if not self.isVisible():

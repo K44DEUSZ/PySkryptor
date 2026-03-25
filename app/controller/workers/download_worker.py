@@ -13,7 +13,7 @@ from app.controller.workers.task_worker import PendingDecision, TaskWorker
 from app.model.config.app_config import AppConfig as Config
 from app.model.helpers.string_utils import sanitize_filename
 from app.model.io.file_manager import FileManager
-from app.model.services.download_service import DownloadService, DownloadError
+from app.model.services.download_service import DownloadError, DownloadService
 
 _LOG = logging.getLogger(__name__)
 
@@ -75,8 +75,7 @@ class DownloadWorker(TaskWorker):
 
     def _execute(self) -> None:
         if not self._url:
-            self._emit_download_failure("error.generic", {"detail": "missing url"})
-            return
+            raise DownloadError("error.generic", detail="missing url")
 
         svc = DownloadService()
 
@@ -87,12 +86,10 @@ class DownloadWorker(TaskWorker):
             return
 
         if self._action != "download":
-            self._emit_download_failure("error.generic", {"detail": f"unsupported action: {self._action}"})
-            return
+            raise DownloadError("error.generic", detail=f"unsupported action: {self._action}")
 
         if not self._kind or not self._quality or not self._ext:
-            self._emit_download_failure("error.generic", {"detail": "missing download options"})
-            return
+            raise DownloadError("error.generic", detail="missing download options")
 
         meta = svc.probe(self._url)
         title = str(meta.get("title") or meta.get("id") or "download")
@@ -109,7 +106,7 @@ class DownloadWorker(TaskWorker):
         key_stem = sanitize_filename(key) or key
         file_stem = f"{title_stem} [{key_stem}]"
 
-        out_dir = Config.DOWNLOADS_DIR
+        out_dir = Config.PATHS.DOWNLOADS_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
 
         expected = out_dir / f"{file_stem}.{self._ext}"

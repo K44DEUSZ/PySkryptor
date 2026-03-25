@@ -13,6 +13,7 @@ from app.controller.contracts import (
     FilesCoordinatorProtocol,
     LiveCoordinatorProtocol,
     MainWindowPanelsHostProtocol,
+    SettingsCoordinatorProtocol,
 )
 from app.model.domain.runtime_state import AppRuntimeState
 
@@ -27,32 +28,52 @@ class AppCoordinator(QtCore.QObject):
         super().__init__(parent)
 
         self.startup = StartupCoordinator(self)
-        self.files = FilesCoordinator(self)
-        self.live = LiveCoordinator(self)
-        self.downloader = DownloaderCoordinator(self)
-        self.settings = SettingsCoordinator(self)
+
+        self._files: FilesCoordinator = FilesCoordinator(self)
+        self._live: LiveCoordinator = LiveCoordinator(self)
+        self._downloader: DownloaderCoordinator = DownloaderCoordinator(self)
+        self._settings: SettingsCoordinator = SettingsCoordinator(self)
+
+        files_protocol = self._files
+        live_protocol = self._live
+        downloader_protocol = self._downloader
+        settings_protocol = self._settings
+
+        if not isinstance(files_protocol, FilesCoordinatorProtocol):
+            raise TypeError("FilesCoordinator does not satisfy FilesCoordinatorProtocol")
+        if not isinstance(live_protocol, LiveCoordinatorProtocol):
+            raise TypeError("LiveCoordinator does not satisfy LiveCoordinatorProtocol")
+        if not isinstance(downloader_protocol, DownloaderCoordinatorProtocol):
+            raise TypeError("DownloaderCoordinator does not satisfy DownloaderCoordinatorProtocol")
+        if not isinstance(settings_protocol, SettingsCoordinatorProtocol):
+            raise TypeError("SettingsCoordinator does not satisfy SettingsCoordinatorProtocol")
+
+        self.files: FilesCoordinatorProtocol = files_protocol
+        self.live: LiveCoordinatorProtocol = live_protocol
+        self.downloader: DownloaderCoordinatorProtocol = downloader_protocol
+        self.settings: SettingsCoordinatorProtocol = settings_protocol
 
         self.main_window: QtWidgets.QMainWindow | None = None
         self._busy_sections: set[str] = set()
         self._runtime_state = AppRuntimeState()
 
-        self.startup.busy_changed.connect(lambda busy: self._set_section_busy("startup", busy))
-        self.files.busy_changed.connect(lambda busy: self._set_section_busy("files", busy))
-        self.live.busy_changed.connect(lambda busy: self._set_section_busy("live", busy))
-        self.downloader.busy_changed.connect(lambda busy: self._set_section_busy("downloader", busy))
-        self.settings.busy_changed.connect(lambda busy: self._set_section_busy("settings", busy))
-        self.settings.settings_applied.connect(self._on_settings_applied)
+        self.startup.busy_changed.connect(lambda busy: self._set_section_busy('startup', busy))
+        self._files.busy_changed.connect(lambda busy: self._set_section_busy('files', busy))
+        self._live.busy_changed.connect(lambda busy: self._set_section_busy('live', busy))
+        self._downloader.busy_changed.connect(lambda busy: self._set_section_busy('downloader', busy))
+        self._settings.busy_changed.connect(lambda busy: self._set_section_busy('settings', busy))
+        self._settings.settings_applied.connect(self._on_settings_applied)
 
     def set_runtime_state(self, state: AppRuntimeState | None) -> None:
         self._runtime_state = state if state is not None else AppRuntimeState()
-        self.files.set_runtime_state(self._runtime_state)
-        self.live.set_runtime_state(self._runtime_state)
+        self._files.set_runtime_state(self._runtime_state)
+        self._live.set_runtime_state(self._runtime_state)
 
     def is_busy(self) -> bool:
         return bool(self._busy_sections)
 
     def _set_section_busy(self, section: str, busy: bool) -> None:
-        key = str(section or "").strip().lower()
+        key = str(section or '').strip().lower()
         if not key:
             return
 
@@ -72,10 +93,10 @@ class AppCoordinator(QtCore.QObject):
         window = self.main_window
         if window is None:
             return
-        files_panel = getattr(window, "files_panel", None)
+        files_panel = getattr(window, 'files_panel', None)
         if files_panel is not None:
             files_panel.refresh_defaults_from_settings()
-        live_panel = getattr(window, "live_panel", None)
+        live_panel = getattr(window, 'live_panel', None)
         if live_panel is not None:
             live_panel.refresh_defaults_from_settings()
 
@@ -84,24 +105,18 @@ class AppCoordinator(QtCore.QObject):
             self.main_window = window
 
         if window.files_panel is not None:
-            files = self.files
-            assert isinstance(files, FilesCoordinatorProtocol)
-            window.files_panel.bind_coordinator(files)
-            self.files.bind_view(window.files_panel)
+            window.files_panel.bind_coordinator(self.files)
+            self._files.bind_view(window.files_panel)
 
         if window.live_panel is not None:
-            live = self.live
-            assert isinstance(live, LiveCoordinatorProtocol)
-            window.live_panel.bind_coordinator(live)
-            self.live.bind_view(window.live_panel)
+            window.live_panel.bind_coordinator(self.live)
+            self._live.bind_view(window.live_panel)
 
         if window.downloader_panel is not None:
-            downloader = self.downloader
-            assert isinstance(downloader, DownloaderCoordinatorProtocol)
-            window.downloader_panel.bind_coordinator(downloader)
-            self.downloader.bind_view(window.downloader_panel)
+            window.downloader_panel.bind_coordinator(self.downloader)
+            self._downloader.bind_view(window.downloader_panel)
 
         if window.settings_panel is not None:
             window.settings_panel.bind_coordinator(self.settings)
-            self.settings.bind_view(window.settings_panel)
+            self._settings.bind_view(window.settings_panel)
             self.settings.load()

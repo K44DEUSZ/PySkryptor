@@ -66,7 +66,6 @@ QFrame#RuntimeBadgeWidget,
 QFrame#DownloaderThumbHost,
 QListView,
 QTreeView,
-QTableView,
 QTabWidget::pane,
 QMenu,
 QFrame[role="comboPopup"],
@@ -564,6 +563,12 @@ QTableView {
     padding: 0px;
 }
 
+QTableView,
+QHeaderView::section,
+QTableCornerButton::section {
+    border-radius: 0px;
+}
+
 QHeaderView {
     background: @SURFACE_HEADER@;
     border: none;
@@ -578,12 +583,7 @@ QHeaderView::section {
     padding: @PAD_SECTION@;
 }
 
-QHeaderView::section:first {
-    border-top-left-radius: @RADIUS_L@;
-}
-
 QHeaderView::section:last {
-    border-top-right-radius: @RADIUS_L@;
     border-right: none;
 }
 
@@ -592,7 +592,6 @@ QTableCornerButton::section {
     border: none;
     border-right: 1px solid @BORDER_HEADER@;
     border-bottom: 1px solid @BORDER_BASE@;
-    border-top-left-radius: @RADIUS_L@;
 }
 
 QAbstractItemView::item:hover {

@@ -8,9 +8,15 @@ from PyQt5 import QtCore
 from app.controller.contracts import FilesPanelViewProtocol
 from app.controller.workers.media_probe_worker import MediaProbeWorker
 from app.controller.workers.settings_worker import SettingsWorker
+from app.controller.support.source_expansion import (
+    build_local_paths_worker,
+    build_manual_input_worker,
+    start_expansion_worker,
+)
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
 from app.controller.support.quick_settings import start_settings_save
+from app.controller.support.runtime_state import build_runtime_state_payload
 from app.controller.workers.transcription_worker import TranscriptionWorker
 from app.model.domain.entities import TranscriptionSessionRequest
 from app.model.domain.runtime_state import AppRuntimeState
@@ -124,14 +130,7 @@ class FilesCoordinator(QtCore.QObject):
         panel = self._view
         if panel is None:
             return
-        panel.on_runtime_state_changed(
-            transcription_ready=bool(self._runtime_state.transcription_ready and self._pipe is not None),
-            transcription_error_key=self._runtime_state.transcription_error_key,
-            transcription_error_params=dict(self._runtime_state.transcription_error_params or {}),
-            translation_ready=bool(self._runtime_state.translation_ready),
-            translation_error_key=self._runtime_state.translation_error_key,
-            translation_error_params=dict(self._runtime_state.translation_error_params or {}),
-        )
+        panel.on_runtime_state_changed(**build_runtime_state_payload(self._runtime_state, pipeline=self._pipe))
 
     def is_probe_running(self) -> bool:
         return self._probe_runner.is_running()
@@ -148,32 +147,28 @@ class FilesCoordinator(QtCore.QObject):
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
         if self._expansion_runner.is_running():
             return self._expansion_worker
-        worker = SourceExpansionWorker(mode="manual_input", raw=str(raw or ""))
-        return self._start_expansion_worker(worker)
+        return self._start_expansion_worker(build_manual_input_worker(raw))
 
     def expand_local_paths(self, paths: list[str], origin_kind: str) -> SourceExpansionWorker | None:
         if self._expansion_runner.is_running():
             return self._expansion_worker
-        worker = SourceExpansionWorker(mode="local_paths", paths=list(paths or []), origin_kind=str(origin_kind or "local_paths"))
-        return self._start_expansion_worker(worker)
+        return self._start_expansion_worker(build_local_paths_worker(paths, origin_kind))
+
+    def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
+        self._expansion_worker = worker
 
     def _start_expansion_worker(self, worker: SourceExpansionWorker) -> SourceExpansionWorker | None:
-        self._expansion_worker = worker
-        self.expansion_busy_changed.emit(True)
-        self.busy_changed.emit(True)
-
-        def _connect(wk: SourceExpansionWorker) -> None:
-            wk.status_changed.connect(self.expansion_status_changed)
-            wk.expanded.connect(self.expansion_ready)
-            wk.failed.connect(self.expansion_failed)
-
-        def _done() -> None:
-            self._expansion_worker = None
-            self.expansion_busy_changed.emit(False)
-            self.expansion_status_changed.emit("", {})
-            self.busy_changed.emit(self.is_busy())
-
-        return self._expansion_runner.start(worker, connect=_connect, on_finished=_done)
+        return start_expansion_worker(
+            runner=self._expansion_runner,
+            worker=worker,
+            set_worker=self._set_expansion_worker,
+            emit_expansion_busy=self.expansion_busy_changed.emit,
+            emit_busy=self.busy_changed.emit,
+            emit_status=self.expansion_status_changed.emit,
+            emit_ready=self.expansion_ready.emit,
+            emit_failed=self.expansion_failed.emit,
+            is_busy=self.is_busy,
+        )
 
     def cancel_expansion(self) -> None:
         self._expansion_runner.cancel()

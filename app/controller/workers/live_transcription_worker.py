@@ -17,7 +17,7 @@ from app.controller.platform.microphone import (
 )
 from app.controller.support.cancellation import CancellationToken
 from app.controller.workers.session_worker import SessionWorker
-from app.model.config.app_config import AppConfig as Config
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.domain.errors import AppError
 from app.model.domain.results import LiveUpdate
 from app.model.helpers.chunking import pcm16le_bytes_to_float32
@@ -50,7 +50,7 @@ class LiveTranscriptionWorker(SessionWorker):
         source_language: str = "",
         target_language: str = "",
         translate_enabled: bool = False,
-        preset_id: str = Config.LIVE_DEFAULT_PRESET,
+        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
         output_mode: str = LiveTranscriptionService.OUTPUT_MODE_CUMULATIVE,
         cancel_token: CancellationToken | None = None,
     ) -> None:
@@ -61,13 +61,13 @@ class LiveTranscriptionWorker(SessionWorker):
         self._src_lang = str(source_language or "").strip()
         self._tgt_lang = str(target_language or "").strip()
         self._translate_enabled = bool(translate_enabled)
-        self._preset_id = Config.normalize_live_preset(preset_id)
-        self._output_mode = Config.normalize_live_output_mode(output_mode)
+        self._preset_id = RuntimeProfiles.normalize_live_preset(preset_id)
+        self._output_mode = RuntimeProfiles.normalize_live_output_mode(output_mode)
 
         self._pause = threading.Event()
 
         self._session: LiveTranscriptionService | None = None
-        self._qtmm: Any = None
+        self._qt_multimedia: Any = None
         self._fmt: Any = None
         self._device_info: Any = None
         self._audio_in: Any = None
@@ -86,7 +86,7 @@ class LiveTranscriptionWorker(SessionWorker):
         self._backlog_compactions: int = 0
         self._pending_chunks: deque[tuple[bytes, float]] = deque()
         self._max_pending_chunks: int = int(
-            Config.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id).get("max_pending_chunks", 4)
+            RuntimeProfiles.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id).get("max_pending_chunks", 4)
         )
         self._pending_chunks_lock = threading.Lock()
         self._ready_updates: deque[LiveUpdate] = deque()
@@ -290,16 +290,16 @@ class LiveTranscriptionWorker(SessionWorker):
         return mono.tobytes()
 
     def _audio_error_detail(self, err: Any) -> str:
-        qtmm = self._qtmm
-        if qtmm is None:
+        qt_multimedia = self._qt_multimedia
+        if qt_multimedia is None:
             return str(err or "audio_error")
 
-        qaudio = getattr(qtmm, "QAudio", None)
+        q_audio = getattr(qt_multimedia, "QAudio", None)
         mapping = {
-            getattr(qaudio, "OpenError", object()): "open_error",
-            getattr(qaudio, "IOError", object()): "io_error",
-            getattr(qaudio, "UnderrunError", object()): "underrun_error",
-            getattr(qaudio, "FatalError", object()): "fatal_error",
+            getattr(q_audio, "OpenError", object()): "open_error",
+            getattr(q_audio, "IOError", object()): "io_error",
+            getattr(q_audio, "UnderrunError", object()): "underrun_error",
+            getattr(q_audio, "FatalError", object()): "fatal_error",
         }
         return str(mapping.get(err, str(err or "audio_error")))
 
@@ -346,11 +346,11 @@ class LiveTranscriptionWorker(SessionWorker):
         return qt_multimedia.QAudioInput(dev, fmt)
 
     def _start_audio_input(self) -> None:
-        if self._qtmm is None or self._fmt is None:
+        if self._qt_multimedia is None or self._fmt is None:
             raise LiveError("error.live.audio_input_start_failed")
 
         self._audio_in = self._create_audio_input(
-            qt_multimedia=self._qtmm,
+            qt_multimedia=self._qt_multimedia,
             dev=self._device_info,
             fmt=self._fmt,
         )
@@ -388,7 +388,7 @@ class LiveTranscriptionWorker(SessionWorker):
         _LOG.debug("Live worker timer started. interval_ms=%s", self._timer.interval())
 
     def _read_available_audio_chunk(self) -> bytes:
-        if self._io is None or self._qtmm is None or self._fmt is None:
+        if self._io is None or self._qt_multimedia is None or self._fmt is None:
             return b""
         try:
             chunk = bytes(self._io.readAll())
@@ -396,7 +396,7 @@ class LiveTranscriptionWorker(SessionWorker):
             return b""
         if not chunk:
             return b""
-        return self._normalize_pcm16(chunk, self._fmt, self._qtmm)
+        return self._normalize_pcm16(chunk, self._fmt, self._qt_multimedia)
 
     def _emit_spectrum_if_due(self, *, level: float) -> None:
         meter = self._meter_from_level(level)
@@ -410,12 +410,12 @@ class LiveTranscriptionWorker(SessionWorker):
             _LOG.debug("Live spectrum update skipped. detail=%s", ex)
 
     def _update_audio_capture_state(self) -> None:
-        if self._audio_in is None or self._qtmm is None:
+        if self._audio_in is None or self._qt_multimedia is None:
             return
         if self.is_stop_requested():
             return
         if self._pause.is_set():
-            if self._audio_in.state() == self._qtmm.QAudio.ActiveState:
+            if self._audio_in.state() == self._qt_multimedia.QAudio.ActiveState:
                 try:
                     self._audio_in.suspend()
                 except (AttributeError, RuntimeError, TypeError) as ex:
@@ -423,7 +423,7 @@ class LiveTranscriptionWorker(SessionWorker):
             self._set_status("status.paused")
             return
 
-        if self._audio_in.state() == self._qtmm.QAudio.SuspendedState:
+        if self._audio_in.state() == self._qt_multimedia.QAudio.SuspendedState:
             try:
                 self._audio_in.resume()
             except (AttributeError, RuntimeError, TypeError) as ex:
@@ -512,18 +512,18 @@ class LiveTranscriptionWorker(SessionWorker):
         self._audio_in = None
         self._device_info = None
         self._fmt = None
-        self._qtmm = None
+        self._qt_multimedia = None
         self._session = None
 
     def _on_audio_state_changed(self, state: int) -> None:
-        if self._audio_in is None or self._qtmm is None:
+        if self._audio_in is None or self._qt_multimedia is None:
             return
         if self.cancel_check():
             return
         try:
-            if state == self._qtmm.QAudio.StoppedState:
+            if state == self._qt_multimedia.QAudio.StoppedState:
                 err = self._audio_in.error()
-                if err != self._qtmm.QAudio.NoError:
+                if err != self._qt_multimedia.QAudio.NoError:
                     self._complete_failure_sequence(RuntimeError(self._audio_error_detail(err)))
         except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
             self._complete_failure_sequence(ex)
@@ -656,7 +656,7 @@ class LiveTranscriptionWorker(SessionWorker):
 
     @QtCore.pyqtSlot()
     def _tick(self) -> None:
-        if self._audio_in is None or self._qtmm is None:
+        if self._audio_in is None or self._qt_multimedia is None:
             return
 
         if self.cancel_check():
@@ -693,7 +693,7 @@ class LiveTranscriptionWorker(SessionWorker):
             self._output_mode,
         )
 
-        self._qtmm, self._device_info, self._fmt = self._resolve_audio_runtime()
+        self._qt_multimedia, self._device_info, self._fmt = self._resolve_audio_runtime()
         _LOG.debug(
             "Live worker audio format resolved. sample_rate=%s channels=%s sample_size=%s codec=%s",
             int(self._fmt.sampleRate() or 0),

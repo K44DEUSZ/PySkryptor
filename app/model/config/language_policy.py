@@ -41,3 +41,59 @@ class LanguagePolicy:
     @classmethod
     def is_preferred(cls, value: Any) -> bool:
         return cls.normalize_choice_value(value) == cls.PREFERRED
+
+    @classmethod
+    def normalize_default_source_language_policy(cls, value: Any) -> str:
+        token = cls.normalize_choice_value(value)
+        if cls.is_last_used(token):
+            return cls.LAST_USED
+        if cls.is_auto(token):
+            return cls.AUTO
+        norm = cls.normalize_code(token, drop_region=False)
+        return norm or cls.AUTO
+
+    @classmethod
+    def normalize_default_target_language_policy(cls, value: Any) -> str:
+        token = cls.normalize_choice_value(value)
+        if cls.is_last_used(token):
+            return cls.LAST_USED
+        if cls.is_default_ui(token) or not token:
+            return cls.DEFAULT_UI
+        norm = cls.normalize_code(token, drop_region=False)
+        return norm or cls.DEFAULT_UI
+
+    @classmethod
+    def normalize_last_used_source_language(cls, value: Any) -> str:
+        token = cls.normalize_choice_value(value)
+        if cls.is_auto(token) or not token:
+            return cls.AUTO
+        norm = cls.normalize_code(token, drop_region=False)
+        return norm or cls.AUTO
+
+    @classmethod
+    def normalize_last_used_target_language(cls, value: Any) -> str:
+        token = cls.normalize_choice_value(value)
+        if cls.is_default_ui(token) or not token:
+            return cls.DEFAULT_UI
+        norm = cls.normalize_code(token, drop_region=False)
+        return norm or cls.DEFAULT_UI
+
+    @classmethod
+    def normalize_panel_source_language_selection(cls, value: Any) -> str:
+        token = cls.normalize_choice_value(value)
+        if cls.is_preferred(token):
+            return cls.PREFERRED
+        if cls.is_auto(token):
+            return cls.AUTO
+        norm = cls.normalize_code(token, drop_region=False)
+        return norm or cls.PREFERRED
+
+    @classmethod
+    def normalize_panel_target_language_selection(cls, value: Any) -> str:
+        token = cls.normalize_choice_value(value)
+        if cls.is_preferred(token):
+            return cls.PREFERRED
+        if cls.is_default_ui(token):
+            return cls.DEFAULT_UI
+        norm = cls.normalize_code(token, drop_region=False)
+        return norm or cls.PREFERRED

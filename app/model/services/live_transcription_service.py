@@ -6,6 +6,8 @@ import re
 from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.runtime_profiles import RuntimeProfiles
+from app.model.config.language_policy import LanguagePolicy
 from app.model.helpers.chunking import pcm16le_bytes_to_float32, seconds_to_frames
 from app.model.helpers.transcription_runtime import (
     audio_has_meaningful_signal,
@@ -28,8 +30,8 @@ _MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 class LiveTranscriptionService:
     """Stateful live transcription session fed with PCM16 audio bytes."""
 
-    OUTPUT_MODE_STREAM = Config.LIVE_OUTPUT_MODE_STREAM
-    OUTPUT_MODE_CUMULATIVE = Config.LIVE_OUTPUT_MODE_CUMULATIVE
+    OUTPUT_MODE_STREAM = RuntimeProfiles.LIVE_OUTPUT_MODE_STREAM
+    OUTPUT_MODE_CUMULATIVE = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE
 
     SIGNAL_NONE = "none"
     SIGNAL_WEAK = "weak"
@@ -43,19 +45,19 @@ class LiveTranscriptionService:
         target_language: str,
         translate_enabled: bool,
         cancel_check: LiveCancelCheckFn,
-        preset_id: str = Config.LIVE_DEFAULT_PRESET,
+        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
         output_mode: str = OUTPUT_MODE_CUMULATIVE,
     ) -> None:
         self._pipe = pipe
         self._cancel_check = cancel_check
 
-        self._src_lang = Config.normalize_policy_value(source_language)
-        if Config.is_auto_language_value(self._src_lang):
+        self._src_lang = LanguagePolicy.normalize_policy_value(source_language)
+        if LanguagePolicy.is_auto(self._src_lang):
             self._src_lang = ""
         self._source_language_forced = bool(self._src_lang)
 
-        self._tgt_lang = Config.normalize_policy_value(target_language)
-        self._translate = bool(translate_enabled) and bool(self._tgt_lang) and not Config.is_auto_language_value(
+        self._tgt_lang = LanguagePolicy.normalize_policy_value(target_language)
+        self._translate = bool(translate_enabled) and bool(self._tgt_lang) and not LanguagePolicy.is_auto(
             self._tgt_lang
         )
 
@@ -64,10 +66,10 @@ class LiveTranscriptionService:
         self._text_consistency = bool(model_cfg.get("text_consistency", True))
 
         self._sr = Config.ASR_SAMPLE_RATE
-        self._output_mode = Config.normalize_live_output_mode(output_mode)
+        self._output_mode = RuntimeProfiles.normalize_live_output_mode(output_mode)
         self._stream_only = self._output_mode == self.OUTPUT_MODE_STREAM
-        self._preset_id = Config.normalize_live_preset(preset_id)
-        self._profile = Config.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id)
+        self._preset_id = RuntimeProfiles.normalize_live_preset(preset_id)
+        self._profile = RuntimeProfiles.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id)
 
         chunk_len_s = int(self._profile.get("chunk_length_s", 4) or 4)
         stride_len_s = int(self._profile.get("stride_length_s", 3) or 3)

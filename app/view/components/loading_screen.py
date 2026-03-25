@@ -13,7 +13,7 @@ from app.view.support.widget_effects import (
 from app.view.ui_config import ui
 
 from app.model.services.localization_service import tr
-from app.model.config.app_config import AppConfig as Config
+from app.model.config.app_meta import AppMeta
 
 _LOADING_LOGO_WIDTH_RATIO = 0.74
 _LOADING_LOGO_HEIGHT_RATIO = 0.34
@@ -45,7 +45,7 @@ class LoadingScreenWidget(QtWidgets.QWidget):
             brand: QtWidgets.QWidget = LogoSvgLabel(path, object_name="LoadingLogo")
             brand.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         else:
-            title = QtWidgets.QLabel(Config.APP_NAME)
+            title = QtWidgets.QLabel(AppMeta.NAME)
             title.setObjectName("LoadingTitle")
             title.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
             brand = title

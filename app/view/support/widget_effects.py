@@ -98,3 +98,15 @@ def floating_shadow_margins(
     base = max(0, int(cfg.floating_shadow_margin))
     bottom = base + max(0, int(cfg.floating_shadow_offset_y)) + max(0, int(extra))
     return base, base, base, bottom
+
+
+def popup_host_root_margins(widget: QtWidgets.QWidget | None) -> tuple[int, int, int, int]:
+    return floating_shadow_margins(widget)
+
+
+def configure_floating_popup_surface(host: QtWidgets.QWidget, body: QtWidgets.QWidget) -> None:
+    host.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+    host.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    host.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+    enable_styled_background(body)
+    apply_floating_shadow(body)

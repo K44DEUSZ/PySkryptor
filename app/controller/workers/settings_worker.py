@@ -9,6 +9,7 @@ from PyQt5 import QtCore
 from app.controller.workers.task_worker import TaskWorker
 from app.model.config.app_config import AppConfig as Config
 from app.model.domain.entities import SettingsSnapshot
+from app.model.domain.errors import AppError
 from app.model.services.settings_service import SettingsService
 
 _LOG = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class SettingsWorker(TaskWorker):
             self._do_restore_defaults()
             return
 
-        self.failed.emit("error.config.unknown_action", {"action": self._action})
+        raise AppError(key="error.settings.unknown_action", params={"action": self._action})
 
     def _do_load(self) -> None:
         svc = SettingsService()

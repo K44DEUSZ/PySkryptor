@@ -13,6 +13,7 @@ from typing import Any, Callable
 import torch
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.domain.errors import AppError
 from app.model.services.settings_service import SettingsCatalog
 from app.model.helpers.string_utils import normalize_lang_code
@@ -188,7 +189,7 @@ class TranslationService:
                     encoding="utf-8",
                     errors="replace",
                     bufsize=1,
-                    cwd=str(Config.ROOT_DIR),
+                    cwd=str(Config.PATHS.ROOT_DIR),
                 )
             except (OSError, ValueError, RuntimeError) as ex:
                 _WORKER = None
@@ -238,7 +239,7 @@ class TranslationService:
         if not mdl:
             raise ConfigError("error.runtime.settings_not_initialized")
 
-        model_path = Config.TRANSLATION_ENGINE_DIR
+        model_path = Config.PATHS.TRANSLATION_ENGINE_DIR
         if not (model_path.exists() and model_path.is_dir()):
             raise ConfigError("error.model.translation_missing", path=str(model_path))
 
@@ -259,14 +260,16 @@ class TranslationService:
             raise TranslationError("error.translation.worker_not_running")
 
         io = _WORKER
-        assert io.proc.stdin is not None
-        assert io.proc.stdout is not None
+        stdin = io.proc.stdin
+        stdout = io.proc.stdout
+        if stdin is None or stdout is None:
+            raise TranslationError("error.translation.worker_protocol_error", detail="worker stdio unavailable")
 
         line = json.dumps(payload, ensure_ascii=True)
         with io.lock:
-            io.proc.stdin.write(line + "\n")
-            io.proc.stdin.flush()
-            out = io.proc.stdout.readline()
+            stdin.write(line + "\n")
+            stdin.flush()
+            out = stdout.readline()
         if not out:
             raise TranslationError("error.translation.no_response_from_worker")
         try:
@@ -395,8 +398,8 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
         max_new_tokens = int(req.get("max_new_tokens"))
         chunk_max_chars = int(req.get("chunk_max_chars"))
 
-        preset = str(req.get("quality_preset") or "").strip().lower()
-        if preset not in ("fast", "balanced", "accurate"):
+        preset = RuntimeProfiles.normalize_transcription_preset(req.get("quality_preset"))
+        if preset not in RuntimeProfiles.TRANSCRIPTION_PRESET_IDS:
             return {"ok": False, "code": "bad_preset", "error": f"unsupported preset '{preset}'"}
 
         try:
@@ -432,9 +435,9 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
             enc = tok(chunk, return_tensors="pt", truncation=True).to(device)
             forced = tok.get_lang_id(tgt)
             gen_kwargs = {"forced_bos_token_id": forced, "max_new_tokens": max_new_tokens}
-            if preset == "fast":
+            if preset == RuntimeProfiles.TRANSCRIPTION_PRESET_FAST:
                 gen_kwargs["num_beams"] = 1
-            elif preset == "balanced":
+            elif preset == RuntimeProfiles.TRANSCRIPTION_PRESET_BALANCED:
                 gen_kwargs["num_beams"] = 3
                 gen_kwargs["no_repeat_ngram_size"] = 3
             else:

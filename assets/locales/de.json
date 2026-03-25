@@ -237,9 +237,6 @@
       "ffprobe_failed": "❌ Die Audioanalyse ist fehlgeschlagen. Befehl: {cmd}"
     },
     "cancelled": "Vorgang abgebrochen.",
-    "config": {
-      "unknown_action": "⚠️ Unbekannte Aktion „{action}”."
-    },
     "down": {
       "download_failed": "❌ Download fehlgeschlagen. Details: {detail}",
       "network_dns_failed": "❌ Der Hostname konnte nicht aufgelöst werden.",
@@ -280,7 +277,8 @@
       "section_invalid": "⚠️ Der Einstellungsabschnitt „{section}” ist ungültig.",
       "settings_invalid": "⚠️ Die Einstellungsdatei „{path}” ist ungültig. Details: {detail}",
       "settings_missing": "⚠️ Die Einstellungsdatei fehlt: {path}",
-      "invalid_video_height_range": "Die minimale Videohöhe ({min_height}) darf nicht größer als die maximale ({max_height}) sein."
+      "invalid_video_height_range": "Die minimale Videohöhe ({min_height}) darf nicht größer als die maximale ({max_height}) sein.",
+      "unknown_action": "⚠️ Unbekannte Aktion „{action}”."
     },
     "startup": {
       "failed": "❌ Der Start der Anwendung ist fehlgeschlagen. Details: {detail}"

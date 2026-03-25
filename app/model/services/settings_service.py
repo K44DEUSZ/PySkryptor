@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.download_policy import DownloadPolicy
+from app.model.config.model_registry import ModelRegistry
+from app.model.config.transcription_output_policy import TranscriptionOutputPolicy
+from app.model.services.model_resolution_service import ModelResolutionService
+from app.model.config.language_policy import LanguagePolicy
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
 from app.model.domain.errors import AppError
 from app.model.helpers.string_utils import normalize_lang_code
@@ -22,11 +28,11 @@ class SettingsError(AppError):
         super().__init__(str(key), dict(params or {}))
 
 class SettingsCatalog:
-    """Lightweight catalog of user-facing options sourced from AppConfig."""
+    """Lightweight catalog of user-facing options sourced from config policies."""
 
     @classmethod
     def transcription_output_modes(cls) -> tuple[dict[str, Any], ...]:
-        return Config.get_transcription_output_modes()
+        return TranscriptionOutputPolicy.get_transcription_output_modes()
 
     @classmethod
     def transcript_extensions(cls) -> tuple[str, ...]:
@@ -42,11 +48,11 @@ class SettingsCatalog:
 
     @classmethod
     def download_audio_exts(cls) -> tuple[str, ...]:
-        return tuple(Config.DOWNLOAD_AUDIO_OUTPUT_EXTS)
+        return tuple(DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS)
 
     @classmethod
     def download_video_exts(cls) -> tuple[str, ...]:
-        return tuple(Config.DOWNLOAD_VIDEO_OUTPUT_EXTS)
+        return tuple(DownloadPolicy.DOWNLOAD_VIDEO_OUTPUT_EXTENSIONS)
 
     _LANG_CACHE: dict[str, tuple[float, set[str]]] = {}
 
@@ -144,7 +150,7 @@ class SettingsCatalog:
 
     @classmethod
     def translation_target_allowed(cls) -> set[str]:
-        return cls.translation_language_codes() | {Config.LANGUAGE_DEFAULT_UI_VALUE, Config.LANGUAGE_LAST_USED_VALUE}
+        return cls.translation_language_codes() | {LanguagePolicy.DEFAULT_UI, LanguagePolicy.LAST_USED}
 
     @classmethod
     def transcription_language_codes(cls) -> set[str]:
@@ -154,7 +160,7 @@ class SettingsCatalog:
 
     @classmethod
     def transcription_language_allowed(cls) -> set[str]:
-        return cls.transcription_language_codes() | {Config.LANGUAGE_AUTO_VALUE, Config.LANGUAGE_LAST_USED_VALUE}
+        return cls.transcription_language_codes() | {LanguagePolicy.AUTO, LanguagePolicy.LAST_USED}
 
     @classmethod
     def transcription_source_allowed(cls) -> set[str]:
@@ -181,10 +187,10 @@ class RuntimeConfigService:
 
     @staticmethod
     def setup_ffmpeg_on_path(config_cls: Any) -> None:
-        bin_dir = config_cls.FFMPEG_DIR / "bin"
-        config_cls.FFMPEG_BIN_DIR = bin_dir if bin_dir.exists() else config_cls.FFMPEG_DIR
+        bin_dir = config_cls.PATHS.FFMPEG_DIR / "bin"
+        config_cls.PATHS.FFMPEG_BIN_DIR = bin_dir if bin_dir.exists() else config_cls.PATHS.FFMPEG_DIR
 
-        bin_dir_str = str(config_cls.FFMPEG_BIN_DIR)
+        bin_dir_str = str(config_cls.PATHS.FFMPEG_BIN_DIR)
         env_path = os.environ.get("PATH", "")
         if bin_dir_str not in env_path.split(os.pathsep):
             os.environ["PATH"] = bin_dir_str + os.pathsep + env_path
@@ -193,8 +199,8 @@ class RuntimeConfigService:
 
         exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
         probe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
-        ffmpeg_exe = config_cls.FFMPEG_BIN_DIR / exe
-        ffprobe_exe = config_cls.FFMPEG_BIN_DIR / probe
+        ffmpeg_exe = config_cls.PATHS.FFMPEG_BIN_DIR / exe
+        ffprobe_exe = config_cls.PATHS.FFMPEG_BIN_DIR / probe
         if ffmpeg_exe.exists():
             os.environ.setdefault("FFMPEG_BINARY", str(ffmpeg_exe))
             os.environ.setdefault("IMAGEIO_FFMPEG_EXE", str(ffmpeg_exe))
@@ -211,8 +217,8 @@ class SettingsService:
         defaults_path: Path | None = None,
         settings_path: Path | None = None,
     ) -> None:
-        self._defaults_path = Path(defaults_path) if defaults_path else Config.DEFAULTS_FILE
-        self._settings_path = Path(settings_path) if settings_path else Config.SETTINGS_FILE
+        self._defaults_path = Path(defaults_path) if defaults_path else Config.PATHS.DEFAULTS_FILE
+        self._settings_path = Path(settings_path) if settings_path else Config.PATHS.SETTINGS_FILE
 
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
@@ -315,41 +321,41 @@ class SettingsService:
         files_cfg = self._merge(files_cfg, files_schema)
 
         live_mode = self._enum_str(
-            self._schema_value(live_cfg, live_schema, "mode", "transcribe"),
-            ("transcribe", "transcribe_translate"),
+            self._schema_value(live_cfg, live_schema, "mode", RuntimeProfiles.LIVE_UI_DEFAULT_MODE),
+            RuntimeProfiles.LIVE_UI_MODES,
             "app.ui.live.mode",
         )
         live_preset = self._enum_str(
-            self._schema_value(live_cfg, live_schema, "preset", "balanced"),
-            ("low_latency", "balanced", "high_context"),
+            self._schema_value(live_cfg, live_schema, "preset", RuntimeProfiles.LIVE_DEFAULT_PRESET),
+            RuntimeProfiles.LIVE_PRESET_IDS,
             "app.ui.live.preset",
         )
         live_output_mode = self._enum_str(
-            self._schema_value(live_cfg, live_schema, "output_mode", "cumulative"),
-            ("stream", "cumulative"),
+            self._schema_value(live_cfg, live_schema, "output_mode", RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE),
+            RuntimeProfiles.LIVE_OUTPUT_MODES,
             "app.ui.live.output_mode",
         )
         live_device = str(self._schema_value(live_cfg, live_schema, "device_name", "") or "").strip()
 
         def _last_used_source(cfg: dict[str, Any], cfg_schema: dict[str, Any], field: str) -> str:
-            raw = self._schema_value(cfg, cfg_schema, field, Config.LANGUAGE_AUTO_VALUE)
-            value = Config.normalize_last_used_source_language(raw)
+            raw = self._schema_value(cfg, cfg_schema, field, LanguagePolicy.AUTO)
+            value = LanguagePolicy.normalize_last_used_source_language(raw)
             supported = set(SettingsCatalog.transcription_language_codes())
-            if Config.is_auto_language_value(value):
-                return Config.LANGUAGE_AUTO_VALUE
+            if LanguagePolicy.is_auto(value):
+                return LanguagePolicy.AUTO
             if supported:
-                return value if value in supported else Config.LANGUAGE_AUTO_VALUE
-            return value if self._looks_like_lang_code(value) else Config.LANGUAGE_AUTO_VALUE
+                return value if value in supported else LanguagePolicy.AUTO
+            return value if self._looks_like_lang_code(value) else LanguagePolicy.AUTO
 
         def _last_used_target(cfg: dict[str, Any], cfg_schema: dict[str, Any], field: str) -> str:
-            raw = self._schema_value(cfg, cfg_schema, field, Config.LANGUAGE_DEFAULT_UI_VALUE)
-            value = Config.normalize_last_used_target_language(raw)
+            raw = self._schema_value(cfg, cfg_schema, field, LanguagePolicy.DEFAULT_UI)
+            value = LanguagePolicy.normalize_last_used_target_language(raw)
             supported = set(SettingsCatalog.translation_language_codes())
-            if Config.is_default_ui_language_value(value):
-                return Config.LANGUAGE_DEFAULT_UI_VALUE
+            if LanguagePolicy.is_default_ui(value):
+                return LanguagePolicy.DEFAULT_UI
             if supported:
-                return value if value in supported else Config.LANGUAGE_DEFAULT_UI_VALUE
-            return value if self._looks_like_lang_code(value) else Config.LANGUAGE_DEFAULT_UI_VALUE
+                return value if value in supported else LanguagePolicy.DEFAULT_UI
+            return value if self._looks_like_lang_code(value) else LanguagePolicy.DEFAULT_UI
 
         return {
             "language": str(self._schema_value(src, schema, "language", "auto") or "auto"),
@@ -412,13 +418,21 @@ class SettingsService:
         t = self._merge(_d(src.get("transcription_model")), t_schema)
         x = self._merge(_d(src.get("translation_model")), x_schema)
 
-        preset = str(self._schema_value(t, t_schema, "quality_preset", "balanced") or "balanced").strip().lower()
-        if preset not in ("fast", "balanced", "accurate"):
-            preset = str(t_schema.get("quality_preset", "balanced") or "balanced").strip().lower()
+        preset = RuntimeProfiles.normalize_transcription_preset(
+            self._schema_value(t, t_schema, "quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
+        )
+        if preset not in RuntimeProfiles.TRANSCRIPTION_PRESET_IDS:
+            preset = RuntimeProfiles.normalize_transcription_preset(
+                t_schema.get("quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
+            )
 
-        preset_tr = str(self._schema_value(x, x_schema, "quality_preset", "balanced") or "balanced").strip().lower()
-        if preset_tr not in ("fast", "balanced", "accurate"):
-            preset_tr = str(x_schema.get("quality_preset", "balanced") or "balanced").strip().lower()
+        preset_tr = RuntimeProfiles.normalize_transcription_preset(
+            self._schema_value(x, x_schema, "quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
+        )
+        if preset_tr not in RuntimeProfiles.TRANSCRIPTION_PRESET_IDS:
+            preset_tr = RuntimeProfiles.normalize_transcription_preset(
+                x_schema.get("quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
+            )
 
         def _engine_meta(cfg: dict[str, Any]) -> dict[str, str | None]:
             engine_name = str(cfg.get("engine_name", "none") or "none").strip()
@@ -426,13 +440,13 @@ class SettingsService:
             model_type = str(cfg.get("engine_model_type", "") or "").strip().lower() or None
             signature = str(cfg.get("engine_signature", "") or "").strip().lower() or None
 
-            if Config.is_disabled_engine_name(low) or low == "auto":
+            if ModelRegistry.is_disabled_engine_name(low) or low == "auto":
                 return {
                     "engine_model_type": None,
                     "engine_signature": None,
                 }
 
-            desc = Config.local_model_descriptor(engine_name)
+            desc = ModelResolutionService.local_model_descriptor(engine_name)
             if desc:
                 model_type = str(desc.get("model_type", model_type or "") or "").strip().lower() or None
                 signature = str(desc.get("signature", signature or "") or "").strip().lower() or None
@@ -467,20 +481,20 @@ class SettingsService:
     def _validate_transcription(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
-        default_source_raw = Config.normalize_language_choice_value(
-            self._schema_value(src, schema, "default_source_language", Config.LANGUAGE_AUTO_VALUE)
+        default_source_raw = LanguagePolicy.normalize_choice_value(
+            self._schema_value(src, schema, "default_source_language", LanguagePolicy.AUTO)
         )
         supported_source = set(SettingsCatalog.transcription_language_codes())
-        if Config.is_last_used_language_value(default_source_raw):
-            default_source = Config.LANGUAGE_LAST_USED_VALUE
-        elif Config.is_auto_language_value(default_source_raw):
-            default_source = Config.LANGUAGE_AUTO_VALUE
+        if LanguagePolicy.is_last_used(default_source_raw):
+            default_source = LanguagePolicy.LAST_USED
+        elif LanguagePolicy.is_auto(default_source_raw):
+            default_source = LanguagePolicy.AUTO
         else:
             norm_source = self._coerce_lang_code(default_source_raw)
             if supported_source:
-                default_source = norm_source if norm_source in supported_source else Config.LANGUAGE_AUTO_VALUE
+                default_source = norm_source if norm_source in supported_source else LanguagePolicy.AUTO
             else:
-                default_source = norm_source if self._looks_like_lang_code(norm_source) else Config.LANGUAGE_AUTO_VALUE
+                default_source = norm_source if self._looks_like_lang_code(norm_source) else LanguagePolicy.AUTO
 
         mode_ids = [str(m.get("id", "")).strip().lower() for m in SettingsCatalog.transcription_output_modes()]
         mode_ids = [m for m in mode_ids if m]
@@ -527,18 +541,18 @@ class SettingsService:
     def _validate_translation(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
-        tgt_lang_raw = Config.normalize_language_choice_value(
-            src.get("default_target_language", "") or Config.LANGUAGE_DEFAULT_UI_VALUE
+        tgt_lang_raw = LanguagePolicy.normalize_choice_value(
+            src.get("default_target_language", "") or LanguagePolicy.DEFAULT_UI
         )
-        deferred_target = Config.LANGUAGE_DEFAULT_UI_VALUE
+        deferred_target = LanguagePolicy.DEFAULT_UI
 
-        if Config.is_last_used_language_value(tgt_lang_raw):
+        if LanguagePolicy.is_last_used(tgt_lang_raw):
             return {
-                "default_target_language": Config.LANGUAGE_LAST_USED_VALUE,
+                "default_target_language": LanguagePolicy.LAST_USED,
             }
 
         tgt_codes = set(SettingsCatalog.translation_language_codes())
-        if Config.is_default_ui_language_value(tgt_lang_raw) or not tgt_lang_raw:
+        if LanguagePolicy.is_default_ui(tgt_lang_raw) or not tgt_lang_raw:
             tgt_lang = deferred_target
         else:
             norm = self._coerce_lang_code(tgt_lang_raw)

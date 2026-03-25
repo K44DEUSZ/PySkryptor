@@ -13,12 +13,14 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, TextIO
 
+from app.model.config.app_meta import AppMeta
+
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
 _LOG = logging.getLogger(__name__)
 
-_APP_FILE_HANDLER_NAME = "PySkryptorAppFile"
-_CONSOLE_HANDLER_NAME = "PySkryptorConsole"
+_APP_FILE_HANDLER_NAME = f"{AppMeta.NAME}AppFile"
+_CONSOLE_HANDLER_NAME = f"{AppMeta.NAME}Console"
 _LEVEL_MAP = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -80,7 +82,7 @@ class LoggingSetup:
         app_log_path: Path,
         crash_log_path: Path,
         *,
-        logger_name: str = "PySkryptor",
+        logger_name: str = AppMeta.NAME,
         max_bytes: int = 2_000_000,
         backup_count: int = 5,
         console: bool = True,

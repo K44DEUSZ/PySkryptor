@@ -9,6 +9,8 @@ from typing import Any, TYPE_CHECKING
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
 from app.model.domain.errors import AppError
+from app.model.config.model_registry import ModelRegistry
+from app.model.services.model_resolution_service import ModelResolutionService
 
 _LOG = logging.getLogger(__name__)
 
@@ -28,12 +30,12 @@ def _enrich_model_cfg(
     resolved_name: str = "",
 ) -> dict[str, Any]:
     cfg = dict(model_cfg) if isinstance(model_cfg, dict) else {}
-    engine_name = str(resolved_name or Config.active_engine_name(task=task) or cfg.get("engine_name", "") or "").strip()
+    engine_name = str(resolved_name or ModelResolutionService.active_engine_name(task=task) or cfg.get("engine_name", "") or "").strip()
     if not engine_name or engine_name == Config.MISSING_VALUE:
         return cfg
 
     cfg["engine_name"] = engine_name
-    desc = Config.local_model_descriptor(engine_name)
+    desc = ModelResolutionService.local_model_descriptor(engine_name)
     if not desc:
         return cfg
 
@@ -62,7 +64,7 @@ def current_translation_model_cfg() -> dict[str, Any]:
     return _current_model_cfg(task="translation")
 
 def _is_disabled_engine_name(name: str) -> bool:
-    return Config.is_disabled_engine_name(name)
+    return ModelRegistry.is_disabled_engine_name(name)
 
 def _require_dir(path: Path, *, error_key: str) -> None:
     if path.exists() and path.is_dir() and path.name != Config.MISSING_VALUE:
@@ -169,7 +171,7 @@ class TranscriptionModelLoader:
             self._pipeline = None
             return None
 
-        model_path = Path(Config.TRANSCRIPTION_ENGINE_DIR)
+        model_path = Path(Config.PATHS.TRANSCRIPTION_ENGINE_DIR)
         _require_dir(model_path, error_key="error.model.transcription_missing")
 
         device, dtype = _resolve_torch_device_dtype()
@@ -236,7 +238,7 @@ class TranslationModelLoader:
         if _is_disabled_engine_name(engine_name):
             return False
 
-        model_path = Path(Config.TRANSLATION_ENGINE_DIR)
+        model_path = Path(Config.PATHS.TRANSLATION_ENGINE_DIR)
         _require_dir(model_path, error_key="error.model.translation_missing")
 
         from app.model.services.translation_service import TranslationService

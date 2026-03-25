@@ -9,6 +9,9 @@ from PyQt5 import QtCore
 
 from app.model.domain.errors import AppError
 
+LanguageOption = tuple[str, str]
+SpecialLanguageOptions = LanguageOption | list[LanguageOption] | tuple[LanguageOption, ...] | None
+
 _MESSAGES: dict[str, str] = {}
 _CURRENT_LANG: str = "en"
 
@@ -175,7 +178,7 @@ def language_display_name(code: str, *, ui_lang: str | None = None) -> str:
 def build_language_options(
     codes: list[str] | tuple[str, ...] | set[str],
     *,
-    special_first: tuple[str, str] | list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
+    special_first: SpecialLanguageOptions = None,
     ui_lang: str | None = None,
 ) -> list[tuple[str, str]]:
     """Build sorted (code, label) pairs for plain language combo boxes."""
@@ -186,9 +189,9 @@ def build_language_options(
     if isinstance(special_first, tuple) and len(special_first) == 2 and isinstance(special_first[0], str):
         specials = [special_first]
     elif isinstance(special_first, (list, tuple)):
-        for item in special_first:
-            if isinstance(item, (list, tuple)) and len(item) == 2:
-                specials.append((str(item[0]), str(item[1])))
+        for special_item in special_first:
+            if isinstance(special_item, (list, tuple)) and len(special_item) == 2:
+                specials.append((str(special_item[0]), str(special_item[1])))
 
     for label_key, raw_code in specials:
         code = _normalize_display_lang_code(raw_code)
@@ -208,6 +211,6 @@ def build_language_options(
         rows.append((code, label))
         seen.add(code)
 
-    rows.sort(key=lambda item: (item[1].lower(), item[0]))
+    rows.sort(key=lambda row: (row[1].lower(), row[0]))
     items.extend(rows)
     return items

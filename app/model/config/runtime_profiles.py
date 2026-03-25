@@ -15,10 +15,20 @@ class RuntimeProfiles:
     LIVE_UI_MODES: tuple[str, ...] = (LIVE_UI_MODE_TRANSCRIBE, LIVE_UI_MODE_TRANSCRIBE_TRANSLATE)
     LIVE_UI_DEFAULT_MODE = LIVE_UI_MODE_TRANSCRIBE
 
-    LIVE_DEFAULT_PRESET = "balanced"
+    LIVE_PRESET_LOW_LATENCY = "low_latency"
+    LIVE_PRESET_BALANCED = "balanced"
+    LIVE_PRESET_HIGH_CONTEXT = "high_context"
+    LIVE_DEFAULT_PRESET = LIVE_PRESET_BALANCED
 
-    TRANSCRIPTION_DEFAULT_PRESET = "balanced"
-    TRANSCRIPTION_PRESET_IDS: tuple[str, ...] = ("fast", "balanced", "accurate")
+    TRANSCRIPTION_PRESET_FAST = "fast"
+    TRANSCRIPTION_PRESET_BALANCED = "balanced"
+    TRANSCRIPTION_PRESET_ACCURATE = "accurate"
+    TRANSCRIPTION_DEFAULT_PRESET = TRANSCRIPTION_PRESET_BALANCED
+    TRANSCRIPTION_PRESET_IDS: tuple[str, ...] = (
+        TRANSCRIPTION_PRESET_FAST,
+        TRANSCRIPTION_PRESET_BALANCED,
+        TRANSCRIPTION_PRESET_ACCURATE,
+    )
     TRANSCRIPTION_PRESET_PROFILES: dict[str, dict[str, Any]] = {
         "fast": {
             "chunk_length_s": 30,
@@ -33,7 +43,7 @@ class RuntimeProfiles:
             "stride_length_s": 8,
         },
     }
-    LIVE_PRESET_IDS: tuple[str, ...] = ("low_latency", "balanced", "high_context")
+    LIVE_PRESET_IDS: tuple[str, ...] = (LIVE_PRESET_LOW_LATENCY, LIVE_PRESET_BALANCED, LIVE_PRESET_HIGH_CONTEXT)
 
     LIVE_AUDIO_SIGNAL_PROFILE: dict[str, Any] = {
         "silence_level_threshold": 0.055,

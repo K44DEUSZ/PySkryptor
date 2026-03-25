@@ -3,25 +3,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Iterable, TypeAlias
-from urllib.parse import parse_qs, urlparse
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.runtime_profiles import RuntimeProfiles
+from app.model.config.language_policy import LanguagePolicy
 from app.model.domain.entities import TranscriptionSessionRequest
 from app.model.domain.runtime_state import AppRuntimeState
 from app.model.helpers.string_utils import normalize_lang_code
-from app.model.io.file_manager import FileManager
-from app.model.io.media_probe import is_url_source
 from app.model.services.ai_models_service import current_transcription_model_cfg, current_translation_model_cfg
+from app.model.config.model_registry import ModelRegistry
 from app.model.services.download_service import DownloadService
 from app.model.services.settings_service import SettingsCatalog
 
 PatchPayload: TypeAlias = dict[str, Any]
 EntryPayload: TypeAlias = dict[str, Any]
-
-
-def is_url(value: str) -> bool:
-    """Return True if the input should be treated as a URL source."""
-    return bool(is_url_source(value))
 
 
 def translation_language_codes() -> list[str]:
@@ -76,21 +71,21 @@ def resolve_source_language_for_run(
     supported: Iterable[str] | None = None,
 ) -> str:
     """Resolve a source language selection into a concrete source language value."""
-    raw = Config.normalize_panel_source_language_selection(source_code)
+    raw = LanguagePolicy.normalize_panel_source_language_selection(source_code)
     supported_codes = set(supported) if supported is not None else set(transcription_language_codes())
 
-    if Config.is_preferred_language_value(raw):
+    if LanguagePolicy.is_preferred(raw):
         resolved = Config.resolve_default_source_language_for_tab(tab_name)
-    elif Config.is_auto_language_value(raw):
-        resolved = Config.LANGUAGE_AUTO_VALUE
+    elif LanguagePolicy.is_auto(raw):
+        resolved = LanguagePolicy.AUTO
     else:
-        resolved = normalize_lang_code(raw, drop_region=False) or Config.LANGUAGE_AUTO_VALUE
+        resolved = normalize_lang_code(raw, drop_region=False) or LanguagePolicy.AUTO
 
-    if Config.is_auto_language_value(resolved):
-        return Config.LANGUAGE_AUTO_VALUE
+    if LanguagePolicy.is_auto(resolved):
+        return LanguagePolicy.AUTO
     if supported_codes:
-        return resolved if resolved in supported_codes else Config.LANGUAGE_AUTO_VALUE
-    return resolved or Config.LANGUAGE_AUTO_VALUE
+        return resolved if resolved in supported_codes else LanguagePolicy.AUTO
+    return resolved or LanguagePolicy.AUTO
 
 
 def resolve_target_language_for_run(
@@ -101,13 +96,13 @@ def resolve_target_language_for_run(
     supported: Iterable[str] | None = None,
 ) -> str:
     """Resolve a target language selection into a concrete translation target."""
-    raw = Config.normalize_panel_target_language_selection(target_code)
+    raw = LanguagePolicy.normalize_panel_target_language_selection(target_code)
     supported_codes = set(supported) if supported is not None else supported_translation_lang_codes()
 
-    if Config.is_preferred_language_value(raw):
+    if LanguagePolicy.is_preferred(raw):
         resolved = Config.resolve_default_target_language_for_tab(tab_name, ui_language=ui_language)
-    elif Config.is_default_ui_language_value(raw):
-        resolved = normalize_lang_code(ui_language, drop_region=True) or Config.LANGUAGE_DEFAULT_UI_VALUE
+    elif LanguagePolicy.is_default_ui(raw):
+        resolved = normalize_lang_code(ui_language, drop_region=True) or LanguagePolicy.DEFAULT_UI
     else:
         resolved = normalize_lang_code(raw, drop_region=True)
 
@@ -156,9 +151,9 @@ def build_tab_last_used_language_payload(
     tab = str(tab_name or "").strip().lower()
     tab_cfg: dict[str, Any] = {}
     if source_language is not None:
-        tab_cfg["last_used_source_language"] = Config.normalize_last_used_source_language(source_language)
+        tab_cfg["last_used_source_language"] = LanguagePolicy.normalize_last_used_source_language(source_language)
     if target_language is not None:
-        tab_cfg["last_used_target_language"] = Config.normalize_last_used_target_language(target_language)
+        tab_cfg["last_used_target_language"] = LanguagePolicy.normalize_last_used_target_language(target_language)
     if not tab_cfg:
         return {}
     return {"app": {"ui": {tab: tab_cfg}}}
@@ -173,12 +168,12 @@ def build_files_quick_options_payload(
     """Build a SettingsWorker payload for FilesPanel quick options."""
     payload: dict[str, Any] = {"transcription": dict(transcription_patch or {})}
 
-    source_sel = Config.normalize_panel_source_language_selection(source_language_selection)
-    target_sel = Config.normalize_panel_target_language_selection(target_language_selection)
+    source_sel = LanguagePolicy.normalize_panel_source_language_selection(source_language_selection)
+    target_sel = LanguagePolicy.normalize_panel_target_language_selection(target_language_selection)
     last_used_patch = build_tab_last_used_language_payload(
         tab_name="files",
-        source_language=None if Config.is_preferred_language_value(source_sel) else source_sel,
-        target_language=None if Config.is_preferred_language_value(target_sel) else target_sel,
+        source_language=None if LanguagePolicy.is_preferred(source_sel) else source_sel,
+        target_language=None if LanguagePolicy.is_preferred(target_sel) else target_sel,
     )
     if last_used_patch:
         payload.update(last_used_patch)
@@ -216,7 +211,7 @@ def build_transcription_session_request(
     if not output_mode_ids:
         output_mode_ids = tuple(Config.transcription_output_mode_ids())
 
-    src = Config.LANGUAGE_AUTO_VALUE if Config.is_auto_language_value(source_language) else (normalize_lang_code(source_language, drop_region=False) or Config.LANGUAGE_AUTO_VALUE)
+    src = LanguagePolicy.AUTO if LanguagePolicy.is_auto(source_language) else (normalize_lang_code(source_language, drop_region=False) or LanguagePolicy.AUTO)
     tgt = normalize_lang_code(target_language, drop_region=True) if str(target_language or "").strip() else ""
 
     return TranscriptionSessionRequest(
@@ -241,14 +236,14 @@ def translation_runtime_available(
     if runtime_state is not None and bool(str(runtime_state.translation_error_key or "").strip()):
         return False
 
-    engine_dir = getattr(Config, "TRANSLATION_ENGINE_DIR", None)
+    engine_dir = getattr(getattr(Config, "PATHS", None), "TRANSLATION_ENGINE_DIR", None)
     engine_dir_name = str(getattr(engine_dir, "name", "") or "").strip()
     if not engine_dir_name or engine_dir_name == Config.MISSING_VALUE:
         return False
 
     cfg = model_cfg if isinstance(model_cfg, dict) else Config.translation_model_raw_cfg_dict()
     eng = str(cfg.get("engine_name", "") or "").strip().lower()
-    return not Config.is_disabled_engine_name(eng)
+    return not ModelRegistry.is_disabled_engine_name(eng)
 
 
 @dataclass(frozen=True)
@@ -269,9 +264,9 @@ def build_live_quick_options_payload(
     target_language_selection: str,
 ) -> dict[str, Any]:
     """Build a SettingsWorker payload for LivePanel quick options."""
-    m = Config.normalize_live_ui_mode(mode or Config.live_ui_mode())
-    p = Config.normalize_live_preset(preset or Config.live_ui_preset())
-    out_mode = Config.normalize_live_output_mode(output_mode or Config.live_ui_output_mode())
+    m = RuntimeProfiles.normalize_live_ui_mode(mode or Config.live_ui_mode())
+    p = RuntimeProfiles.normalize_live_preset(preset or Config.live_ui_preset())
+    out_mode = RuntimeProfiles.normalize_live_output_mode(output_mode or Config.live_ui_output_mode())
 
     dev = str(device_name or "").strip()
     payload: dict[str, Any] = {
@@ -287,13 +282,13 @@ def build_live_quick_options_payload(
         },
     }
 
-    source_sel = Config.normalize_panel_source_language_selection(source_language_selection)
-    target_sel = Config.normalize_panel_target_language_selection(target_language_selection)
+    source_sel = LanguagePolicy.normalize_panel_source_language_selection(source_language_selection)
+    target_sel = LanguagePolicy.normalize_panel_target_language_selection(target_language_selection)
     tab_cfg = payload["app"]["ui"]["live"]
-    if not Config.is_preferred_language_value(source_sel):
-        tab_cfg["last_used_source_language"] = Config.normalize_last_used_source_language(source_sel)
-    if not Config.is_preferred_language_value(target_sel):
-        tab_cfg["last_used_target_language"] = Config.normalize_last_used_target_language(target_sel)
+    if not LanguagePolicy.is_preferred(source_sel):
+        tab_cfg["last_used_source_language"] = LanguagePolicy.normalize_last_used_source_language(source_sel)
+    if not LanguagePolicy.is_preferred(target_sel):
+        tab_cfg["last_used_target_language"] = LanguagePolicy.normalize_last_used_target_language(target_sel)
     return payload
 
 
@@ -315,72 +310,3 @@ def compute_translation_runtime(
         supported=supported,
     )
     return TranslationRuntime(bool(tgt), tgt)
-
-
-def is_playlist_url(url: str) -> bool:
-    """Return True when the given URL likely points to a playlist."""
-    u = str(url or "").strip()
-    if not u:
-        return False
-
-    parsed = urlparse(u)
-    qs = parse_qs(parsed.query or "")
-    if qs.get("list"):
-        return True
-    if "playlist" in (parsed.path or "").lower():
-        return True
-    if "list=" in (parsed.fragment or ""):
-        return True
-    return False
-
-
-def _files_media_supported_extensions() -> list[str]:
-    return list(Config.files_media_input_file_exts())
-
-
-def parse_source_input(raw: str) -> EntryPayload:
-    """Parse a raw source input from the Files panel."""
-    return FileManager.parse_source_input(
-        raw,
-        supported_exts=_files_media_supported_extensions(),
-    )
-
-
-def collect_media_files(paths: list[str]) -> list[str]:
-    """Collect media files from the given paths for the Files panel."""
-    return FileManager.collect_media_files(
-        list(paths),
-        supported_exts=_files_media_supported_extensions(),
-    )
-
-
-def normalize_source_key(raw: str) -> str:
-    """Normalize a user-provided source key (path/URL)."""
-    return str(raw or "").strip()
-
-
-def try_add_source_key(existing: set[str], raw: str) -> tuple[bool, str, bool]:
-    """Try to add a source key, returning (ok, normalized_key, duplicate)."""
-    key = normalize_source_key(raw)
-    if not key:
-        return False, "", False
-    if key in existing:
-        return False, key, True
-    existing.add(key)
-    return True, key, False
-
-
-def build_entries(keys: Iterable[str], audio_lang_by_key: dict[str, str | None]) -> list[EntryPayload]:
-    """Build worker input entries for the given sources."""
-    out: list[EntryPayload] = []
-    for k in keys:
-        src = normalize_source_key(k)
-        if not src:
-            continue
-        payload: EntryPayload = {"src": src}
-        if is_url_source(src):
-            lang = audio_lang_by_key.get(src)
-            if lang:
-                payload["audio_lang"] = lang
-        out.append(payload)
-    return out

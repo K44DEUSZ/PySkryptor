@@ -5,10 +5,8 @@ from typing import Optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view.support.widget_effects import (
-    apply_floating_shadow,
-    enable_styled_background,
-    floating_shadow_margins,
-    is_windows_platform,
+    configure_floating_popup_surface,
+    popup_host_root_margins,
     overlay_edge_gap,
 )
 from app.view.ui_config import ui
@@ -45,20 +43,15 @@ class HintPopup(QtWidgets.QWidget):
 
     def __init__(self) -> None:
         super().__init__(None, QtCore.Qt.WindowType.ToolTip | QtCore.Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        is_windows = is_windows_platform()
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
         self.setProperty("role", "hintPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
+        root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "hintPopup")
-        enable_styled_background(self._body)
-        if not is_windows:
-            apply_floating_shadow(self._body)
+        configure_floating_popup_surface(self, self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
         body_lay.setContentsMargins(0, 0, 0, 0)

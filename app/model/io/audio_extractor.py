@@ -26,7 +26,7 @@ class AudioExtractor:
     @staticmethod
     def _tool_exe(name: str) -> str:
         """Return absolute tool executable path or fallback to the PATH name."""
-        base = Config.FFMPEG_BIN_DIR
+        base = Config.PATHS.FFMPEG_BIN_DIR
         tool = str(name or "").strip()
         if not tool:
             return ""

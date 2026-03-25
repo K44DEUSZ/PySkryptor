@@ -12,6 +12,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.view.components.section_group import SectionGroup
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.app_meta import AppMeta
 from app.model.services.localization_service import tr
 from app.view import dialogs
 from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
@@ -87,10 +88,10 @@ class AboutPanel(QtWidgets.QWidget):
         app_label.setWordWrap(True)
         app_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         app_html = tr("about.app.description").format(
-            name=Config.APP_NAME,
-            version=Config.APP_VERSION,
-            author=Config.APP_AUTHOR,
-            years=Config.APP_DEVELOPMENT_YEARS,
+            name=AppMeta.NAME,
+            version=AppMeta.VERSION,
+            author=AppMeta.AUTHOR,
+            years=AppMeta.DEVELOPMENT_YEARS,
         )
         app_label.setText(f"<div style='line-height:1.35'>{app_html}</div>")
         app_layout.addWidget(app_label)
@@ -187,7 +188,7 @@ class AboutPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _resolve_license_path() -> Path | None:
-        path = Path(Config.LICENSE_FILE)
+        path = Path(Config.PATHS.LICENSE_FILE)
         if path.exists():
             return path
         return None

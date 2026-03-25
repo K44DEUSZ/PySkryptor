@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.runtime_profiles import RuntimeProfiles
+from app.model.config.download_policy import DownloadPolicy
+from app.model.config.transcription_output_policy import TranscriptionOutputPolicy
+from app.model.config.language_policy import LanguagePolicy
 from app.model.domain.errors import AppError, OperationCancelled
 from app.model.domain.entities import TranscriptionSessionRequest
 from app.model.domain.results import SessionResult
@@ -259,18 +263,18 @@ class TranscriptionService:
         if not output_mode_ids:
             output_mode_ids = list(Config.transcription_output_mode_ids())
 
-        output_modes = [Config.get_transcription_output_mode(str(mode_id)) for mode_id in output_mode_ids]
+        output_modes = [TranscriptionOutputPolicy.get_transcription_output_mode(str(mode_id)) for mode_id in output_mode_ids]
         want_timestamps = any(
             bool(mode.get("timestamps", False)) or str(mode.get("ext", "")).strip().lower() == "srt"
             for mode in output_modes
         )
 
         translate_requested = bool(session_request.translate_after_transcription)
-        tgt_lang = Config.normalize_policy_value(session_request.target_language or "")
-        want_translate = bool(translate_requested and tgt_lang and not Config.is_auto_language_value(tgt_lang))
+        tgt_lang = LanguagePolicy.normalize_policy_value(session_request.target_language or "")
+        want_translate = bool(translate_requested and tgt_lang and not LanguagePolicy.is_auto(tgt_lang))
 
-        default_lang = Config.normalize_policy_value(
-            session_request.source_language or Config.LANGUAGE_AUTO_VALUE
+        default_lang = LanguagePolicy.normalize_policy_value(
+            session_request.source_language or LanguagePolicy.AUTO
         )
 
         audio_ext = str(session_request.url_audio_ext or Config.transcription_url_audio_ext()).strip().lower()
@@ -280,8 +284,8 @@ class TranscriptionService:
         url_download_ext = audio_ext if download_audio_only else video_ext
         url_keep_download = bool(session_request.url_keep_audio if download_audio_only else session_request.url_keep_video)
 
-        preset_id = Config.normalize_transcription_quality_preset(model_cfg.get("quality_preset", "balanced"))
-        preset_profile = Config.transcription_quality_profile(preset_id)
+        preset_id = RuntimeProfiles.normalize_transcription_preset(model_cfg.get("quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET))
+        preset_profile = RuntimeProfiles.transcription_preset_profile(preset_id)
         chunk_len_s = int(preset_profile.get("chunk_length_s", 45))
         stride_len_s = int(preset_profile.get("stride_length_s", 5))
         text_consistency = bool(model_cfg.get("text_consistency", True))
@@ -300,7 +304,7 @@ class TranscriptionService:
             url_download_kind=url_download_kind,
             url_download_ext=url_download_ext,
             url_keep_download=url_keep_download,
-            url_download_quality=Config.URL_DOWNLOAD_DEFAULT_QUALITY,
+            url_download_quality=DownloadPolicy.URL_DOWNLOAD_DEFAULT_QUALITY,
         )
 
     @staticmethod
@@ -309,7 +313,7 @@ class TranscriptionService:
             source_key = str(entry.get("src") or "")
             forced_stem = str(entry.get("stem") or "").strip() or None
             audio_lang = str(entry.get("audio_lang") or "").strip() or None
-            if (audio_lang or "").lower() in set(Config.DOWNLOAD_AUDIO_LANG_AUTO_VALUES):
+            if DownloadPolicy.is_download_audio_auto_value(audio_lang):
                 audio_lang = None
         else:
             source_key = str(entry or "")
@@ -656,8 +660,8 @@ class TranscriptionService:
             url_count,
             bool(runtime.options.translate_requested),
             bool(runtime.options.want_translate),
-            runtime.options.default_lang or Config.LANGUAGE_AUTO_VALUE,
-            runtime.options.tgt_lang or Config.LANGUAGE_AUTO_VALUE,
+            runtime.options.default_lang or LanguagePolicy.AUTO,
+            runtime.options.tgt_lang or LanguagePolicy.AUTO,
             ",".join(runtime.options.output_mode_ids),
         )
 
@@ -981,7 +985,7 @@ class TranscriptionService:
 
             parent = path.parent
             try:
-                tmp_root = Config.DOWNLOADS_TMP_DIR.resolve()
+                tmp_root = Config.PATHS.DOWNLOADS_TMP_DIR.resolve()
                 if parent != tmp_root and tmp_root in parent.resolve().parents:
                     shutil.rmtree(parent, ignore_errors=True)
             except OSError as ex:
@@ -1028,7 +1032,7 @@ class TranscriptionService:
             runtime.tracker.set_weight(old_key, weight=max(15.0, min(3600.0, float(dur))))
 
         title = sanitize_filename(str(meta.get("title") or "").strip())
-        stem = request.forced_stem or title or Config.DOWNLOAD_DEFAULT_STEM
+        stem = request.forced_stem or title or DownloadPolicy.DOWNLOAD_DEFAULT_STEM
 
         kind = runtime.options.url_download_kind
         ext = runtime.options.url_download_ext
@@ -1056,12 +1060,12 @@ class TranscriptionService:
             audio_lang=request.audio_lang,
             file_stem=stem,
             cancel_check=callbacks.cancel_check,
-            purpose=Config.DOWNLOAD_PURPOSE_TRANSCRIPTION,
+            purpose=DownloadPolicy.DOWNLOAD_PURPOSE_TRANSCRIPTION,
             keep_output=keep,
             meta=meta,
         )
         if not dst:
-            raise AppError("error.down.download_failed", {"detail": "download returned no file path"})
+            raise AppError(key="error.down.download_failed", params={"detail": "download returned no file path"})
         if not keep:
             runtime.downloaded_to_delete.add(dst)
 
@@ -1207,7 +1211,7 @@ class TranscriptionService:
         try:
             payload = {"raw": audio, "sampling_rate": int(sr)}
             normalized_lang = str(source_language or "").strip().lower()
-            if Config.is_auto_language_value(normalized_lang):
+            if LanguagePolicy.is_auto(normalized_lang):
                 normalized_lang = ""
             prompt_ids = whisper_prompt_ids_from_text(pipe=pipe, text=previous_text) if bool(text_consistency) else None
             generate_kwargs: dict[str, Any] = {"task": "transcribe"}
@@ -1269,7 +1273,7 @@ class TranscriptionService:
     def _pick_source_language(*, default_lang: str | None, detected_lang: str) -> str:
         src = str(default_lang or "").strip().lower().replace("_", "-")
         src = src.split("-", 1)[0]
-        if src and not Config.is_auto_language_value(src):
+        if src and not LanguagePolicy.is_auto(src):
             return src
         return normalize_detected_language(detected_lang)
 
@@ -1330,7 +1334,7 @@ class TranscriptionService:
             written_paths = TranscriptWriter.write_mode_outputs(
                 out_dir=out_dir,
                 output_mode_ids=output_mode_ids,
-                mode_resolver=Config.get_transcription_output_mode,
+                mode_resolver=TranscriptionOutputPolicy.get_transcription_output_mode,
                 filename_resolver=FileManager.transcript_filename,
                 unique_path_resolver=FileManager.ensure_unique_path,
                 merged_text=merged_text,

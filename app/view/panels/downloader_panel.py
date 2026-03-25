@@ -11,14 +11,26 @@ from app.controller.contracts import DownloaderCoordinatorProtocol
 from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
 
 from app.model.services.localization_service import tr
-from app.model.services.runtime_resolver import available_audio_bitrates, available_video_heights, is_playlist_url
+from app.model.runtime_resolver import available_audio_bitrates, available_video_heights
+from app.model.services.source_input_service import is_playlist_url
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.download_policy import DownloadPolicy
+from app.model.config.app_meta import AppMeta
 from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code, sanitize_url_for_log
 from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.source_table import SourceTable
 from app.view.components.section_group import SectionGroup
 from app.view import dialogs
 from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
+from app.view.support.source_expansion_ui import (
+    ensure_progress_dialog,
+    hide_progress_dialog,
+    limit_items as limit_expansion_items,
+    sample_titles as sample_expansion_titles,
+    show_progress_dialog,
+    should_confirm_bulk_add,
+    update_progress_dialog_message,
+)
 from app.view.support.view_runtime import (
     normalize_network_status,
     open_external_url,
@@ -798,9 +810,9 @@ class DownloaderPanel(QtWidgets.QWidget):
     @staticmethod
     def _on_open_downloads_clicked() -> None:
         try:
-            Config.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-            if not open_local_path(Config.DOWNLOADS_DIR):
-                _LOG.error("Opening the downloads folder failed. path=%s", Config.DOWNLOADS_DIR)
+            Config.PATHS.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+            if not open_local_path(Config.PATHS.DOWNLOADS_DIR):
+                _LOG.error("Opening the downloads folder failed. path=%s", Config.PATHS.DOWNLOADS_DIR)
         except (OSError, RuntimeError, TypeError, ValueError):
             _LOG.exception("Opening the downloads folder failed.")
 
@@ -834,7 +846,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def _build_queue_items(self, keys: list[str]) -> list[_DownloadQueueItem]:
         items: list[_DownloadQueueItem] = []
-        audio_exts = {str(x).strip().lower() for x in list(Config.DOWNLOAD_AUDIO_OUTPUT_EXTS)}
+        audio_exts = {str(x).strip().lower() for x in list(DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS)}
 
         for key in keys:
             idx = self._find_job_index(key)
@@ -850,9 +862,9 @@ class DownloaderPanel(QtWidgets.QWidget):
 
             for ext in output_exts:
                 kind = "audio" if ext in audio_exts else "video"
-                quality = str(job.quality or Config.download_ui_default_quality()).strip().lower()
+                quality = str(job.quality or DownloadPolicy.download_ui_default_quality()).strip().lower()
                 if kind == "audio" and not only_audio:
-                    quality = Config.download_ui_default_quality()
+                    quality = DownloadPolicy.download_ui_default_quality()
                 items.append(
                     _DownloadQueueItem(
                         key=job.key,
@@ -886,25 +898,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         coord.expand_manual_input(raw)
 
     def _ensure_expansion_progress_dialog(self) -> dialogs.ExpansionProgressDialog:
-        dlg = self._expansion_progress_dialog
-        if dlg is None:
-            dlg = dialogs.ExpansionProgressDialog(self)
-            dlg.cancel_requested.connect(self._cancel_expansion_request)
-            self._expansion_progress_dialog = dlg
+        dlg = ensure_progress_dialog(self, self._expansion_progress_dialog, self._cancel_expansion_request)
+        self._expansion_progress_dialog = dlg
         return dlg
-
-    def _show_expansion_progress(self) -> None:
-        dlg = self._ensure_expansion_progress_dialog()
-        dlg.set_message(tr("dialog.expansion_progress.generic"))
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
-
-    def _hide_expansion_progress(self) -> None:
-        dlg = self._expansion_progress_dialog
-        if dlg is None:
-            return
-        dlg.hide()
 
     def _cancel_expansion_request(self) -> None:
         coord = self.coordinator()
@@ -917,39 +913,15 @@ class DownloaderPanel(QtWidgets.QWidget):
         return tr("dialog.bulk_add.target.downloads")
 
     @staticmethod
-    def _sample_titles_from_expansion(result: SourceExpansionResult) -> list[str]:
-        out: list[str] = []
-        for item in result.items:
-            title = str(getattr(item, "title", "") or "").strip()
-            if title:
-                out.append(title)
-        return out
-
-    @staticmethod
-    def _limit_expansion_items(result: SourceExpansionResult, limit: int) -> tuple[ExpandedSourceItem, ...]:
-        lim = int(max(0, int(limit or 0)))
-        if lim <= 0:
-            return tuple(result.items)
-        return tuple(result.items[:lim])
-
-    @staticmethod
-    def _should_confirm_bulk_add(count: int) -> bool:
-        if count <= 0:
-            return False
-        if not Config.ui_bulk_add_confirmation_enabled():
-            return False
-        return int(count) >= int(Config.ui_bulk_add_confirmation_threshold())
-
-    @staticmethod
     def _build_job_from_url(url: str) -> _Job:
         key = str(url or "").strip()
-        first_ext = Config.download_default_video_ext()
+        first_ext = DownloadPolicy.download_default_video_ext()
         return _Job(
             key=key,
             url=key,
             output_types=["video"],
             output_exts=[str(first_ext).strip().lower()],
-            quality=Config.download_ui_default_quality(),
+            quality=DownloadPolicy.download_ui_default_quality(),
             audio_lang=None,
             status="queued",
         )
@@ -980,7 +952,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._jobs.append(job)
         row = self._append_job_row(job)
         self._select_row(row)
-        _LOG.debug("Downloader job added. job_key=%s default_ext=%s", sanitize_url_for_log(job.key), Config.download_default_video_ext())
+        _LOG.debug("Downloader job added. job_key=%s default_ext=%s", sanitize_url_for_log(job.key), DownloadPolicy.download_default_video_ext())
         self._start_probe(job)
         self.ed_url.clear()
         self._sync_buttons()
@@ -1060,22 +1032,18 @@ class DownloaderPanel(QtWidgets.QWidget):
     @QtCore.pyqtSlot(bool)
     def on_expansion_busy_changed(self, busy: bool) -> None:
         if busy:
-            self._show_expansion_progress()
+            show_progress_dialog(self._ensure_expansion_progress_dialog())
         else:
-            self._hide_expansion_progress()
+            hide_progress_dialog(self._expansion_progress_dialog)
         self._sync_buttons()
 
     @QtCore.pyqtSlot(str, dict)
     def on_expansion_status_changed(self, key: str, params: dict[str, Any]) -> None:
-        dlg = self._ensure_expansion_progress_dialog()
-        if not key:
-            dlg.set_message(tr("dialog.expansion_progress.generic"))
-            return
-        dlg.set_message(tr(str(key), **(params or {})))
+        update_progress_dialog_message(self._ensure_expansion_progress_dialog(), key, params or {})
 
     @QtCore.pyqtSlot(object)
     def on_expansion_ready(self, result: SourceExpansionResult) -> None:
-        self._hide_expansion_progress()
+        hide_progress_dialog(self._expansion_progress_dialog)
         if result.discovered_count <= 0 or not result.items:
             dialogs.show_info(
                 self,
@@ -1087,20 +1055,20 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         selected_items = tuple(result.items)
         threshold = int(Config.ui_bulk_add_confirmation_threshold())
-        if self._should_confirm_bulk_add(result.discovered_count):
+        if should_confirm_bulk_add(result.discovered_count):
             action, chosen_count = dialogs.ask_bulk_add_plan(
                 self,
                 origin_kind=result.origin_kind,
                 count=result.discovered_count,
                 origin_label=result.origin_label,
-                sample_titles=self._sample_titles_from_expansion(result),
+                sample_titles=sample_expansion_titles(result),
                 default_limit=threshold,
                 target_label=self._bulk_add_target_label(),
             )
             if action == "cancel":
                 return
             if action == "first_n":
-                selected_items = self._limit_expansion_items(result, chosen_count)
+                selected_items = limit_expansion_items(result, chosen_count)
 
         added_count, duplicate_count, _added_keys = self._apply_expansion_result(result, selected_items)
         self._show_expansion_summary(
@@ -1112,7 +1080,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot(str, dict)
     def on_expansion_error(self, key: str, params: dict[str, Any]) -> None:
-        self._hide_expansion_progress()
+        hide_progress_dialog(self._expansion_progress_dialog)
         dialogs.show_error(self, key, params or {})
 
     @staticmethod
@@ -1428,7 +1396,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def _request_thumbnail(self, job_key: str, qurl: QtCore.QUrl) -> None:
         req = QtNetwork.QNetworkRequest(qurl)
-        req.setRawHeader(b"User-Agent", b"PySkryptor")
+        req.setRawHeader(b"User-Agent", AppMeta.NAME.encode("utf-8", errors="ignore"))
         reply = self._net.get(req)
         self._thumb_reply_by_key[job_key] = reply
         reply.finished.connect(lambda _job_key=job_key, _reply=reply: self._on_thumbnail_reply(_job_key, _reply))
@@ -1645,7 +1613,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         if not isinstance(cb_quality, QtWidgets.QComboBox):
             return
 
-        default_quality = Config.download_ui_default_quality()
+        default_quality = DownloadPolicy.download_ui_default_quality()
         previous_value = str(job.quality or cb_quality.currentText() or default_quality).strip().lower() or default_quality
         items = self._quality_items_for_job(job)
         selected_value = previous_value if previous_value in {x.lower() for x in items} else default_quality
@@ -1659,7 +1627,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             match_index = 0
         cb_quality.setCurrentIndex(match_index)
         cb_quality.blockSignals(False)
-        job.quality = str(cb_quality.currentText() or Config.download_ui_default_quality()).strip().lower()
+        job.quality = str(cb_quality.currentText() or DownloadPolicy.download_ui_default_quality()).strip().lower()
 
     def _refresh_audio_row_option(self, row: int, job: _Job) -> None:
         cb_audio = self.table.combo_at(row, self.COL_LANGUAGE)
@@ -1703,9 +1671,9 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _format_items(output_types: list[str]) -> list[str]:
         out: list[str] = []
         if "video" in (output_types or []):
-            out.extend([str(x).strip().lower() for x in list(Config.DOWNLOAD_VIDEO_OUTPUT_EXTS)])
+            out.extend([str(x).strip().lower() for x in list(DownloadPolicy.DOWNLOAD_VIDEO_OUTPUT_EXTENSIONS)])
         if "audio" in (output_types or []):
-            out.extend([str(x).strip().lower() for x in list(Config.DOWNLOAD_AUDIO_OUTPUT_EXTS)])
+            out.extend([str(x).strip().lower() for x in list(DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS)])
         seen = set()
         uniq: list[str] = []
         for x in out:
@@ -1749,7 +1717,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         row = self._row_for_key(job_key)
         cb = self.table.combo_at(row, self.COL_QUALITY) if row >= 0 else None
         if isinstance(cb, QtWidgets.QComboBox):
-            job.quality = str(cb.currentText() or Config.download_ui_default_quality()).strip().lower()
+            job.quality = str(cb.currentText() or DownloadPolicy.download_ui_default_quality()).strip().lower()
             self._schedule_queue_header_refresh()
 
     def _on_formats_changed(self, selected: list[str]) -> None:

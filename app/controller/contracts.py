@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Protocol, TypeAlias, runtime_checkable
 
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.domain.entities import SettingsSnapshot, TranscriptionSessionRequest
 from app.model.domain.results import SourceExpansionResult
 
@@ -88,8 +89,8 @@ class LiveCoordinatorProtocol(Protocol):
         source_language: str = "",
         target_language: str = "",
         translate_enabled: bool = False,
-        preset_id: str = "default",
-        output_mode: str = "cumulative",
+        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
+        output_mode: str = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE,
     ) -> WorkerRef | None: ...
     def cancel(self) -> None: ...
     def stop(self) -> None: ...
@@ -164,6 +165,7 @@ class DownloaderPanelViewProtocol(Protocol):
     def on_download_cycle_finished(self) -> None: ...
 
 
+@runtime_checkable
 class SettingsCoordinatorProtocol(Protocol):
     def is_busy(self) -> bool: ...
     def load(self) -> WorkerRef | None: ...

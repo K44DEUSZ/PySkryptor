@@ -12,6 +12,7 @@ from typing import Any, Callable
 import yt_dlp
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.download_policy import DownloadPolicy
 from app.model.domain.entities import PlaylistEntry, PlaylistResolveResult
 from app.model.domain.errors import AppError, OperationCancelled
 from app.model.helpers.string_utils import (
@@ -225,7 +226,7 @@ class DownloadService:
         if not is_youtube_url(url):
             return None
 
-        deno_bin = Config.DENO_BIN
+        deno_bin = Config.PATHS.DENO_BIN
         if isinstance(deno_bin, Path) and deno_bin.exists():
             return {"deno": {"path": str(deno_bin)}}
 
@@ -478,7 +479,7 @@ class DownloadService:
                 selectors.append(f"ba[ext={ext_l}]")
         if lang_base:
             selectors.append(f"ba[language^={lang_base}]")
-        selectors.extend(str(Config.DOWNLOAD_FALLBACK_AUDIO_SELECTOR or "").split("/"))
+        selectors.extend(str(DownloadPolicy.DOWNLOAD_FALLBACK_AUDIO_SELECTOR or "").split("/"))
         return "/".join(dict.fromkeys(selectors))
 
     @staticmethod
@@ -519,7 +520,7 @@ class DownloadService:
         purpose: str,
         keep_output: bool,
     ) -> dict[str, Any]:
-        profile = Config.download_audio_format_profile(ext_l)
+        profile = DownloadPolicy.download_audio_format_profile(ext_l)
         selector_exts = tuple(profile.get("selector_exts") or ())
         preferred_codec = str(profile.get("preferredcodec") or ext_l or "").strip().lower()
 
@@ -530,7 +531,7 @@ class DownloadService:
             "merge_output_format": None,
         }
 
-        if purpose == Config.DOWNLOAD_PURPOSE_TRANSCRIPTION and not keep_output:
+        if purpose == DownloadPolicy.DOWNLOAD_PURPOSE_TRANSCRIPTION and not keep_output:
             return plan
 
         if selector_exts and DownloadService._has_audio_only_ext(info, *selector_exts):
@@ -562,7 +563,7 @@ class DownloadService:
             target_h = min(target_h, max_h)
         if isinstance(min_h, int) and min_h > 0 and isinstance(target_h, int) and target_h > 0:
             target_h = max(target_h, min_h)
-        profile = Config.download_video_format_profile(ext_l)
+        profile = DownloadPolicy.download_video_format_profile(ext_l)
         video_exts = tuple(profile.get("video_exts") or ())
         audio_exts = tuple(profile.get("audio_exts") or ())
         strategy = str(profile.get("strategy") or "").strip().lower()
@@ -580,7 +581,7 @@ class DownloadService:
             "merge_output_format": None,
         }
 
-        if purpose == Config.DOWNLOAD_PURPOSE_TRANSCRIPTION and not keep_output:
+        if purpose == DownloadPolicy.DOWNLOAD_PURPOSE_TRANSCRIPTION and not keep_output:
             return plan
 
         if not ext_l or ext_l in {"", "auto"}:
@@ -626,14 +627,14 @@ class DownloadService:
     @staticmethod
 
     def _create_download_stage(*, stem: str) -> Path:
-        root = Config.DOWNLOADS_TMP_DIR
+        root = Config.PATHS.DOWNLOADS_TMP_DIR
         root.mkdir(parents=True, exist_ok=True)
-        prefix = f"{sanitize_filename(stem) or Config.DOWNLOAD_DEFAULT_STEM}_"
+        prefix = f"{sanitize_filename(stem) or DownloadPolicy.DOWNLOAD_DEFAULT_STEM}_"
         return Path(tempfile.mkdtemp(prefix=prefix, dir=str(root)))
 
     @staticmethod
     def _build_stage_outtmpl(*, stage_dir: Path, stem: str) -> str:
-        return str(stage_dir / f"{sanitize_filename(stem) or Config.DOWNLOAD_DEFAULT_STEM}.%(ext)s")
+        return str(stage_dir / f"{sanitize_filename(stem) or DownloadPolicy.DOWNLOAD_DEFAULT_STEM}.%(ext)s")
 
     @staticmethod
     def _normalize_ext(value: Any) -> str:
@@ -726,7 +727,7 @@ class DownloadService:
     ) -> Path | None:
         requested_ext_l = DownloadService._normalize_ext(requested_ext)
         info_ext_l = DownloadService._normalize_ext(info.get("ext"))
-        safe_stem = sanitize_filename(stem) or Config.DOWNLOAD_DEFAULT_STEM
+        safe_stem = sanitize_filename(stem) or DownloadPolicy.DOWNLOAD_DEFAULT_STEM
 
         stage_files = DownloadService._stage_files(stage_dir)
         if not stage_files:
@@ -757,7 +758,7 @@ class DownloadService:
             if pick is not None:
                 return pick
 
-        if artifact_policy == Config.DOWNLOAD_ARTIFACT_POLICY_WORK_INPUT:
+        if artifact_policy == DownloadPolicy.DOWNLOAD_ARTIFACT_POLICY_WORK_INPUT:
             if len(info_preferred) == 1:
                 return info_preferred[0]
             if len(exact_preferred) == 1:
@@ -845,7 +846,7 @@ class DownloadService:
         if concurrent_fragments:
             opts["concurrent_fragment_downloads"] = int(concurrent_fragments)
 
-        ffmpeg_dir = Config.FFMPEG_BIN_DIR
+        ffmpeg_dir = Config.PATHS.FFMPEG_BIN_DIR
         if isinstance(ffmpeg_dir, Path) and ffmpeg_dir.exists():
             opts["ffmpeg_location"] = str(ffmpeg_dir)
 
@@ -1111,7 +1112,7 @@ class DownloadService:
 
     @staticmethod
     def _download_contract(kind: str, purpose: str, keep_output: bool, ext_l: str) -> dict[str, Any]:
-        return Config.resolve_download_contract(
+        return DownloadPolicy.resolve_download_contract(
             kind=kind,
             purpose=purpose,
             keep_output=bool(keep_output),
@@ -1130,7 +1131,7 @@ class DownloadService:
         audio_lang: str | None = None,
         file_stem: str | None = None,
         cancel_check: Callable[[], bool] | None = None,
-        purpose: str = Config.DOWNLOAD_DEFAULT_PURPOSE,
+        purpose: str = DownloadPolicy.DOWNLOAD_DEFAULT_PURPOSE,
         keep_output: bool = True,
         meta: dict[str, Any] | None = None,
     ) -> Path | None:
@@ -1138,13 +1139,13 @@ class DownloadService:
         min_h = Config.downloader_min_video_height()
         max_h = Config.downloader_max_video_height()
         ext_l = (ext or "").lower().strip().lstrip(".")
-        purpose_l = str(purpose or Config.DOWNLOAD_DEFAULT_PURPOSE).strip().lower()
+        purpose_l = str(purpose or DownloadPolicy.DOWNLOAD_DEFAULT_PURPOSE).strip().lower()
         contract = self._download_contract(kind=kind, purpose=purpose_l, keep_output=bool(keep_output), ext_l=ext_l)
         plan_ext = str(contract.get("plan_ext") or "").strip().lower()
         final_ext = str(contract.get("final_ext") or "").strip().lower()
-        artifact_policy = str(contract.get("artifact_policy") or Config.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT).strip().lower()
+        artifact_policy = str(contract.get("artifact_policy") or DownloadPolicy.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT).strip().lower()
 
-        if Config.is_download_audio_auto_value(audio_lang):
+        if DownloadPolicy.is_download_audio_auto_value(audio_lang):
             audio_lang = None
         audio_lang_norm = normalize_lang_code(audio_lang, drop_region=False) if audio_lang else None
         lang_base = (audio_lang_norm.split("-")[0] or "").lower() if audio_lang_norm else ""
@@ -1168,13 +1169,13 @@ class DownloadService:
         )
         _hook, _post_hook = self._build_download_hooks(progress_cb=progress_cb, cancel_check=cancel_check)
 
-        stem = sanitize_filename(file_stem or "%(title)s") or Config.DOWNLOAD_DEFAULT_STEM
+        stem = sanitize_filename(file_stem or "%(title)s") or DownloadPolicy.DOWNLOAD_DEFAULT_STEM
         stage_dir = self._create_download_stage(stem=stem)
         outtmpl = self._build_stage_outtmpl(stage_dir=stage_dir, stem=stem)
 
         ydl_opts: dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=False)
         ydl_opts.update({
-            "format": plan.get("format") or (Config.DOWNLOAD_FALLBACK_AUDIO_SELECTOR if kind == "audio" else Config.DOWNLOAD_FALLBACK_VIDEO_SELECTOR),
+            "format": plan.get("format") or (DownloadPolicy.DOWNLOAD_FALLBACK_AUDIO_SELECTOR if kind == "audio" else DownloadPolicy.DOWNLOAD_FALLBACK_VIDEO_SELECTOR),
             "outtmpl": outtmpl,
             "progress_hooks": [_hook],
             "postprocessor_hooks": [_post_hook],
@@ -1254,7 +1255,7 @@ class DownloadService:
                     detail="download finished without a final stage artifact",
                 )
 
-            should_promote = purpose_l == Config.DOWNLOAD_PURPOSE_DOWNLOAD or bool(keep_output)
+            should_promote = purpose_l == DownloadPolicy.DOWNLOAD_PURPOSE_DOWNLOAD or bool(keep_output)
             if should_promote:
                 promoted = self._promote_stage_artifact(
                     artifact=artifact,

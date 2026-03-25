@@ -5,11 +5,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from app.model.config.app_config import AppConfig as Config
 from app.model.domain.errors import AppError
 from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
-from app.model.io.file_manager import FileManager
 from app.model.io.media_probe import is_url_source
+from app.model.services.source_input_service import collect_media_files, parse_source_input
 
 
 class SourceExpansionService:
@@ -24,10 +23,6 @@ class SourceExpansionService:
         self._cancel_check = cancel_check
         self._status_callback = status_callback
 
-    @staticmethod
-    def _supported_exts() -> list[str]:
-        return list(Config.files_media_input_file_exts())
-
     def _emit_status(self, key: str, **params: Any) -> None:
         cb = self._status_callback
         if cb is None:
@@ -36,15 +31,15 @@ class SourceExpansionService:
 
     def expand_manual_input(self, raw: str) -> SourceExpansionResult:
         self._emit_status("dialog.expansion_progress.manual_input")
-        parsed = FileManager.parse_source_input(raw, supported_exts=self._supported_exts())
+        parsed = parse_source_input(raw)
         if not parsed.get("ok", False):
             err = str(parsed.get("error") or "invalid")
-            raise AppError("error.files.source_expand_invalid", {"reason": err})
+            raise AppError(key="error.files.source_expand_invalid", params={"reason": err})
 
         source_type = str(parsed.get("type") or "").strip().lower()
         key = str(parsed.get("key") or "").strip()
         if not key:
-            raise AppError("error.files.source_expand_invalid", {"reason": "empty"})
+            raise AppError(key="error.files.source_expand_invalid", params={"reason": "empty"})
 
         if source_type == "url":
             from app.model.services.download_service import DownloadError, DownloadService
@@ -93,9 +88,8 @@ class SourceExpansionService:
             "drop": "dialog.expansion_progress.drop",
         }.get(kind, "dialog.expansion_progress.local_paths")
         self._emit_status(status_key)
-        keys = FileManager.collect_media_files(
+        keys = collect_media_files(
             normalized_paths,
-            supported_exts=self._supported_exts(),
             cancel_check=self._cancel_check,
         )
         items = tuple(ExpandedSourceItem(key=str(key), source_kind="file") for key in keys)

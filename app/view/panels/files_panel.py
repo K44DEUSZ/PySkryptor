@@ -25,28 +25,45 @@ from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.runtime_badge import RuntimeBadgeWidget
 from app.view.components.section_group import SectionGroup
 from app.view.components.source_table import SourceTable
-from app.model.services.localization_service import build_language_options, current_language, language_display_name, tr
-from app.model.services.runtime_resolver import (
+from app.model.services.localization_service import current_language, tr
+from app.model.config.download_policy import DownloadPolicy
+from app.model.config.model_registry import ModelRegistry
+from app.model.runtime_resolver import (
     active_transcription_model_cfg,
     active_translation_model_cfg,
-    build_entries,
     build_files_quick_options_payload,
     build_transcription_session_request,
-    parse_source_input,
-    resolve_source_language_for_run,
-    resolve_target_language_for_run,
     transcription_language_codes,
     transcription_output_modes,
     translation_language_codes,
-    try_add_source_key,
     translation_runtime_available,
 )
+from app.model.services.source_input_service import build_entries, parse_source_input, try_add_source_key
 from app.view.support.options_autosave import OptionsAutosave
+from app.view.support.language_options import (
+    build_source_language_items,
+    build_target_language_items,
+    effective_source_language_code,
+    effective_target_language_code,
+    normalized_language_codes,
+    resolve_source_language_selection,
+    resolve_target_language_selection,
+)
 from app.model.config.app_config import AppConfig as Config
+from app.model.config.language_policy import LanguagePolicy
 from app.model.domain.entities import TranscriptionSessionRequest
 from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
 from app.model.helpers.string_utils import format_hms, normalize_lang_code
 from app.model.io.media_probe import is_url_source
+from app.view.support.source_expansion_ui import (
+    ensure_progress_dialog,
+    hide_progress_dialog,
+    limit_items as limit_expansion_items,
+    sample_titles as sample_expansion_titles,
+    show_progress_dialog,
+    should_confirm_bulk_add,
+    update_progress_dialog_message,
+)
 from app.view.support.theme_runtime import active_theme_key, status_icon
 from app.view.support.view_runtime import (
     normalize_network_status,
@@ -159,9 +176,9 @@ class FilesPanel(QtWidgets.QWidget):
         self._audio_lang_by_key: dict[str, str | None] = {}
 
         self._network_status = read_network_status(parent)
-        self._session_target_language = Config.LANGUAGE_PREFERRED_VALUE
+        self._session_target_language = LanguagePolicy.PREFERRED
         self._expansion_progress_dialog: dialogs.ExpansionProgressDialog | None = None
-        self._session_source_language = Config.LANGUAGE_PREFERRED_VALUE
+        self._session_source_language = LanguagePolicy.PREFERRED
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -341,7 +358,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_source_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
         self.cmb_source_lang = LanguageCombo(
-            special_first=("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
+            special_first=("lang.special.auto_detect", LanguagePolicy.AUTO),
             codes_provider=transcription_language_codes,
         )
         self.cmb_source_lang.setMinimumHeight(base_h)
@@ -513,13 +530,13 @@ class FilesPanel(QtWidgets.QWidget):
             aext_raw = tcfg.get("url_audio_ext")
             if aext_raw:
                 audio_ext = str(aext_raw).strip().lower().lstrip(".")
-                if audio_ext in Config.DOWNLOAD_AUDIO_OUTPUT_EXTS:
+                if audio_ext in DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS:
                     set_combo_data(self.cmb_audio_ext, audio_ext)
 
             vext_raw = tcfg.get("url_video_ext")
             if vext_raw:
                 vext = str(vext_raw).strip().lower().lstrip(".")
-                if vext in Config.DOWNLOAD_VIDEO_OUTPUT_EXTS:
+                if vext in DownloadPolicy.DOWNLOAD_VIDEO_OUTPUT_EXTENSIONS:
                     set_combo_data(self.cmb_video_ext, vext)
 
             translate_after = bool(tcfg.get("translate_after_transcription", Config.transcription_translate_after_enabled()))
@@ -531,10 +548,10 @@ class FilesPanel(QtWidgets.QWidget):
             self.tg_mode.set_second_enabled(tr_enabled)
 
             self._rebuild_target_language_combo(
-                desired=Config.LANGUAGE_PREFERRED_VALUE,
+                desired=LanguagePolicy.PREFERRED,
             )
             self._rebuild_source_language_combo(
-                desired=Config.LANGUAGE_PREFERRED_VALUE,
+                desired=LanguagePolicy.PREFERRED,
             )
 
             output_formats = tcfg.get("output_formats")
@@ -550,11 +567,11 @@ class FilesPanel(QtWidgets.QWidget):
         finally:
             self._session_target_language = combo_current_code(
                 self.cmb_target_lang,
-                default=Config.LANGUAGE_PREFERRED_VALUE,
+                default=LanguagePolicy.PREFERRED,
             )
             self._session_source_language = combo_current_code(
                 self.cmb_source_lang,
-                default=Config.LANGUAGE_PREFERRED_VALUE,
+                default=LanguagePolicy.PREFERRED,
             )
             self._opt_autosave.set_blocked(False)
 
@@ -642,7 +659,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _on_target_language_changed(self, *_args) -> None:
         current = combo_current_code(
             self.cmb_target_lang,
-            default=Config.LANGUAGE_PREFERRED_VALUE,
+            default=LanguagePolicy.PREFERRED,
         )
         self._session_target_language = self._resolve_target_language_selection(current)
         self._sync_options_and_autosave()
@@ -650,7 +667,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _on_source_language_changed(self, *_args) -> None:
         self._session_source_language = combo_current_code(
             self.cmb_source_lang,
-            default=Config.LANGUAGE_PREFERRED_VALUE,
+            default=LanguagePolicy.PREFERRED,
         )
         self._sync_options_and_autosave()
 
@@ -694,13 +711,13 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _fill_audio_ext_combo(self) -> None:
         self.cmb_audio_ext.clear()
-        for ext in Config.DOWNLOAD_AUDIO_OUTPUT_EXTS:
+        for ext in DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS:
             self.cmb_audio_ext.addItem(str(ext), ext)
         self.cmb_audio_ext.setCurrentIndex(0)
 
     def _fill_video_ext_combo(self) -> None:
         self.cmb_video_ext.clear()
-        for ext in Config.DOWNLOAD_VIDEO_OUTPUT_EXTS:
+        for ext in DownloadPolicy.DOWNLOAD_VIDEO_OUTPUT_EXTENSIONS:
             self.cmb_video_ext.addItem(str(ext), ext)
         self.cmb_video_ext.setCurrentIndex(0)
 
@@ -719,34 +736,16 @@ class FilesPanel(QtWidgets.QWidget):
     @staticmethod
     def _supported_source_language_codes() -> list[str]:
         try:
-            raw_codes = list(transcription_language_codes())
+            return normalized_language_codes(
+                transcription_language_codes(),
+                drop_region=False,
+            )
         except (RuntimeError, TypeError, ValueError):
             return []
 
-        out: list[str] = []
-        seen: set[str] = set()
-        for code in raw_codes:
-            norm = normalize_lang_code(str(code or ""), drop_region=False)
-            if not norm or norm in seen:
-                continue
-            seen.add(norm)
-            out.append(norm)
-        return out
-
-    def _default_source_language_code(self, *, supported: list[str] | None = None) -> str:
-        codes = supported if supported is not None else self._supported_source_language_codes()
-        resolved = Config.resolve_default_source_language_for_tab("files")
-        if Config.is_auto_language_value(resolved):
-            return Config.LANGUAGE_AUTO_VALUE
-        return resolved if resolved in codes else Config.LANGUAGE_AUTO_VALUE
-
     def _effective_source_language_code(self, selection: str | None, *, supported: list[str] | None = None) -> str:
         codes = supported if supported is not None else self._supported_source_language_codes()
-        return resolve_source_language_for_run(
-            "files",
-            str(selection or Config.LANGUAGE_PREFERRED_VALUE),
-            supported=codes,
-        )
+        return effective_source_language_code("files", selection, supported=codes)
 
     def _resolve_source_language_selection(
         self,
@@ -755,22 +754,7 @@ class FilesPanel(QtWidgets.QWidget):
         supported: list[str] | None = None,
     ) -> str:
         codes = supported if supported is not None else self._supported_source_language_codes()
-        raw = Config.normalize_panel_source_language_selection(selection)
-        if Config.is_preferred_language_value(raw) or Config.is_auto_language_value(raw):
-            return raw
-        norm = normalize_lang_code(raw, drop_region=False)
-        if norm and norm in codes:
-            return norm
-        return Config.LANGUAGE_PREFERRED_VALUE
-
-    def _default_source_language_label(self, *, supported: list[str] | None = None) -> str:
-        default_code = self._default_source_language_code(supported=supported)
-        if Config.is_auto_language_value(default_code):
-            base_label = tr("lang.special.auto_detect")
-        else:
-            base_label = language_display_name(default_code, ui_lang=current_language())
-        base_label = str(base_label or tr("lang.special.auto_detect")).strip()
-        return tr("lang.special.preferred_named", name=base_label)
+        return resolve_source_language_selection(selection, supported=codes)
 
     def _rebuild_source_language_combo(
         self,
@@ -779,50 +763,42 @@ class FilesPanel(QtWidgets.QWidget):
         supported: list[str] | None = None,
     ) -> None:
         codes = supported if supported is not None else self._supported_source_language_codes()
-        items = [
-            (Config.LANGUAGE_PREFERRED_VALUE, self._default_source_language_label(supported=codes)),
-            (Config.LANGUAGE_AUTO_VALUE, tr("lang.special.auto_detect")),
-        ]
-        items.extend(build_language_options(codes, ui_lang=current_language()))
-
+        items = build_source_language_items(
+            "files",
+            supported=codes,
+            ui_language=current_language(),
+        )
         wanted = self._resolve_source_language_selection(desired, supported=codes)
         rebuild_code_combo(
             self.cmb_source_lang,
             items,
             desired_code=wanted,
-            fallback_code=Config.LANGUAGE_PREFERRED_VALUE,
+            fallback_code=LanguagePolicy.PREFERRED,
         )
 
     def _refresh_source_languages_if_ready(self) -> None:
         desired = (
             self._session_source_language
-            or combo_current_code(self.cmb_source_lang, default=Config.LANGUAGE_PREFERRED_VALUE)
-            or Config.LANGUAGE_PREFERRED_VALUE
+            or combo_current_code(self.cmb_source_lang, default=LanguagePolicy.PREFERRED)
+            or LanguagePolicy.PREFERRED
         )
         supported = self._supported_source_language_codes()
         resolved_selection = self._resolve_source_language_selection(desired, supported=supported)
         self._rebuild_source_language_combo(desired=resolved_selection, supported=supported)
         self._session_source_language = combo_current_code(
             self.cmb_source_lang,
-            default=Config.LANGUAGE_PREFERRED_VALUE,
+            default=LanguagePolicy.PREFERRED,
         )
 
     @staticmethod
     def _supported_target_language_codes() -> list[str]:
         try:
-            raw_codes = list(translation_language_codes())
+            return normalized_language_codes(
+                translation_language_codes(),
+                drop_region=True,
+            )
         except (RuntimeError, TypeError, ValueError):
             return []
-
-        out: list[str] = []
-        seen: set[str] = set()
-        for code in raw_codes:
-            norm = normalize_lang_code(str(code or ""), drop_region=True)
-            if not norm or norm in seen:
-                continue
-            seen.add(norm)
-            out.append(norm)
-        return out
 
     def _resolve_target_language_selection(
         self,
@@ -830,11 +806,8 @@ class FilesPanel(QtWidgets.QWidget):
         *,
         supported: list[str] | None = None,
     ) -> str:
-        raw = Config.normalize_panel_target_language_selection(selection)
-        if Config.is_preferred_language_value(raw) or Config.is_default_ui_language_value(raw):
-            return raw
         codes = supported if supported is not None else self._supported_target_language_codes()
-        return raw if raw in codes else Config.LANGUAGE_PREFERRED_VALUE
+        return resolve_target_language_selection(selection, supported=codes)
 
     def _effective_target_language_code(
         self,
@@ -843,9 +816,9 @@ class FilesPanel(QtWidgets.QWidget):
         supported: list[str] | None = None,
     ) -> str:
         codes = supported if supported is not None else self._supported_target_language_codes()
-        return resolve_target_language_for_run(
+        return effective_target_language_code(
             "files",
-            str(selection or Config.LANGUAGE_PREFERRED_VALUE),
+            selection,
             ui_language=current_language(),
             supported=codes,
         )
@@ -853,15 +826,15 @@ class FilesPanel(QtWidgets.QWidget):
     def _refresh_target_languages_if_ready(self) -> None:
         desired = (
             self._session_target_language
-            or combo_current_code(self.cmb_target_lang, default=Config.LANGUAGE_PREFERRED_VALUE)
-            or Config.LANGUAGE_PREFERRED_VALUE
+            or combo_current_code(self.cmb_target_lang, default=LanguagePolicy.PREFERRED)
+            or LanguagePolicy.PREFERRED
         )
         supported = self._supported_target_language_codes()
         resolved_selection = self._resolve_target_language_selection(desired, supported=supported)
         self._rebuild_target_language_combo(desired=resolved_selection, supported=supported)
         self._session_target_language = combo_current_code(
             self.cmb_target_lang,
-            default=Config.LANGUAGE_PREFERRED_VALUE,
+            default=LanguagePolicy.PREFERRED,
         )
 
     def refresh_defaults_from_settings(self) -> None:
@@ -873,15 +846,6 @@ class FilesPanel(QtWidgets.QWidget):
         finally:
             self._opt_autosave.set_blocked(False)
 
-    def _preferred_target_language_label(self, *, supported: list[str] | None = None) -> str:
-        resolved = self._effective_target_language_code(
-            Config.LANGUAGE_PREFERRED_VALUE,
-            supported=supported,
-        )
-        ui_lang = current_language()
-        base_label = language_display_name(resolved, ui_lang=ui_lang) if resolved else tr("lang.special.default_ui")
-        base_label = str(base_label or tr("lang.special.default_ui")).strip()
-        return tr("lang.special.preferred_named", name=base_label)
 
     def _rebuild_target_language_combo(
         self,
@@ -890,18 +854,17 @@ class FilesPanel(QtWidgets.QWidget):
         supported: list[str] | None = None,
     ) -> None:
         codes = supported if supported is not None else self._supported_target_language_codes()
-        items = [
-            (Config.LANGUAGE_PREFERRED_VALUE, self._preferred_target_language_label(supported=codes)),
-            (Config.LANGUAGE_DEFAULT_UI_VALUE, tr("lang.special.default_ui")),
-        ]
-        items.extend(build_language_options(codes, ui_lang=current_language()))
-
+        items = build_target_language_items(
+            "files",
+            supported=codes,
+            ui_language=current_language(),
+        )
         wanted = self._resolve_target_language_selection(desired, supported=codes)
         rebuild_code_combo(
             self.cmb_target_lang,
             items,
             desired_code=wanted,
-            fallback_code=Config.LANGUAGE_PREFERRED_VALUE,
+            fallback_code=LanguagePolicy.PREFERRED,
         )
 
     def _set_preview_enabled(self, key: str, enabled: bool) -> None:
@@ -933,13 +896,13 @@ class FilesPanel(QtWidgets.QWidget):
         t_cfg = self._get_transcription_model_cfg()
         asr_eng_raw = str(t_cfg.get("engine_name", "none") or "none").strip()
         asr_eng_norm = asr_eng_raw.lower()
-        asr_disabled = Config.is_disabled_engine_name(asr_eng_norm) or asr_eng_norm == "null"
+        asr_disabled = ModelRegistry.is_disabled_engine_name(asr_eng_norm) or asr_eng_norm == "null"
         asr_value = self._disabled_value() if asr_disabled else asr_eng_raw
 
         x_cfg = self._get_translation_model_cfg()
         tr_eng_raw = str(x_cfg.get("engine_name", "none") or "none").strip()
         tr_eng_norm = tr_eng_raw.lower()
-        tr_disabled = Config.is_disabled_engine_name(tr_eng_norm) or tr_eng_norm == "null"
+        tr_disabled = ModelRegistry.is_disabled_engine_name(tr_eng_norm) or tr_eng_norm == "null"
         tr_value = self._disabled_value() if tr_disabled else tr_eng_raw
 
         asr_state = "disabled" if asr_disabled else ("ready" if self._transcription_ready else "missing")
@@ -1465,55 +1428,15 @@ class FilesPanel(QtWidgets.QWidget):
         return tr("files.source.url") if kind == "url" else tr("files.source.local")
 
     def _ensure_expansion_progress_dialog(self) -> dialogs.ExpansionProgressDialog:
-        dlg = self._expansion_progress_dialog
-        if dlg is None:
-            dlg = dialogs.ExpansionProgressDialog(self)
-            dlg.cancel_requested.connect(self._cancel_expansion_request)
-            self._expansion_progress_dialog = dlg
+        dlg = ensure_progress_dialog(self, self._expansion_progress_dialog, self._cancel_expansion_request)
+        self._expansion_progress_dialog = dlg
         return dlg
-
-    def _show_expansion_progress(self) -> None:
-        dlg = self._ensure_expansion_progress_dialog()
-        dlg.set_message(tr("dialog.expansion_progress.generic"))
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
-
-    def _hide_expansion_progress(self) -> None:
-        dlg = self._expansion_progress_dialog
-        if dlg is None:
-            return
-        dlg.hide()
 
     def _cancel_expansion_request(self) -> None:
         coord = self.coordinator()
         if coord is None:
             return
         coord.cancel_expansion()
-
-    @staticmethod
-    def _sample_titles_from_expansion(result: SourceExpansionResult) -> list[str]:
-        out: list[str] = []
-        for item in result.items:
-            title = str(getattr(item, "title", "") or "").strip()
-            if title:
-                out.append(title)
-        return out
-
-    @staticmethod
-    def _should_confirm_bulk_add(count: int) -> bool:
-        if count <= 0:
-            return False
-        if not Config.ui_bulk_add_confirmation_enabled():
-            return False
-        return int(count) >= int(Config.ui_bulk_add_confirmation_threshold())
-
-    @staticmethod
-    def _limit_expansion_items(result: SourceExpansionResult, limit: int) -> tuple[ExpandedSourceItem, ...]:
-        lim = int(max(0, int(limit or 0)))
-        if lim <= 0:
-            return tuple(result.items)
-        return tuple(result.items[:lim])
 
     def _apply_expansion_result(
         self,
@@ -1669,11 +1592,11 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _open_output_folder(self) -> None:
         try:
-            out_dir = Config.TRANSCRIPTIONS_DIR
+            out_dir = Config.PATHS.TRANSCRIPTIONS_DIR
             out_dir.mkdir(parents=True, exist_ok=True)
             open_local_path(out_dir)
         except (OSError, RuntimeError, TypeError, ValueError) as e:
-            _LOG.exception("Opening the transcriptions output folder failed. path=%s", Config.TRANSCRIPTIONS_DIR)
+            _LOG.exception("Opening the transcriptions output folder failed. path=%s", Config.PATHS.TRANSCRIPTIONS_DIR)
             dialogs.show_error(self, key="dialog.error.unexpected", params={"msg": str(e)})
 
     def _can_start_transcription(self) -> bool:
@@ -1805,22 +1728,18 @@ class FilesPanel(QtWidgets.QWidget):
     @QtCore.pyqtSlot(bool)
     def on_expansion_busy_changed(self, busy: bool) -> None:
         if busy:
-            self._show_expansion_progress()
+            show_progress_dialog(self._ensure_expansion_progress_dialog())
         else:
-            self._hide_expansion_progress()
+            hide_progress_dialog(self._expansion_progress_dialog)
         self._update_buttons()
 
     @QtCore.pyqtSlot(str, dict)
     def on_expansion_status_changed(self, key: str, params: dict[str, Any]) -> None:
-        dlg = self._ensure_expansion_progress_dialog()
-        if not key:
-            dlg.set_message(tr("dialog.expansion_progress.generic"))
-            return
-        dlg.set_message(tr(str(key), **(params or {})))
+        update_progress_dialog_message(self._ensure_expansion_progress_dialog(), key, params or {})
 
     @QtCore.pyqtSlot(object)
     def on_expansion_ready(self, result: SourceExpansionResult) -> None:
-        self._hide_expansion_progress()
+        hide_progress_dialog(self._expansion_progress_dialog)
         if result.discovered_count <= 0 or not result.items:
             dialogs.show_info(
                 self,
@@ -1832,20 +1751,20 @@ class FilesPanel(QtWidgets.QWidget):
 
         selected_items = tuple(result.items)
         threshold = int(Config.ui_bulk_add_confirmation_threshold())
-        if self._should_confirm_bulk_add(result.discovered_count):
+        if should_confirm_bulk_add(result.discovered_count):
             action, chosen_count = dialogs.ask_bulk_add_plan(
                 self,
                 origin_kind=result.origin_kind,
                 count=result.discovered_count,
                 origin_label=result.origin_label,
-                sample_titles=self._sample_titles_from_expansion(result),
+                sample_titles=sample_expansion_titles(result),
                 default_limit=threshold,
                 target_label=tr("dialog.bulk_add.target.files"),
             )
             if action == "cancel":
                 return
             if action == "first_n":
-                selected_items = self._limit_expansion_items(result, chosen_count)
+                selected_items = limit_expansion_items(result, chosen_count)
 
         added_count, duplicate_count = self._apply_expansion_result(result, selected_items)
         self._show_expansion_summary(
@@ -1857,7 +1776,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot(str, dict)
     def on_expansion_error(self, key: str, params: dict[str, Any]) -> None:
-        self._hide_expansion_progress()
+        hide_progress_dialog(self._expansion_progress_dialog)
         dialogs.show_error(self, key, params or {})
 
     def on_transcribe_finished(self) -> None:
@@ -2093,21 +2012,6 @@ class FilesPanel(QtWidgets.QWidget):
             _LOG.debug("Conflict resolution fallback applied. stem=%s detail=%s", stem, ex)
             self._submit_conflict_resolution("skip", "")
 
-    @staticmethod
-    def _on_anchor_clicked(url: QtCore.QUrl) -> None:
-        try:
-            u = url.toString()
-            if not u:
-                return
-            if u.startswith("file://"):
-                p = u.replace("file://", "", 1)
-                open_local_path(Path(p))
-                return
-            open_external_url(u)
-        except (OSError, RuntimeError, ValueError):
-            return
-
-
     def on_runtime_state_changed(
         self,
         *,
@@ -2137,7 +2041,7 @@ class FilesPanel(QtWidgets.QWidget):
         model_cfg = active_transcription_model_cfg()
         engine = str(model_cfg.get("engine_name") or "none").strip().lower()
 
-        if Config.is_disabled_engine_name(engine) or engine == "null":
+        if ModelRegistry.is_disabled_engine_name(engine) or engine == "null":
             self.model_info.set_summary_status(tr("files.runtime.status_disabled"), state="disabled")
             self.model_info.set_summary_icon(
                 self._status_icon(

@@ -237,9 +237,6 @@
       "ffprobe_failed": "❌ Audio analysis failed. Command: {cmd}"
     },
     "cancelled": "Operation cancelled.",
-    "config": {
-      "unknown_action": "⚠️ Unknown action “{action}”."
-    },
     "down": {
       "download_failed": "❌ Download failed. Details: {detail}",
       "network_dns_failed": "❌ Could not resolve the host name.",
@@ -280,7 +277,8 @@
       "section_invalid": "⚠️ Settings section “{section}” is invalid.",
       "settings_invalid": "⚠️ Settings file “{path}” is invalid. Details: {detail}",
       "settings_missing": "⚠️ Missing settings file: {path}",
-      "invalid_video_height_range": "The minimum video height ({min_height}) cannot exceed the maximum ({max_height})."
+      "invalid_video_height_range": "The minimum video height ({min_height}) cannot exceed the maximum ({max_height}).",
+      "unknown_action": "⚠️ Unknown action “{action}”."
     },
     "startup": {
       "failed": "❌ Application startup failed. Details: {detail}"

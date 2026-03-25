@@ -1,7 +1,7 @@
 # app/controller/coordinators/settings_coordinator.py
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.controller.contracts import SettingsPanelViewProtocol
 
@@ -9,6 +9,9 @@ from PyQt5 import QtCore
 
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
+
+if TYPE_CHECKING:
+    from app.model.domain.entities import SettingsSnapshot
 
 class SettingsCoordinator(QtCore.QObject):
     """Owns the Settings worker lifecycle for the Settings panel."""
@@ -62,10 +65,10 @@ class SettingsCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: SettingsWorker) -> None:
-            def _on_saved(action: str, snap: object) -> None:
+            def _on_saved(saved_action: str, snap: "SettingsSnapshot") -> None:
                 if self._view is not None:
-                    self._view.on_saved(action, snap)
-                if str(action or "").strip().lower() in {"save", "restore_defaults"}:
+                    self._view.on_saved(saved_action, snap)
+                if str(saved_action or "").strip().lower() in {"save", "restore_defaults"}:
                     self.settings_applied.emit()
 
             if self._view is not None:

@@ -8,7 +8,7 @@ from typing import cast
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.model.services.localization_service import tr
-from app.model.config.app_config import AppConfig as Config
+from app.model.config.app_meta import AppMeta
 from app.model.domain.errors import AppError
 from app.model.helpers.string_utils import sanitize_filename
 from app.view.support.theme_runtime import apply_windows_dark_titlebar
@@ -68,7 +68,7 @@ def _tune_buttons(cfg, *buttons: QtWidgets.QAbstractButton) -> None:
 def _tune_dialog_window(dlg: QtWidgets.QDialog, cfg) -> None:
     _sanitize_window_flags(dlg)
     dlg.setModal(True)
-    dlg.setWindowTitle(Config.APP_NAME)
+    dlg.setWindowTitle(AppMeta.NAME)
     try:
         dlg.setWindowIcon(QtWidgets.QApplication.windowIcon())
     except (AttributeError, RuntimeError, TypeError):
@@ -102,7 +102,7 @@ def _message_dialog(
     cfg = ui(parent)
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg, cfg)
-    dlg.setWindowTitle(str(title or Config.APP_NAME))
+    dlg.setWindowTitle(str(title or AppMeta.NAME))
     if no_close:
         _lock_close(dlg)
 
@@ -140,7 +140,7 @@ def _confirm_dialog(
     cfg = ui(parent)
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg, cfg)
-    dlg.setWindowTitle(str(title or Config.APP_NAME))
+    dlg.setWindowTitle(str(title or AppMeta.NAME))
     if no_close:
         _lock_close(dlg)
 
@@ -395,7 +395,6 @@ class ExpansionProgressDialog(QtWidgets.QDialog):
 
     def set_message(self, text: str) -> None:
         self._message_label.setText(str(text or tr("dialog.expansion_progress.generic")))
-
 
 
 def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> None:

@@ -6,18 +6,17 @@ from typing import Any, Callable, Iterable, cast
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 from app.model.services.localization_service import build_language_options
-from app.model.config.app_config import AppConfig as Config
+from app.model.config.language_policy import LanguagePolicy
 from app.model.helpers.string_utils import normalize_lang_code
 from app.view.components.hint_popup import hint_popup
 from app.view.support.widget_effects import (
-    apply_floating_shadow,
     bind_tracked_window,
     contains_widget_chain,
     enable_styled_background,
-    floating_shadow_margins,
     install_app_event_filter,
-    is_windows_platform,
+    configure_floating_popup_surface,
     overlay_edge_gap,
+    popup_host_root_margins,
     repolish_widget,
 )
 from app.view.support.widget_setup import setup_combo, setup_layout
@@ -66,19 +65,33 @@ def _layout_vertical_extra(layout: QtWidgets.QLayout | None) -> int:
     margins = layout.contentsMargins()
     return int(margins.top() + margins.bottom())
 
+def _layout_contents_margins(layout: QtWidgets.QLayout | None) -> tuple[int, int, int, int]:
+    if layout is None:
+        return 0, 0, 0, 0
+    margins = layout.contentsMargins()
+    return int(margins.left()), int(margins.top()), int(margins.right()), int(margins.bottom())
+
 def _anchor_available_geometry(anchor: QtWidgets.QWidget) -> QtCore.QRect:
     screen_pos = anchor.mapToGlobal(QtCore.QPoint(0, anchor.height()))
     screen = QtWidgets.QApplication.screenAt(screen_pos) or anchor.screen() or QtWidgets.QApplication.primaryScreen()
     return screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1920, 1080)
 
-def _anchored_popup_geometry(anchor: QtWidgets.QWidget, *, width: int, height: int) -> QtCore.QRect:
+def _anchored_popup_geometry(
+    anchor: QtWidgets.QWidget,
+    *,
+    width: int,
+    height: int,
+    host_margins: tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> QtCore.QRect:
     avail = _anchor_available_geometry(anchor)
     cfg = ui(anchor)
     edge = overlay_edge_gap(cfg)
-    popup_gap_y = _popup_anchor_gap_y(cfg)
-    x = anchor.mapToGlobal(QtCore.QPoint(0, 0)).x()
-    y_below = anchor.mapToGlobal(QtCore.QPoint(0, anchor.height() + popup_gap_y)).y()
-    y_above = anchor.mapToGlobal(QtCore.QPoint(0, -height - popup_gap_y)).y()
+    popup_gap_y = max(0, _popup_anchor_gap_y(cfg) - 1)
+    left_margin, top_margin, right_margin, bottom_margin = (int(v) for v in host_margins)
+
+    x = anchor.mapToGlobal(QtCore.QPoint(0, 0)).x() - left_margin
+    y_below = anchor.mapToGlobal(QtCore.QPoint(0, anchor.height() + popup_gap_y)).y() - top_margin
+    y_above = anchor.mapToGlobal(QtCore.QPoint(0, 0 - popup_gap_y)).y() - (height - bottom_margin)
     y = y_below if y_below + height <= avail.bottom() + 1 or y_above < avail.top() else y_above
 
     if x + width > avail.right() - edge:
@@ -89,12 +102,12 @@ def _anchored_popup_geometry(anchor: QtWidgets.QWidget, *, width: int, height: i
     return QtCore.QRect(int(x), int(y), int(width), int(height))
 
 def normalize_combo_code(code: str, *, default: str = "") -> str:
-    raw = Config.normalize_language_choice_value(code)
+    raw = LanguagePolicy.normalize_choice_value(code)
     if raw in {
-        Config.LANGUAGE_AUTO_VALUE,
-        Config.LANGUAGE_DEFAULT_UI_VALUE,
-        Config.LANGUAGE_LAST_USED_VALUE,
-        Config.LANGUAGE_PREFERRED_VALUE,
+        LanguagePolicy.AUTO,
+        LanguagePolicy.DEFAULT_UI,
+        LanguagePolicy.LAST_USED,
+        LanguagePolicy.PREFERRED,
         "-",
     }:
         return raw
@@ -103,12 +116,12 @@ def normalize_combo_code(code: str, *, default: str = "") -> str:
     if norm:
         return norm
 
-    fallback_raw = Config.normalize_language_choice_value(default)
+    fallback_raw = LanguagePolicy.normalize_choice_value(default)
     if fallback_raw in {
-        Config.LANGUAGE_AUTO_VALUE,
-        Config.LANGUAGE_DEFAULT_UI_VALUE,
-        Config.LANGUAGE_LAST_USED_VALUE,
-        Config.LANGUAGE_PREFERRED_VALUE,
+        LanguagePolicy.AUTO,
+        LanguagePolicy.DEFAULT_UI,
+        LanguagePolicy.LAST_USED,
+        LanguagePolicy.PREFERRED,
         "-",
     }:
         return fallback_raw
@@ -299,21 +312,15 @@ class ComboPopup(QtWidgets.QWidget):
         )
         self._combo = combo
         cfg = ui(self)
-        is_windows = is_windows_platform()
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
-        self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setProperty("role", "comboPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
+        root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "comboPopup")
-        enable_styled_background(self._body)
-        if not is_windows:
-            apply_floating_shadow(self._body)
+        configure_floating_popup_surface(self, self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
         setup_layout(body_lay, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=0)
@@ -397,9 +404,17 @@ class ComboPopup(QtWidgets.QWidget):
             self._list.scrollTo(idx, QtWidgets.QAbstractItemView.PositionAtCenter)
 
     def _apply_geometry(self, combo: "PopupComboBox") -> None:
-        width = self._popup_width(combo)
+        left_margin, top_margin, right_margin, bottom_margin = _layout_contents_margins(self.layout())
+        width = self._popup_width(combo) + left_margin + right_margin
         height = self._popup_height(combo)
-        self.setGeometry(_anchored_popup_geometry(combo, width=width, height=height))
+        self.setGeometry(
+            _anchored_popup_geometry(
+                combo,
+                width=width,
+                height=height,
+                host_margins=(left_margin, top_margin, right_margin, bottom_margin),
+            )
+        )
 
     @staticmethod
     def _visible_row_count(combo: "PopupComboBox") -> int:
@@ -435,7 +450,7 @@ class ComboPopup(QtWidgets.QWidget):
         )
         body_h = content_h + _layout_vertical_extra(self._body.layout())
         host_h = body_h + _layout_vertical_extra(self.layout())
-        return max(int(host_h), int(visible_rows * row_h + _popup_content_extra_h(cfg))) + _popup_anchor_gap_y(cfg)
+        return max(int(host_h), int(visible_rows * row_h + _popup_content_extra_h(cfg)))
 
     @staticmethod
     def _tooltip_text_for_index(index: QtCore.QModelIndex) -> str:
@@ -495,21 +510,15 @@ class MultiSelectPopup(QtWidgets.QWidget):
         self._field = field
         self._rows: list[_PopupCheckItem] = []
         cfg = ui(self)
-        is_windows = is_windows_platform()
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, not is_windows)
-        self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.setProperty("role", "comboPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(*(0, 0, 0, 0) if is_windows else floating_shadow_margins(self))
+        root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
         self._body.setProperty("role", "comboPopup")
-        enable_styled_background(self._body)
-        if not is_windows:
-            apply_floating_shadow(self._body)
+        configure_floating_popup_surface(self, self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
         setup_layout(body_lay, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=0)
@@ -593,12 +602,20 @@ class MultiSelectPopup(QtWidgets.QWidget):
         )
         body_h = content_h + _layout_vertical_extra(self._body.layout())
         host_h = body_h + _layout_vertical_extra(self.layout())
-        return max(int(host_h), int(visible_rows * row_h + _popup_content_extra_h(cfg))) + _popup_anchor_gap_y(cfg)
+        return max(int(host_h), int(visible_rows * row_h + _popup_content_extra_h(cfg)))
 
     def _apply_geometry(self, field: "PopupMultiSelectField") -> None:
-        width = self._popup_width(field)
+        left_margin, top_margin, right_margin, bottom_margin = _layout_contents_margins(self.layout())
+        width = self._popup_width(field) + left_margin + right_margin
         height = self._popup_height(field)
-        self.setGeometry(_anchored_popup_geometry(field, width=width, height=height))
+        self.setGeometry(
+            _anchored_popup_geometry(
+                field,
+                width=width,
+                height=height,
+                host_margins=(left_margin, top_margin, right_margin, bottom_margin),
+            )
+        )
 
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         super().hideEvent(event)
@@ -640,7 +657,7 @@ class _PopupHostComboMixin:
 
         QtCore.QTimer.singleShot(0, _sync)
 
-    def hidePopup(self) -> None:  # type: ignore[override]
+    def hide_popup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
             popup.hide()
@@ -667,17 +684,17 @@ class _PopupHostComboMixin:
         popup = self._popup_widget()
         return contains_widget_chain(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
 
-    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+    def event_filter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
             if event.type() in {QtCore.QEvent.Type.ApplicationDeactivate, QtCore.QEvent.Type.WindowDeactivate}:
-                self.hidePopup()
+                self.hide_popup()
             elif event.type() in {QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.Wheel} and isinstance(
                 event, (QtGui.QMouseEvent, QtGui.QWheelEvent)
             ):
                 target = obj if isinstance(obj, QtWidgets.QWidget) else QtWidgets.QApplication.widgetAt(event.globalPos())
                 if not self._contains_widget(target):
-                    self.hidePopup()
+                    self.hide_popup()
 
         if obj is self._tracked_window:
             if event.type() in {
@@ -686,7 +703,7 @@ class _PopupHostComboMixin:
                 QtCore.QEvent.Type.Hide,
                 QtCore.QEvent.Type.WindowDeactivate,
             }:
-                self.hidePopup()
+                self.hide_popup()
                 self._schedule_visual_state_sync()
         elif obj is self._popup_focus_widget():
             if event.type() in {
@@ -698,42 +715,42 @@ class _PopupHostComboMixin:
                 self._schedule_visual_state_sync()
         return QtWidgets.QWidget.eventFilter(cast(QtWidgets.QWidget, cast(object, self)), obj, event)
 
-    def showEvent(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
+    def show_event(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.showEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._bind_window()
         self._schedule_visual_state_sync()
 
-    def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
-        self.hidePopup()
+    def hide_event(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
+        self.hide_popup()
         QtWidgets.QWidget.hideEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def moveEvent(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
+    def move_event(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.moveEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
-    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
+    def resize_event(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.resizeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
-    def focusInEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+    def focus_in_event(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusInEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+    def focus_out_event(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusOutEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def changeEvent(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
+    def change_event(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.changeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         if event.type() in {QtCore.QEvent.Type.EnabledChange, QtCore.QEvent.Type.ParentChange}:
             self._bind_window()
             if not cast(QtWidgets.QWidget, cast(object, self)).isEnabled():
-                self.hidePopup()
+                self.hide_popup()
             self._schedule_visual_state_sync()
 
     def _on_popup_closed(self) -> None:
@@ -801,7 +818,7 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
         popup = self._popup_widget()
         if _widget_visible(popup):
             if key in {QtCore.Qt.Key.Key_Escape, QtCore.Qt.Key.Key_F4}:
-                self.hidePopup()
+                self.hide_popup()
                 event.accept()
                 return
             if key in {QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter, QtCore.Qt.Key.Key_Space}:
@@ -845,7 +862,7 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == QtCore.Qt.MouseButton.LeftButton and not self.isEditable():
             if _widget_visible(self._popup_widget()):
-                self.hidePopup()
+                self.hide_popup()
             else:
                 self.showPopup()
             self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
@@ -856,7 +873,7 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:  # type: ignore[override]
         if _widget_visible(self._popup_widget()):
-            self.hidePopup()
+            self.hide_popup()
             event.accept()
             return
         super().wheelEvent(event)
@@ -868,7 +885,7 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
                 self.setCurrentIndex(row)
             self.activated[int].emit(row)
             self.textActivated.emit(self.currentText())
-        self.hidePopup()
+        self.hide_popup()
 
 class LanguageCombo(PopupComboBox):
     """Popup combo box preconfigured for normalized language-code options."""
@@ -882,7 +899,7 @@ class LanguageCombo(PopupComboBox):
         super().__init__(parent)
         self._special_first = special_first
         self._codes_provider = codes_provider
-        default_code = Config.LANGUAGE_DEFAULT_UI_VALUE
+        default_code = LanguagePolicy.DEFAULT_UI
         fallback_value = default_code
         if isinstance(special_first, tuple) and len(special_first) == 2 and isinstance(special_first[0], str):
             fallback_value = special_first[1]
@@ -982,7 +999,7 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
         self.showPopup()
 
     def hide_popup(self) -> None:
-        self.hidePopup()
+        self.hide_popup()
 
     def showPopup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
@@ -1010,7 +1027,7 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
 
     def _toggle_popup(self) -> None:
         if _widget_visible(self._popup_widget()):
-            self.hidePopup()
+            self.hide_popup()
         else:
             self.showPopup()
         self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
@@ -1030,7 +1047,7 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:  # type: ignore[override]
         if _widget_visible(self._popup_widget()):
-            self.hidePopup()
+            self.hide_popup()
             event.accept()
             return
         event.ignore()
@@ -1039,7 +1056,7 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
         key = event.key()
         popup_visible = _widget_visible(self._popup_widget())
         if popup_visible and key in {QtCore.Qt.Key.Key_Escape, QtCore.Qt.Key.Key_F4}:
-            self.hidePopup()
+            self.hide_popup()
             event.accept()
             return
         if key in {

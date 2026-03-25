@@ -237,9 +237,6 @@
       "ffprobe_failed": "❌ Analiza audio nie powiodła się. Polecenie: {cmd}"
     },
     "cancelled": "Operacja anulowana.",
-    "config": {
-      "unknown_action": "⚠️ Nieznana akcja „{action}”."
-    },
     "down": {
       "download_failed": "❌ Pobieranie nie powiodło się. Szczegóły: {detail}",
       "network_dns_failed": "❌ Nie udało się rozwiązać nazwy hosta.",
@@ -280,7 +277,8 @@
       "section_invalid": "⚠️ Sekcja ustawień „{section}” jest nieprawidłowa.",
       "settings_invalid": "⚠️ Plik ustawień „{path}” jest nieprawidłowy. Szczegóły: {detail}",
       "settings_missing": "⚠️ Brak pliku ustawień: {path}",
-      "invalid_video_height_range": "Minimalna wysokość wideo ({min_height}) nie może być większa niż maksymalna ({max_height})."
+      "invalid_video_height_range": "Minimalna wysokość wideo ({min_height}) nie może być większa niż maksymalna ({max_height}).",
+      "unknown_action": "⚠️ Nieznana akcja „{action}”."
     },
     "startup": {
       "failed": "❌ Uruchamianie aplikacji nie powiodło się. Szczegóły: {detail}"

@@ -57,15 +57,15 @@ class CommandRunner:
 
             if res.returncode != 0:
                 raise AppError(
-                    error_key,
-                    {"code": res.returncode, "cmd": " ".join(cmd_list), "stderr": res.stderr[-8000:]},
+                    key=error_key,
+                    params={"code": res.returncode, "cmd": " ".join(cmd_list), "stderr": res.stderr[-8000:]},
                 )
 
             return res
         except AppError:
             raise
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as ex:
-            raise AppError(error_key, {"cmd": " ".join(cmd_list)}, cause=ex)
+            raise AppError(key=error_key, params={"cmd": " ".join(cmd_list)}, cause=ex)
 
     @staticmethod
     def _communicate(
@@ -87,14 +87,14 @@ class CommandRunner:
                     proc.kill()
                 except (ProcessLookupError, OSError) as ex:
                     _LOG.debug("Command cancellation kill skipped. cmd=%s detail=%s", " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args, ex)
-                raise AppError("error.cancelled", {})
+                raise AppError(key="error.cancelled", params={})
 
             if timeout_s is not None and waited_s >= float(timeout_s):
                 try:
                     proc.kill()
                 except (ProcessLookupError, OSError) as ex:
                     _LOG.debug("Command timeout kill skipped. cmd=%s detail=%s", " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args, ex)
-                raise AppError("error.external_tool_timeout", {"seconds": float(timeout_s)})
+                raise AppError(key="error.external_tool_timeout", params={"seconds": float(timeout_s)})
 
             if proc.poll() is not None:
                 out, err = proc.communicate()

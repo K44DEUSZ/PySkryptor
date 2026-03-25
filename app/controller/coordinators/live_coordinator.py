@@ -11,6 +11,8 @@ from app.controller.workers.live_transcription_worker import LiveTranscriptionWo
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
 from app.controller.support.quick_settings import start_settings_save
+from app.controller.support.runtime_state import build_runtime_state_payload
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.domain.runtime_state import AppRuntimeState
 
 
@@ -82,20 +84,12 @@ class LiveCoordinator(QtCore.QObject):
         panel = self._view
         if panel is None:
             return
-        panel.on_runtime_state_changed(
-            transcription_ready=bool(self._runtime_state.transcription_ready and self._pipe is not None),
-            transcription_error_key=self._runtime_state.transcription_error_key,
-            transcription_error_params=dict(self._runtime_state.transcription_error_params or {}),
-            translation_ready=bool(self._runtime_state.translation_ready),
-            translation_error_key=self._runtime_state.translation_error_key,
-            translation_error_params=dict(self._runtime_state.translation_error_params or {}),
-        )
+        panel.on_runtime_state_changed(**build_runtime_state_payload(self._runtime_state, pipeline=self._pipe))
 
     def is_running(self) -> bool:
         return self._runner.is_running()
 
-    @staticmethod
-    def list_input_devices() -> list[str]:
+    def list_input_devices(self) -> list[str]:
         return list_input_device_names()
 
     def start_session(
@@ -105,8 +99,8 @@ class LiveCoordinator(QtCore.QObject):
         source_language: str = "",
         target_language: str = "",
         translate_enabled: bool = False,
-        preset_id: str = "default",
-        output_mode: str = "cumulative",
+        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
+        output_mode: str = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE,
     ) -> LiveTranscriptionWorker | None:
         if self._runner.is_running():
             return self._worker

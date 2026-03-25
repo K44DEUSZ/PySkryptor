@@ -233,7 +233,7 @@ _THEME_STYLE_TOKENS = _theme_tokens()
 
 def theme_style_tokens(theme: str) -> dict[str, str]:
     key = 'dark' if str(theme or '').strip().lower() == 'dark' else 'light'
-    assets = Config.ASSETS_DIR.resolve().as_posix()
+    assets = Config.PATHS.ASSETS_DIR.resolve().as_posix()
     out: dict[str, str] = {}
     for token, value in _THEME_STYLE_TOKENS[key].items():
         out[token] = str(value).replace('@ASSETS@', assets)
@@ -299,15 +299,15 @@ def render_theme_stylesheet(
         qss = qss.replace(token, value)
     for token, value in _ui_style_tokens(ui_cfg).items():
         qss = qss.replace(token, value)
-    qss = qss.replace('@ASSETS@', Config.ASSETS_DIR.resolve().as_posix())
+    qss = qss.replace('@ASSETS@', Config.PATHS.ASSETS_DIR.resolve().as_posix())
     return theme, qss
 
 def _resolve_app_icon_path(theme: str | None = None) -> Path | None:
     resolved = active_theme_key(theme)
     candidates = [
-        Config.ICONS_DIR / f'app_icon_{resolved}.svg',
-        Config.ICONS_DIR / 'app_icon_light.svg',
-        Config.ICONS_DIR / 'app_icon_dark.svg',
+        Config.PATHS.ICONS_DIR / f'app_icon_{resolved}.svg',
+        Config.PATHS.ICONS_DIR / 'app_icon_light.svg',
+        Config.PATHS.ICONS_DIR / 'app_icon_dark.svg',
     ]
     for path in candidates:
         if path.exists():
@@ -345,8 +345,8 @@ def app_icon(theme: str | None = None) -> QtGui.QIcon:
 def status_icon(name: str, *, theme: str | None = None) -> QtGui.QIcon:
     resolved = active_theme_key(theme)
     candidates = [
-        Config.ICONS_DIR / f'{name}_{resolved}.svg',
-        Config.ICONS_DIR / f'{name}.svg',
+        Config.PATHS.ICONS_DIR / f'{name}_{resolved}.svg',
+        Config.PATHS.ICONS_DIR / f'{name}.svg',
     ]
     for path in candidates:
         if path.exists():
@@ -356,9 +356,9 @@ def status_icon(name: str, *, theme: str | None = None) -> QtGui.QIcon:
 def logo_svg_path(theme: str | None = None) -> Path | None:
     resolved = active_theme_key(theme)
     candidates = [
-        Config.IMAGES_DIR / f'logo_{resolved}.svg',
-        Config.IMAGES_DIR / 'logo_light.svg',
-        Config.IMAGES_DIR / 'logo_dark.svg',
+        Config.PATHS.IMAGES_DIR / f'logo_{resolved}.svg',
+        Config.PATHS.IMAGES_DIR / 'logo_light.svg',
+        Config.PATHS.IMAGES_DIR / 'logo_dark.svg',
     ]
     for path in candidates:
         if path.exists():

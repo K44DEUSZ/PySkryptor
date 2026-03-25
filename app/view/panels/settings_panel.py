@@ -14,8 +14,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from app.view.components.popup_combo import PopupComboBox, LanguageCombo, set_combo_data
 
 from app.model.config.app_config import AppConfig as Config
+from app.model.services.model_resolution_service import ModelResolutionService
+from app.model.config.runtime_profiles import RuntimeProfiles
+from app.model.config.language_policy import LanguagePolicy
 from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
-from app.model.services.runtime_resolver import transcription_language_codes, translation_language_codes
+from app.model.runtime_resolver import transcription_language_codes, translation_language_codes
 from app.model.services.localization_service import tr, list_locales
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view import dialogs
@@ -201,12 +204,15 @@ class SettingsPanel(QtWidgets.QWidget):
         return bottom
 
     def _wire_signals(self) -> None:
-        assert self.btn_undo is not None
-        assert self.btn_save is not None
+        btn_restore = self.btn_restore
+        btn_undo = self.btn_undo
+        btn_save = self.btn_save
+        if btn_restore is None or btn_undo is None or btn_save is None:
+            raise RuntimeError("Settings panel controls are not initialized.")
         self.chk_show_advanced.stateChanged.connect(self._on_toggle_advanced)
-        self.btn_restore.clicked.connect(self._on_restore_clicked)
-        self.btn_undo.clicked.connect(self._on_undo_clicked)
-        self.btn_save.clicked.connect(self._on_save_clicked)
+        btn_restore.clicked.connect(self._on_restore_clicked)
+        btn_undo.clicked.connect(self._on_undo_clicked)
+        btn_save.clicked.connect(self._on_save_clicked)
 
     def _restore_initial_state(self) -> None:
         self._populate_model_engines()
@@ -277,47 +283,10 @@ class SettingsPanel(QtWidgets.QWidget):
         control.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         return self._build_labeled_row(label=label, control=control, tooltip=tooltip, advanced=advanced)
 
-    def _row_checkbox(self, label: str, checkbox: QtWidgets.QCheckBox, tooltip: str, *,
-                      advanced: bool = False) -> QtWidgets.QWidget:
-        checkbox.setText("")
-        checkbox.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
-
-        box = QtWidgets.QWidget()
-        box_lay = QtWidgets.QHBoxLayout(box)
-        box_lay.setContentsMargins(0, 0, 0, 0)
-        box_lay.addStretch(1)
-        box_lay.addWidget(checkbox, 0)
-
-        return self._build_labeled_row(
-            label=label,
-            control=checkbox,
-            tooltip=tooltip,
-            control_host=box,
-            advanced=advanced,
-        )
-
     def _row_toggle(self, label: str, toggle: ChoiceToggle, tooltip: str, *,
                     advanced: bool = False) -> QtWidgets.QWidget:
         toggle.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         return self._build_labeled_row(label=label, control=toggle, tooltip=tooltip, advanced=advanced)
-
-    def _row_button(self, label: str, button: QtWidgets.QPushButton, tooltip: str, *,
-                    advanced: bool = False) -> QtWidgets.QWidget:
-        button.setMinimumHeight(self._ui.control_min_h)
-        button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        return self._build_labeled_row(label=label, control=button, tooltip=tooltip, advanced=advanced)
-
-    def _row_button_under_control(self, button: QtWidgets.QPushButton, *, advanced: bool = False) -> QtWidgets.QWidget:
-        button.setMinimumHeight(self._ui.control_min_h)
-        button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        return self._build_labeled_row(
-            label="",
-            control=button,
-            tooltip="",
-            advanced=advanced,
-            include_info=False,
-            track_dirty_label=False,
-        )
 
     def _track_dirty_row(
         self,
@@ -373,13 +342,13 @@ class SettingsPanel(QtWidgets.QWidget):
 
         transcription = normalized.get("transcription")
         if isinstance(transcription, dict):
-            raw_source = transcription.get("default_source_language", Config.LANGUAGE_AUTO_VALUE)
-            transcription["default_source_language"] = Config.normalize_default_source_language_policy(raw_source)
+            raw_source = transcription.get("default_source_language", LanguagePolicy.AUTO)
+            transcription["default_source_language"] = LanguagePolicy.normalize_default_source_language_policy(raw_source)
 
         translation = normalized.get("translation")
         if isinstance(translation, dict):
-            raw_target = translation.get("default_target_language", Config.LANGUAGE_DEFAULT_UI_VALUE)
-            translation["default_target_language"] = Config.normalize_default_target_language_policy(raw_target)
+            raw_target = translation.get("default_target_language", LanguagePolicy.DEFAULT_UI)
+            translation["default_target_language"] = LanguagePolicy.normalize_default_target_language_policy(raw_target)
 
         app = normalized.get("app")
         if isinstance(app, dict):
@@ -522,12 +491,12 @@ class SettingsPanel(QtWidgets.QWidget):
         lay = self._prepare_section_layout(self.grp_app, title_key="settings.section.app")
 
         self.cb_app_language = self._new_combo(base_h)
-        self.cb_app_language.addItem(tr("common.auto"), Config.LANGUAGE_AUTO_VALUE)
-        for code, name in list_locales(Config.LOCALES_DIR):
+        self.cb_app_language.addItem(tr("common.auto"), LanguagePolicy.AUTO)
+        for code, name in list_locales(Config.PATHS.LOCALES_DIR):
             self.cb_app_language.addItem(name, code)
 
         self.cb_app_theme = self._new_combo(base_h)
-        self.cb_app_theme.addItem(tr("common.auto"), Config.LANGUAGE_AUTO_VALUE)
+        self.cb_app_theme.addItem(tr("common.auto"), LanguagePolicy.AUTO)
         self._add_combo_option(self.cb_app_theme, "settings.app.theme.light", "light")
         self._add_combo_option(self.cb_app_theme, "settings.app.theme.dark", "dark")
 
@@ -626,12 +595,12 @@ class SettingsPanel(QtWidgets.QWidget):
         lay = self._prepare_section_layout(self.grp_engine, title_key="settings.section.engine")
 
         self.cb_engine_device = self._new_combo(base_h)
-        self._add_combo_option(self.cb_engine_device, "settings.engine.device.auto", Config.LANGUAGE_AUTO_VALUE)
+        self._add_combo_option(self.cb_engine_device, "settings.engine.device.auto", LanguagePolicy.AUTO)
         self._add_combo_option(self.cb_engine_device, "settings.engine.device.cpu", "cpu")
         self._add_combo_option(self.cb_engine_device, "settings.engine.device.gpu", "cuda")
 
         self.cb_engine_precision = self._new_combo(base_h)
-        self._add_combo_option(self.cb_engine_precision, "settings.engine.precision.auto", Config.LANGUAGE_AUTO_VALUE,
+        self._add_combo_option(self.cb_engine_precision, "settings.engine.precision.auto", LanguagePolicy.AUTO,
                                tooltip_key="settings.engine.precision.auto_tip")
         self._add_combo_option(self.cb_engine_precision, "settings.engine.precision.float32", "float32",
                                tooltip_key="settings.engine.precision.float32_tip")
@@ -684,16 +653,16 @@ class SettingsPanel(QtWidgets.QWidget):
         self.cb_trans_engine = self._new_combo(base_h)
 
         self.cb_quality = self._new_combo(base_h)
-        self._add_combo_option(self.cb_quality, "settings.quality.fast", "fast", tooltip_key="settings.quality.fast_tip")
-        self._add_combo_option(self.cb_quality, "settings.quality.balanced", Config.normalize_transcription_quality_preset(None),
+        self._add_combo_option(self.cb_quality, "settings.quality.fast", RuntimeProfiles.TRANSCRIPTION_PRESET_FAST, tooltip_key="settings.quality.fast_tip")
+        self._add_combo_option(self.cb_quality, "settings.quality.balanced", RuntimeProfiles.normalize_transcription_preset(None),
                                tooltip_key="settings.quality.balanced_tip")
-        self._add_combo_option(self.cb_quality, "settings.quality.accurate", "accurate",
+        self._add_combo_option(self.cb_quality, "settings.quality.accurate", RuntimeProfiles.TRANSCRIPTION_PRESET_ACCURATE,
                                tooltip_key="settings.quality.accurate_tip")
 
         self.cb_default_language = LanguageCombo(
             special_first=(
-                ("lang.special.auto_detect", Config.LANGUAGE_AUTO_VALUE),
-                ("lang.special.last_used", Config.LANGUAGE_LAST_USED_VALUE),
+                ("lang.special.auto_detect", LanguagePolicy.AUTO),
+                ("lang.special.last_used", LanguagePolicy.LAST_USED),
             ),
             codes_provider=transcription_language_codes,
         )
@@ -752,17 +721,17 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_tr_engine = self._new_combo(base_h)
         self.cb_tr_quality = self._new_combo(base_h)
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.fast", "fast", tooltip_key="settings.quality.fast_tip")
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.balanced", Config.normalize_transcription_quality_preset(None),
+        self._add_combo_option(self.cb_tr_quality, "settings.quality.fast", RuntimeProfiles.TRANSCRIPTION_PRESET_FAST, tooltip_key="settings.quality.fast_tip")
+        self._add_combo_option(self.cb_tr_quality, "settings.quality.balanced", RuntimeProfiles.normalize_transcription_preset(None),
                                tooltip_key="settings.quality.balanced_tip")
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.accurate", "accurate",
+        self._add_combo_option(self.cb_tr_quality, "settings.quality.accurate", RuntimeProfiles.TRANSCRIPTION_PRESET_ACCURATE,
                                tooltip_key="settings.quality.accurate_tip")
         self.cb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
         self.cb_default_target_language = LanguageCombo(
             special_first=(
-                ("lang.special.app_language", Config.LANGUAGE_DEFAULT_UI_VALUE),
-                ("lang.special.last_used", Config.LANGUAGE_LAST_USED_VALUE),
+                ("lang.special.app_language", LanguagePolicy.DEFAULT_UI),
+                ("lang.special.last_used", LanguagePolicy.LAST_USED),
             ),
             codes_provider=translation_language_codes,
         )
@@ -1081,7 +1050,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _open_logs_folder() -> None:
-        path = Config.LOGS_DIR
+        path = Config.PATHS.LOGS_DIR
         if isinstance(path, Path):
             open_local_path(path)
 
@@ -1118,8 +1087,8 @@ class SettingsPanel(QtWidgets.QWidget):
         populate_combo_fields(
             app,
             (
-                ("language", self.cb_app_language, Config.LANGUAGE_AUTO_VALUE),
-                ("theme", self.cb_app_theme, Config.LANGUAGE_AUTO_VALUE),
+                ("language", self.cb_app_language, LanguagePolicy.AUTO),
+                ("theme", self.cb_app_theme, LanguagePolicy.AUTO),
             ),
         )
 
@@ -1144,8 +1113,8 @@ class SettingsPanel(QtWidgets.QWidget):
         populate_combo_fields(
             eng,
             (
-                ("preferred_device", self.cb_engine_device, Config.LANGUAGE_AUTO_VALUE),
-                ("precision", self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE),
+                ("preferred_device", self.cb_engine_device, LanguagePolicy.AUTO),
+                ("precision", self.cb_engine_precision, LanguagePolicy.AUTO),
             ),
         )
         self.tg_fp32_math_mode.set_first_checked(bool(str(eng.get("fp32_math_mode", "ieee") or "ieee").strip().lower() == "tf32"))
@@ -1162,13 +1131,13 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._populate_model_engines()
 
-        trans_engine_name = Config.resolve_transcription_engine_name(model)
+        trans_engine_name = ModelResolutionService.resolve_transcription_engine_name(model)
         if trans_engine_name == Config.MISSING_VALUE:
             trans_engine_name = str(t_model.get("engine_name", "none"))
         set_combo_data(self.cb_trans_engine, trans_engine_name, fallback_data="none")
         populate_combo_fields(
             t_model,
-            (("quality_preset", self.cb_quality, Config.normalize_transcription_quality_preset(None)),),
+            (("quality_preset", self.cb_quality, RuntimeProfiles.normalize_transcription_preset(None)),),
         )
         populate_toggle_fields(
             t_model,
@@ -1178,11 +1147,11 @@ class SettingsPanel(QtWidgets.QWidget):
             ),
         )
 
-        tr_engine_name = Config.resolve_translation_engine_name(model)
+        tr_engine_name = ModelResolutionService.resolve_translation_engine_name(model)
         if tr_engine_name == Config.MISSING_VALUE:
             tr_engine_name = str(x_model.get("engine_name", "none"))
         set_combo_data(self.cb_tr_engine, tr_engine_name, fallback_data="none")
-        populate_combo_fields(x_model, (("quality_preset", self.cb_tr_quality, Config.normalize_transcription_quality_preset(None)),))
+        populate_combo_fields(x_model, (("quality_preset", self.cb_tr_quality, RuntimeProfiles.normalize_transcription_preset(None)),))
         populate_spin_fields(
             x_model,
             (
@@ -1194,13 +1163,13 @@ class SettingsPanel(QtWidgets.QWidget):
     def _populate_transcription_settings(self, transcription: dict[str, Any]) -> None:
         populate_combo_fields(
             transcription,
-            (("default_source_language", self.cb_default_language, Config.LANGUAGE_AUTO_VALUE),),
+            (("default_source_language", self.cb_default_language, LanguagePolicy.AUTO),),
         )
 
     def _populate_translation_settings(self, translation: dict[str, Any]) -> None:
         populate_combo_fields(
             translation,
-            (("default_target_language", self.cb_default_target_language, Config.LANGUAGE_DEFAULT_UI_VALUE),),
+            (("default_target_language", self.cb_default_target_language, LanguagePolicy.DEFAULT_UI),),
         )
 
     def _populate_download_settings(self, downloader: dict[str, Any], network: dict[str, Any]) -> None:
@@ -1237,8 +1206,8 @@ class SettingsPanel(QtWidgets.QWidget):
     def _collect_app_payload(self) -> dict[str, Any]:
         payload = collect_combo_fields(
             (
-                ("language", self.cb_app_language, Config.LANGUAGE_AUTO_VALUE),
-                ("theme", self.cb_app_theme, Config.LANGUAGE_AUTO_VALUE),
+                ("language", self.cb_app_language, LanguagePolicy.AUTO),
+                ("theme", self.cb_app_theme, LanguagePolicy.AUTO),
             ),
         )
         payload.update({
@@ -1259,8 +1228,8 @@ class SettingsPanel(QtWidgets.QWidget):
     def _collect_engine_payload(self) -> dict[str, Any]:
         payload = collect_combo_fields(
             (
-                ("preferred_device", self.cb_engine_device, Config.LANGUAGE_AUTO_VALUE),
-                ("precision", self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE),
+                ("preferred_device", self.cb_engine_device, LanguagePolicy.AUTO),
+                ("precision", self.cb_engine_precision, LanguagePolicy.AUTO),
             ),
         )
         payload["fp32_math_mode"] = "tf32" if self.tg_fp32_math_mode.is_first_checked() else "ieee"
@@ -1278,7 +1247,7 @@ class SettingsPanel(QtWidgets.QWidget):
             **collect_combo_fields(
                 (
                     ("engine_name", self.cb_trans_engine, "none"),
-                    ("quality_preset", self.cb_quality, Config.normalize_transcription_quality_preset(None)),
+                    ("quality_preset", self.cb_quality, RuntimeProfiles.normalize_transcription_preset(None)),
                 ),
             ),
             **collect_toggle_fields(
@@ -1294,7 +1263,7 @@ class SettingsPanel(QtWidgets.QWidget):
                 **collect_combo_fields(
                     (
                         ("engine_name", self.cb_tr_engine, "none"),
-                        ("quality_preset", self.cb_tr_quality, Config.normalize_transcription_quality_preset(None)),
+                        ("quality_preset", self.cb_tr_quality, RuntimeProfiles.normalize_transcription_preset(None)),
                     ),
                 ),
                 **cast(
@@ -1310,15 +1279,15 @@ class SettingsPanel(QtWidgets.QWidget):
         }
 
     def _collect_transcription_payload(self) -> dict[str, Any]:
-        code = str(self.cb_default_language.currentData() or Config.LANGUAGE_AUTO_VALUE).strip().lower()
+        code = str(self.cb_default_language.currentData() or LanguagePolicy.AUTO).strip().lower()
         return {
-            "default_source_language": Config.normalize_default_source_language_policy(code),
+            "default_source_language": LanguagePolicy.normalize_default_source_language_policy(code),
         }
 
     def _collect_translation_payload(self) -> dict[str, Any]:
-        code = str(self.cb_default_target_language.currentData() or Config.LANGUAGE_DEFAULT_UI_VALUE).strip().lower()
+        code = str(self.cb_default_target_language.currentData() or LanguagePolicy.DEFAULT_UI).strip().lower()
         return {
-            "default_target_language": Config.normalize_default_target_language_policy(code),
+            "default_target_language": LanguagePolicy.normalize_default_target_language_policy(code),
         }
 
     def _collect_downloader_payload(self) -> dict[str, Any]:
@@ -1376,10 +1345,10 @@ class SettingsPanel(QtWidgets.QWidget):
         available: dict[str, str] = {}
         for i in range(self.cb_app_language.count()):
             code = str(self.cb_app_language.itemData(i) or "").strip().lower()
-            if code and code != Config.LANGUAGE_AUTO_VALUE:
+            if code and code != LanguagePolicy.AUTO:
                 available[code] = self.cb_app_language.itemText(i)
         resolved_lang = available.get(sys_hint) or available.get("en") or next(iter(available.values()), sys_hint or "")
-        idx_auto = self.cb_app_language.findData(Config.LANGUAGE_AUTO_VALUE)
+        idx_auto = self.cb_app_language.findData(LanguagePolicy.AUTO)
         if idx_auto >= 0:
             self.cb_app_language.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_lang})')
 
@@ -1387,13 +1356,13 @@ class SettingsPanel(QtWidgets.QWidget):
         app = app_obj if isinstance(app_obj, QtWidgets.QApplication) else None
         theme = system_theme_key(app)
         resolved_theme = tr("settings.app.theme.dark") if theme == "dark" else tr("settings.app.theme.light")
-        idx_auto = self.cb_app_theme.findData(Config.LANGUAGE_AUTO_VALUE)
+        idx_auto = self.cb_app_theme.findData(LanguagePolicy.AUTO)
         if idx_auto >= 0:
             self.cb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
 
         auto_dev = Config.auto_device_key()
         resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
-        idx_auto = self.cb_engine_device.findData(Config.LANGUAGE_AUTO_VALUE)
+        idx_auto = self.cb_engine_device.findData(LanguagePolicy.AUTO)
         if idx_auto >= 0:
             self.cb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
 
@@ -1406,15 +1375,15 @@ class SettingsPanel(QtWidgets.QWidget):
             else:
                 resolved_prec_text = tr("settings.engine.precision.float32")
             resolved_prec = self._short_label(resolved_prec_text)
-            idx_auto = self.cb_engine_precision.findData(Config.LANGUAGE_AUTO_VALUE)
+            idx_auto = self.cb_engine_precision.findData(LanguagePolicy.AUTO)
             if idx_auto >= 0:
                 self.cb_engine_precision.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_prec})')
         except (AttributeError, RuntimeError, TypeError, ValueError):
             return
 
     def _populate_model_engines(self) -> None:
-        trans_names = Config.local_model_names_for_task("transcription")
-        tr_names = Config.local_model_names_for_task("translation")
+        trans_names = ModelResolutionService.local_model_names_for_task("transcription")
+        tr_names = ModelResolutionService.local_model_names_for_task("translation")
 
         self.cb_trans_engine.blockSignals(True)
         try:
@@ -1455,8 +1424,8 @@ class SettingsPanel(QtWidgets.QWidget):
                 if item is not None:
                     item.setEnabled(has_cuda)
 
-        if not has_cuda and str(self.cb_engine_device.currentData() or Config.LANGUAGE_AUTO_VALUE) == "cuda":
-            set_combo_data(self.cb_engine_device, Config.LANGUAGE_AUTO_VALUE, fallback_data=Config.LANGUAGE_AUTO_VALUE)
+        if not has_cuda and str(self.cb_engine_device.currentData() or LanguagePolicy.AUTO) == "cuda":
+            set_combo_data(self.cb_engine_device, LanguagePolicy.AUTO, fallback_data=LanguagePolicy.AUTO)
 
         prec_model = self.cb_engine_precision.model()
         if isinstance(prec_model, QtGui.QStandardItemModel):
@@ -1472,13 +1441,13 @@ class SettingsPanel(QtWidgets.QWidget):
                 if item is not None:
                     item.setEnabled(has_cuda and bf16_supported)
 
-        cur_prec = str(self.cb_engine_precision.currentData() or Config.LANGUAGE_AUTO_VALUE)
+        cur_prec = str(self.cb_engine_precision.currentData() or LanguagePolicy.AUTO)
         if cur_prec == "float16" and not has_cuda:
-            set_combo_data(self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE, fallback_data=Config.LANGUAGE_AUTO_VALUE)
+            set_combo_data(self.cb_engine_precision, LanguagePolicy.AUTO, fallback_data=LanguagePolicy.AUTO)
         if cur_prec == "bfloat16" and not (has_cuda and bf16_supported):
-            set_combo_data(self.cb_engine_precision, Config.LANGUAGE_AUTO_VALUE, fallback_data=Config.LANGUAGE_AUTO_VALUE)
+            set_combo_data(self.cb_engine_precision, LanguagePolicy.AUTO, fallback_data=LanguagePolicy.AUTO)
 
-        cur_dev = str(self.cb_engine_device.currentData() or Config.LANGUAGE_AUTO_VALUE)
+        cur_dev = str(self.cb_engine_device.currentData() or LanguagePolicy.AUTO)
         fp32_mode_allowed = Config.is_fp32_math_mode_applicable(cur_dev, cur_prec)
         self._set_row_control_enabled(
             getattr(self, "_row_fp32_math_mode", None),
