@@ -753,8 +753,8 @@ QFrame[role="textContextAction"][pressed="true"] QLabel[role="textContextActionS
     color: @TEXT_ON_ACCENT@;
 }
 
-QFrame[role="textContextAction"]:disabled QLabel[role="textContextActionLabel"],
-QFrame[role="textContextAction"]:disabled QLabel[role="textContextActionShortcut"] {
+QFrame[role="textContextAction"][enabledState="false"] QLabel[role="textContextActionLabel"],
+QFrame[role="textContextAction"][enabledState="false"] QLabel[role="textContextActionShortcut"] {
     color: @TEXT_DISABLED@;
 }
 

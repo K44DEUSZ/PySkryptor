@@ -257,7 +257,7 @@ class TranslationRuntime:
 def build_live_quick_options_payload(
     *,
     mode: str,
-    preset: str,
+    profile: str,
     output_mode: str,
     device_name: str,
     source_language_selection: str,
@@ -265,7 +265,7 @@ def build_live_quick_options_payload(
 ) -> dict[str, Any]:
     """Build a SettingsWorker payload for LivePanel quick options."""
     m = RuntimeProfiles.normalize_live_ui_mode(mode or Config.live_ui_mode())
-    p = RuntimeProfiles.normalize_live_preset(preset or Config.live_ui_preset())
+    p = RuntimeProfiles.normalize_live_profile(profile or Config.live_ui_profile())
     out_mode = RuntimeProfiles.normalize_live_output_mode(output_mode or Config.live_ui_output_mode())
 
     dev = str(device_name or "").strip()
@@ -274,7 +274,7 @@ def build_live_quick_options_payload(
             "ui": {
                 "live": {
                     "mode": m,
-                    "preset": p,
+                    "profile": p,
                     "output_mode": out_mode,
                     "device_name": dev,
                 },

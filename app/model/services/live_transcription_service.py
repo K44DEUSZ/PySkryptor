@@ -10,10 +10,14 @@ from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.config.language_policy import LanguagePolicy
 from app.model.helpers.chunking import pcm16le_bytes_to_float32, seconds_to_frames
 from app.model.helpers.transcription_runtime import (
-    audio_has_meaningful_signal,
     audio_rms_level,
+    build_whisper_generate_kwargs,
+    can_detect_language_from_audio,
+    classify_audio_signal,
     detect_language_from_pipe_runtime,
     extract_detected_language_from_result,
+    filter_asr_text,
+    should_use_prompt,
     whisper_prompt_ids_from_text,
 )
 from app.model.io.transcript_writer import TextPostprocessor
@@ -45,8 +49,9 @@ class LiveTranscriptionService:
         target_language: str,
         translate_enabled: bool,
         cancel_check: LiveCancelCheckFn,
-        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
+        profile: str = RuntimeProfiles.LIVE_DEFAULT_PROFILE,
         output_mode: str = OUTPUT_MODE_CUMULATIVE,
+        runtime_profile: dict[str, Any] | None = None,
     ) -> None:
         self._pipe = pipe
         self._cancel_check = cancel_check
@@ -63,13 +68,17 @@ class LiveTranscriptionService:
 
         model_cfg = Config.transcription_model_raw_cfg_dict()
         self._ignore_warning = bool(model_cfg.get("ignore_warning", False))
-        self._text_consistency = bool(model_cfg.get("text_consistency", True))
 
         self._sr = Config.ASR_SAMPLE_RATE
         self._output_mode = RuntimeProfiles.normalize_live_output_mode(output_mode)
         self._stream_only = self._output_mode == self.OUTPUT_MODE_STREAM
-        self._preset_id = RuntimeProfiles.normalize_live_preset(preset_id)
-        self._profile = RuntimeProfiles.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id)
+        resolved_profile = RuntimeProfiles.normalize_live_profile(profile)
+        if runtime_profile is None:
+            runtime_profile = RuntimeProfiles.resolve_live_runtime(
+                output_mode=self._output_mode,
+                profile=resolved_profile,
+            )
+        self._profile = dict(runtime_profile)
 
         chunk_len_s = int(self._profile.get("chunk_length_s", 4) or 4)
         stride_len_s = int(self._profile.get("stride_length_s", 3) or 3)
@@ -87,30 +96,6 @@ class LiveTranscriptionService:
         self._silence_tail_keep_s = float(self._profile.get("silence_tail_keep_s", 0.24))
         self._tail_flush_min_s = float(self._profile.get("tail_flush_min_s", 0.20))
 
-        self._weak_rms_threshold = float(self._profile.get("weak_rms_threshold", 0.0115))
-        self._weak_activity_floor = float(self._profile.get("weak_activity_floor", 0.0055))
-        self._weak_active_ratio_threshold = float(self._profile.get("weak_active_ratio_threshold", 0.012))
-        self._weak_active_ms_threshold = float(self._profile.get("weak_active_ms_threshold", 55.0))
-
-        self._solid_rms_threshold = float(self._profile.get("solid_rms_threshold", 0.0145))
-        self._solid_activity_floor = float(self._profile.get("solid_activity_floor", 0.0065))
-        self._solid_active_ratio_threshold = float(self._profile.get("solid_active_ratio_threshold", 0.022))
-        self._solid_active_ms_threshold = float(self._profile.get("solid_active_ms_threshold", 85.0))
-
-        self._language_detect_rms_threshold = float(self._profile.get("language_detect_rms_threshold", 0.03))
-        self._language_detect_activity_floor = float(self._profile.get("language_detect_activity_floor", 0.009))
-        self._language_detect_active_ratio_threshold = float(
-            self._profile.get("language_detect_active_ratio_threshold", 0.07)
-        )
-        self._language_detect_active_ms_threshold = float(
-            self._profile.get("language_detect_active_ms_threshold", 160.0)
-        )
-
-        self._artifact_min_chars = int(self._profile.get("artifact_min_chars", 3) or 3)
-        self._artifact_min_words = int(self._profile.get("artifact_min_words", 2) or 2)
-        self._artifact_tail_max_words = int(self._profile.get("artifact_tail_max_words", 2) or 2)
-        self._artifact_tail_max_chars = int(self._profile.get("artifact_tail_max_chars", 14) or 14)
-
         self._commit_silence_s = float(self._profile.get("commit_silence_s", 0.62))
         self._stream_clear_after_s = float(self._profile.get("stream_clear_after_s", 1.15))
         self._stream_show_previous_caption = bool(self._profile.get("stream_show_previous_caption", False))
@@ -124,6 +109,9 @@ class LiveTranscriptionService:
 
         self._post = TextPostprocessor()
         self._translator = TranslationService()
+
+        self._stable_language_min_hits = int(self._profile.get("stable_language_min_hits", 2) or 2)
+        self._language_hits: dict[str, int] = {}
 
         self._detected_lang = ""
         self._archive_source = ""
@@ -282,51 +270,19 @@ class LiveTranscriptionService:
                 return True
         return False
 
-    def _classify_audio_signal(self, audio: Any) -> str:
-        if not audio_has_meaningful_signal(
-            audio,
-            sr=self._sr,
-            rms_min=self._weak_rms_threshold,
-            activity_floor=self._weak_activity_floor,
-            active_ratio_min=self._weak_active_ratio_threshold,
-            active_ms_min=self._weak_active_ms_threshold,
-        ):
-            return self.SIGNAL_NONE
-
-        if audio_has_meaningful_signal(
-            audio,
-            sr=self._sr,
-            rms_min=self._solid_rms_threshold,
-            activity_floor=self._solid_activity_floor,
-            active_ratio_min=self._solid_active_ratio_threshold,
-            active_ms_min=self._solid_active_ms_threshold,
-        ):
-            return self.SIGNAL_SOLID
-        return self.SIGNAL_WEAK
-
-    def _can_detect_language_from_audio(self, audio: Any, *, signal_kind: str) -> bool:
-        if signal_kind == self.SIGNAL_SOLID:
-            return True
-        return audio_has_meaningful_signal(
-            audio,
-            sr=self._sr,
-            rms_min=self._language_detect_rms_threshold,
-            activity_floor=self._language_detect_activity_floor,
-            active_ratio_min=self._language_detect_active_ratio_threshold,
-            active_ms_min=self._language_detect_active_ms_threshold,
-        )
-
     def _transcribe_audio(self, audio: Any, *, signal_kind: str) -> tuple[str, bool]:
         payload = {"raw": audio, "sampling_rate": self._sr}
 
-        generate_kwargs: dict[str, Any] = {"task": "transcribe", "condition_on_prev_tokens": bool(self._text_consistency)}
-        if self._src_lang:
-            generate_kwargs["language"] = self._src_lang
-        if self._text_consistency:
-            prompt_source = self._draft_source or self._archive_source or self._previous_source or self._current_source
+        prompt_source = self._draft_source or self._archive_source or self._previous_source or self._current_source
+        prompt_ids = None
+        if prompt_source and should_use_prompt(signal_kind=signal_kind, profile=self._profile):
             prompt_ids = whisper_prompt_ids_from_text(pipe=self._pipe, text=prompt_source)
-            if prompt_ids is not None:
-                generate_kwargs["prompt_ids"] = prompt_ids
+        generate_kwargs = build_whisper_generate_kwargs(
+            profile=self._profile,
+            source_language=self._src_lang,
+            prompt_ids=prompt_ids,
+            signal_kind=signal_kind,
+        )
 
         try:
             try:
@@ -348,11 +304,20 @@ class LiveTranscriptionService:
                         generate_kwargs=fallback_kwargs,
                     )
                 except TypeError:
-                    result = self._pipe(
-                        payload,
-                        return_language=True,
-                        return_timestamps=False,
-                    )
+                    candidate_kwargs = {k: v for k, v in fallback_kwargs.items() if k not in ("no_speech_threshold", "logprob_threshold", "compression_ratio_threshold", "temperature")}
+                    try:
+                        result = self._pipe(
+                            payload,
+                            return_language=True,
+                            return_timestamps=False,
+                            generate_kwargs=candidate_kwargs,
+                        )
+                    except TypeError:
+                        result = self._pipe(
+                            payload,
+                            return_language=True,
+                            return_timestamps=False,
+                        )
         except Exception as exc:
             _LOG.exception("ASR pipeline call failed.")
             raise TranscriptionError("error.transcription.asr_failed") from exc
@@ -362,9 +327,11 @@ class LiveTranscriptionService:
 
         language_changed = False
         detected = "" if self._source_language_forced else extract_detected_language_from_result(result)
-        if not detected and not self._source_language_forced and (self._translate or not self._src_lang) and self._can_detect_language_from_audio(
+        if not detected and not self._source_language_forced and (self._translate or not self._src_lang) and can_detect_language_from_audio(
             audio,
+            sr=self._sr,
             signal_kind=signal_kind,
+            profile=self._profile,
         ):
             detected = detect_language_from_pipe_runtime(
                 pipe=self._pipe,
@@ -374,38 +341,18 @@ class LiveTranscriptionService:
             if detected:
                 result["language"] = detected
 
-        if detected and detected != self._detected_lang and (
-            signal_kind == self.SIGNAL_SOLID or not self._detected_lang
-        ):
-            self._detected_lang = detected
-            language_changed = True
+        if detected and not self._source_language_forced:
+            normalized_detected = str(detected or "").strip().lower()
+            if normalized_detected and (
+                signal_kind == self.SIGNAL_SOLID
+                or can_detect_language_from_audio(audio, sr=self._sr, signal_kind=signal_kind, profile=self._profile)
+            ):
+                self._language_hits[normalized_detected] = int(self._language_hits.get(normalized_detected, 0)) + 1
+                if self._language_hits[normalized_detected] >= max(1, self._stable_language_min_hits) and normalized_detected != self._detected_lang:
+                    self._detected_lang = normalized_detected
+                    language_changed = True
 
         return str(result.get("text") or ""), language_changed
-
-    def _filter_result_text(self, text: str, *, signal_kind: str, from_tail: bool) -> str:
-        text = self._post.clean(str(text or ""))
-        if not text:
-            return ""
-
-        words = self._word_count(text)
-        if words <= 0:
-            return ""
-
-        if len(text) < self._artifact_min_chars and not self._relates_to_active_text(text):
-            return ""
-
-        if signal_kind == self.SIGNAL_WEAK or from_tail:
-            if words <= 1 and not self._relates_to_active_text(text):
-                return ""
-            if (
-                words <= self._artifact_tail_max_words
-                and len(text) <= self._artifact_tail_max_chars
-                and (not self._has_terminal_punctuation(text))
-                and (not self._relates_to_active_text(text))
-            ):
-                return ""
-
-        return text
 
     def _refresh_stream_text(self) -> None:
         previous_source = str(self._previous_source or "").strip()
@@ -649,14 +596,21 @@ class LiveTranscriptionService:
         if audio.size == 0:
             return False, False
 
-        signal_kind = self._classify_audio_signal(audio)
+        signal_kind = classify_audio_signal(audio, sr=self._sr, profile=self._profile)
         if signal_kind == self.SIGNAL_NONE:
             return False, False
         if signal_kind == self.SIGNAL_WEAK and not self._has_active_text():
             return False, False
 
         current_source, language_changed = self._transcribe_audio(audio, signal_kind=signal_kind)
-        current_source = self._filter_result_text(current_source, signal_kind=signal_kind, from_tail=from_tail)
+        current_source = filter_asr_text(
+            current_source,
+            clean_fn=self._post.clean,
+            signal_kind=signal_kind,
+            profile=self._profile,
+            reference_texts=self._active_reference_texts(),
+            from_tail=from_tail,
+        )
         if not current_source:
             return False, language_changed
 

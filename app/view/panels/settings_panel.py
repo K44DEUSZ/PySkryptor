@@ -384,6 +384,44 @@ class SettingsPanel(QtWidgets.QWidget):
 
         return normalized
 
+    def _is_transcription_custom_profile_active(self) -> bool:
+        profile = RuntimeProfiles.normalize_transcription_profile(
+            self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE
+        )
+        return profile == RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM
+
+    def _is_translation_custom_profile_active(self) -> bool:
+        profile = RuntimeProfiles.normalize_translation_profile(
+            self.cb_translation_profile.currentData() or RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE
+        )
+        return profile == RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM
+
+    def _should_ignore_dirty_paths(self, paths: tuple[tuple[str, ...], ...]) -> bool:
+        if not paths:
+            return False
+
+        transcription_custom_prefix = ("model", "transcription_model", "advanced")
+        translation_custom_prefix = ("model", "translation_model", "advanced")
+        transcription_custom_keys = {
+            "context_policy",
+            "silence_guard",
+            "language_stability",
+            "chunk_length_s",
+            "stride_length_s",
+        }
+        translation_custom_keys = {
+            "style",
+            "num_beams",
+            "no_repeat_ngram_size",
+        }
+
+        for path in paths:
+            if len(path) == 4 and path[:3] == transcription_custom_prefix and path[3] in transcription_custom_keys:
+                return not self._is_transcription_custom_profile_active()
+            if len(path) == 4 and path[:3] == translation_custom_prefix and path[3] in translation_custom_keys:
+                return not self._is_translation_custom_profile_active()
+        return False
+
     def _refresh_dirty_markers(self) -> None:
         baseline = self._normalize_payload_for_compare(self._loaded_data if isinstance(self._loaded_data, dict) else None)
         if baseline is None:
@@ -395,7 +433,10 @@ class SettingsPanel(QtWidgets.QWidget):
         current = self._normalize_payload_for_compare(self._collect_payload()) or {}
         any_dirty = False
         for _row, control, paths in self._dirty_row_specs:
-            row_dirty = any(self._get_nested(current, path) != self._get_nested(baseline, path) for path in paths)
+            if self._should_ignore_dirty_paths(paths):
+                row_dirty = False
+            else:
+                row_dirty = any(self._get_nested(current, path) != self._get_nested(baseline, path) for path in paths)
             self._set_dirty_marker(control, row_dirty)
             any_dirty = any_dirty or row_dirty
 
@@ -551,7 +592,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 tr("settings.app.bulk_add_confirmation.label"),
                 self.tg_bulk_add_warning_enabled,
                 tr("settings.help.bulk_add_confirmation.enabled"),
-                advanced=True,
             ),
             ("app", "ui", "bulk_add_confirmation", "enabled"),
         )
@@ -637,7 +677,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 tr("settings.engine.low_cpu_mem_usage"),
                 self.tg_low_cpu_mem,
                 tr("settings.help.low_cpu_mem_usage"),
-                advanced=True,
             ),
             ("engine", "low_cpu_mem_usage"),
         )
@@ -652,12 +691,16 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cb_trans_engine = self._new_combo(base_h)
 
-        self.cb_quality = self._new_combo(base_h)
-        self._add_combo_option(self.cb_quality, "settings.quality.fast", RuntimeProfiles.TRANSCRIPTION_PRESET_FAST, tooltip_key="settings.quality.fast_tip")
-        self._add_combo_option(self.cb_quality, "settings.quality.balanced", RuntimeProfiles.normalize_transcription_preset(None),
-                               tooltip_key="settings.quality.balanced_tip")
-        self._add_combo_option(self.cb_quality, "settings.quality.accurate", RuntimeProfiles.TRANSCRIPTION_PRESET_ACCURATE,
-                               tooltip_key="settings.quality.accurate_tip")
+        self.cb_transcription_profile = self._new_combo(base_h)
+        self._add_combo_option(self.cb_transcription_profile, "settings.profile.fast", RuntimeProfiles.TRANSCRIPTION_PROFILE_FAST, tooltip_key="settings.profile.fast_tip")
+        self._add_combo_option(self.cb_transcription_profile, "settings.profile.balanced", RuntimeProfiles.TRANSCRIPTION_PROFILE_BALANCED,
+                               tooltip_key="settings.profile.balanced_tip")
+        self._add_combo_option(self.cb_transcription_profile, "settings.profile.accurate", RuntimeProfiles.TRANSCRIPTION_PROFILE_ACCURATE,
+                               tooltip_key="settings.profile.accurate_tip")
+        self._add_combo_option(self.cb_transcription_profile, "settings.profile.guarded", RuntimeProfiles.TRANSCRIPTION_PROFILE_GUARDED,
+                               tooltip_key="settings.profile.guarded_tip")
+        self._add_combo_option(self.cb_transcription_profile, "settings.profile.custom", RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM,
+                               tooltip_key="settings.profile.custom_tip")
 
         self.cb_default_language = LanguageCombo(
             special_first=(
@@ -668,7 +711,23 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self.cb_default_language.setMinimumHeight(base_h)
 
-        self.tg_text_consistency = self._new_toggle()
+        self.cb_context_policy = self._new_combo(base_h)
+        self._add_combo_option(self.cb_context_policy, "settings.context_policy.off", RuntimeProfiles.CONTEXT_POLICY_OFF, tooltip_key="settings.context_policy.off_tip")
+        self._add_combo_option(self.cb_context_policy, "settings.context_policy.auto", RuntimeProfiles.CONTEXT_POLICY_AUTO, tooltip_key="settings.context_policy.auto_tip")
+        self._add_combo_option(self.cb_context_policy, "settings.context_policy.aggressive", RuntimeProfiles.CONTEXT_POLICY_AGGRESSIVE, tooltip_key="settings.context_policy.aggressive_tip")
+
+        self.cb_silence_guard = self._new_combo(base_h)
+        self._add_combo_option(self.cb_silence_guard, "settings.silence_guard.off", RuntimeProfiles.SILENCE_GUARD_OFF, tooltip_key="settings.silence_guard.off_tip")
+        self._add_combo_option(self.cb_silence_guard, "settings.silence_guard.normal", RuntimeProfiles.SILENCE_GUARD_NORMAL, tooltip_key="settings.silence_guard.normal_tip")
+        self._add_combo_option(self.cb_silence_guard, "settings.silence_guard.strict", RuntimeProfiles.SILENCE_GUARD_STRICT, tooltip_key="settings.silence_guard.strict_tip")
+
+        self.cb_language_stability = self._new_combo(base_h)
+        self._add_combo_option(self.cb_language_stability, "settings.language_stability.fast", RuntimeProfiles.LANGUAGE_STABILITY_FAST, tooltip_key="settings.language_stability.fast_tip")
+        self._add_combo_option(self.cb_language_stability, "settings.language_stability.balanced", RuntimeProfiles.LANGUAGE_STABILITY_BALANCED, tooltip_key="settings.language_stability.balanced_tip")
+        self._add_combo_option(self.cb_language_stability, "settings.language_stability.strict", RuntimeProfiles.LANGUAGE_STABILITY_STRICT, tooltip_key="settings.language_stability.strict_tip")
+
+        self.sp_chunk_length_s = self._new_spinbox(base_h, 0, 120, step=5)
+        self.sp_stride_length_s = self._new_spinbox(base_h, -1, 30, step=1)
         self.tg_ignore_warning = self._new_toggle()
 
         self._add_tracked_row(
@@ -683,17 +742,58 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self._add_tracked_row(
             lay,
-            self._row(tr("settings.transcription.quality_label"), self.cb_quality, tr("settings.help.trans_quality")),
-            ("model", "transcription_model", "quality_preset"),
+            self._row(tr("settings.transcription.profile_label"), self.cb_transcription_profile, tr("settings.help.transcription_profile")),
+            ("model", "transcription_model", "profile"),
         )
         self._add_tracked_row(
             lay,
-            self._row_toggle(
-                tr("settings.transcription.text_consistency"),
-                self.tg_text_consistency,
-                tr("settings.help.text_consistency"),
+            self._row(
+                tr("settings.transcription.context_policy"),
+                self.cb_context_policy,
+                tr("settings.help.context_policy"),
+                advanced=True,
             ),
-            ("model", "transcription_model", "text_consistency"),
+            ("model", "transcription_model", "advanced", "context_policy"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.transcription.silence_guard"),
+                self.cb_silence_guard,
+                tr("settings.help.silence_guard"),
+                advanced=True,
+            ),
+            ("model", "transcription_model", "advanced", "silence_guard"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.transcription.language_stability"),
+                self.cb_language_stability,
+                tr("settings.help.language_stability"),
+                advanced=True,
+            ),
+            ("model", "transcription_model", "advanced", "language_stability"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.transcription.chunk_length_s"),
+                self.sp_chunk_length_s,
+                tr("settings.help.transcription_chunk_length_s"),
+                advanced=True,
+            ),
+            ("model", "transcription_model", "advanced", "chunk_length_s"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.transcription.stride_length_s"),
+                self.sp_stride_length_s,
+                tr("settings.help.transcription_stride_length_s"),
+                advanced=True,
+            ),
+            ("model", "transcription_model", "advanced", "stride_length_s"),
         )
         self._add_tracked_row(
             lay,
@@ -701,7 +801,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 tr("settings.transcription.ignore_warning"),
                 self.tg_ignore_warning,
                 tr("settings.help.ignore_warning"),
-                advanced=True,
             ),
             ("model", "transcription_model", "ignore_warning"),
         )
@@ -710,22 +809,31 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._connect_mark_dirty(
             self.cb_trans_engine.currentIndexChanged,
-            self.cb_quality.currentIndexChanged,
             self.cb_default_language.currentIndexChanged,
-            self.tg_text_consistency.changed,
+            self.cb_context_policy.currentIndexChanged,
+            self.cb_silence_guard.currentIndexChanged,
+            self.cb_language_stability.currentIndexChanged,
             self.tg_ignore_warning.changed,
         )
+        self._connect_spinbox_mark_dirty(self.sp_chunk_length_s, self.sp_stride_length_s)
+        self.cb_context_policy.currentIndexChanged.connect(self._on_transcription_advanced_changed)
+        self.cb_silence_guard.currentIndexChanged.connect(self._on_transcription_advanced_changed)
+        self.cb_language_stability.currentIndexChanged.connect(self._on_transcription_advanced_changed)
+        self.sp_chunk_length_s.valueChanged.connect(self._on_transcription_advanced_changed)
+        self.sp_stride_length_s.valueChanged.connect(self._on_transcription_advanced_changed)
 
     def _build_translation_section(self, base_h: int) -> None:
         lay = self._prepare_section_layout(self.grp_translation, title_key="settings.section.translation")
 
         self.cb_tr_engine = self._new_combo(base_h)
-        self.cb_tr_quality = self._new_combo(base_h)
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.fast", RuntimeProfiles.TRANSCRIPTION_PRESET_FAST, tooltip_key="settings.quality.fast_tip")
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.balanced", RuntimeProfiles.normalize_transcription_preset(None),
-                               tooltip_key="settings.quality.balanced_tip")
-        self._add_combo_option(self.cb_tr_quality, "settings.quality.accurate", RuntimeProfiles.TRANSCRIPTION_PRESET_ACCURATE,
-                               tooltip_key="settings.quality.accurate_tip")
+        self.cb_translation_profile = self._new_combo(base_h)
+        self._add_combo_option(self.cb_translation_profile, "settings.profile.fast", RuntimeProfiles.TRANSLATION_PROFILE_FAST, tooltip_key="settings.translation.profile.fast_tip")
+        self._add_combo_option(self.cb_translation_profile, "settings.profile.balanced", RuntimeProfiles.TRANSLATION_PROFILE_BALANCED,
+                               tooltip_key="settings.translation.profile.balanced_tip")
+        self._add_combo_option(self.cb_translation_profile, "settings.profile.accurate", RuntimeProfiles.TRANSLATION_PROFILE_ACCURATE,
+                               tooltip_key="settings.translation.profile.accurate_tip")
+        self._add_combo_option(self.cb_translation_profile, "settings.profile.custom", RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM,
+                               tooltip_key="settings.translation.profile.custom_tip")
         self.cb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
         self.cb_default_target_language = LanguageCombo(
@@ -737,6 +845,13 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self.cb_default_target_language.setMinimumHeight(base_h)
 
+        self.cb_tr_style = self._new_combo(base_h)
+        self._add_combo_option(self.cb_tr_style, "settings.translation.style.literal", RuntimeProfiles.TRANSLATION_STYLE_LITERAL, tooltip_key="settings.translation.style.literal_tip")
+        self._add_combo_option(self.cb_tr_style, "settings.translation.style.balanced", RuntimeProfiles.TRANSLATION_STYLE_BALANCED, tooltip_key="settings.translation.style.balanced_tip")
+        self._add_combo_option(self.cb_tr_style, "settings.translation.style.fluent", RuntimeProfiles.TRANSLATION_STYLE_FLUENT, tooltip_key="settings.translation.style.fluent_tip")
+
+        self.sp_tr_beams = self._new_spinbox(base_h, 0, 12, step=1)
+        self.sp_tr_no_repeat = self._new_spinbox(base_h, -1, 8, step=1)
         self.sp_tr_max_tokens = self._new_spinbox(base_h, 16, 8192, step=16)
         self.sp_tr_chunk_chars = self._new_spinbox(base_h, 200, 20000, step=100)
 
@@ -757,11 +872,41 @@ class SettingsPanel(QtWidgets.QWidget):
         self._add_tracked_row(
             lay,
             self._row(
-                tr("settings.translation.quality.label"),
-                self.cb_tr_quality,
-                tr("settings.help.translation_quality"),
+                tr("settings.translation.profile.label"),
+                self.cb_translation_profile,
+                tr("settings.help.translation_profile"),
             ),
-            ("model", "translation_model", "quality_preset"),
+            ("model", "translation_model", "profile"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.translation.style.label"),
+                self.cb_tr_style,
+                tr("settings.help.translation_style"),
+                advanced=True,
+            ),
+            ("model", "translation_model", "advanced", "style"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.translation.num_beams"),
+                self.sp_tr_beams,
+                tr("settings.help.translation_num_beams"),
+                advanced=True,
+            ),
+            ("model", "translation_model", "advanced", "num_beams"),
+        )
+        self._add_tracked_row(
+            lay,
+            self._row(
+                tr("settings.translation.no_repeat_ngram_size"),
+                self.sp_tr_no_repeat,
+                tr("settings.help.translation_no_repeat_ngram_size"),
+                advanced=True,
+            ),
+            ("model", "translation_model", "advanced", "no_repeat_ngram_size"),
         )
         self._add_tracked_row(
             lay,
@@ -789,9 +934,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self._connect_mark_dirty(
             self.cb_tr_engine.currentIndexChanged,
             self.cb_default_target_language.currentIndexChanged,
-            self.cb_tr_quality.currentIndexChanged,
+            self.cb_tr_style.currentIndexChanged,
         )
-        self._connect_spinbox_mark_dirty(self.sp_tr_max_tokens, self.sp_tr_chunk_chars)
+        self._connect_spinbox_mark_dirty(self.sp_tr_beams, self.sp_tr_no_repeat, self.sp_tr_max_tokens, self.sp_tr_chunk_chars)
+        self.cb_transcription_profile.currentIndexChanged.connect(self._on_transcription_profile_changed)
+        self.cb_translation_profile.currentIndexChanged.connect(self._on_translation_profile_changed)
+        self.cb_tr_style.currentIndexChanged.connect(self._on_translation_advanced_changed)
+        self.sp_tr_beams.valueChanged.connect(self._on_translation_advanced_changed)
+        self.sp_tr_no_repeat.valueChanged.connect(self._on_translation_advanced_changed)
 
     def _build_download_section(self, base_h: int) -> None:
         cfg = self._ui
@@ -995,7 +1145,138 @@ class SettingsPanel(QtWidgets.QWidget):
     def _apply_advanced_visibility(self, show: bool) -> None:
         for w in self._advanced_rows:
             w.setVisible(bool(show))
+        self._rebuild_transcription_profile_combo()
+        self._rebuild_translation_profile_combo()
+        self._sync_transcription_profile_controls()
+        self._sync_translation_profile_controls()
 
+
+    def _rebuild_transcription_profile_combo(self, selected: str | None = None) -> None:
+        current = RuntimeProfiles.normalize_transcription_profile(selected or self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
+        allow_custom = bool(self.chk_show_advanced.isChecked()) or current == RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM
+        self.cb_transcription_profile.blockSignals(True)
+        try:
+            self.cb_transcription_profile.clear()
+            self._add_combo_option(self.cb_transcription_profile, "settings.profile.fast", RuntimeProfiles.TRANSCRIPTION_PROFILE_FAST, tooltip_key="settings.profile.fast_tip")
+            self._add_combo_option(self.cb_transcription_profile, "settings.profile.balanced", RuntimeProfiles.TRANSCRIPTION_PROFILE_BALANCED, tooltip_key="settings.profile.balanced_tip")
+            self._add_combo_option(self.cb_transcription_profile, "settings.profile.accurate", RuntimeProfiles.TRANSCRIPTION_PROFILE_ACCURATE, tooltip_key="settings.profile.accurate_tip")
+            self._add_combo_option(self.cb_transcription_profile, "settings.profile.guarded", RuntimeProfiles.TRANSCRIPTION_PROFILE_GUARDED, tooltip_key="settings.profile.guarded_tip")
+            if allow_custom:
+                self._add_combo_option(self.cb_transcription_profile, "settings.profile.custom", RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM, tooltip_key="settings.profile.custom_tip")
+            set_combo_data(self.cb_transcription_profile, current, fallback_data=RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
+        finally:
+            self.cb_transcription_profile.blockSignals(False)
+
+    def _rebuild_translation_profile_combo(self, selected: str | None = None) -> None:
+        current = RuntimeProfiles.normalize_translation_profile(selected or self.cb_translation_profile.currentData() or RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE)
+        allow_custom = bool(self.chk_show_advanced.isChecked()) or current == RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM
+        self.cb_translation_profile.blockSignals(True)
+        try:
+            self.cb_translation_profile.clear()
+            self._add_combo_option(self.cb_translation_profile, "settings.profile.fast", RuntimeProfiles.TRANSLATION_PROFILE_FAST, tooltip_key="settings.translation.profile.fast_tip")
+            self._add_combo_option(self.cb_translation_profile, "settings.profile.balanced", RuntimeProfiles.TRANSLATION_PROFILE_BALANCED, tooltip_key="settings.translation.profile.balanced_tip")
+            self._add_combo_option(self.cb_translation_profile, "settings.profile.accurate", RuntimeProfiles.TRANSLATION_PROFILE_ACCURATE, tooltip_key="settings.translation.profile.accurate_tip")
+            if allow_custom:
+                self._add_combo_option(self.cb_translation_profile, "settings.profile.custom", RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM, tooltip_key="settings.translation.profile.custom_tip")
+            set_combo_data(self.cb_translation_profile, current, fallback_data=RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE)
+        finally:
+            self.cb_translation_profile.blockSignals(False)
+
+    def _transcription_custom_cfg(self) -> dict[str, Any]:
+        model = self._section_dict(self._data or {}, "model")
+        t_model = self._section_dict(model, "transcription_model")
+        return dict(self._section_dict(t_model, "advanced"))
+
+    def _translation_custom_cfg(self) -> dict[str, Any]:
+        model = self._section_dict(self._data or {}, "model")
+        x_model = self._section_dict(model, "translation_model")
+        return dict(self._section_dict(x_model, "advanced"))
+
+    def _set_transcription_custom_cfg(self, cfg: dict[str, Any]) -> None:
+        model = self._section_dict(self._data, "model")
+        t_model = self._section_dict(model, "transcription_model")
+        t_model["advanced"] = dict(cfg or {})
+        model["transcription_model"] = t_model
+        self._data["model"] = model
+
+    def _set_translation_custom_cfg(self, cfg: dict[str, Any]) -> None:
+        model = self._section_dict(self._data, "model")
+        x_model = self._section_dict(model, "translation_model")
+        x_model["advanced"] = dict(cfg or {})
+        model["translation_model"] = x_model
+        self._data["model"] = model
+
+    def _capture_transcription_controls(self) -> dict[str, Any]:
+        return {
+            "context_policy": str(self.cb_context_policy.currentData() or RuntimeProfiles.CONTEXT_POLICY_AUTO),
+            "silence_guard": str(self.cb_silence_guard.currentData() or RuntimeProfiles.SILENCE_GUARD_NORMAL),
+            "language_stability": str(self.cb_language_stability.currentData() or RuntimeProfiles.LANGUAGE_STABILITY_BALANCED),
+            "chunk_length_s": int(self.sp_chunk_length_s.value()),
+            "stride_length_s": max(0, int(self.sp_stride_length_s.value())),
+        }
+
+    def _capture_translation_controls(self) -> dict[str, Any]:
+        return {
+            "style": str(self.cb_tr_style.currentData() or RuntimeProfiles.TRANSLATION_STYLE_BALANCED),
+            "num_beams": max(1, int(self.sp_tr_beams.value())),
+            "no_repeat_ngram_size": max(0, int(self.sp_tr_no_repeat.value())),
+        }
+
+    def _apply_transcription_runtime_to_controls(self, runtime: dict[str, Any], *, editable: bool) -> None:
+        set_combo_data(self.cb_context_policy, runtime.get("context_policy"), fallback_data=RuntimeProfiles.CONTEXT_POLICY_AUTO)
+        set_combo_data(self.cb_silence_guard, runtime.get("silence_guard"), fallback_data=RuntimeProfiles.SILENCE_GUARD_NORMAL)
+        set_combo_data(self.cb_language_stability, runtime.get("language_stability"), fallback_data=RuntimeProfiles.LANGUAGE_STABILITY_BALANCED)
+        self.sp_chunk_length_s.setValue(int(runtime.get("chunk_length_s", 45) or 45))
+        self.sp_stride_length_s.setValue(int(runtime.get("stride_length_s", 5) or 5))
+        for widget in (self.cb_context_policy, self.cb_silence_guard, self.cb_language_stability, self.sp_chunk_length_s, self.sp_stride_length_s):
+            widget.setEnabled(bool(editable))
+
+    def _apply_translation_runtime_to_controls(self, runtime: dict[str, Any], *, editable: bool) -> None:
+        set_combo_data(self.cb_tr_style, runtime.get("style"), fallback_data=RuntimeProfiles.TRANSLATION_STYLE_BALANCED)
+        self.sp_tr_beams.setValue(int(runtime.get("num_beams", 3) or 3))
+        self.sp_tr_no_repeat.setValue(int(runtime.get("no_repeat_ngram_size", 0) or 0))
+        for widget in (self.cb_tr_style, self.sp_tr_beams, self.sp_tr_no_repeat):
+            widget.setEnabled(bool(editable))
+
+    def _sync_transcription_profile_controls(self) -> None:
+        profile = RuntimeProfiles.normalize_transcription_profile(self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
+        if profile == RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM:
+            runtime = RuntimeProfiles.resolve_transcription_runtime(profile=profile, overrides=self._transcription_custom_cfg())
+            self._apply_transcription_runtime_to_controls(runtime, editable=True)
+        else:
+            runtime = RuntimeProfiles.resolve_transcription_runtime(profile=profile)
+            self._apply_transcription_runtime_to_controls(runtime, editable=False)
+
+    def _sync_translation_profile_controls(self) -> None:
+        profile = RuntimeProfiles.normalize_translation_profile(self.cb_translation_profile.currentData() or RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE)
+        if profile == RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM:
+            runtime = RuntimeProfiles.resolve_translation_runtime(profile=profile, overrides=self._translation_custom_cfg())
+            self._apply_translation_runtime_to_controls(runtime, editable=True)
+        else:
+            runtime = RuntimeProfiles.resolve_translation_runtime(profile=profile)
+            self._apply_translation_runtime_to_controls(runtime, editable=False)
+
+    def _on_transcription_profile_changed(self, *_args) -> None:
+        profile = RuntimeProfiles.normalize_transcription_profile(self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
+        if profile == RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM:
+            self._set_transcription_custom_cfg(self._capture_transcription_controls())
+        self._sync_transcription_profile_controls()
+        self._mark_dirty()
+
+    def _on_translation_profile_changed(self, *_args) -> None:
+        profile = RuntimeProfiles.normalize_translation_profile(self.cb_translation_profile.currentData() or RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE)
+        if profile == RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM:
+            self._set_translation_custom_cfg(self._capture_translation_controls())
+        self._sync_translation_profile_controls()
+        self._mark_dirty()
+
+    def _on_transcription_advanced_changed(self, *_args) -> None:
+        if RuntimeProfiles.normalize_transcription_profile(self.cb_transcription_profile.currentData()) == RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM:
+            self._set_transcription_custom_cfg(self._capture_transcription_controls())
+
+    def _on_translation_advanced_changed(self, *_args) -> None:
+        if RuntimeProfiles.normalize_translation_profile(self.cb_translation_profile.currentData()) == RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM:
+            self._set_translation_custom_cfg(self._capture_translation_controls())
 
     def _commit_advanced_payload(self, payload: dict[str, Any]) -> None:
         coord = self.coordinator()
@@ -1128,6 +1409,8 @@ class SettingsPanel(QtWidgets.QWidget):
     def _populate_model_settings(self, model: dict[str, Any]) -> None:
         t_model = self._section_dict(model, "transcription_model")
         x_model = self._section_dict(model, "translation_model")
+        t_adv = self._section_dict(t_model, "advanced")
+        x_adv = self._section_dict(x_model, "advanced")
 
         self._populate_model_engines()
 
@@ -1137,21 +1420,25 @@ class SettingsPanel(QtWidgets.QWidget):
         set_combo_data(self.cb_trans_engine, trans_engine_name, fallback_data="none")
         populate_combo_fields(
             t_model,
-            (("quality_preset", self.cb_quality, RuntimeProfiles.normalize_transcription_preset(None)),),
+            (("profile", self.cb_transcription_profile, RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE),),
         )
+        self._rebuild_transcription_profile_combo(str(self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE))
+        self._sync_transcription_profile_controls()
         populate_toggle_fields(
             t_model,
-            (
-                ("text_consistency", self.tg_text_consistency, True),
-                ("ignore_warning", self.tg_ignore_warning, False),
-            ),
+            (("ignore_warning", self.tg_ignore_warning, False),),
         )
 
         tr_engine_name = ModelResolutionService.resolve_translation_engine_name(model)
         if tr_engine_name == Config.MISSING_VALUE:
             tr_engine_name = str(x_model.get("engine_name", "none"))
         set_combo_data(self.cb_tr_engine, tr_engine_name, fallback_data="none")
-        populate_combo_fields(x_model, (("quality_preset", self.cb_tr_quality, RuntimeProfiles.normalize_transcription_preset(None)),))
+        populate_combo_fields(
+            x_model,
+            (("profile", self.cb_translation_profile, RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),),
+        )
+        self._rebuild_translation_profile_combo(str(self.cb_translation_profile.currentData() or RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE))
+        self._sync_translation_profile_controls()
         populate_spin_fields(
             x_model,
             (
@@ -1243,19 +1530,33 @@ class SettingsPanel(QtWidgets.QWidget):
         return payload
 
     def _collect_model_payload(self) -> dict[str, Any]:
+        transcription_profile = RuntimeProfiles.normalize_transcription_profile(
+            self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE
+        )
+        transcription_advanced = (
+            self._capture_transcription_controls()
+            if transcription_profile == RuntimeProfiles.TRANSCRIPTION_PROFILE_CUSTOM
+            else self._transcription_custom_cfg()
+        )
+        translation_profile = RuntimeProfiles.normalize_translation_profile(
+            self.cb_translation_profile.currentData() or RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE
+        )
+        translation_advanced = (
+            self._capture_translation_controls()
+            if translation_profile == RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM
+            else self._translation_custom_cfg()
+        )
         transcription_model = {
             **collect_combo_fields(
                 (
                     ("engine_name", self.cb_trans_engine, "none"),
-                    ("quality_preset", self.cb_quality, RuntimeProfiles.normalize_transcription_preset(None)),
+                    ("profile", self.cb_transcription_profile, RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE),
                 ),
             ),
             **collect_toggle_fields(
-                (
-                    ("text_consistency", self.tg_text_consistency),
-                    ("ignore_warning", self.tg_ignore_warning),
-                ),
+                (("ignore_warning", self.tg_ignore_warning),),
             ),
+            "advanced": transcription_advanced,
         }
         return {
             "transcription_model": transcription_model,
@@ -1263,7 +1564,7 @@ class SettingsPanel(QtWidgets.QWidget):
                 **collect_combo_fields(
                     (
                         ("engine_name", self.cb_tr_engine, "none"),
-                        ("quality_preset", self.cb_tr_quality, RuntimeProfiles.normalize_transcription_preset(None)),
+                        ("profile", self.cb_translation_profile, RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),
                     ),
                 ),
                 **cast(
@@ -1275,6 +1576,7 @@ class SettingsPanel(QtWidgets.QWidget):
                         ),
                     ),
                 ),
+                "advanced": translation_advanced,
             },
         }
 
@@ -1367,17 +1669,17 @@ class SettingsPanel(QtWidgets.QWidget):
             self.cb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
 
         try:
-            auto_prec = Config.auto_precision_key()
-            if auto_prec == "bfloat16":
-                resolved_prec_text = tr("settings.engine.precision.bfloat16")
-            elif auto_prec == "float16":
-                resolved_prec_text = tr("settings.engine.precision.float16")
+            auto_precision = Config.auto_precision_key()
+            if auto_precision == "bfloat16":
+                resolved_precision_text = tr("settings.engine.precision.bfloat16")
+            elif auto_precision == "float16":
+                resolved_precision_text = tr("settings.engine.precision.float16")
             else:
-                resolved_prec_text = tr("settings.engine.precision.float32")
-            resolved_prec = self._short_label(resolved_prec_text)
+                resolved_precision_text = tr("settings.engine.precision.float32")
+            resolved_precision = self._short_label(resolved_precision_text)
             idx_auto = self.cb_engine_precision.findData(LanguagePolicy.AUTO)
             if idx_auto >= 0:
-                self.cb_engine_precision.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_prec})')
+                self.cb_engine_precision.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_precision})')
         except (AttributeError, RuntimeError, TypeError, ValueError):
             return
 

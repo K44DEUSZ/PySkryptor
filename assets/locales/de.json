@@ -45,7 +45,8 @@
       "target_language": "Zielsprache"
     },
     "enable": "Aktivieren",
-    "disable": "Deaktivieren"
+    "disable": "Deaktivieren",
+    "inherit": "Vom Profil übernehmen"
   },
   "ctrl": {
     "add": "Hinzufügen +",
@@ -427,17 +428,6 @@
       "source": "Die Live-Transkription wird hier angezeigt...",
       "target": "Die Live-Übersetzung wird hier angezeigt..."
     },
-    "preset": {
-      "balanced": "Ausgewogen",
-      "high_context": "Hoher Kontext",
-      "label": "Voreinstellung",
-      "low_latency": "Niedrige Latenz",
-      "help": {
-        "low_latency": "Niedrigste Latenz und schnellste Aktualisierung auf Kosten eines kürzeren Kontexts.",
-        "balanced": "Ausgewogener Kompromiss zwischen Aktualisierungsgeschwindigkeit und Textstabilität.",
-        "high_context": "Größerer Kontext für stabileren Text auf Kosten höherer Latenz."
-      }
-    },
     "save": {
       "file_filter": "Textdateien (*.txt);;Alle Dateien (*.*)"
     },
@@ -447,6 +437,23 @@
       "label": "Textmodus",
       "stream": "Streaming-Transkription",
       "cumulative": "Kumulative Transkription"
+    },
+    "context_policy": {
+      "label": "Sitzungskontext"
+    },
+    "silence_guard": {
+      "label": "Stillschutz"
+    },
+    "profile": {
+      "balanced": "Ausgewogen",
+      "high_context": "Hoher Kontext",
+      "label": "Live-Profil",
+      "low_latency": "Niedrige Latenz",
+      "help": {
+        "low_latency": "Kürzestes Analysefenster und schnellste Aktualisierung. Niedrigste Latenz, aber weniger Kontext und geringere Textstabilität.",
+        "balanced": "Mittelweg zwischen Latenz, Kontextmenge und Stabilität des Ergebnisses.",
+        "high_context": "Größeres Analysefenster und mehr Kontext zwischen Aktualisierungen. Stabilerer Text auf Kosten höherer Latenz."
+      }
     }
   },
   "loading": {
@@ -527,7 +534,7 @@
       "concurrent_fragments": "Anzahl der gleichzeitig heruntergeladenen Fragmente. Höhere Werte können Downloads beschleunigen, belasten aber Verbindung und Server stärker.",
       "device": "Legt fest, wo die Modelle ihre Berechnungen ausführen. Auto verwendet eine CUDA-GPU, wenn verfügbar, sonst die CPU. Eine erzwungene GPU-Auswahl kann ignoriert werden, wenn die Umgebung CUDA nicht unterstützt.",
       "http_timeout_s": "Maximale Wartezeit auf eine Serverantwort für eine einzelne Anfrage.",
-      "ignore_warning": "Erlaubt, das Ergebnis trotz Warnungen zu behalten, die das Modell nicht stoppen, zum Beispiel bei Stille, sehr leiser Aufnahme oder uneindeutigem Eingang. Nützlich für automatisierte Abläufe, kann aber verdecken, dass Material manuell geprüft werden sollte.",
+      "ignore_warning": "Erlaubt, das Ergebnis trotz Modellwarnungen zu behalten, zum Beispiel bei Stille, sehr schwachem Signal oder unsicherer Spracherkennung. Es verändert die Erkennung selbst nicht, entscheidet aber, ob ein gewarnter Befund akzeptiert wird.",
       "logging_enabled": "Schreibt Anwendungsereignisse in Logdateien. Nützlich zur Fehlerdiagnose und zur Analyse des Programmverhaltens.",
       "logging_level": "Legt fest, wie viele Informationen in die Protokolle geschrieben werden.",
       "low_cpu_mem_usage": "Verringert den Arbeitsspeicherbedarf beim Laden der Modelle. Kann die Ladezeit verlängern und mehr Zwischenschritte bei der Initialisierung verursachen. Beeinflusst nicht die Qualität von Transkription oder Übersetzung.",
@@ -537,14 +544,11 @@
       "precision_hint": "Die Genauigkeit bestimmt das Zahlenformat des Modells. Geringere Präzision erhöht meist die Geschwindigkeit und senkt den Speicherbedarf, kann aber numerische Abweichungen wahrscheinlicher machen. Auf der CPU ist Float32 die sicherste Wahl; auf kompatiblen GPUs wählt Auto oft BFloat16 oder Float16.",
       "retries": "Legt fest, wie oft fehlgeschlagene Netzwerkanfragen wiederholt werden, bevor die Operation als fehlgeschlagen gilt.",
       "stride_length": "Fügt benachbarten Audioabschnitten eine Überlappung hinzu. Das kann die Kontinuität an Segmentgrenzen verbessern, erhöht aber den Rechenaufwand.",
-      "text_consistency": "Übergibt früheren Text als zusätzlichen Kontext für folgende Segmente. Das kann Kontinuität und Stil verbessern, trägt Fehler früherer Segmente aber leichter weiter.",
       "theme": "Wähle das Oberflächenthema.",
-      "trans_quality": "Steuert, wie aufwendig die Dekodierung im Transkriptionsmodell ist. Höhere Profile prüfen meist mehr Varianten und können mit schwierigem Audio besser umgehen, sind aber langsamer.",
       "transcription_engine": "Wählt das Modell zur Umwandlung von Sprache in Text. Verschiedene Modelle unterscheiden sich in Geschwindigkeit, Hardwareanforderungen und Robustheit bei schwierigen Aufnahmen.",
-      "translation_chunk_max_chars": "Teilt langen Text vor der Übersetzung in kleinere Abschnitte. Kleinere Abschnitte sind für das Modell sicherer, können aber die Kohärenz zwischen Sätzen und Absätzen verringern.",
+      "translation_chunk_max_chars": "Legt die maximale Textgröße fest, die in einem Schritt an das Übersetzungsmodell übergeben wird. Kleinere Fragmente sind für Speicher und Stabilität sicherer, schwächen aber die Kohärenz zwischen Sätzen.",
       "translation_engine": "Wählt das Modell zur Übersetzung von Text. Verschiedene Modelle unterscheiden sich in Geschwindigkeit, Sprachfluss und Leistung bei weniger üblichen Sprachpaaren.",
-      "translation_max_new_tokens": "Legt die Obergrenze für den vom Übersetzungsmodell pro Abschnitt erzeugten Text fest. Ein zu niedriger Wert kann Ausgaben abschneiden, höhere Werte können die Generierung verlangsamen.",
-      "translation_quality": "Steuert die Textgenerierungsparameter im Übersetzungsmodell. Höhere Profile erzeugen meist vollständigere und flüssigere Ausgaben, arbeiten aber langsamer.",
+      "translation_max_new_tokens": "Setzt die obere Token-Grenze, die das Modell für ein einzelnes Fragment erzeugen darf. Ein zu niedriger Wert kann die Übersetzung abschneiden, ein höherer Wert verlängert die Generierungszeit.",
       "ui_language": "Wähle die Sprache der Benutzeroberfläche.",
       "default_language": "Legt die Standardrichtlinie für die Quellsprache bei Datei- und Live-Transkription fest. Wähle eine feste Sprache, automatische Erkennung oder Zuletzt im Tab verwendet.",
       "bulk_add_confirmation": {
@@ -552,7 +556,17 @@
         "threshold": "Minimale Anzahl erkannter Elemente, ab der die Warnung für Sammelhinzufügung angezeigt wird."
       },
       "translation_default_language": "Legt die Standardrichtlinie für die Zielsprache der Übersetzung fest. Wähle App-Sprache, eine feste Sprache oder Zuletzt im Tab verwendet.",
-      "fp32_math_mode": "Gilt nur für CUDA mit Float32-Präzision. Beschleunigt einen Teil der FP32-Berechnungen auf unterstützten GPUs, Ergebnisse können aber leicht von strengem FP32 abweichen."
+      "fp32_math_mode": "Gilt nur für CUDA mit Float32-Präzision. Beschleunigt einen Teil der FP32-Berechnungen auf unterstützten GPUs, Ergebnisse können aber leicht von strengem FP32 abweichen.",
+      "context_policy": "Steuert, ob zuvor erkannter Text als Kontext für die nächsten Audiofragmente verwendet wird. Stärkere Kontextnutzung kann die Satzkontinuität verbessern, kann bei Fehlinterpretationen aber auch Irrtümer und Halluzinationen verstärken.",
+      "silence_guard": "Steuert die Schwellenwerte zum Verwerfen von Stille, sehr schwachem Signal und Fragmenten, die wie Halluzinationen des Modells aussehen. Strengere Filterung reduziert falsche Transkripte, kann aber auch leise Sprache verwerfen.",
+      "language_stability": "Legt fest, wie viele übereinstimmende Sprach-Erkennungen nötig sind, bevor die Sprache für den aktuellen Durchlauf als stabil gilt. Höhere Werte verringern das Risiko einer falschen Festlegung, verzögern aber die Entscheidung.",
+      "transcription_chunk_length_s": "Legt fest, wie viel Audio in einem Schritt an Whisper übergeben wird. Ein größeres Fenster gibt dem Modell mehr Kontext und kann längere Äußerungen besser erfassen, erhöht aber Latenz, Rechenaufwand und Speicherbedarf.",
+      "transcription_stride_length_s": "Fügt einen gemeinsamen Bereich zwischen benachbarten Analysefenstern hinzu. Mehr Überlappung kann Übergänge an Segmentgrenzen verbessern, verarbeitet aber einen Teil des Audios mehrfach und erhöht die Laufzeitkosten.",
+      "translation_style": "Steuert das Verhalten des Übersetzungs-Decoders. Es beeinflusst, ob das Modell eher eine wörtliche, ausgewogene oder freiere Formulierung bevorzugt.",
+      "translation_num_beams": "Legt fest, wie viele Alternativen bei der Beam Search parallel geprüft werden. Höhere Werte verbessern meist die Übersetzungsqualität, erhöhen aber Laufzeit und Speicherbedarf.",
+      "translation_no_repeat_ngram_size": "Blockiert wiederholte n-Gramme der angegebenen Größe innerhalb eines einzelnen Übersetzungsergebnisses. Hilft gegen Schleifen und Wiederholungen. Wert 0 deaktiviert die Sperre.",
+      "transcription_profile": "Definiert das feste Arbeitsprofil der Transkription: Länge des Analysefensters, Kontextnutzung, Filterung von Stille und Stabilisierung der Spracherkennung. Eingebaute Profile haben feste Parameter. Das benutzerdefinierte Profil entsperrt deren manuelle Bearbeitung.",
+      "translation_profile": "Definiert das Dekodierprofil der Übersetzung: Zahl der geprüften Alternativen, Schutz vor Wiederholungen und Verhalten des Decoders. Eingebaute Profile haben feste Parameter. Das benutzerdefinierte Profil entsperrt deren manuelle Bearbeitung."
     },
     "msg": {
       "saved": "✅ Einstellungen wurden gespeichert."
@@ -563,14 +577,6 @@
       "max_bandwidth_kbps": "Bandbreitenlimit (kb/s)",
       "retries": "HTTP-Wiederholungen"
     },
-    "quality": {
-      "accurate": "Genau",
-      "accurate_tip": "Höchster Dekodieraufwand. Am langsamsten, kann aber mit schwierigem Audio, Akzenten und uneindeutiger Sprache besser umgehen.",
-      "balanced": "Ausgewogen",
-      "balanced_tip": "Mittlerer Dekodieraufwand. Guter Kompromiss zwischen Geschwindigkeit und Robustheit bei typischen Aufnahmeproblemen.",
-      "fast": "Schnell",
-      "fast_tip": "Niedrigster Dekodieraufwand. Am schnellsten, aber weniger robust bei Rauschen, undeutlicher Sprache und schwierigeren Passagen."
-    },
     "section": {
       "app": "Anwendung 🖥️",
       "download": "Download & Netzwerk 🌐",
@@ -579,13 +585,15 @@
       "translation": "Übersetzung 🌍"
     },
     "transcription": {
-      "chunk_length_s": "Chunk-Länge (s)",
+      "chunk_length_s": "Länge des Analysefensters (s)",
       "ignore_warning": "Ergebnisse trotz unkritischer Warnungen akzeptieren",
       "model": "Transkriptions-Engine",
-      "quality_label": "Dekodierprofil",
-      "stride_length_s": "Stride-Länge (s)",
-      "text_consistency": "Konsistenz zwischen Segmenten",
-      "default_language": "Standard-Quellsprache"
+      "stride_length_s": "Überlappung der Analysefenster (s)",
+      "default_language": "Standard-Quellsprache",
+      "context_policy": "Kontextnutzung zwischen Segmenten",
+      "silence_guard": "Filterung von Stille und schwachem Signal",
+      "language_stability": "Schwelle für stabile Spracherkennung",
+      "profile_label": "Transkriptionsprofil"
     },
     "translation": {
       "chunk_max_chars": "Maximale Eingabelänge pro Abschnitt",
@@ -593,11 +601,62 @@
         "disabled": "Deaktiviert",
         "label": "Übersetzungs-Engine"
       },
-      "max_new_tokens": "Maximale Generierungslänge (Token)",
-      "quality": {
-        "label": "Generierungsprofil"
+      "max_new_tokens": "Längenlimit der Generierung (Token)",
+      "default_language": "Standard-Zielsprache",
+      "style": {
+        "label": "Dekodierstrategie der Übersetzung",
+        "literal": "Wörtlich",
+        "balanced": "Ausgewogen",
+        "fluent": "Flüssig",
+        "literal_tip": "Bevorzugt eine Übersetzung, die Wortwahl und Struktur der Quelle stärker beibehält, auch wenn sie weniger natürlich klingt.",
+        "balanced_tip": "Versucht, inhaltliche Treue und natürlich klingende Ausgabe auszubalancieren.",
+        "fluent_tip": "Bevorzugt flüssigere und natürlichere Formulierungen, auch wenn das Ergebnis weniger wörtlich wird."
       },
-      "default_language": "Standard-Zielsprache"
+      "num_beams": "Breite der Beam Search",
+      "no_repeat_ngram_size": "Sperre für n-Gramm-Wiederholungen",
+      "profile": {
+        "label": "Übersetzungsprofil",
+        "fast_tip": "Niedrigste Dekodierkosten. Das schnellste Profil, prüft aber die wenigsten Alternativen und vereinfacht das Ergebnis häufiger.",
+        "balanced_tip": "Standard-Kompromiss zwischen Generierungsgeschwindigkeit und Dekodierqualität.",
+        "accurate_tip": "Prüft mehr Alternativen und dekodiert vorsichtiger. Langsamer, aber meist besser für schwierigeren oder weniger eindeutigen Text.",
+        "custom_tip": "Entsperrt die manuelle Bearbeitung der Übersetzungsprofil-Parameter. Startet mit den Werten des aktuell gewählten eingebauten Profils."
+      }
+    },
+    "context_policy": {
+      "off": "Aus",
+      "auto": "Automatisch",
+      "aggressive": "Aggressiv",
+      "off_tip": "Gibt keinen vorherigen Text als Kontext an die nächsten Fragmente weiter. Am sichersten bei Halluzinationsrisiko, kann aber die Satzkontinuität verringern.",
+      "auto_tip": "Verwendet Kontext nur dann, wenn das Audiosignal ausreichend zuverlässig wirkt. In der Regel der beste Gesamtkompromiss.",
+      "aggressive_tip": "Stützt die nächste Erkennung stärker auf den vorherigen Text. Kann Kontinuität verbessern, erhöht aber das Risiko, Fehler zu verfestigen."
+    },
+    "silence_guard": {
+      "off": "Aus",
+      "normal": "Normal",
+      "strict": "Streng",
+      "off_tip": "Minimale Filterung von Stille und schwachem Signal. Der am wenigsten eingreifende Modus, aber auch am anfälligsten für Rauschen und halluzinierte Ausgaben.",
+      "normal_tip": "Mittlere Filterung für Stille, schwaches Signal und Artefakte. Standard-Kompromiss zwischen Sicherheit und Empfindlichkeit.",
+      "strict_tip": "Strengste Filter-Schwellenwerte. Am wirksamsten gegen Halluzinationen auf Stille, kann aber leise Sprache und sehr kurze Eingaben verwerfen."
+    },
+    "language_stability": {
+      "fast": "Schnell",
+      "balanced": "Ausgewogen",
+      "strict": "Streng",
+      "fast_tip": "Akzeptiert die erkannte Sprache nach sehr wenig Bestätigung. Am reaktionsschnellsten, aber auch am fehleranfälligsten.",
+      "balanced_tip": "Erfordert eine mittlere Zahl übereinstimmender Bestätigungen, bevor die Sprache als stabil gilt.",
+      "strict_tip": "Erfordert mehr übereinstimmende Erkennungen, bevor die Sprache als stabil gilt. Am robustesten, aber am langsamsten."
+    },
+    "profile": {
+      "accurate": "Genau",
+      "accurate_tip": "Verwendet längere Analysefenster und konservativere Erkennung. Langsamer, aber meist stabiler bei längeren Äußerungen und schwierigem Material.",
+      "balanced": "Ausgewogen",
+      "balanced_tip": "Standard-Kompromiss zwischen Geschwindigkeit, Kontextstabilität und Robustheit gegenüber typischen Aufnahmeproblemen.",
+      "fast": "Schnell",
+      "fast_tip": "Verwendet kürzere Analysefenster und weniger konservative Schwellenwerte. Das schnellste Profil, aber schwächer bei Rauschen, leiser Sprache und schwierigem Audio.",
+      "guarded": "Vorsichtig",
+      "guarded_tip": "Filtert Stille, schwaches Signal und verdächtige Fragmente am stärksten. Am besten für Aufnahmen mit Pausen, Rauschen, Hintergrundmusik oder hohem Halluzinationsrisiko.",
+      "custom": "Benutzerdefiniert",
+      "custom_tip": "Entsperrt die manuelle Bearbeitung der Transkriptionsprofil-Parameter. Startet mit den Werten des aktuell gewählten eingebauten Profils."
     }
   },
   "status": {

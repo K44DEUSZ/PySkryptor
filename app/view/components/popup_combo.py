@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable, cast
+import weakref
 
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
-from app.model.services.localization_service import build_language_options
+from app.model.services.localization_service import SpecialLanguageOptions, build_language_options
 from app.model.config.language_policy import LanguagePolicy
 from app.model.helpers.string_utils import normalize_lang_code
 from app.view.components.hint_popup import hint_popup
@@ -622,9 +623,22 @@ class MultiSelectPopup(QtWidgets.QWidget):
         self.closed.emit()
 
 class _PopupHostComboMixin:
+    _OPEN_HOSTS: "weakref.WeakSet[_PopupHostComboMixin]" = weakref.WeakSet()
     _tracked_window: QtWidgets.QWidget | None
     _app_filter_installed: bool
     _visual_state_sync_pending: bool
+
+    def _register_popup_host(self) -> None:
+        self._OPEN_HOSTS.add(self)
+
+    def _close_other_popups(self) -> None:
+        for host in tuple(self._OPEN_HOSTS):
+            if host is self:
+                continue
+            try:
+                host.hide_popup()
+            except (AttributeError, RuntimeError, TypeError):
+                continue
 
     def _popup_widget(self) -> QtWidgets.QWidget | None:
         return None
@@ -684,7 +698,7 @@ class _PopupHostComboMixin:
         popup = self._popup_widget()
         return contains_widget_chain(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
 
-    def event_filter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         popup = self._popup_widget()
         if _widget_visible(popup):
             if event.type() in {QtCore.QEvent.Type.ApplicationDeactivate, QtCore.QEvent.Type.WindowDeactivate}:
@@ -715,37 +729,37 @@ class _PopupHostComboMixin:
                 self._schedule_visual_state_sync()
         return QtWidgets.QWidget.eventFilter(cast(QtWidgets.QWidget, cast(object, self)), obj, event)
 
-    def show_event(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
+    def showEvent(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.showEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._bind_window()
         self._schedule_visual_state_sync()
 
-    def hide_event(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
+    def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         self.hide_popup()
         QtWidgets.QWidget.hideEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def move_event(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
+    def moveEvent(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.moveEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
-    def resize_event(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.resizeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         popup = self._popup_widget()
         if popup is not None:
             popup.refresh_geometry()
 
-    def focus_in_event(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+    def focusInEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusInEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def focus_out_event(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+    def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusOutEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def change_event(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
+    def changeEvent(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.changeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         if event.type() in {QtCore.QEvent.Type.EnabledChange, QtCore.QEvent.Type.ParentChange}:
             self._bind_window()
@@ -788,6 +802,7 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
         self._bind_popup_focus_widget()
         self._bind_window()
         self._install_app_filter()
+        self._register_popup_host()
 
     def _popup_widget(self) -> ComboPopup | None:
         popup = getattr(self, "_popup", None)
@@ -810,6 +825,7 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
         popup = self._popup_widget()
         if popup is None or not self.isEnabled() or self.count() <= 0:
             return
+        self._close_other_popups()
         popup.show_for(self)
         self.sync_visual_state()
 
@@ -892,7 +908,7 @@ class LanguageCombo(PopupComboBox):
     def __init__(
         self,
         *,
-        special_first: tuple[str, str] | None = None,
+        special_first: SpecialLanguageOptions = None,
         codes_provider: Callable[[], Iterable[str]] | None = None,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
@@ -954,6 +970,7 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
 
         self._bind_window()
         self._install_app_filter()
+        self._register_popup_host()
         self._sync_display_item("")
         self._apply_selected_items([])
 
@@ -999,12 +1016,13 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
         self.showPopup()
 
     def hide_popup(self) -> None:
-        self.hide_popup()
+        super().hide_popup()
 
     def showPopup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
         if popup is None or not self.isEnabled() or not self._items:
             return
+        self._close_other_popups()
         popup.set_items(self._items, self.selected_items())
         popup.show_for(self)
         self.sync_visual_state()

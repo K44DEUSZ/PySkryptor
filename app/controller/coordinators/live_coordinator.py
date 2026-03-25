@@ -100,7 +100,8 @@ class LiveCoordinator(QtCore.QObject):
         source_language: str = "",
         target_language: str = "",
         translate_enabled: bool = False,
-        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
+        profile: str = RuntimeProfiles.LIVE_DEFAULT_PROFILE,
+        runtime_profile: dict[str, Any] | None = None,
         output_mode: str = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE,
     ) -> LiveTranscriptionWorker | None:
         if self._runner.is_running():
@@ -115,7 +116,8 @@ class LiveCoordinator(QtCore.QObject):
             source_language=source_language,
             target_language=target_language,
             translate_enabled=translate_enabled,
-            preset_id=preset_id,
+            profile=profile,
+            runtime_profile=runtime_profile,
             output_mode=output_mode,
         )
         self._worker = worker

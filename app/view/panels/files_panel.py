@@ -1899,7 +1899,7 @@ class FilesPanel(QtWidgets.QWidget):
         it = self.tbl.item(row, self.COL_STATUS)
         if it:
             it.setText(tr("status.error"))
-            it.setToolTip(tr(ekey, **eparams))
+            it.setToolTip(tr(error_key, **eparams))
 
     @QtCore.pyqtSlot(str, str)
     def on_item_output_dir(self, key: str, out_dir: str) -> None:

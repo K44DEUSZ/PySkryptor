@@ -30,8 +30,7 @@ _LEVEL_MAP = {
 
 @dataclass(frozen=True)
 class LoggingContext:
-    """Resolved logging paths and root logger used during bootstrap."""
-    logger: logging.Logger
+    """Resolved logging paths used during bootstrap."""
     logs_dir: Path
     app_log_path: Path
     crash_log_path: Path
@@ -82,7 +81,6 @@ class LoggingSetup:
         app_log_path: Path,
         crash_log_path: Path,
         *,
-        logger_name: str = AppMeta.NAME,
         max_bytes: int = 2_000_000,
         backup_count: int = 5,
         console: bool = True,
@@ -111,19 +109,15 @@ class LoggingSetup:
             LoggingSetup._remove_named_handler(root, _APP_FILE_HANDLER_NAME)
         LoggingSetup._ensure_console_handler(root, enabled=console)
 
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.NOTSET)
-        logger.propagate = True
-
-        LoggingSetup._write_startup_header(root)
-        LoggingSetup._install_excepthook(root, crash_log_path)
+        LoggingSetup._write_startup_header()
+        LoggingSetup._install_excepthook(crash_log_path)
 
         logging.getLogger("transformers").setLevel(logging.ERROR)
 
         if enable_faulthandler:
-            LoggingSetup._enable_faulthandler(crash_log_path, logger=root)
+            LoggingSetup._enable_faulthandler(crash_log_path)
 
-        root.debug(
+        _LOG.debug(
             "Logging bootstrap initialized. level=%s file_enabled=%s app_log=%s crash_log=%s",
             level_name,
             bool(file_enabled),
@@ -132,7 +126,6 @@ class LoggingSetup:
         )
 
         return LoggingContext(
-            logger=logger,
             logs_dir=logs_dir,
             app_log_path=app_log_path,
             crash_log_path=crash_log_path,
@@ -155,7 +148,7 @@ class LoggingSetup:
         else:
             LoggingSetup._remove_named_handler(root, _APP_FILE_HANDLER_NAME)
 
-        root.debug(
+        _LOG.debug(
             "Logging settings applied. level=%s file_enabled=%s app_log=%s",
             lvl,
             bool(file_enabled),
@@ -237,21 +230,21 @@ class LoggingSetup:
             _LOG.debug("Crash log append skipped. path=%s detail=%s", crash_log_path, ex)
 
     @staticmethod
-    def _write_startup_header(logger: logging.Logger) -> None:
+    def _write_startup_header() -> None:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.debug("Startup session opened. started_at=%s", ts)
+        _LOG.debug("Startup session opened. started_at=%s", ts)
 
     @staticmethod
-    def _install_excepthook(logger: logging.Logger, crash_log_path: Path) -> None:
+    def _install_excepthook(crash_log_path: Path) -> None:
         def _hook(exc_type, exc, tb) -> None:
             text = "".join(traceback.format_exception(exc_type, exc, tb))
-            logger.error("Unhandled exception.\n%s", text)
+            _LOG.error("Unhandled exception.\n%s", text)
             LoggingSetup._append_crash_entry(crash_log_path, "python crash", text)
 
         sys.excepthook = _hook
 
     @staticmethod
-    def _enable_faulthandler(crash_log_path: Path, *, logger: logging.Logger | None = None) -> None:
+    def _enable_faulthandler(crash_log_path: Path) -> None:
         try:
             import faulthandler
 
@@ -265,14 +258,12 @@ class LoggingSetup:
                     _LOG.debug("Faulthandler file close skipped. path=%s detail=%s", crash_log_path, close_ex)
 
             atexit.register(_close)
-            if logger:
-                logger.debug("Faulthandler enabled. path=%s", crash_log_path)
+            _LOG.debug("Faulthandler enabled. path=%s", crash_log_path)
         except (ImportError, OSError, RuntimeError, AttributeError, TypeError, ValueError) as ex:
-            if logger:
-                logger.warning("Faulthandler enable failed. detail=%s", ex)
+            _LOG.warning("Faulthandler enable failed. detail=%s", ex)
 
     @staticmethod
-    def make_qt_message_handler(logger: logging.Logger, crash_log_path: Path):
+    def make_qt_message_handler(crash_log_path: Path):
         """Return a function compatible with QtCore.qInstallMessageHandler."""
 
         def _qt_handler(mode, context, message) -> None:
@@ -311,19 +302,19 @@ class LoggingSetup:
 
                 crash_title: str | None = None
                 if mode == qt_debug:
-                    logger.debug("[qt-raw] %s%s", msg, origin)
+                    _LOG.debug("[qt-raw] %s%s", msg, origin)
                 elif qt_info is not None and mode == qt_info:
-                    logger.info("[qt-raw] %s%s", msg, origin)
+                    _LOG.info("[qt-raw] %s%s", msg, origin)
                 elif mode == qt_warning:
-                    logger.warning("[qt-raw] %s%s", msg, origin)
+                    _LOG.warning("[qt-raw] %s%s", msg, origin)
                 elif mode == qt_critical:
-                    logger.error("[qt-raw] %s%s", msg, origin)
+                    _LOG.error("[qt-critical] %s%s", msg, origin)
                     crash_title = "qt critical"
                 elif mode == qt_fatal:
-                    logger.critical("[qt-raw] %s%s", msg, origin)
+                    _LOG.error("[qt-fatal] %s%s", msg, origin)
                     crash_title = "qt fatal"
                 else:
-                    logger.info("[qt-raw] %s%s", msg, origin)
+                    _LOG.info("[qt-raw] %s%s", msg, origin)
 
                 if crash_title is not None:
                     LoggingSetup._append_crash_entry(crash_log_path, crash_title, f"{msg}{origin}")

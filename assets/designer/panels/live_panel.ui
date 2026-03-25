@@ -34,7 +34,7 @@
         </layout>
        </widget>
       </item>
-      <item row="1" column="1"><widget class="QGroupBox" name="presetHost"><property name="title"><string>Preset</string></property><layout class="QVBoxLayout" name="presetLayout"><item><widget class="QComboBox" name="cmb_preset"/></item></layout></widget></item>
+      <item row="1" column="1"><widget class="QGroupBox" name="profileHost"><property name="title"><string>Profil</string></property><layout class="QVBoxLayout" name="profileLayout"><item><widget class="QComboBox" name="cmb_profile"/></item></layout></widget></item>
       <item row="2" column="0"><widget class="QGroupBox" name="srcLangHost"><property name="title"><string>Język źródłowy</string></property><layout class="QVBoxLayout" name="srcLangLayout"><item><widget class="QComboBox" name="cmb_src_lang"/></item></layout></widget></item>
       <item row="2" column="1"><widget class="QGroupBox" name="tgtLangHost"><property name="title"><string>Język docelowy</string></property><layout class="QVBoxLayout" name="tgtLangLayout"><item><widget class="QComboBox" name="cmb_tgt_lang"/></item></layout></widget></item>
      </layout>

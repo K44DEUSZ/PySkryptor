@@ -136,8 +136,7 @@ def _setup_logging() -> Any:
         bootstrap_level=bootstrap_level,
     )
 
-    logger = log_ctx.logger
-    logger.debug(
+    _LOG.debug(
         'Startup logging settings resolved. level=%s file_enabled=%s settings_file=%s defaults_file=%s',
         bootstrap_level,
         bool(bootstrap_file_enabled),
@@ -147,11 +146,11 @@ def _setup_logging() -> Any:
 
     try:
         QtCore.qInstallMessageHandler(
-            LoggingSetup.make_qt_message_handler(logger, log_ctx.crash_log_path)
+            LoggingSetup.make_qt_message_handler(log_ctx.crash_log_path)
         )
-        logger.debug('Qt message handler installed. crash_log=%s', log_ctx.crash_log_path)
+        _LOG.debug('Qt message handler installed. crash_log=%s', log_ctx.crash_log_path)
     except (RuntimeError, TypeError) as ex:
-        logger.warning('Qt message handler installation failed. detail=%s', ex)
+        _LOG.warning('Qt message handler installation failed. detail=%s', ex)
 
     return log_ctx
 
@@ -206,7 +205,7 @@ def _apply_logging_settings(log_ctx: Any, snap: Any) -> None:
             level=str(logging_cfg.get('level', 'warning') or 'warning'),
         )
     except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
-        log_ctx.logger.warning('Runtime logging settings apply failed. detail=%s', ex)
+        _LOG.warning('Runtime logging settings apply failed. detail=%s', ex)
 
 
 def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
@@ -351,32 +350,30 @@ def run(argv: list[str] | None = None) -> int:
     ui_cfg = _configure_application(app)
 
     log_ctx = _setup_logging()
-    logger = log_ctx.logger
-
-    if not _load_startup_localization(logger):
+    if not _load_startup_localization(_LOG):
         return 1
 
     settings_service = SettingsService()
-    snap = _load_settings(settings_service, logger)
+    snap = _load_settings(settings_service, _LOG)
     if snap is None:
         return 1
 
     _apply_logging_settings(log_ctx, snap)
 
-    logger.debug(
+    _LOG.debug(
         'Settings snapshot loaded. language=%s theme=%s',
         snap.app.get('language', 'auto'),
         snap.app.get('theme', 'auto'),
     )
 
-    if not _activate_application_localization(snap, logger):
+    if not _activate_application_localization(snap, _LOG):
         return 1
 
-    theme = _apply_theme(app, snap, logger)
+    theme = _apply_theme(app, snap, _LOG)
     _apply_window_icon(app, theme)
-    _clamp_third_party_logging(logger)
+    _clamp_third_party_logging(_LOG)
 
-    return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=logger)
+    return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=_LOG)
 
 
 if __name__ == '__main__':

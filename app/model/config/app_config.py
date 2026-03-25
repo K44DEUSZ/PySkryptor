@@ -183,9 +183,10 @@ class AppConfig:
         return str(cfg.get("device_name") or "").strip()
 
     @classmethod
-    def live_ui_preset(cls) -> str:
+    def live_ui_profile(cls) -> str:
         cfg = cls.live_ui_cfg_dict()
-        return RuntimeProfiles.normalize_live_preset(cfg.get("preset"))
+        return RuntimeProfiles.normalize_live_profile(cfg.get("profile"))
+
 
     @classmethod
     def live_ui_output_mode(cls) -> str:

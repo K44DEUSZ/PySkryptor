@@ -121,13 +121,7 @@ class _TextContextActionRow(QtWidgets.QFrame):
         self.setProperty("role", "textContextAction")
         self.setProperty("hovered", False)
         self.setProperty("pressed", False)
-        self.setCursor(
-            QtGui.QCursor(
-                QtCore.Qt.CursorShape.PointingHandCursor if enabled else QtCore.Qt.CursorShape.ArrowCursor
-            )
-        )
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self.setEnabled(bool(enabled))
         self.setFixedHeight(max(int(cfg.control_min_h) - 2, 28))
 
         lay = QtWidgets.QHBoxLayout(self)
@@ -144,6 +138,22 @@ class _TextContextActionRow(QtWidgets.QFrame):
 
         lay.addWidget(self._label, 1)
         lay.addWidget(self._shortcut, 0)
+
+        self._apply_enabled_state(bool(enabled))
+
+    def _apply_enabled_state(self, enabled: bool) -> None:
+        self.setProperty("enabledState", bool(enabled))
+        self.setEnabled(bool(enabled))
+        self.setCursor(
+            QtGui.QCursor(
+                QtCore.Qt.CursorShape.PointingHandCursor if enabled else QtCore.Qt.CursorShape.ArrowCursor
+            )
+        )
+        self._label.setEnabled(bool(enabled))
+        self._shortcut.setEnabled(bool(enabled))
+        repolish_widget(self)
+        repolish_widget(self._label)
+        repolish_widget(self._shortcut)
 
     def _set_state(self, *, hovered: bool | None = None, pressed: bool | None = None) -> None:
         changed = False

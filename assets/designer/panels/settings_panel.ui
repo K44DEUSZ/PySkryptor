@@ -80,10 +80,10 @@
               <layout class="QFormLayout" name="transcriptionFormLayout">
                <item row="0" column="0"><widget class="QLabel" name="lbl_trans_engine"><property name="text"><string>Model</string></property></widget></item>
                <item row="0" column="1"><widget class="QComboBox" name="cb_trans_engine"/></item>
-               <item row="1" column="0"><widget class="QLabel" name="lbl_quality"><property name="text"><string>Jakość</string></property></widget></item>
-               <item row="1" column="1"><widget class="QComboBox" name="cb_quality"/></item>
-               <item row="2" column="0"><widget class="QLabel" name="lbl_text_consistency"><property name="text"><string>Spójność tekstu</string></property></widget></item>
-               <item row="2" column="1"><widget class="QWidget" name="tg_text_consistency_placeholder"><layout class="QHBoxLayout" name="tg_text_consistency_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>0</number></property><item><widget class="QPushButton" name="tg_text_consistency_yes"><property name="text"><string>Tak</string></property><property name="checkable"><bool>true</bool></property></widget></item><item><widget class="QPushButton" name="tg_text_consistency_no"><property name="text"><string>Nie</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item></layout></widget></item>
+               <item row="1" column="0"><widget class="QLabel" name="lbl_transcription_profile"><property name="text"><string>Profil transkrypcji</string></property></widget></item>
+               <item row="1" column="1"><widget class="QComboBox" name="cb_transcription_profile"/></item>
+               <item row="2" column="0"><widget class="QLabel" name="lbl_context_policy"><property name="text"><string>Kontekst między segmentami</string></property></widget></item>
+               <item row="2" column="1"><widget class="QComboBox" name="cb_context_policy"/></item>
                <item row="3" column="0"><widget class="QLabel" name="lbl_chunk_len"><property name="text"><string>Długość chunku [s]</string></property></widget></item>
                <item row="3" column="1"><widget class="QSpinBox" name="sp_chunk_len"/></item>
                <item row="4" column="0"><widget class="QLabel" name="lbl_stride_len"><property name="text"><string>Stride [s]</string></property></widget></item>
@@ -104,8 +104,8 @@
               <layout class="QFormLayout" name="translationFormLayout">
                <item row="0" column="0"><widget class="QLabel" name="lbl_tr_engine"><property name="text"><string>Silnik tłumaczenia</string></property></widget></item>
                <item row="0" column="1"><widget class="QComboBox" name="cb_tr_engine"/></item>
-               <item row="1" column="0"><widget class="QLabel" name="lbl_tr_quality"><property name="text"><string>Jakość tłumaczenia</string></property></widget></item>
-               <item row="1" column="1"><widget class="QComboBox" name="cb_tr_quality"/></item>
+               <item row="1" column="0"><widget class="QLabel" name="lbl_translation_profile"><property name="text"><string>Profil tłumaczenia</string></property></widget></item>
+               <item row="1" column="1"><widget class="QComboBox" name="cb_translation_profile"/></item>
                <item row="2" column="0"><widget class="QLabel" name="lbl_tr_max_tokens"><property name="text"><string>Max nowych tokenów</string></property></widget></item>
                <item row="2" column="1"><widget class="QSpinBox" name="sp_tr_max_tokens"/></item>
                <item row="3" column="0"><widget class="QLabel" name="lbl_tr_chunk_chars"><property name="text"><string>Max znaków chunku</string></property></widget></item>

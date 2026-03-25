@@ -98,20 +98,22 @@ class TranslationService:
         device_str = str(runtime_payload["device"])
         dtype_name = str(runtime_payload["dtype"])
         chunk_max_chars = int(runtime_payload["chunk_max_chars"])
-        quality_preset = str(runtime_payload["quality_preset"])
+        profile = str(runtime_payload["profile"])
+        style_id = str(runtime_payload["style"])
 
         debug_chunk_count = 0
         if _LOG.isEnabledFor(logging.DEBUG):
             debug_chunk_count = len(_chunk_text(t, max_chars=chunk_max_chars))
             _LOG.debug(
-                "Translation request prepared. worker=translation text_chars=%s chunk_count=%s src_lang=%s tgt_lang=%s device=%s dtype=%s preset=%s",
+                "Translation request prepared. worker=translation text_chars=%s chunk_count=%s src_lang=%s tgt_lang=%s device=%s dtype=%s profile=%s style=%s",
                 len(t),
                 debug_chunk_count,
                 src,
                 tgt,
                 device_str,
                 dtype_name,
-                quality_preset,
+                profile,
+                style_id,
             )
 
         payload = {
@@ -240,6 +242,11 @@ class TranslationService:
         if not (model_path.exists() and model_path.is_dir()):
             raise ConfigError("error.model.translation_missing", path=str(model_path))
 
+        advanced = mdl.get("advanced") if isinstance(mdl.get("advanced"), dict) else {}
+        runtime = RuntimeProfiles.resolve_translation_runtime(
+            profile=mdl.get("profile", RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),
+            overrides=advanced,
+        )
         return {
             "model_ref": str(model_path),
             "device": str(getattr(Config, "DEVICE_ID", "cpu")),
@@ -247,7 +254,10 @@ class TranslationService:
             "low_cpu_mem_usage": bool(Config.engine_low_cpu_mem_usage()),
             "max_new_tokens": int(mdl["max_new_tokens"]),
             "chunk_max_chars": int(mdl["chunk_max_chars"]),
-            "quality_preset": str(mdl["quality_preset"]).strip().lower(),
+            "profile": str(runtime["profile"]),
+            "style": str(runtime["style"]),
+            "num_beams": int(runtime["num_beams"]),
+            "no_repeat_ngram_size": int(runtime["no_repeat_ngram_size"]),
         }
 
     @staticmethod
@@ -394,10 +404,14 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
         tgt = _norm_lang(req.get("tgt", ""))
         max_new_tokens = int(req.get("max_new_tokens"))
         chunk_max_chars = int(req.get("chunk_max_chars"))
-
-        preset = RuntimeProfiles.normalize_transcription_preset(req.get("quality_preset"))
-        if preset not in RuntimeProfiles.TRANSCRIPTION_PRESET_IDS:
-            return {"ok": False, "code": "bad_preset", "error": f"unsupported preset '{preset}'"}
+        runtime = RuntimeProfiles.resolve_translation_runtime(
+            profile=req.get("profile", RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),
+            overrides={
+                "style": req.get("style"),
+                "num_beams": req.get("num_beams"),
+                "no_repeat_ngram_size": req.get("no_repeat_ngram_size"),
+            },
+        )
 
         try:
             loaded = _load_worker_runtime(req)
@@ -431,15 +445,14 @@ def _worker_handle(req: dict[str, Any]) -> dict[str, Any]:
             tok.src_lang = src
             enc = tok(chunk, return_tensors="pt", truncation=True).to(device)
             forced = tok.get_lang_id(tgt)
-            gen_kwargs = {"forced_bos_token_id": forced, "max_new_tokens": max_new_tokens}
-            if preset == RuntimeProfiles.TRANSCRIPTION_PRESET_FAST:
-                gen_kwargs["num_beams"] = 1
-            elif preset == RuntimeProfiles.TRANSCRIPTION_PRESET_BALANCED:
-                gen_kwargs["num_beams"] = 3
-                gen_kwargs["no_repeat_ngram_size"] = 3
-            else:
-                gen_kwargs["num_beams"] = 6
-                gen_kwargs["no_repeat_ngram_size"] = 3
+            gen_kwargs = {
+                "forced_bos_token_id": forced,
+                "max_new_tokens": max_new_tokens,
+                "num_beams": int(runtime.get("num_beams", 3)),
+            }
+            no_repeat = int(runtime.get("no_repeat_ngram_size", 0) or 0)
+            if no_repeat > 0:
+                gen_kwargs["no_repeat_ngram_size"] = no_repeat
             gen = model.generate(**enc, **gen_kwargs)
             out = tok.batch_decode(gen, skip_special_tokens=True)[0]
             out_parts.append(str(out).strip())

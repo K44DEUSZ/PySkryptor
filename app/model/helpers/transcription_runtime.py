@@ -1,14 +1,22 @@
 # app/model/helpers/transcription_runtime.py
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import torch
 
 from app.model.io.media_probe import is_url_source
 from app.model.helpers.string_utils import sanitize_url_for_log
+
+SIGNAL_NONE = "none"
+SIGNAL_WEAK = "weak"
+SIGNAL_SOLID = "solid"
+
+_MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
 
 def audio_rms_level(audio: Any) -> float:
     """Return RMS level for a mono audio buffer."""
@@ -19,6 +27,7 @@ def audio_rms_level(audio: Any) -> float:
     if arr.size == 0:
         return 0.0
     return float(np.sqrt(np.mean(np.square(arr), dtype=np.float64)))
+
 
 def _audio_signal_profile(audio: Any, *, sr: int, floor: float) -> tuple[float, float, float]:
     try:
@@ -33,6 +42,7 @@ def _audio_signal_profile(audio: Any, *, sr: int, floor: float) -> tuple[float, 
     active_ratio = float(np.mean(active, dtype=np.float64))
     active_ms = 0.0 if sr <= 0 else (float(np.count_nonzero(active)) / float(sr)) * 1000.0
     return audio_rms_level(arr), active_ratio, active_ms
+
 
 def audio_has_meaningful_signal(
     audio: Any,
@@ -51,6 +61,210 @@ def audio_has_meaningful_signal(
         and active_ms >= float(active_ms_min)
     )
 
+
+def classify_audio_signal(audio: Any, *, sr: int, profile: dict[str, Any]) -> str:
+    """Classify an audio chunk into none/weak/solid using the resolved runtime profile."""
+    if not audio_has_meaningful_signal(
+        audio,
+        sr=sr,
+        rms_min=float(profile.get("weak_rms_threshold", 0.0115)),
+        activity_floor=float(profile.get("weak_activity_floor", 0.0055)),
+        active_ratio_min=float(profile.get("weak_active_ratio_threshold", 0.012)),
+        active_ms_min=float(profile.get("weak_active_ms_threshold", 55.0)),
+    ):
+        return SIGNAL_NONE
+
+    if audio_has_meaningful_signal(
+        audio,
+        sr=sr,
+        rms_min=float(profile.get("solid_rms_threshold", 0.0145)),
+        activity_floor=float(profile.get("solid_activity_floor", 0.0065)),
+        active_ratio_min=float(profile.get("solid_active_ratio_threshold", 0.022)),
+        active_ms_min=float(profile.get("solid_active_ms_threshold", 85.0)),
+    ):
+        return SIGNAL_SOLID
+    return SIGNAL_WEAK
+
+
+def can_detect_language_from_audio(audio: Any, *, sr: int, signal_kind: str, profile: dict[str, Any]) -> bool:
+    """Return True when the chunk is reliable enough for language detection."""
+    if signal_kind == SIGNAL_SOLID:
+        return True
+    if signal_kind == SIGNAL_WEAK and not bool(profile.get("allow_weak_language_detection", False)):
+        return False
+    return audio_has_meaningful_signal(
+        audio,
+        sr=sr,
+        rms_min=float(profile.get("language_detect_rms_threshold", 0.03)),
+        activity_floor=float(profile.get("language_detect_activity_floor", 0.009)),
+        active_ratio_min=float(profile.get("language_detect_active_ratio_threshold", 0.07)),
+        active_ms_min=float(profile.get("language_detect_active_ms_threshold", 160.0)),
+    )
+
+
+def should_accept_detected_language(*, signal_kind: str, profile: dict[str, Any]) -> bool:
+    """Return True when language evidence from the current chunk may update the stable language state."""
+    return signal_kind == SIGNAL_SOLID or bool(profile.get("allow_weak_language_detection", False))
+
+
+def should_use_prompt(*, signal_kind: str, profile: dict[str, Any]) -> bool:
+    """Return True when the current chunk should reuse prior context as prompt text."""
+    if not bool(profile.get("use_prompt", True)):
+        return False
+    if signal_kind == SIGNAL_WEAK and not bool(profile.get("prompt_on_weak_signal", False)):
+        return False
+    return signal_kind != SIGNAL_NONE
+
+
+def build_whisper_generate_kwargs(
+    *,
+    profile: dict[str, Any],
+    source_language: str = "",
+    prompt_ids: Any = None,
+    signal_kind: str = SIGNAL_SOLID,
+) -> dict[str, Any]:
+    """Build Whisper decoding kwargs from the resolved runtime profile."""
+    kwargs: dict[str, Any] = {"task": "transcribe"}
+    if source_language:
+        kwargs["language"] = str(source_language).strip().lower()
+
+    condition_on_prev_tokens = bool(profile.get("condition_on_prev_tokens", True))
+    if signal_kind == SIGNAL_WEAK and not bool(profile.get("prompt_on_weak_signal", False)):
+        condition_on_prev_tokens = False
+    kwargs["condition_on_prev_tokens"] = condition_on_prev_tokens
+
+    if prompt_ids is not None and should_use_prompt(signal_kind=signal_kind, profile=profile):
+        kwargs["prompt_ids"] = prompt_ids
+
+    for key in ("whisper_no_speech_threshold", "whisper_logprob_threshold", "whisper_compression_ratio_threshold"):
+        value = profile.get(key)
+        if value in (None, ""):
+            continue
+        mapped = {
+            "whisper_no_speech_threshold": "no_speech_threshold",
+            "whisper_logprob_threshold": "logprob_threshold",
+            "whisper_compression_ratio_threshold": "compression_ratio_threshold",
+        }[key]
+        try:
+            kwargs[mapped] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    temperatures = profile.get("whisper_temperatures")
+    if isinstance(temperatures, (list, tuple)):
+        normalized_temperatures: list[float] = []
+        for item in temperatures:
+            try:
+                normalized_temperatures.append(float(item))
+            except (TypeError, ValueError):
+                continue
+        if normalized_temperatures:
+            kwargs["temperature"] = tuple(normalized_temperatures)
+    elif temperatures not in (None, ""):
+        try:
+            kwargs["temperature"] = float(temperatures)
+        except (TypeError, ValueError):
+            pass
+    return kwargs
+
+
+def _normalized_merge_tokens(text: str) -> list[str]:
+    return [tok for tok in _MERGE_TOKEN_RE.findall(str(text or "").lower()) if tok]
+
+
+def word_count(text: str) -> int:
+    return len(_normalized_merge_tokens(text))
+
+
+def has_terminal_punctuation(text: str) -> bool:
+    return str(text or "").rstrip().endswith((".", "!", "?", ";", ":", "...", "\N{HORIZONTAL ELLIPSIS}"))
+
+
+def _shared_prefix_token_count(left: str, right: str) -> int:
+    left_tokens = _normalized_merge_tokens(left)
+    right_tokens = _normalized_merge_tokens(right)
+    limit = min(len(left_tokens), len(right_tokens))
+    idx = 0
+    while idx < limit and left_tokens[idx] == right_tokens[idx]:
+        idx += 1
+    return idx
+
+
+def relates_to_reference_texts(text: str, references: Iterable[str], *, prefix_ratio: float = 0.62) -> bool:
+    current = str(text or "").strip()
+    if not current:
+        return False
+    current_tokens = _normalized_merge_tokens(current)
+    if not current_tokens:
+        return False
+    for ref in references:
+        reference = str(ref or "").strip()
+        if not reference:
+            continue
+        ref_tokens = _normalized_merge_tokens(reference)
+        if not ref_tokens:
+            continue
+        shorter_len = min(len(ref_tokens), len(current_tokens))
+        if shorter_len <= 0:
+            continue
+        shared_prefix = _shared_prefix_token_count(reference, current)
+        if shared_prefix == shorter_len:
+            return True
+        min_prefix = 3 if shorter_len >= 4 else max(1, shorter_len - 1)
+        if shared_prefix >= min_prefix and shared_prefix >= int(shorter_len * max(0.5, float(prefix_ratio))):
+            return True
+        reverse_prefix = _shared_prefix_token_count(current, reference)
+        if reverse_prefix == shorter_len:
+            return True
+        if reverse_prefix >= min_prefix and reverse_prefix >= int(shorter_len * max(0.5, float(prefix_ratio))):
+            return True
+    return False
+
+
+def filter_asr_text(
+    text: str,
+    *,
+    clean_fn,
+    signal_kind: str,
+    profile: dict[str, Any],
+    reference_texts: Iterable[str] = (),
+    from_tail: bool = False,
+) -> str:
+    """Filter short ASR artifacts while keeping plausible continuations."""
+    text = clean_fn(str(text or ""))
+    if not text:
+        return ""
+
+    words = word_count(text)
+    if words <= 0:
+        return ""
+
+    relates = relates_to_reference_texts(
+        text,
+        reference_texts,
+        prefix_ratio=float(profile.get("stream_replace_prefix_ratio", 0.62)),
+    )
+
+    if len(text) < int(profile.get("artifact_min_chars", 3)) and not relates:
+        return ""
+
+    if words < int(profile.get("artifact_min_words", 2)) and signal_kind == SIGNAL_WEAK and not relates:
+        return ""
+
+    if signal_kind == SIGNAL_WEAK or from_tail:
+        if words <= 1 and not relates:
+            return ""
+        if (
+            words <= int(profile.get("artifact_tail_max_words", 2))
+            and len(text) <= int(profile.get("artifact_tail_max_chars", 14))
+            and (not has_terminal_punctuation(text))
+            and (not relates)
+        ):
+            return ""
+
+    return text
+
+
 def normalize_detected_language(lang: str) -> str:
     """Normalize detected language labels to a stable short code."""
     lang = str(lang or "").strip().lower().replace("_", "-")
@@ -64,12 +278,14 @@ def normalize_detected_language(lang: str) -> str:
     except (ImportError, AttributeError, TypeError, ValueError):
         return lang
 
+
 def _normalize_whisper_language_key(value: Any) -> str:
     key = str(value or "").strip().lower()
     if key.startswith("<|") and key.endswith("|>"):
         key = key[2:-2]
     key = key.replace("_", "-").split("-", 1)[0]
     return normalize_detected_language(key)
+
 
 def extract_detected_language_from_result(out: dict[str, Any]) -> str:
     """Extract a normalized language code from ASR output payloads."""
@@ -85,11 +301,13 @@ def extract_detected_language_from_result(out: dict[str, Any]) -> str:
 
     return ""
 
+
 def _resolve_whisper_runtime(pipe: Any) -> tuple[Any, Any, Any]:
     fe = getattr(pipe, "feature_extractor", None) or getattr(getattr(pipe, "processor", None), "feature_extractor", None)
     tok = getattr(pipe, "tokenizer", None) or getattr(getattr(pipe, "processor", None), "tokenizer", None)
     model = getattr(pipe, "model", None)
     return fe, tok, model
+
 
 def _resolve_whisper_language_token_map(tokenizer: Any) -> dict[str, int]:
     lang_to_id = getattr(tokenizer, "lang_to_id", None)
@@ -129,6 +347,7 @@ def _resolve_whisper_language_token_map(tokenizer: Any) -> dict[str, int]:
             continue
     return resolved
 
+
 def _build_whisper_input_features(*, feature_extractor: Any, model: Any, audio: Any, sr: int) -> Any:
     inputs = feature_extractor(audio, sampling_rate=int(sr), return_tensors="pt")
     input_features = inputs.get("input_features")
@@ -153,6 +372,7 @@ def _build_whisper_input_features(*, feature_extractor: Any, model: Any, audio: 
         return input_features.to(**move_kwargs) if move_kwargs else input_features
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return input_features
+
 
 def _select_language_from_logits(logits: Any, *, lang_to_id: dict[str, int]) -> str:
     if logits is None or not lang_to_id:
@@ -180,6 +400,7 @@ def _select_language_from_logits(logits: Any, *, lang_to_id: dict[str, int]) -> 
                 best_score = score
         return best_lang
 
+
 def _detect_language_from_decoder_runtime(*, model: Any, tokenizer: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
     try:
         sot_id = tokenizer.convert_tokens_to_ids("<|startoftranscript|>")
@@ -195,6 +416,7 @@ def _detect_language_from_decoder_runtime(*, model: Any, tokenizer: Any, input_f
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return ""
 
+
 def _detect_language_from_encoder_runtime(*, model: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
     try:
         encoder = model.get_encoder()
@@ -209,6 +431,7 @@ def _detect_language_from_encoder_runtime(*, model: Any, input_features: Any, la
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return ""
 
+
 def debug_source_key(value: str) -> str:
     """Return a log-safe, user-neutral source label."""
     text = str(value or "").strip()
@@ -217,6 +440,7 @@ def debug_source_key(value: str) -> str:
     if is_url_source(text):
         return sanitize_url_for_log(text)
     return Path(text).name or text
+
 
 def detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
     """Detect language from Whisper logits when the pipeline output omits it."""
@@ -254,6 +478,7 @@ def detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return ""
 
+
 def _normalize_whisper_prompt_ids(prompt_ids: Any, *, pipe: Any) -> Any:
     """Return Whisper prompt ids as a rank-1 torch.LongTensor when possible."""
     if prompt_ids is None:
@@ -283,6 +508,7 @@ def _normalize_whisper_prompt_ids(prompt_ids: Any, *, pipe: Any) -> Any:
         return tensor
     except (RuntimeError, TypeError, ValueError):
         return prompt_ids
+
 
 def whisper_prompt_ids_from_text(*, pipe: Any, text: str, max_chars: int = 240) -> Any:
     """Return Whisper prompt ids for a short text prefix when supported by the runtime."""

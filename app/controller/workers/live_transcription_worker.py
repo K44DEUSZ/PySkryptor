@@ -50,7 +50,8 @@ class LiveTranscriptionWorker(SessionWorker):
         source_language: str = "",
         target_language: str = "",
         translate_enabled: bool = False,
-        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
+        profile: str = RuntimeProfiles.LIVE_DEFAULT_PROFILE,
+        runtime_profile: dict[str, Any] | None = None,
         output_mode: str = LiveTranscriptionService.OUTPUT_MODE_CUMULATIVE,
         cancel_token: CancellationToken | None = None,
     ) -> None:
@@ -61,8 +62,11 @@ class LiveTranscriptionWorker(SessionWorker):
         self._src_lang = str(source_language or "").strip()
         self._tgt_lang = str(target_language or "").strip()
         self._translate_enabled = bool(translate_enabled)
-        self._preset_id = RuntimeProfiles.normalize_live_preset(preset_id)
         self._output_mode = RuntimeProfiles.normalize_live_output_mode(output_mode)
+        self._profile = RuntimeProfiles.normalize_live_profile(profile)
+        self._runtime_profile = dict(
+            runtime_profile or RuntimeProfiles.resolve_live_runtime(output_mode=self._output_mode, profile=self._profile)
+        )
 
         self._pause = threading.Event()
 
@@ -86,7 +90,7 @@ class LiveTranscriptionWorker(SessionWorker):
         self._backlog_compactions: int = 0
         self._pending_chunks: deque[tuple[bytes, float]] = deque()
         self._max_pending_chunks: int = int(
-            RuntimeProfiles.live_runtime_profile(output_mode=self._output_mode, preset=self._preset_id).get("max_pending_chunks", 4)
+            self._runtime_profile.get("max_pending_chunks", 4)
         )
         self._pending_chunks_lock = threading.Lock()
         self._ready_updates: deque[LiveUpdate] = deque()
@@ -376,7 +380,8 @@ class LiveTranscriptionWorker(SessionWorker):
             target_language=self._tgt_lang,
             translate_enabled=self._translate_enabled,
             cancel_check=self.cancel_check,
-            preset_id=self._preset_id,
+            profile=self._profile,
+            runtime_profile=self._runtime_profile,
             output_mode=self._output_mode,
         )
 
@@ -684,12 +689,12 @@ class LiveTranscriptionWorker(SessionWorker):
         self._pause.clear()
 
         _LOG.debug(
-            "Live worker starting. worker=live_transcription device=%s source_language=%s target_language=%s translate_enabled=%s preset=%s output_mode=%s",
+            "Live worker starting. worker=live_transcription device=%s source_language=%s target_language=%s translate_enabled=%s profile=%s output_mode=%s",
             self._device_name,
             self._src_lang,
             self._tgt_lang,
             bool(self._translate_enabled),
-            self._preset_id,
+            self._profile,
             self._output_mode,
         )
 

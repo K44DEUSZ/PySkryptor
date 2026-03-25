@@ -156,7 +156,7 @@ class LivePanel(QtWidgets.QWidget):
 
     def _load_saved_options(self) -> None:
         self._saved_device_name = Config.live_ui_device_name()
-        self._saved_preset = Config.live_ui_preset()
+        self._saved_profile = Config.live_ui_profile()
         self._saved_mode = Config.live_ui_mode()
         self._saved_output_mode = Config.live_ui_output_mode()
 
@@ -222,18 +222,19 @@ class LivePanel(QtWidgets.QWidget):
         self.tg_mode.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         mode_host, _ = build_field_stack(self, tr("common.field.mode"), self.tg_mode, buddy=self.tg_mode)
 
-        self.cmb_preset = PopupComboBox()
-        setup_combo(self.cmb_preset, min_h=base_h)
-        preset_options = (
-            (RuntimeProfiles.LIVE_PRESET_LOW_LATENCY, tr("live.preset.low_latency"), tr("live.preset.help.low_latency")),
-            (RuntimeProfiles.LIVE_PRESET_BALANCED, tr("live.preset.balanced"), tr("live.preset.help.balanced")),
-            (RuntimeProfiles.LIVE_PRESET_HIGH_CONTEXT, tr("live.preset.high_context"), tr("live.preset.help.high_context")),
+        self.cmb_profile = PopupComboBox()
+        setup_combo(self.cmb_profile, min_h=base_h)
+        profile_options = (
+            (RuntimeProfiles.LIVE_PROFILE_LOW_LATENCY, tr("live.profile.low_latency"), tr("live.profile.help.low_latency")),
+            (RuntimeProfiles.LIVE_PROFILE_BALANCED, tr("live.profile.balanced"), tr("live.profile.help.balanced")),
+            (RuntimeProfiles.LIVE_PROFILE_HIGH_CONTEXT, tr("live.profile.high_context"), tr("live.profile.help.high_context")),
         )
-        for value, label, tooltip in preset_options:
-            self.cmb_preset.addItem(label, value)
-            idx = self.cmb_preset.count() - 1
-            self.cmb_preset.setItemData(idx, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
-        preset_host, _ = build_field_stack(self, tr("live.preset.label"), self.cmb_preset, buddy=self.cmb_preset)
+        for value, label, tooltip in profile_options:
+            self.cmb_profile.addItem(label, value)
+            idx = self.cmb_profile.count() - 1
+            self.cmb_profile.setItemData(idx, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
+        profile_host, _ = build_field_stack(self, tr("live.profile.label"), self.cmb_profile, buddy=self.cmb_profile)
+
 
         self.cmb_src_lang = LanguageCombo(codes_provider=supported_source_language_codes)
         self.cmb_src_lang.setMinimumHeight(base_h)
@@ -247,7 +248,7 @@ class LivePanel(QtWidgets.QWidget):
         s_lay.addWidget(device_host, 0, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         s_lay.addWidget(output_mode_host, 0, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         s_lay.addWidget(mode_host, 1, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
-        s_lay.addWidget(preset_host, 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
+        s_lay.addWidget(profile_host, 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         s_lay.addWidget(src_lang_host, 2, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         s_lay.addWidget(tgt_lang_host, 2, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
 
@@ -349,7 +350,7 @@ class LivePanel(QtWidgets.QWidget):
         self.cmb_device.currentIndexChanged.connect(self._on_device_changed)
         self.tg_output_mode.changed.connect(self._on_quick_option_changed)
         self.tg_mode.changed.connect(self._on_quick_option_changed)
-        self.cmb_preset.currentIndexChanged.connect(self._on_quick_option_changed)
+        self.cmb_profile.currentIndexChanged.connect(self._on_quick_option_changed)
         self.cmb_src_lang.currentIndexChanged.connect(self._on_source_language_changed)
         self.cmb_tgt_lang.currentIndexChanged.connect(self._on_target_language_changed)
 
@@ -369,12 +370,12 @@ class LivePanel(QtWidgets.QWidget):
     def _apply_saved_options_to_ui(self) -> None:
         self._refresh_language_combos()
 
-        want_preset = RuntimeProfiles.normalize_live_preset(self._saved_preset or Config.live_ui_preset())
-        if want_preset not in RuntimeProfiles.LIVE_PRESET_IDS:
-            want_preset = RuntimeProfiles.normalize_live_preset(None)
-        for i in range(self.cmb_preset.count()):
-            if str(self.cmb_preset.itemData(i) or "").strip().lower() == want_preset:
-                self.cmb_preset.setCurrentIndex(i)
+        want_profile = RuntimeProfiles.normalize_live_profile(self._saved_profile or Config.live_ui_profile())
+        if want_profile not in RuntimeProfiles.LIVE_PROFILE_IDS:
+            want_profile = RuntimeProfiles.normalize_live_profile(None)
+        for i in range(self.cmb_profile.count()):
+            if str(self.cmb_profile.itemData(i) or "").strip().lower() == want_profile:
+                self.cmb_profile.setCurrentIndex(i)
                 break
 
         want_output_mode = str(self._saved_output_mode or self.OUTPUT_MODE_CUMULATIVE).strip().lower()
@@ -472,12 +473,12 @@ class LivePanel(QtWidgets.QWidget):
 
     def _build_quick_options_payload(self) -> dict[str, Any]:
         mode = RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE if self._is_translate_mode_checked() else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
-        preset = RuntimeProfiles.normalize_live_preset(self.cmb_preset.currentData() or Config.live_ui_preset())
+        profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or Config.live_ui_profile())
         output_mode = self._current_output_mode()
         device_name = str(self.cmb_device.currentData() or "").strip()
         return build_live_quick_options_payload(
             mode=mode,
-            preset=preset,
+            profile=profile,
             output_mode=output_mode,
             device_name=device_name,
             source_language_selection=self._session_source_language,
@@ -486,7 +487,7 @@ class LivePanel(QtWidgets.QWidget):
 
     def _on_quick_options_saved(self, _snap: object) -> None:
         self._saved_device_name = str(self.cmb_device.currentData() or self._saved_device_name or "").strip()
-        self._saved_preset = RuntimeProfiles.normalize_live_preset(self.cmb_preset.currentData() or self._saved_preset)
+        self._saved_profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or self._saved_profile)
         self._saved_mode = RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE if self._is_translate_mode_checked() else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
         self._saved_output_mode = self._current_output_mode()
         self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or LanguagePolicy.PREFERRED)
@@ -627,9 +628,13 @@ class LivePanel(QtWidgets.QWidget):
             target_code=self.cmb_tgt_lang.code(),
         )
 
-        preset_id = RuntimeProfiles.normalize_live_preset(self.cmb_preset.currentData() or RuntimeProfiles.LIVE_DEFAULT_PRESET)
+        profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or RuntimeProfiles.LIVE_DEFAULT_PROFILE)
         output_mode = self._current_output_mode()
         self._session_output_mode = output_mode
+        runtime_profile = RuntimeProfiles.resolve_live_runtime(
+            output_mode=output_mode,
+            profile=profile,
+        )
 
         return {
             "device_name": device_name,
@@ -637,9 +642,9 @@ class LivePanel(QtWidgets.QWidget):
             "target_language": translation_runtime.target_language,
             "translate_enabled": translation_runtime.enabled,
             "translate_requested": bool(translate_requested),
-            "preset_id": preset_id,
+            "profile": profile,
             "output_mode": output_mode,
-            "live_profile": RuntimeProfiles.live_runtime_profile(output_mode=output_mode, preset=preset_id),
+            "runtime_profile": runtime_profile,
         }
 
     def _start_live_session(self) -> None:
@@ -648,13 +653,13 @@ class LivePanel(QtWidgets.QWidget):
             return
 
         session_request = self._build_live_session_request()
-        live_profile = cast(dict[str, Any], session_request.pop("live_profile"))
+        live_profile = cast(dict[str, Any], session_request.get("runtime_profile") or {})
         translate_requested = bool(session_request.pop("translate_requested", False))
 
         _LOG.debug(
-            "Live session prepared. device=%s preset=%s output_mode=%s translate_requested=%s translate_enabled=%s source_language=%s target_language=%s chunk_length_s=%s stride_length_s=%s",
+            "Live session prepared. device=%s profile=%s output_mode=%s translate_requested=%s translate_enabled=%s source_language=%s target_language=%s chunk_length_s=%s stride_length_s=%s",
             session_request.get("device_name", ""),
-            session_request.get("preset_id", ""),
+            session_request.get("profile", ""),
             session_request.get("output_mode", ""),
             bool(translate_requested),
             bool(session_request.get("translate_enabled")),
@@ -830,7 +835,7 @@ class LivePanel(QtWidgets.QWidget):
             self.cmb_device,
             self.tg_output_mode,
             self.tg_mode,
-            self.cmb_preset,
+            self.cmb_profile,
             self.cmb_src_lang,
             self.cmb_tgt_lang,
             self.btn_start,
@@ -1011,7 +1016,7 @@ class LivePanel(QtWidgets.QWidget):
         self.btn_refresh_devices.setEnabled(can_config)
         self.tg_output_mode.setEnabled(can_config)
         self.tg_mode.setEnabled(can_config)
-        self.cmb_preset.setEnabled(can_config)
+        self.cmb_profile.setEnabled(can_config)
 
         self.cmb_src_lang.setEnabled(can_config)
 

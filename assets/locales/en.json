@@ -45,7 +45,8 @@
       "target_language": "Target language"
     },
     "enable": "Enable",
-    "disable": "Disable"
+    "disable": "Disable",
+    "inherit": "Inherit from profile"
   },
   "ctrl": {
     "add": "Add +",
@@ -427,17 +428,6 @@
       "source": "Live transcription will appear here...",
       "target": "Live translation will appear here..."
     },
-    "preset": {
-      "balanced": "Balanced",
-      "high_context": "High context",
-      "label": "Preset",
-      "low_latency": "Low latency",
-      "help": {
-        "low_latency": "Lowest latency and fastest refresh at the cost of shorter context.",
-        "balanced": "Balanced trade-off between refresh speed and text stability.",
-        "high_context": "Larger context for more stable text at the cost of higher latency."
-      }
-    },
     "save": {
       "file_filter": "Text files (*.txt);;All files (*.*)"
     },
@@ -447,6 +437,23 @@
       "label": "Text mode",
       "stream": "Streaming transcription",
       "cumulative": "Cumulative transcription"
+    },
+    "context_policy": {
+      "label": "Session context"
+    },
+    "silence_guard": {
+      "label": "Silence protection"
+    },
+    "profile": {
+      "balanced": "Balanced",
+      "high_context": "High context",
+      "label": "Live profile",
+      "low_latency": "Low latency",
+      "help": {
+        "low_latency": "Shortest analysis window and fastest refresh. Lowest latency, but less context and lower text stability.",
+        "balanced": "Middle ground between latency, amount of context, and output stability.",
+        "high_context": "Larger analysis window and more context between updates. More stable text at the cost of higher latency."
+      }
     }
   },
   "loading": {
@@ -527,7 +534,7 @@
       "concurrent_fragments": "Number of fragments downloaded at the same time. Higher values can speed up downloading, but put more load on the connection and server.",
       "device": "Selects where models run their computations. Auto uses a CUDA GPU when available, otherwise CPU. Forcing GPU may be ignored if the environment does not support CUDA.",
       "http_timeout_s": "Maximum time to wait for a server response for a single request.",
-      "ignore_warning": "Allows the result to be kept despite warnings that do not stop the model, for example silence, very quiet audio, or ambiguous input. Useful in automated runs, but it can hide a signal that the material should be checked manually.",
+      "ignore_warning": "Allows the result to be kept despite model warnings, for example silence, very weak signal, or uncertain language detection. It does not change recognition itself, but decides whether a warned result is accepted.",
       "logging_enabled": "Writes application events to log files. Useful for diagnosing errors and analyzing program behavior.",
       "logging_level": "Controls how much information is written to logs.",
       "low_cpu_mem_usage": "Reduces RAM usage while loading models. It may increase load time and the number of intermediate operations during initialization. It does not change transcription or translation quality.",
@@ -537,14 +544,11 @@
       "precision_hint": "Precision controls the numeric format used by the model. Lower precision usually improves speed and reduces memory use, but can increase the chance of numerical differences. On CPU, Float32 is the safest choice; on compatible GPUs, Auto often selects BFloat16 or Float16.",
       "retries": "Defines how many times failed network requests are retried before the operation is considered failed.",
       "stride_length": "Adds overlap between adjacent audio chunks. This can improve continuity at segment boundaries, but increases compute cost.",
-      "text_consistency": "Passes previous text as additional context for following segments. This can improve continuity and style, but mistakes in earlier segments are more likely to propagate.",
       "theme": "Choose the interface theme.",
-      "trans_quality": "Controls how intensive decoding is in the transcription model. Higher profiles usually explore more alternatives and may handle difficult audio better, but they are slower.",
       "transcription_engine": "Selects the model used to convert speech to text. Different models may vary in speed, hardware requirements, and robustness on difficult recordings.",
-      "translation_chunk_max_chars": "Splits long text into smaller parts before translation. Smaller chunks are safer for the model, but can reduce coherence across sentences and paragraphs.",
+      "translation_chunk_max_chars": "Defines the maximum size of text passed to the translation model in one step. Smaller fragments are safer for memory and stability, but they weaken coherence between sentences.",
       "translation_engine": "Selects the model used to translate text. Different models may vary in speed, fluency, and performance on less common language pairs.",
-      "translation_max_new_tokens": "Sets the upper limit for text generated by the translation model for a single chunk. Too low a value can truncate output, while higher values may slow generation.",
-      "translation_quality": "Controls text generation parameters in the translation model. Higher profiles usually produce fuller and more fluent output, but they run more slowly.",
+      "translation_max_new_tokens": "Sets the upper token limit that the model may generate for a single fragment. A value that is too low can truncate the translation, while a higher one increases generation time.",
       "ui_language": "Choose the interface language.",
       "default_language": "Sets the default source language policy for file and live transcription. Choose a fixed language, Auto-detect, or Last used in tab.",
       "bulk_add_confirmation": {
@@ -552,7 +556,17 @@
         "threshold": "The minimum number of detected items that will trigger the bulk-add confirmation."
       },
       "translation_default_language": "Sets the default target language policy for translation. Choose app language, a fixed language, or Last used in tab.",
-      "fp32_math_mode": "Only applies to CUDA with Float32 precision. Speeds up some FP32 operations on supported GPUs, but results may differ slightly from strict FP32."
+      "fp32_math_mode": "Only applies to CUDA with Float32 precision. Speeds up some FP32 operations on supported GPUs, but results may differ slightly from strict FP32.",
+      "context_policy": "Controls whether previously recognized text is fed back as context for the next audio fragments. Stronger context reuse can improve sentence continuity, but when recognition goes wrong it can also reinforce mistakes and hallucinations.",
+      "silence_guard": "Controls the thresholds used to reject silence, very weak signal, and fragments that look like model hallucinations. Stronger protection reduces false transcripts, but it can also reject quiet speech.",
+      "language_stability": "Defines how many consistent language detections are required before the language is treated as stable for the current run. Higher values reduce the risk of a wrong language lock, but they also delay the decision.",
+      "transcription_chunk_length_s": "Defines the length of audio passed to Whisper in a single step. A larger window gives the model more context and can improve recognition of longer speech, but it also increases latency, compute cost, and memory use.",
+      "transcription_stride_length_s": "Adds a shared region between neighboring analysis windows. Larger overlap can improve continuity at segment boundaries, but it reprocesses part of the audio and increases the runtime cost.",
+      "translation_style": "Controls how the translation decoder behaves. It influences whether the model prefers a more literal, balanced, or freer phrasing.",
+      "translation_num_beams": "Defines how many alternatives are explored in parallel during beam search. Higher values usually improve translation quality, but they increase generation time and memory use.",
+      "translation_no_repeat_ngram_size": "Blocks repeated n-grams of the given size inside a single translation result. Helps reduce loops and repeated phrases. Set to 0 to disable the restriction.",
+      "transcription_profile": "Defines the ready-made operating profile for transcription: analysis window length, context reuse, silence filtering, and language detection stabilization. Built-in profiles have fixed parameters. The custom profile unlocks manual editing.",
+      "translation_profile": "Defines the translation decoding profile: number of alternatives explored, repetition protection, and decoder behavior. Built-in profiles have fixed parameters. The custom profile unlocks manual editing."
     },
     "msg": {
       "saved": "✅ Settings have been saved."
@@ -563,14 +577,6 @@
       "max_bandwidth_kbps": "Bandwidth limit (kb/s)",
       "retries": "HTTP retry count"
     },
-    "quality": {
-      "accurate": "Accurate",
-      "accurate_tip": "Highest decoding cost. Slowest, but may handle difficult audio, accents, and ambiguous speech better.",
-      "balanced": "Balanced",
-      "balanced_tip": "Medium decoding cost. A good balance between speed and robustness for typical recording issues.",
-      "fast": "Fast",
-      "fast_tip": "Lowest decoding cost. Fastest, but less robust to noise, unclear speech, and more difficult fragments."
-    },
     "section": {
       "app": "Application 🖥️",
       "download": "Download & Network 🌐",
@@ -579,13 +585,15 @@
       "translation": "Translation 🌍"
     },
     "transcription": {
-      "chunk_length_s": "Chunk length (s)",
+      "chunk_length_s": "Analysis window length (s)",
       "ignore_warning": "Accept results despite non-critical warnings",
       "model": "Transcription engine",
-      "quality_label": "Decoding profile",
-      "stride_length_s": "Stride length (s)",
-      "text_consistency": "Cross-segment consistency",
-      "default_language": "Default source language"
+      "stride_length_s": "Analysis window overlap (s)",
+      "default_language": "Default source language",
+      "context_policy": "Cross-segment context usage",
+      "silence_guard": "Silence and weak-signal filtering",
+      "language_stability": "Language detection stability threshold",
+      "profile_label": "Transcription profile"
     },
     "translation": {
       "chunk_max_chars": "Maximum input chunk length",
@@ -593,11 +601,62 @@
         "disabled": "Disabled",
         "label": "Translation engine"
       },
-      "max_new_tokens": "Maximum generation length (tokens)",
-      "quality": {
-        "label": "Generation profile"
+      "max_new_tokens": "Generation length limit (tokens)",
+      "default_language": "Default target language",
+      "style": {
+        "label": "Translation decoding strategy",
+        "literal": "Literal",
+        "balanced": "Balanced",
+        "fluent": "Fluent",
+        "literal_tip": "Prefers a translation that stays closer to the source wording and structure, even at the cost of sounding less natural.",
+        "balanced_tip": "Tries to balance meaning fidelity with natural sounding output.",
+        "fluent_tip": "Prefers smoother, more natural phrasing, even if the result becomes less literal."
       },
-      "default_language": "Default target language"
+      "num_beams": "Beam search width",
+      "no_repeat_ngram_size": "N-gram repetition block",
+      "profile": {
+        "label": "Translation profile",
+        "fast_tip": "Lowest decoding cost. Fastest profile, but explores the fewest alternatives and may simplify the result more often.",
+        "balanced_tip": "Default compromise between generation speed and decoding quality.",
+        "accurate_tip": "Explores more alternatives and decodes more cautiously. Slower, but usually better for harder or less obvious text.",
+        "custom_tip": "Unlocks manual editing of translation profile parameters. Starts from the values of the currently selected built-in profile."
+      }
+    },
+    "context_policy": {
+      "off": "Off",
+      "auto": "Auto",
+      "aggressive": "Aggressive",
+      "off_tip": "Does not pass previous text as context to the next fragments. Safest when hallucination risk matters most, but may reduce sentence continuity.",
+      "auto_tip": "Passes context only when the audio signal looks reliable enough. Usually the best overall compromise.",
+      "aggressive_tip": "Relies more strongly on previously recognized text. Can improve continuity, but also increases the chance of reinforcing mistakes."
+    },
+    "silence_guard": {
+      "off": "Off",
+      "normal": "Normal",
+      "strict": "Strict",
+      "off_tip": "Minimal silence and weak-signal filtering. The least intrusive option, but also the most prone to noisy or hallucinated output.",
+      "normal_tip": "Medium level filtering for silence, weak signal, and artifacts. Default compromise between safety and sensitivity.",
+      "strict_tip": "Strictest filtering thresholds. Most effective against silence hallucinations, but may reject quiet speech and short inputs."
+    },
+    "language_stability": {
+      "fast": "Fast",
+      "balanced": "Balanced",
+      "strict": "Strict",
+      "fast_tip": "Accepts the detected language after very little confirmation. Most responsive, but also the most error-prone.",
+      "balanced_tip": "Requires a moderate number of consistent confirmations before language is treated as stable.",
+      "strict_tip": "Requires more matching detections before language is treated as stable. Most robust, but also the slowest to settle."
+    },
+    "profile": {
+      "accurate": "Accurate",
+      "accurate_tip": "Uses longer analysis windows and more conservative recognition behavior. Slower, but usually more stable on longer utterances and harder material.",
+      "balanced": "Balanced",
+      "balanced_tip": "Default compromise between speed, context stability, and resistance to typical recording problems.",
+      "fast": "Fast",
+      "fast_tip": "Uses shorter analysis windows and less conservative thresholds. The fastest profile, but it is weaker on noise, quiet speech, and more difficult audio.",
+      "guarded": "Guarded",
+      "guarded_tip": "Filters silence, weak signal, and suspicious fragments most aggressively. Best for recordings with pauses, noise, background music, or a high hallucination risk.",
+      "custom": "Custom",
+      "custom_tip": "Unlocks manual editing of transcription profile parameters. Starts from the values of the currently selected built-in profile."
     }
   },
   "status": {

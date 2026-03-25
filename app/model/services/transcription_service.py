@@ -26,11 +26,17 @@ from app.model.helpers.chunking import (
 from app.model.helpers.output_resolver import OutputDirectoryResolution, OutputResolver
 from app.model.helpers.string_utils import sanitize_filename, sanitize_url_for_log
 from app.model.helpers.transcription_runtime import (
-    audio_has_meaningful_signal,
+    SIGNAL_WEAK,
+    build_whisper_generate_kwargs,
+    can_detect_language_from_audio,
+    classify_audio_signal,
     detect_language_from_pipe_runtime,
     debug_source_key,
     extract_detected_language_from_result,
+    filter_asr_text,
     normalize_detected_language,
+    should_accept_detected_language,
+    should_use_prompt,
     whisper_prompt_ids_from_text,
 )
 from app.model.io.audio_extractor import AudioExtractor
@@ -69,9 +75,10 @@ class _SessionOptions:
     want_timestamps: bool
     tgt_lang: str
     default_lang: str
+    profile: str
+    runtime_profile: dict[str, Any]
     chunk_len_s: int
     stride_len_s: int
-    text_consistency: bool
     ignore_warning: bool
     url_download_kind: str
     url_download_ext: str
@@ -284,11 +291,13 @@ class TranscriptionService:
         url_download_ext = audio_ext if download_audio_only else video_ext
         url_keep_download = bool(session_request.url_keep_audio if download_audio_only else session_request.url_keep_video)
 
-        preset_id = RuntimeProfiles.normalize_transcription_preset(model_cfg.get("quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET))
-        preset_profile = RuntimeProfiles.transcription_preset_profile(preset_id)
-        chunk_len_s = int(preset_profile.get("chunk_length_s", 45))
-        stride_len_s = int(preset_profile.get("stride_length_s", 5))
-        text_consistency = bool(model_cfg.get("text_consistency", True))
+        advanced_cfg = model_cfg.get("advanced") if isinstance(model_cfg.get("advanced"), dict) else {}
+        profile = RuntimeProfiles.normalize_transcription_profile(
+            model_cfg.get("profile", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
+        )
+        runtime_profile = RuntimeProfiles.resolve_transcription_runtime(profile=profile, overrides=advanced_cfg)
+        chunk_len_s = int(runtime_profile.get("chunk_length_s", 45) or 45)
+        stride_len_s = int(runtime_profile.get("stride_length_s", 5) or 5)
 
         return _SessionOptions(
             output_mode_ids=output_mode_ids,
@@ -297,9 +306,10 @@ class TranscriptionService:
             want_timestamps=want_timestamps,
             tgt_lang=tgt_lang,
             default_lang=default_lang,
+            profile=profile,
+            runtime_profile=runtime_profile,
             chunk_len_s=chunk_len_s,
             stride_len_s=stride_len_s,
-            text_consistency=text_consistency,
             ignore_warning=bool(model_cfg.get("ignore_warning", False)),
             url_download_kind=url_download_kind,
             url_download_ext=url_download_ext,
@@ -837,6 +847,8 @@ class TranscriptionService:
                 item_progress=callbacks.item_progress,
                 cancel_check=callbacks.cancel_check,
                 require_language=runtime.options.want_translate,
+                source_language=runtime.options.default_lang,
+                runtime_profile=runtime.options.runtime_profile,
             )
             _LOG.debug(
                 "Transcription stage finished. session_id=%s source_key=%s stage=transcribe duration_ms=%s text_chars=%s segments=%s detected_lang=%s",
@@ -1101,7 +1113,7 @@ class TranscriptionService:
         cancel_check: CancelCheckFn,
         require_language: bool,
         source_language: str = "",
-        text_consistency: bool = True,
+        runtime_profile: dict[str, Any] | None = None,
     ) -> tuple[str, list[dict[str, Any]], str]:
         with wave.open(str(wav_path), "rb") as w:
             frames = w.getnframes()
@@ -1111,10 +1123,13 @@ class TranscriptionService:
         n_chunks = estimate_chunks(dur_s, chunk_len_s, stride_len_s)
         _LOG.debug("Transcription wav started. source_key=%s duration_s=%s chunks=%s require_language=%s timestamps=%s", debug_source_key(key), round(dur_s, 2), n_chunks, bool(require_language), bool(want_timestamps))
 
+        profile = dict(runtime_profile or {})
         merged_parts: list[str] = []
         segments: list[dict[str, Any]] = []
         detected_lang = ""
+        language_hits: dict[str, int] = {}
         previous_prompt_text = ""
+        stable_language_min_hits = int(profile.get("stable_language_min_hits", 2) or 2)
 
         for i, ch in enumerate(iter_wav_mono_chunks(wav_path, chunk_len_s=chunk_len_s, stride_len_s=stride_len_s), start=1):
             if cancel_check():
@@ -1129,14 +1144,8 @@ class TranscriptionService:
                     item_progress=item_progress,
                 )
 
-            if not audio_has_meaningful_signal(
-                ch.audio,
-                sr=ch.sr,
-                rms_min=0.014,
-                activity_floor=0.006,
-                active_ratio_min=0.02,
-                active_ms_min=60.0,
-            ):
+            signal_kind = classify_audio_signal(ch.audio, sr=ch.sr, profile=profile)
+            if signal_kind == "none":
                 pct = int(round((i / float(n_chunks)) * 100))
                 if n_chunks <= 1:
                     pct = min(95, max(0, pct))
@@ -1156,21 +1165,37 @@ class TranscriptionService:
                 ignore_warning=ignore_warning,
                 require_language=require_language,
                 source_language=source_language,
-                text_consistency=text_consistency,
+                runtime_profile=profile,
+                signal_kind=signal_kind,
                 previous_text=previous_prompt_text,
             )
 
-            if not detected_lang:
-                detected_lang = extract_detected_language_from_result(out)
+            candidate_lang = extract_detected_language_from_result(out)
+            if candidate_lang and should_accept_detected_language(signal_kind=signal_kind, profile=profile):
+                language_hits[candidate_lang] = int(language_hits.get(candidate_lang, 0)) + 1
+                if language_hits[candidate_lang] >= stable_language_min_hits and candidate_lang != detected_lang:
+                    detected_lang = candidate_lang
 
-            text = self._post.plain_from_result(out)
+            raw_text = self._post.plain_from_result(out)
+            reference_texts = merged_parts[-4:]
+            text = filter_asr_text(
+                raw_text,
+                clean_fn=self._post.clean,
+                signal_kind=signal_kind,
+                profile=profile,
+                reference_texts=reference_texts,
+                from_tail=bool(i == n_chunks and n_chunks > 1),
+            )
             if text:
                 merged_parts.append(text)
-                if text_consistency:
+                if should_use_prompt(signal_kind=signal_kind, profile=profile):
                     previous_prompt_text = "\n".join([p for p in merged_parts[-3:] if p]).strip()
 
-            if want_timestamps:
-                segments.extend(self._extract_segments(out, offset_s=ch.offset_s))
+                if want_timestamps:
+                    chunk_segments = self._extract_segments(out, offset_s=ch.offset_s)
+                    if chunk_segments and raw_text and text != raw_text and len(chunk_segments) == 1:
+                        chunk_segments[0]["text"] = text
+                    segments.extend(chunk_segments)
 
             pct = int(round((i / float(n_chunks)) * 100))
             if n_chunks <= 1:
@@ -1183,7 +1208,7 @@ class TranscriptionService:
                 item_progress=item_progress,
             )
 
-        merged_text = "\n".join([p for p in merged_parts if p]).strip()
+        merged_text = TranscriptWriter.stitch_texts([p for p in merged_parts if p]).strip()
         if not merged_text and not bool(ignore_warning):
             raise TranscriptionError("error.transcription.empty_result")
 
@@ -1205,21 +1230,25 @@ class TranscriptionService:
         ignore_warning: bool,
         require_language: bool,
         source_language: str = "",
-        text_consistency: bool = True,
+        runtime_profile: dict[str, Any] | None = None,
+        signal_kind: str = SIGNAL_WEAK,
         previous_text: str = "",
     ) -> dict[str, Any]:
+        profile = dict(runtime_profile or {})
         try:
             payload = {"raw": audio, "sampling_rate": int(sr)}
             normalized_lang = str(source_language or "").strip().lower()
             if LanguagePolicy.is_auto(normalized_lang):
                 normalized_lang = ""
-            prompt_ids = whisper_prompt_ids_from_text(pipe=pipe, text=previous_text) if bool(text_consistency) else None
-            generate_kwargs: dict[str, Any] = {"task": "transcribe"}
-            if normalized_lang:
-                generate_kwargs["language"] = normalized_lang
-            generate_kwargs["condition_on_prev_tokens"] = bool(text_consistency)
-            if prompt_ids is not None:
-                generate_kwargs["prompt_ids"] = prompt_ids
+            prompt_ids = None
+            if previous_text and should_use_prompt(signal_kind=signal_kind, profile=profile):
+                prompt_ids = whisper_prompt_ids_from_text(pipe=pipe, text=previous_text)
+            generate_kwargs = build_whisper_generate_kwargs(
+                profile=profile,
+                source_language=normalized_lang,
+                prompt_ids=prompt_ids,
+                signal_kind=signal_kind,
+            )
 
             try:
                 out = pipe(
@@ -1237,15 +1266,19 @@ class TranscriptionService:
                     raise TranscriptionError("error.transcription.timestamps_unsupported") from ex
                 fallback_kwargs = dict(generate_kwargs)
                 fallback_kwargs.pop("prompt_ids", None)
-                try:
-                    out = pipe(
-                        payload,
-                        return_language=True,
-                        return_timestamps=True,
-                        generate_kwargs=fallback_kwargs,
-                        ignore_warning=bool(ignore_warning),
-                    )
-                except TypeError:
+                for candidate_kwargs in (fallback_kwargs, {k: v for k, v in fallback_kwargs.items() if k not in ("no_speech_threshold", "logprob_threshold", "compression_ratio_threshold", "temperature")}, {"task": "transcribe", **({"language": normalized_lang} if normalized_lang else {})}):
+                    try:
+                        out = pipe(
+                            payload,
+                            return_language=True,
+                            return_timestamps=True,
+                            generate_kwargs=candidate_kwargs,
+                            ignore_warning=bool(ignore_warning),
+                        )
+                        break
+                    except TypeError:
+                        out = None
+                if out is None:
                     out = pipe(
                         payload,
                         return_timestamps=True,
@@ -1260,11 +1293,11 @@ class TranscriptionService:
 
         if bool(require_language):
             lang = extract_detected_language_from_result(out)
-            if not lang:
+            if not lang and not normalized_lang and can_detect_language_from_audio(audio, sr=sr, signal_kind=signal_kind, profile=profile):
                 lang = detect_language_from_pipe_runtime(pipe=pipe, audio=audio, sr=sr)
                 if lang:
                     out["language"] = lang
-            if not lang:
+            if not lang and not normalized_lang:
                 raise TranscriptionError("error.transcription.language_detection_failed")
 
         return out

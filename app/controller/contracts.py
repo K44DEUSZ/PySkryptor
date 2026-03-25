@@ -89,7 +89,8 @@ class LiveCoordinatorProtocol(Protocol):
         source_language: str = "",
         target_language: str = "",
         translate_enabled: bool = False,
-        preset_id: str = RuntimeProfiles.LIVE_DEFAULT_PRESET,
+        profile: str = RuntimeProfiles.LIVE_DEFAULT_PROFILE,
+        runtime_profile: dict[str, Any] | None = None,
         output_mode: str = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE,
     ) -> WorkerRef | None: ...
     def cancel(self) -> None: ...

@@ -15,7 +15,6 @@ from app.model.services.ai_models_service import AIModelsService, ModelNotInstal
 from app.model.services.settings_service import RuntimeConfigService
 
 _LOG = logging.getLogger(__name__)
-_ROOT = logging.getLogger()
 
 ProgressCb = Callable[[int], None]
 TaskFn = Callable[["_StartupRuntime", ProgressCb, AppRuntimeState], AppRuntimeState]
@@ -48,7 +47,7 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: Ap
     dev_str = str(getattr(config_cls, "DEVICE_ID", "cpu"))
     dtype_str = str(getattr(config_cls, "DTYPE_ID", "float32"))
     friendly = str(getattr(config_cls, "DEVICE_FRIENDLY_NAME", dev_str))
-    _ROOT.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
+    _LOG.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
     _LOG.debug(
         "Runtime engine settings applied. preferred_device=%s precision=%s fp32_math_mode=%s low_cpu_mem_usage=%s device=%s dtype=%s tf32_enabled=%s",
         str((snap.engine or {}).get("preferred_device", "auto")),

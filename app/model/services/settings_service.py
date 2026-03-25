@@ -243,6 +243,26 @@ class SettingsService:
             return value
         return schema.get(key, default)
 
+    @staticmethod
+    def _optional_normalized(
+        raw: Any,
+        *,
+        normalize_fn,
+    ) -> Any:
+        if raw in (None, ""):
+            return None
+        return normalize_fn(raw)
+
+    @staticmethod
+    def _optional_bounded_int(raw: Any, *, minimum: int, maximum: int) -> int | None:
+        if raw in (None, ""):
+            return None
+        try:
+            num = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return max(minimum, min(maximum, num))
+
     @classmethod
     def _looks_like_lang_code(cls, s: str) -> bool:
         return bool(cls._LANG_CODE_RE.match((s or "").strip()))
@@ -255,54 +275,52 @@ class SettingsService:
     def _validate_app(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         src = self._merge(src, schema)
 
-        logging_cfg = src.get("logging", {}) if isinstance(src.get("logging"), dict) else {}
-        logging_schema = schema.get("logging", {}) if isinstance(schema.get("logging"), dict) else {}
-        logging_cfg = self._merge(logging_cfg, logging_schema)
+        def _d(value: Any) -> dict[str, Any]:
+            return value if isinstance(value, dict) else {}
+
+        logging_cfg = self._merge(_d(src.get("logging")), _d(schema.get("logging")))
+        logging_schema = _d(schema.get("logging"))
 
         level = str(self._schema_value(logging_cfg, logging_schema, "level", "warning") or "warning").strip().lower()
         if level not in ("debug", "info", "warning", "error"):
             level = str(logging_schema.get("level", "warning") or "warning").strip().lower()
+            if level not in ("debug", "info", "warning", "error"):
+                level = "warning"
 
-        ui_cfg = src.get("ui", {}) if isinstance(src.get("ui"), dict) else {}
-        ui_schema = schema.get("ui", {}) if isinstance(schema.get("ui"), dict) else {}
-        ui_cfg = self._merge(ui_cfg, ui_schema)
+        ui_schema = _d(schema.get("ui"))
+        ui_cfg = self._merge(_d(src.get("ui")), ui_schema)
 
         show_adv = bool(self._schema_value(ui_cfg, ui_schema, "show_advanced_settings", False))
-        bulk_cfg = ui_cfg.get("bulk_add_confirmation", {}) if isinstance(ui_cfg.get("bulk_add_confirmation"), dict) else {}
-        bulk_schema = ui_schema.get("bulk_add_confirmation", {}) if isinstance(ui_schema.get("bulk_add_confirmation"), dict) else {}
-        bulk_cfg = self._merge(bulk_cfg, bulk_schema)
+
+        bulk_schema = _d(ui_schema.get("bulk_add_confirmation"))
+        bulk_cfg = self._merge(_d(ui_cfg.get("bulk_add_confirmation")), bulk_schema)
         bulk_enabled = bool(self._schema_value(bulk_cfg, bulk_schema, "enabled", True))
         try:
             bulk_threshold = int(self._schema_value(
                 bulk_cfg,
                 bulk_schema,
                 "threshold",
-                Config.BULK_ADD_CONFIRMATION_DEFAULT_THRESHOLD,
+                Config.ui_bulk_add_confirmation_threshold(),
             ))
         except (TypeError, ValueError):
-            bulk_threshold = Config.BULK_ADD_CONFIRMATION_DEFAULT_THRESHOLD
+            bulk_threshold = int(Config.ui_bulk_add_confirmation_threshold())
         bulk_threshold = max(
             Config.BULK_ADD_CONFIRMATION_MIN_THRESHOLD,
             min(Config.BULK_ADD_CONFIRMATION_MAX_THRESHOLD, bulk_threshold),
         )
 
-        live_cfg = ui_cfg.get("live", {}) if isinstance(ui_cfg.get("live"), dict) else {}
-        live_schema = ui_schema.get("live", {}) if isinstance(ui_schema.get("live"), dict) else {}
-        live_cfg = self._merge(live_cfg, live_schema)
-
-        files_cfg = ui_cfg.get("files", {}) if isinstance(ui_cfg.get("files"), dict) else {}
-        files_schema = ui_schema.get("files", {}) if isinstance(ui_schema.get("files"), dict) else {}
-        files_cfg = self._merge(files_cfg, files_schema)
+        live_schema = _d(ui_schema.get("live"))
+        live_cfg = self._merge(_d(ui_cfg.get("live")), live_schema)
+        files_schema = _d(ui_schema.get("files"))
+        files_cfg = self._merge(_d(ui_cfg.get("files")), files_schema)
 
         live_mode = self._enum_str(
             self._schema_value(live_cfg, live_schema, "mode", RuntimeProfiles.LIVE_UI_DEFAULT_MODE),
             RuntimeProfiles.LIVE_UI_MODES,
             "app.ui.live.mode",
         )
-        live_preset = self._enum_str(
-            self._schema_value(live_cfg, live_schema, "preset", RuntimeProfiles.LIVE_DEFAULT_PRESET),
-            RuntimeProfiles.LIVE_PRESET_IDS,
-            "app.ui.live.preset",
+        live_profile = RuntimeProfiles.normalize_live_profile(
+            self._schema_value(live_cfg, live_schema, "profile", RuntimeProfiles.LIVE_DEFAULT_PROFILE)
         )
         live_output_mode = self._enum_str(
             self._schema_value(live_cfg, live_schema, "output_mode", RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE),
@@ -310,7 +328,6 @@ class SettingsService:
             "app.ui.live.output_mode",
         )
         live_device = str(self._schema_value(live_cfg, live_schema, "device_name", "") or "").strip()
-
         def _last_used_source(cfg: dict[str, Any], cfg_schema: dict[str, Any], field: str) -> str:
             raw = self._schema_value(cfg, cfg_schema, field, LanguagePolicy.AUTO)
             value = LanguagePolicy.normalize_last_used_source_language(raw)
@@ -346,7 +363,7 @@ class SettingsService:
                 },
                 "live": {
                     "mode": live_mode,
-                    "preset": live_preset,
+                    "profile": live_profile,
                     "output_mode": live_output_mode,
                     "device_name": live_device,
                     "last_used_source_language": _last_used_source(live_cfg, live_schema, "last_used_source_language"),
@@ -391,22 +408,17 @@ class SettingsService:
 
         t = self._merge(_d(src.get("transcription_model")), t_schema)
         x = self._merge(_d(src.get("translation_model")), x_schema)
+        t_adv_schema = _d(t_schema.get("advanced"))
+        x_adv_schema = _d(x_schema.get("advanced"))
+        t_adv = self._merge(_d(t.get("advanced")), t_adv_schema)
+        x_adv = self._merge(_d(x.get("advanced")), x_adv_schema)
 
-        preset = RuntimeProfiles.normalize_transcription_preset(
-            self._schema_value(t, t_schema, "quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
+        profile = RuntimeProfiles.normalize_transcription_profile(
+            self._schema_value(t, t_schema, "profile", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
         )
-        if preset not in RuntimeProfiles.TRANSCRIPTION_PRESET_IDS:
-            preset = RuntimeProfiles.normalize_transcription_preset(
-                t_schema.get("quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
-            )
-
-        preset_tr = RuntimeProfiles.normalize_transcription_preset(
-            self._schema_value(x, x_schema, "quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
+        profile_tr = RuntimeProfiles.normalize_translation_profile(
+            self._schema_value(x, x_schema, "profile", RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE)
         )
-        if preset_tr not in RuntimeProfiles.TRANSCRIPTION_PRESET_IDS:
-            preset_tr = RuntimeProfiles.normalize_transcription_preset(
-                x_schema.get("quality_preset", RuntimeProfiles.TRANSCRIPTION_DEFAULT_PRESET)
-            )
 
         def _engine_meta(cfg: dict[str, Any]) -> dict[str, str | None]:
             engine_name = str(cfg.get("engine_name", "none") or "none").strip()
@@ -433,22 +445,68 @@ class SettingsService:
         t_meta = _engine_meta(t)
         x_meta = _engine_meta(x)
 
+        def _coerce_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+            try:
+                num = int(value)
+            except (TypeError, ValueError):
+                num = int(default)
+            return max(minimum, min(maximum, num))
+
         return {
             "transcription_model": {
                 "engine_name": str(self._schema_value(t, t_schema, "engine_name", "none") or "none").strip(),
                 "engine_model_type": t_meta["engine_model_type"],
                 "engine_signature": t_meta["engine_signature"],
-                "quality_preset": preset,
-                "text_consistency": bool(self._schema_value(t, t_schema, "text_consistency", True)),
+                "profile": profile,
                 "ignore_warning": bool(self._schema_value(t, t_schema, "ignore_warning", False)),
+                "advanced": {
+                    "context_policy": self._optional_normalized(
+                        self._schema_value(t_adv, t_adv_schema, "context_policy", None),
+                        normalize_fn=RuntimeProfiles.normalize_context_policy,
+                    ),
+                    "silence_guard": self._optional_normalized(
+                        self._schema_value(t_adv, t_adv_schema, "silence_guard", None),
+                        normalize_fn=RuntimeProfiles.normalize_silence_guard,
+                    ),
+                    "language_stability": self._optional_normalized(
+                        self._schema_value(t_adv, t_adv_schema, "language_stability", None),
+                        normalize_fn=RuntimeProfiles.normalize_language_stability,
+                    ),
+                    "chunk_length_s": self._optional_bounded_int(
+                        self._schema_value(t_adv, t_adv_schema, "chunk_length_s", None),
+                        minimum=5,
+                        maximum=120,
+                    ),
+                    "stride_length_s": self._optional_bounded_int(
+                        self._schema_value(t_adv, t_adv_schema, "stride_length_s", None),
+                        minimum=0,
+                        maximum=30,
+                    ),
+                },
             },
             "translation_model": {
                 "engine_name": str(self._schema_value(x, x_schema, "engine_name", "none") or "none").strip(),
                 "engine_model_type": x_meta["engine_model_type"],
                 "engine_signature": x_meta["engine_signature"],
-                "max_new_tokens": int(self._schema_value(x, x_schema, "max_new_tokens", 256)),
-                "chunk_max_chars": int(self._schema_value(x, x_schema, "chunk_max_chars", 1200)),
-                "quality_preset": preset_tr,
+                "profile": profile_tr,
+                "max_new_tokens": _coerce_int(self._schema_value(x, x_schema, "max_new_tokens", 256), 256, 16, 8192),
+                "chunk_max_chars": _coerce_int(self._schema_value(x, x_schema, "chunk_max_chars", 1200), 1200, 200, 20000),
+                "advanced": {
+                    "style": self._optional_normalized(
+                        self._schema_value(x_adv, x_adv_schema, "style", None),
+                        normalize_fn=RuntimeProfiles.normalize_translation_style,
+                    ),
+                    "num_beams": self._optional_bounded_int(
+                        self._schema_value(x_adv, x_adv_schema, "num_beams", None),
+                        minimum=1,
+                        maximum=8,
+                    ),
+                    "no_repeat_ngram_size": self._optional_bounded_int(
+                        self._schema_value(x_adv, x_adv_schema, "no_repeat_ngram_size", None),
+                        minimum=0,
+                        maximum=8,
+                    ),
+                },
             },
         }
 
