@@ -9,7 +9,6 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.model.services.localization_service import tr
 from app.model.config.app_meta import AppMeta
-from app.model.domain.errors import AppError
 from app.model.helpers.string_utils import sanitize_filename
 from app.view.support.theme_runtime import apply_windows_dark_titlebar
 from app.view.support.widget_setup import (
@@ -697,6 +696,3 @@ def show_error(
         ok_text=tr("ctrl.ok"),
     )
 
-def show_app_error(parent: QtWidgets.QWidget | None, err: AppError) -> None:
-    """Show an :class:`AppError` through the standard error dialog path."""
-    show_error(parent, key=str(err.key), params=dict(err.params or {}))

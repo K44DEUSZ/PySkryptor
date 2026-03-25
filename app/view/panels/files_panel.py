@@ -33,9 +33,7 @@ from app.model.runtime_resolver import (
     active_translation_model_cfg,
     build_files_quick_options_payload,
     build_transcription_session_request,
-    transcription_language_codes,
     transcription_output_modes,
-    translation_language_codes,
     translation_runtime_available,
 )
 from app.model.services.source_input_service import build_entries, parse_source_input, try_add_source_key
@@ -45,9 +43,10 @@ from app.view.support.language_options import (
     build_target_language_items,
     effective_source_language_code,
     effective_target_language_code,
-    normalized_language_codes,
     resolve_source_language_selection,
     resolve_target_language_selection,
+    supported_source_language_codes,
+    supported_target_language_codes,
 )
 from app.model.config.app_config import AppConfig as Config
 from app.model.config.language_policy import LanguagePolicy
@@ -347,7 +346,7 @@ class FilesPanel(QtWidgets.QWidget):
         )
 
     def _build_target_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
-        self.cmb_target_lang = LanguageCombo(codes_provider=translation_language_codes)
+        self.cmb_target_lang = LanguageCombo(codes_provider=supported_target_language_codes)
         self.cmb_target_lang.setMinimumHeight(base_h)
         return build_field_stack(
             self,
@@ -359,7 +358,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _build_source_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
         self.cmb_source_lang = LanguageCombo(
             special_first=("lang.special.auto_detect", LanguagePolicy.AUTO),
-            codes_provider=transcription_language_codes,
+            codes_provider=supported_source_language_codes,
         )
         self.cmb_source_lang.setMinimumHeight(base_h)
         return build_field_stack(
@@ -527,9 +526,9 @@ class FilesPanel(QtWidgets.QWidget):
             self.chk_keep_url_audio.setChecked(bool(tcfg.get("url_keep_audio", False)))
             self.chk_keep_url_video.setChecked(bool(tcfg.get("url_keep_video", False)))
 
-            aext_raw = tcfg.get("url_audio_ext")
-            if aext_raw:
-                audio_ext = str(aext_raw).strip().lower().lstrip(".")
+            audio_ext_raw = tcfg.get("url_audio_ext")
+            if audio_ext_raw:
+                audio_ext = str(audio_ext_raw).strip().lower().lstrip(".")
                 if audio_ext in DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS:
                     set_combo_data(self.cmb_audio_ext, audio_ext)
 
@@ -734,26 +733,17 @@ class FilesPanel(QtWidgets.QWidget):
         return active_translation_model_cfg()
 
     @staticmethod
-    def _supported_source_language_codes() -> list[str]:
-        try:
-            return normalized_language_codes(
-                transcription_language_codes(),
-                drop_region=False,
-            )
-        except (RuntimeError, TypeError, ValueError):
-            return []
-
-    def _effective_source_language_code(self, selection: str | None, *, supported: list[str] | None = None) -> str:
-        codes = supported if supported is not None else self._supported_source_language_codes()
+    def _effective_source_language_code(selection: str | None, *, supported: list[str] | None = None) -> str:
+        codes = supported if supported is not None else supported_source_language_codes()
         return effective_source_language_code("files", selection, supported=codes)
 
+    @staticmethod
     def _resolve_source_language_selection(
-        self,
         selection: str | None,
         *,
         supported: list[str] | None = None,
     ) -> str:
-        codes = supported if supported is not None else self._supported_source_language_codes()
+        codes = supported if supported is not None else supported_source_language_codes()
         return resolve_source_language_selection(selection, supported=codes)
 
     def _rebuild_source_language_combo(
@@ -762,7 +752,7 @@ class FilesPanel(QtWidgets.QWidget):
         desired: str,
         supported: list[str] | None = None,
     ) -> None:
-        codes = supported if supported is not None else self._supported_source_language_codes()
+        codes = supported if supported is not None else supported_source_language_codes()
         items = build_source_language_items(
             "files",
             supported=codes,
@@ -782,7 +772,7 @@ class FilesPanel(QtWidgets.QWidget):
             or combo_current_code(self.cmb_source_lang, default=LanguagePolicy.PREFERRED)
             or LanguagePolicy.PREFERRED
         )
-        supported = self._supported_source_language_codes()
+        supported = supported_source_language_codes()
         resolved_selection = self._resolve_source_language_selection(desired, supported=supported)
         self._rebuild_source_language_combo(desired=resolved_selection, supported=supported)
         self._session_source_language = combo_current_code(
@@ -791,31 +781,21 @@ class FilesPanel(QtWidgets.QWidget):
         )
 
     @staticmethod
-    def _supported_target_language_codes() -> list[str]:
-        try:
-            return normalized_language_codes(
-                translation_language_codes(),
-                drop_region=True,
-            )
-        except (RuntimeError, TypeError, ValueError):
-            return []
-
     def _resolve_target_language_selection(
-        self,
         selection: str | None,
         *,
         supported: list[str] | None = None,
     ) -> str:
-        codes = supported if supported is not None else self._supported_target_language_codes()
+        codes = supported if supported is not None else supported_target_language_codes()
         return resolve_target_language_selection(selection, supported=codes)
 
+    @staticmethod
     def _effective_target_language_code(
-        self,
         selection: str | None,
         *,
         supported: list[str] | None = None,
     ) -> str:
-        codes = supported if supported is not None else self._supported_target_language_codes()
+        codes = supported if supported is not None else supported_target_language_codes()
         return effective_target_language_code(
             "files",
             selection,
@@ -829,7 +809,7 @@ class FilesPanel(QtWidgets.QWidget):
             or combo_current_code(self.cmb_target_lang, default=LanguagePolicy.PREFERRED)
             or LanguagePolicy.PREFERRED
         )
-        supported = self._supported_target_language_codes()
+        supported = supported_target_language_codes()
         resolved_selection = self._resolve_target_language_selection(desired, supported=supported)
         self._rebuild_target_language_combo(desired=resolved_selection, supported=supported)
         self._session_target_language = combo_current_code(
@@ -853,7 +833,7 @@ class FilesPanel(QtWidgets.QWidget):
         desired: str,
         supported: list[str] | None = None,
     ) -> None:
-        codes = supported if supported is not None else self._supported_target_language_codes()
+        codes = supported if supported is not None else supported_target_language_codes()
         items = build_target_language_items(
             "files",
             supported=codes,
@@ -1637,8 +1617,8 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_transcription_session_request(self) -> TranscriptionSessionRequest:
         output_formats = [mid for mid, cb in self._out_checks.items() if cb.isChecked()]
-        supported_source = self._supported_source_language_codes()
-        supported_target = self._supported_target_language_codes()
+        supported_source = supported_source_language_codes()
+        supported_target = supported_target_language_codes()
         return build_transcription_session_request(
             source_language=self._effective_source_language_code(self._session_source_language, supported=supported_source),
             target_language=self._effective_target_language_code(self._session_target_language, supported=supported_target),
@@ -1908,9 +1888,9 @@ class FilesPanel(QtWidgets.QWidget):
         if self._was_cancelled:
             return
 
-        ekey = str(err_key or "error.generic").strip() or "error.generic"
+        error_key = str(err_key or "error.generic").strip() or "error.generic"
         eparams = dict(params or {})
-        self._error_by_key[str(key)] = (ekey, eparams)
+        self._error_by_key[str(key)] = (error_key, eparams)
 
         row = self._row_by_key.get(str(key))
         if row is None:

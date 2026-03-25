@@ -53,9 +53,6 @@ _WORKER_GUARD = threading.Lock()
 class TranslationService:
     """Translation via a dedicated worker process."""
 
-    @classmethod
-    def supported_language_codes(cls) -> set[str]:
-        return _supported()
 
     def warmup(self, *, log: LogFn | None = None) -> bool:
         try:

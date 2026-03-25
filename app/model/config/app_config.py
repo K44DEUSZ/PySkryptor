@@ -257,10 +257,6 @@ class AppConfig:
         return cls._snapshot_section_dict("translation")
 
     @classmethod
-    def engine_cfg_dict(cls) -> dict[str, Any]:
-        return cls._snapshot_section_dict("engine")
-
-    @classmethod
     def model_cfg_dict(cls) -> dict[str, Any]:
         return cls._snapshot_section_dict("model")
 
@@ -287,14 +283,6 @@ class AppConfig:
     def translation_model_engine_name(cls) -> str:
         cfg = cls.translation_model_raw_cfg_dict()
         return str(cfg.get("engine_name", "none") or "none").strip()
-
-    @classmethod
-    def downloader_cfg_dict(cls) -> dict[str, Any]:
-        return cls._snapshot_section_dict("downloader")
-
-    @classmethod
-    def network_cfg_dict(cls) -> dict[str, Any]:
-        return cls._snapshot_section_dict("network")
 
     @classmethod
     def downloader_min_video_height(cls) -> int:
@@ -366,9 +354,6 @@ class AppConfig:
     def transcription_translate_after_enabled(cls) -> bool:
         return bool(cls._snapshot_section_value("transcription", "translate_after_transcription"))
 
-    @classmethod
-    def transcription_download_audio_only(cls) -> bool:
-        return bool(cls._snapshot_section_value("transcription", "download_audio_only"))
 
     @classmethod
     def transcription_url_audio_ext(cls) -> str:

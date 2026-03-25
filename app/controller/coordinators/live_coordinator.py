@@ -40,6 +40,7 @@ class LiveCoordinator(QtCore.QObject):
         self._view: LivePanelViewProtocol | None = None
         self._runtime_state = AppRuntimeState()
         self._pipe: Any | None = None
+        self._input_devices_provider = list_input_device_names
 
     def bind_view(self, panel: LivePanelViewProtocol) -> None:
         if self._view is panel:
@@ -90,7 +91,7 @@ class LiveCoordinator(QtCore.QObject):
         return self._runner.is_running()
 
     def list_input_devices(self) -> list[str]:
-        return list_input_device_names()
+        return self._input_devices_provider()
 
     def start_session(
         self,

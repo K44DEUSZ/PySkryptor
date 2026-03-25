@@ -7,9 +7,36 @@ from app.model.config.app_config import AppConfig as Config
 from app.model.config.language_policy import LanguagePolicy
 from app.model.helpers.string_utils import normalize_lang_code
 from app.model.services.localization_service import build_language_options, language_display_name, tr
-from app.model.runtime_resolver import resolve_source_language_for_run, resolve_target_language_for_run
+from app.model.runtime_resolver import (
+    resolve_source_language_for_run,
+    resolve_target_language_for_run,
+    transcription_language_codes as resolve_source_language_codes,
+    translation_language_codes as resolve_target_language_codes,
+)
 
 LanguageOption = tuple[str, str]
+
+
+def supported_source_language_codes() -> list[str]:
+    """Return normalized supported transcription source language codes."""
+    try:
+        return normalized_language_codes(
+            resolve_source_language_codes(),
+            drop_region=False,
+        )
+    except (RuntimeError, TypeError, ValueError):
+        return []
+
+
+def supported_target_language_codes() -> list[str]:
+    """Return normalized supported translation target language codes."""
+    try:
+        return normalized_language_codes(
+            resolve_target_language_codes(),
+            drop_region=True,
+        )
+    except (RuntimeError, TypeError, ValueError):
+        return []
 
 
 def normalized_language_codes(raw_codes: Iterable[str], *, drop_region: bool) -> list[str]:

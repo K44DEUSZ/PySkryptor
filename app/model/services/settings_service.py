@@ -35,18 +35,6 @@ class SettingsCatalog:
         return TranscriptionOutputPolicy.get_transcription_output_modes()
 
     @classmethod
-    def transcript_extensions(cls) -> tuple[str, ...]:
-        return tuple(
-            sorted(
-                {
-                    str(m.get("ext", "")).strip().lower()
-                    for m in cls.transcription_output_modes()
-                    if m.get("ext")
-                }
-            )
-        )
-
-    @classmethod
     def download_audio_exts(cls) -> tuple[str, ...]:
         return tuple(DownloadPolicy.DOWNLOAD_AUDIO_OUTPUT_EXTENSIONS)
 
@@ -149,28 +137,14 @@ class SettingsCatalog:
         return cls._m2m100_language_codes()
 
     @classmethod
-    def translation_target_allowed(cls) -> set[str]:
-        return cls.translation_language_codes() | {LanguagePolicy.DEFAULT_UI, LanguagePolicy.LAST_USED}
-
-    @classmethod
     def transcription_language_codes(cls) -> set[str]:
         """Return supported transcription language codes."""
 
         return cls._whisper_language_codes()
 
-    @classmethod
-    def transcription_language_allowed(cls) -> set[str]:
-        return cls.transcription_language_codes() | {LanguagePolicy.AUTO, LanguagePolicy.LAST_USED}
-
-    @classmethod
-    def transcription_source_allowed(cls) -> set[str]:
-        return cls.transcription_language_allowed()
 
 class RuntimeConfigService:
     """Apply validated settings snapshots to runtime configuration state."""
-    @staticmethod
-    def initialize(config_cls: Any, snap: "SettingsSnapshot") -> None:
-        config_cls.initialize_from_snapshot(snap)
 
     @staticmethod
     def update(
@@ -637,18 +611,6 @@ class SettingsService:
             downloader=self._validate_downloader(downloader, schema_downloader),
             network=self._validate_network(network, schema_network),
         )
-
-    def load_or_restore(self) -> tuple[SettingsSnapshot, bool, str]:
-        try:
-            snap = self.load()
-            return snap, False, ""
-        except SettingsError as ex:
-            if ex.key == "error.settings.defaults_missing":
-                raise
-            reason = ex.key if ex.key == "error.settings.settings_missing" else "error.settings.settings_invalid"
-            self.restore_defaults()
-            snap = self.load()
-            return snap, True, reason
 
     @staticmethod
     def _deep_merge(base: Any, patch: Any) -> Any:

@@ -1,4 +1,4 @@
-# app/model/services/runtime_resolver.py
+# app/model/runtime_resolver.py
 from __future__ import annotations
 
 from dataclasses import dataclass

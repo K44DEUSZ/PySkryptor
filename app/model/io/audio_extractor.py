@@ -85,21 +85,6 @@ class AudioExtractor:
         except AppError as ex:
             AudioExtractor._raise_ffmpeg_error(ex, src=src, dst=dst)
 
-    @staticmethod
-    def convert_audio(
-        src: Path,
-        dst: Path,
-        *,
-        cancel_check: Callable[[], bool] | None = None,
-    ) -> None:
-        """Convert audio to a target container/codec based on dst suffix."""
-        AudioExtractor._run_ffmpeg(
-            src,
-            dst,
-            args=("-vn",),
-            cancel_check=cancel_check,
-            log_label="convert",
-        )
 
     @staticmethod
     def ensure_mono_16k(

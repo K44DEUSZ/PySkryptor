@@ -22,14 +22,3 @@ class CancellationToken(QtCore.QObject):
     @property
     def is_cancelled(self) -> bool:
         return self._flag
-
-    def wait_for_cancelled(self, timeout_ms: int = -1) -> bool:
-        """Block the current event loop until cancelled or timeout_ms elapses."""
-        if self._flag:
-            return True
-        loop = QtCore.QEventLoop()
-        self.cancelled.connect(loop.quit)
-        if timeout_ms >= 0:
-            QtCore.QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec_()
-        return self._flag

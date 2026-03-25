@@ -15,8 +15,6 @@ from app.model.runtime_resolver import (
     active_translation_model_cfg,
     compute_translation_runtime,
     build_live_quick_options_payload,
-    translation_language_codes,
-    transcription_language_codes,
     translation_runtime_available,
 )
 from app.model.config.app_config import AppConfig as Config
@@ -32,9 +30,10 @@ from app.view.support.language_options import (
     build_source_language_items,
     build_target_language_items,
     effective_source_language_code,
-    normalized_language_codes,
     resolve_source_language_selection,
     resolve_target_language_selection,
+    supported_source_language_codes,
+    supported_target_language_codes,
 )
 from app.view.support.options_autosave import OptionsAutosave
 from app.view.support.widget_effects import enable_styled_background
@@ -236,10 +235,10 @@ class LivePanel(QtWidgets.QWidget):
             self.cmb_preset.setItemData(idx, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
         preset_host, _ = build_field_stack(self, tr("live.preset.label"), self.cmb_preset, buddy=self.cmb_preset)
 
-        self.cmb_src_lang = LanguageCombo(codes_provider=transcription_language_codes)
+        self.cmb_src_lang = LanguageCombo(codes_provider=supported_source_language_codes)
         self.cmb_src_lang.setMinimumHeight(base_h)
 
-        self.cmb_tgt_lang = LanguageCombo(codes_provider=translation_language_codes)
+        self.cmb_tgt_lang = LanguageCombo(codes_provider=supported_target_language_codes)
         self.cmb_tgt_lang.setMinimumHeight(base_h)
 
         src_lang_host, _ = build_field_stack(self, tr("common.field.source_language"), self.cmb_src_lang, buddy=self.cmb_src_lang)
@@ -394,42 +393,24 @@ class LivePanel(QtWidgets.QWidget):
             self.tg_mode.set_first_checked(True)
 
     @staticmethod
-    def _supported_source_language_codes() -> list[str]:
-        try:
-            return normalized_language_codes(
-                transcription_language_codes(),
-                drop_region=False,
-            )
-        except (RuntimeError, TypeError, ValueError):
-            return []
-
-    @staticmethod
-    def _supported_target_language_codes() -> list[str]:
-        try:
-            return normalized_language_codes(
-                translation_language_codes(),
-                drop_region=True,
-            )
-        except (RuntimeError, TypeError, ValueError):
-            return []
-
-    def _resolve_source_language_selection(self, selection: str | None) -> str:
+    def _resolve_source_language_selection(selection: str | None) -> str:
         return resolve_source_language_selection(
             selection,
-            supported=self._supported_source_language_codes(),
+            supported=supported_source_language_codes(),
         )
 
-    def _resolve_target_language_selection(self, selection: str | None) -> str:
+    @staticmethod
+    def _resolve_target_language_selection(selection: str | None) -> str:
         return resolve_target_language_selection(
             selection,
-            supported=self._supported_target_language_codes(),
+            supported=supported_target_language_codes(),
         )
 
     def refresh_defaults_from_settings(self) -> None:
         self._refresh_language_combos()
 
     def _refresh_language_combos(self) -> None:
-        src_codes = self._supported_source_language_codes()
+        src_codes = supported_source_language_codes()
         src_items = build_source_language_items(
             "live",
             supported=src_codes,
@@ -443,7 +424,7 @@ class LivePanel(QtWidgets.QWidget):
         )
         self._session_source_language = combo_current_code(self.cmb_src_lang, default=LanguagePolicy.PREFERRED)
 
-        tgt_codes = self._supported_target_language_codes()
+        tgt_codes = supported_target_language_codes()
         tgt_items = build_target_language_items(
             "live",
             supported=tgt_codes,
@@ -457,11 +438,12 @@ class LivePanel(QtWidgets.QWidget):
         )
         self._session_target_language = combo_current_code(self.cmb_tgt_lang, default=LanguagePolicy.PREFERRED)
 
-    def _effective_source_language_code(self, selection: str) -> str:
+    @staticmethod
+    def _effective_source_language_code(selection: str) -> str:
         return effective_source_language_code(
             "live",
             selection,
-            supported=self._supported_source_language_codes(),
+            supported=supported_source_language_codes(),
         )
 
     def _trigger_quick_options_autosave(self, *, sync_ui: bool = True) -> None:
@@ -840,7 +822,7 @@ class LivePanel(QtWidgets.QWidget):
             target_code=target,
             ui_language=current_language(),
             tab_name="live",
-            supported=translation_language_codes(),
+            supported=supported_target_language_codes(),
         )
 
     def _panel_control_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
