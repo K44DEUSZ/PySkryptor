@@ -4,27 +4,26 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from app.controller.contracts import LiveCoordinatorProtocol
-
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view import dialogs
-from app.view.components.popup_combo import LanguageCombo, PopupComboBox, combo_current_code, rebuild_code_combo
-from app.model.services.localization_service import current_language, language_display_name, tr
-from app.model.runtime_resolver import (
-    active_translation_model_cfg,
-    compute_translation_runtime,
-    build_live_quick_options_payload,
-    translation_runtime_available,
-)
+from app.controller.contracts import LiveCoordinatorProtocol
 from app.model.config.app_config import AppConfig as Config
-from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.config.transcription_output_policy import TranscriptionOutputPolicy
 from app.model.config.language_policy import LanguagePolicy
+from app.model.config.model_registry import ModelRegistry
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.io.transcript_writer import TranscriptWriter
-
+from app.model.runtime_resolver import (
+    build_live_quick_options_payload,
+    compute_translation_runtime,
+    translation_runtime_available,
+)
+from app.model.services.ai_models_service import AIModelsService
+from app.model.services.localization_service import current_language, language_display_name, tr
+from app.view import dialogs
 from app.view.components.audio_spectrum import AudioSpectrumWidget
 from app.view.components.choice_toggle import ChoiceToggle
+from app.view.components.popup_combo import LanguageCombo, PopupComboBox, combo_current_code, rebuild_code_combo
 from app.view.components.section_group import SectionGroup
 from app.view.support.language_options import (
     build_source_language_items,
@@ -36,6 +35,7 @@ from app.view.support.language_options import (
     supported_target_language_codes,
 )
 from app.view.support.options_autosave import OptionsAutosave
+from app.view.support.status_presenter import RuntimePresentation, build_runtime_presentation
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import (
     build_field_stack,
@@ -48,6 +48,7 @@ from app.view.support.widget_setup import (
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
+
 
 class LivePanel(QtWidgets.QWidget):
     """Live tab: capture audio input and run streaming ASR/translation."""
@@ -91,7 +92,6 @@ class LivePanel(QtWidgets.QWidget):
     def coordinator(self) -> LiveCoordinatorProtocol | None:
         return self._panel_coordinator
 
-
     def on_runtime_state_changed(
         self,
         *,
@@ -116,6 +116,9 @@ class LivePanel(QtWidgets.QWidget):
 
     def _init_runtime_state(self) -> None:
         self._status_key = ""
+        self._status_text = ""
+        self._base_status_key = ""
+        self._runtime_status_presentation: RuntimePresentation | None = None
         self._last_availability_debug_key: tuple | None = None
 
         self._transcription_ready: bool = False
@@ -285,16 +288,14 @@ class LivePanel(QtWidgets.QWidget):
         out_lay.addStretch(1)
         left_lay.addWidget(save_clear_outer)
 
-        self.lbl_status_title = QtWidgets.QLabel(f"<b>{tr('live.status_label')}</b>")
-        self.lbl_status_title.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.lbl_status_title = QtWidgets.QLabel(tr("live.status_label"))
+        self.lbl_status_title.setProperty("role", "fieldLabel")
         self.lbl_status_value = QtWidgets.QLabel(tr("status.idle"))
-        self.lbl_status_value.setProperty("uiRole", "hint")
         self.lbl_status_value.setWordWrap(True)
 
-        self.lbl_detected_title = QtWidgets.QLabel(f"<b>{tr('live.detected_language_label')}</b>")
-        self.lbl_detected_title.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.lbl_detected_title = QtWidgets.QLabel(tr("live.detected_language_label"))
+        self.lbl_detected_title.setProperty("role", "fieldLabel")
         self.lbl_detected_value = QtWidgets.QLabel("—")
-        self.lbl_detected_value.setProperty("uiRole", "hint")
         self.lbl_detected_value.setWordWrap(True)
 
         status_row, status_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.space_s)
@@ -384,11 +385,11 @@ class LivePanel(QtWidgets.QWidget):
         else:
             self.tg_output_mode.set_first_checked(True)
 
-        tr_ready = self._translation_engine_ready()
-        self.tg_mode.set_second_enabled(bool(tr_ready))
+        translation_available = self._translation_runtime_available()
+        self.tg_mode.set_second_enabled(bool(translation_available))
 
         want_mode = str(self._saved_mode or RuntimeProfiles.LIVE_UI_DEFAULT_MODE).strip().lower()
-        if want_mode == RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE and tr_ready:
+        if want_mode == RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE and translation_available:
             self.tg_mode.set_second_checked(True)
         else:
             self.tg_mode.set_first_checked(True)
@@ -547,9 +548,10 @@ class LivePanel(QtWidgets.QWidget):
 
     def _ensure_model_ready(self) -> bool:
         """Return True if ASR pipeline is available."""
-        if self._transcription_ready:
+        transcription_presentation = self._build_transcription_runtime_presentation()
+        if transcription_presentation.state == "ready":
             return True
-        self._set_status(tr("live.model.unavailable"))
+        self._set_runtime_status_presentation(transcription_presentation)
         self._update_buttons()
         return False
 
@@ -621,8 +623,8 @@ class LivePanel(QtWidgets.QWidget):
             str(self.cmb_src_lang.code() or self._session_source_language or LanguagePolicy.PREFERRED)
         )
 
-        tr_ready = self._translation_engine_ready()
-        translate_requested = self._is_translate_mode_checked() and tr_ready
+        translation_available = self._translation_runtime_available()
+        translate_requested = self._is_translate_mode_checked() and translation_available
         translation_runtime = self._translation_runtime(
             requested_enabled=translate_requested,
             target_code=self.cmb_tgt_lang.code(),
@@ -809,10 +811,52 @@ class LivePanel(QtWidgets.QWidget):
             self._set_status("status.error")
             self.txt_src.setPlainText(tr("error.generic", detail=str(e)))
 
-    def _translation_engine_ready(self) -> bool:
+    @staticmethod
+    def _model_engine_disabled(model_cfg: dict[str, Any]) -> bool:
+        engine = str(model_cfg.get("engine_name") or "none").strip().lower()
+        return ModelRegistry.is_disabled_engine_name(engine) or engine == "null"
+
+    def _translation_runtime_available(self) -> bool:
         return bool(self._translation_ready) and translation_runtime_available(
-            model_cfg=active_translation_model_cfg(),
+            translation_error_key=self._translation_error_key,
+            model_cfg=AIModelsService.current_model_cfg("translation"),
         )
+
+    def _build_transcription_runtime_presentation(self) -> RuntimePresentation:
+        return build_runtime_presentation(
+            ready=self._transcription_ready,
+            disabled=self._model_engine_disabled(AIModelsService.current_model_cfg("transcription")),
+            ready_text=tr("status.idle"),
+            disabled_text=tr("files.runtime.status_disabled"),
+            missing_text=tr("live.model.unavailable"),
+            error_key=self._transcription_error_key,
+            error_params=self._transcription_error_params,
+            error_status_key="status.error",
+        )
+
+    def _build_translation_runtime_presentation(self) -> RuntimePresentation:
+        return build_runtime_presentation(
+            ready=self._translation_runtime_available(),
+            disabled=self._model_engine_disabled(AIModelsService.current_model_cfg("translation")),
+            ready_text=tr("status.idle"),
+            disabled_text=tr("files.runtime.status_disabled"),
+            missing_text=tr("live.model.unavailable"),
+            error_key=self._translation_error_key,
+            error_params=self._translation_error_params,
+            disabled_status_key="",
+            missing_status_key="",
+            error_status_key="",
+        )
+
+    def _apply_translation_runtime_tooltips(self, presentation: RuntimePresentation) -> None:
+        tooltip = "" if presentation.state == "ready" else str(presentation.tooltip or presentation.text or "")
+        self.tg_mode.setToolTip(tooltip)
+        self.cmb_tgt_lang.setToolTip(tooltip)
+
+    def _should_show_translation_runtime_feedback(self) -> bool:
+        if self._live_is_running() or self._state != self.STATE_STOPPED:
+            return False
+        return self._base_status_key in ("", "status.idle", "status.stopped")
 
     def _translation_runtime(
         self,
@@ -820,7 +864,7 @@ class LivePanel(QtWidgets.QWidget):
         requested_enabled: bool | None = None,
         target_code: str | None = None,
     ) -> Any:
-        enabled = self._translation_engine_ready() if requested_enabled is None else bool(requested_enabled)
+        enabled = self._translation_runtime_available() if requested_enabled is None else bool(requested_enabled)
         target = self.cmb_tgt_lang.code() if target_code is None else str(target_code or "")
         return compute_translation_runtime(
             requested_enabled=enabled,
@@ -913,7 +957,7 @@ class LivePanel(QtWidgets.QWidget):
             bool(self._has_audio_devices),
             self._state,
             bool(self._live_is_running()),
-            bool(self._translation_engine_ready()),
+            bool(self._translation_runtime_available()),
             bool(self._is_translate_mode_effective()),
         )
         if state == self._last_availability_debug_key:
@@ -926,33 +970,60 @@ class LivePanel(QtWidgets.QWidget):
             bool(self._has_audio_devices),
             self._state,
             bool(self._live_is_running()),
-            bool(self._translation_engine_ready()),
+            bool(self._translation_runtime_available()),
             bool(self._is_translate_mode_effective()),
         )
 
     def _sync_options_ui(self) -> None:
-        tr_ready = self._translation_engine_ready()
+        translation_presentation = self._build_translation_runtime_presentation()
+        translation_available = translation_presentation.state == "ready"
         try:
-            self.tg_mode.set_second_enabled(bool(tr_ready) and self._can_change_settings())
+            self.tg_mode.set_second_enabled(bool(translation_available) and self._can_change_settings())
         except (AttributeError, RuntimeError, TypeError):
             self.tg_mode.setEnabled(False)
-        if not tr_ready and self.tg_mode.is_second_checked():
+        if not translation_available and self.tg_mode.is_second_checked():
             try:
                 self.tg_mode.set_first_checked(True)
             except (AttributeError, RuntimeError, TypeError):
                 self.tg_mode.setEnabled(False)
 
+        self._apply_translation_runtime_tooltips(translation_presentation)
         self._render_output()
         self._update_buttons()
         self._log_availability_state(reason="options_synced")
 
-    def _set_status(self, msg: str) -> None:
-        key = str(msg or "").strip()
+    def _apply_status_label(self, *, text: str, status_key: str = "", tooltip: str = "") -> None:
+        value = str(text or "").strip()
+        display_text = tr(value) if value.startswith("status.") else value
+        tip = str(tooltip or display_text or "").strip()
+        key = str(status_key or "").strip()
         self._status_key = key if key.startswith("status.") else ""
-        if key.startswith("status."):
-            self.lbl_status_value.setText(tr(key))
-        else:
-            self.lbl_status_value.setText(key)
+        self.lbl_status_value.setText(display_text)
+        self.lbl_status_value.setToolTip(tip)
+
+    def _refresh_status_label(self) -> None:
+        presentation = self._runtime_status_presentation
+        if presentation is not None:
+            self._apply_status_label(
+                text=presentation.text,
+                status_key=presentation.status_key,
+                tooltip=presentation.tooltip,
+            )
+            return
+        self._apply_status_label(
+            text=self._status_text,
+            status_key=self._base_status_key,
+        )
+
+    def _set_runtime_status_presentation(self, presentation: RuntimePresentation | None) -> None:
+        self._runtime_status_presentation = presentation
+        self._refresh_status_label()
+
+    def _set_status(self, msg: str) -> None:
+        text = str(msg or "").strip()
+        self._status_text = text
+        self._base_status_key = text if text.startswith("status.") else ""
+        self._refresh_status_label()
 
     def _can_change_settings(self) -> bool:
         return (not self._live_is_running()) and self._state == self.STATE_STOPPED
@@ -998,19 +1069,23 @@ class LivePanel(QtWidgets.QWidget):
             self.btn_refresh_devices.setEnabled(True)
             self._set_panel_controls_enabled(False)
 
+            self._set_runtime_status_presentation(None)
             self._set_status("status.no_devices")
             self._sync_spectrum_state()
             return
 
-        if not self._transcription_ready:
+        transcription_presentation = self._build_transcription_runtime_presentation()
+        if transcription_presentation.state != "ready":
             self.btn_refresh_devices.setEnabled(True)
             self._set_panel_controls_enabled(False)
 
-            self._set_status(tr("live.model.unavailable"))
+            self._set_runtime_status_presentation(transcription_presentation)
             self._sync_spectrum_state()
             return
 
         can_config = self._can_change_settings()
+        translation_presentation = self._build_translation_runtime_presentation()
+        translation_available = translation_presentation.state == "ready"
 
         self.cmb_device.setEnabled(can_config)
         self.btn_refresh_devices.setEnabled(can_config)
@@ -1020,14 +1095,14 @@ class LivePanel(QtWidgets.QWidget):
 
         self.cmb_src_lang.setEnabled(can_config)
 
-        tr_ready = self._translation_engine_ready()
+        self._apply_translation_runtime_tooltips(translation_presentation)
         if can_config:
             try:
-                self.tg_mode.set_second_enabled(bool(tr_ready))
+                self.tg_mode.set_second_enabled(bool(translation_available))
             except (AttributeError, RuntimeError, TypeError):
                 self.tg_mode.setEnabled(False)
 
-        wants_translate = self._is_translate_mode_checked() and tr_ready
+        wants_translate = self._is_translate_mode_checked() and translation_available
         self.cmb_tgt_lang.setEnabled(can_config and wants_translate)
 
         if self._state == self.STATE_STOPPED:
@@ -1042,6 +1117,11 @@ class LivePanel(QtWidgets.QWidget):
             self.btn_start.setEnabled(True)
             self.btn_pause.setEnabled(False)
             self.btn_stop.setEnabled(True)
+
+        if translation_available or not self._should_show_translation_runtime_feedback():
+            self._set_runtime_status_presentation(None)
+        else:
+            self._set_runtime_status_presentation(translation_presentation)
 
         self._update_save_clear_buttons(running=running)
         self._sync_spectrum_state()

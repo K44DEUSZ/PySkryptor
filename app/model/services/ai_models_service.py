@@ -49,19 +49,16 @@ def _raw_model_cfg_for_task(*, task: str) -> dict[str, Any]:
         return Config.translation_model_raw_cfg_dict()
     return Config.transcription_model_raw_cfg_dict()
 
-def _current_model_cfg(*, task: str) -> dict[str, Any]:
+def _normalize_model_task(task: str) -> str:
     task_id = str(task or "").strip().lower()
+    if task_id in ("transcription", "translation"):
+        return task_id
+    raise ValueError(f"Unsupported model task: {task}")
+
+
+def _current_model_cfg(*, task: str) -> dict[str, Any]:
+    task_id = _normalize_model_task(task)
     return _enrich_model_cfg(_raw_model_cfg_for_task(task=task_id), task=task_id)
-
-def current_transcription_model_cfg() -> dict[str, Any]:
-    """Return the active transcription model configuration with runtime metadata."""
-
-    return _current_model_cfg(task="transcription")
-
-def current_translation_model_cfg() -> dict[str, Any]:
-    """Return the active translation model configuration with runtime metadata."""
-
-    return _current_model_cfg(task="translation")
 
 def _is_disabled_engine_name(name: str) -> bool:
     return ModelRegistry.is_disabled_engine_name(name)
@@ -145,7 +142,7 @@ def _cpu_model_name() -> str | None:
         return None
     return None
 
-class TranscriptionModelLoader:
+class _TranscriptionModelLoader:
     """Load and cache the transcription pipeline."""
 
     def __init__(self) -> None:
@@ -219,7 +216,7 @@ class TranscriptionModelLoader:
         _LOG.info("Transcription engine ready.")
         return self._pipeline
 
-class TranslationModelLoader:
+class _TranslationModelLoader:
     """Ensure the translation worker is ready."""
 
     @staticmethod
@@ -244,7 +241,7 @@ class TranslationModelLoader:
         from app.model.services.translation_service import TranslationService
 
         _LOG.info("Loading translation model '%s' from '%s'.", engine_name, model_path)
-        return bool(TranslationService().warmup(log=None))
+        return TranslationService().warmup(log=None)
 
 class AIModelsService:
     """Centralized model readiness service (transcription + translation)."""
@@ -332,11 +329,21 @@ class AIModelsService:
             Config.TF32_ENABLED = False
 
     def __init__(self) -> None:
-        self.transcription = TranscriptionModelLoader()
-        self.translation = TranslationModelLoader()
+        self._loaders: dict[str, Any] = {
+            "transcription": _TranscriptionModelLoader(),
+            "translation": _TranslationModelLoader(),
+        }
 
-    def ensure_transcription_ready(self) -> Any | None:
-        return self.transcription.ensure_ready()
+    @staticmethod
+    def current_model_cfg(task: str) -> dict[str, Any]:
+        """Return the active model configuration for a task with runtime metadata."""
+        return _current_model_cfg(task=task)
 
-    def ensure_translation_ready(self) -> bool:
-        return self.translation.ensure_ready()
+    def _loader_for_task(self, task: str) -> Any:
+        return self._loaders[_normalize_model_task(task)]
+
+    def is_enabled(self, task: str) -> bool:
+        return bool(self._loader_for_task(task).is_enabled())
+
+    def ensure_ready(self, task: str) -> Any:
+        return self._loader_for_task(task).ensure_ready()

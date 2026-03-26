@@ -40,7 +40,6 @@ class OutputResolver:
                 return candidate
             i += 1
 
-
     @staticmethod
     def existing_dir(stem: str) -> str | None:
         """Return path to existing conflicting dir, if any."""
@@ -112,4 +111,3 @@ class OutputResolver:
             apply_all=resolved_apply_all,
             skipped=True,
         )
-

@@ -44,7 +44,7 @@ from app.model.io.file_manager import FileManager
 from app.model.io.media_probe import is_url_source
 from app.model.io.transcript_writer import TextPostprocessor, TranscriptWriter
 from app.model.services.download_service import DownloadService
-from app.model.services.translation_service import TranslationService
+from app.model.services.translation_service import TranslationError, TranslationService
 
 _LOG = logging.getLogger(__name__)
 
@@ -921,6 +921,13 @@ class TranscriptionService:
             return translated_text, translated_segments, had_errors
 
         callbacks.item_status(key, "status.translating")
+        self._report_item_stage_progress(
+            tracker=runtime.tracker,
+            key=key,
+            stage="translate",
+            pct=0,
+            item_progress=callbacks.item_progress,
+        )
         translate_started = time.perf_counter()
         src_lang = self._pick_source_language(default_lang=runtime.options.default_lang, detected_lang=detected_lang)
         _LOG.debug(
@@ -936,31 +943,58 @@ class TranscriptionService:
             had_errors = True
             callbacks.item_error(key, "error.translation.missing_source_language", {})
         else:
+            has_segment_translation = bool(runtime.options.want_timestamps and segments)
+            text_share = 70 if has_segment_translation else 100
+            segments_share = max(0, 100 - text_share)
+
+            def _translate_stage_progress_for_text(pct: int) -> None:
+                mapped = int(round((max(0, min(100, int(pct))) / 100.0) * float(text_share)))
+                self._report_item_stage_progress(
+                    tracker=runtime.tracker,
+                    key=key,
+                    stage="translate",
+                    pct=mapped,
+                    item_progress=callbacks.item_progress,
+                )
+
+            def _translate_stage_progress_for_segments(pct: int) -> None:
+                mapped = text_share + int(round((max(0, min(100, int(pct))) / 100.0) * float(segments_share)))
+                self._report_item_stage_progress(
+                    tracker=runtime.tracker,
+                    key=key,
+                    stage="translate",
+                    pct=min(100, mapped),
+                    item_progress=callbacks.item_progress,
+                )
+
             try:
                 translated_text = self._translator.translate(
                     merged_text,
                     src_lang=src_lang,
                     tgt_lang=runtime.options.tgt_lang,
                     log=None,
+                    progress_cb=_translate_stage_progress_for_text,
+                    cancel_check=callbacks.cancel_check,
                 )
             except AppError as ex:
                 had_errors = True
                 callbacks.item_error(key, str(getattr(ex, "key", "error.generic")), dict(getattr(ex, "params", {}) or {}))
                 translated_text = ""
             else:
-                if runtime.options.want_timestamps and segments:
-                    translated_segments = self._translate_segments(
-                        segments=segments,
-                        src_lang=src_lang,
-                        tgt_lang=runtime.options.tgt_lang,
-                        cancel_check=callbacks.cancel_check,
-                        progress_cb=self._build_stage_progress_callback(
-                            tracker=runtime.tracker,
-                            key=key,
-                            stage="translate",
-                            item_progress=callbacks.item_progress,
-                        ),
-                    )
+                if has_segment_translation:
+                    try:
+                        translated_segments = self._translate_segments(
+                            segments=segments,
+                            src_lang=src_lang,
+                            tgt_lang=runtime.options.tgt_lang,
+                            cancel_check=callbacks.cancel_check,
+                            progress_cb=_translate_stage_progress_for_segments,
+                        )
+                    except AppError as ex:
+                        had_errors = True
+                        callbacks.item_error(key, str(getattr(ex, "key", "error.generic")), dict(getattr(ex, "params", {}) or {}))
+                        translated_text = ""
+                        translated_segments = None
 
         self._report_item_stage_progress(
             tracker=runtime.tracker,
@@ -1323,7 +1357,7 @@ class TranscriptionService:
         tgt_lang: str,
         cancel_check: CancelCheckFn,
         progress_cb: Callable[[int], None] | None = None,
-    ) -> list[dict[str, Any]] | None:
+    ) -> list[dict[str, Any]]:
         total = max(1, len(segments))
         out: list[dict[str, Any]] = []
 
@@ -1331,12 +1365,15 @@ class TranscriptionService:
             if cancel_check():
                 raise OperationCancelled()
             text = str(seg.get("text") or "")
-            try:
-                translated = self._translator.translate(text, src_lang=src_lang, tgt_lang=tgt_lang, log=None)
-            except AppError:
-                return None
+            translated = self._translator.translate(
+                text,
+                src_lang=src_lang,
+                tgt_lang=tgt_lang,
+                log=None,
+                cancel_check=cancel_check,
+            )
             if not translated:
-                return None
+                raise TranslationError("error.translation.empty_result")
             out.append({"start": seg["start"], "end": seg["end"], "text": translated})
 
             if progress_cb is not None:

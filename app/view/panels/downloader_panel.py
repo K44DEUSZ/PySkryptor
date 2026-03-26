@@ -6,22 +6,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from PyQt5 import QtCore, QtGui, QtNetwork, QtWidgets
+
 from app.controller.contracts import DownloaderCoordinatorProtocol
-
-from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
-
-from app.model.services.localization_service import tr
-from app.model.runtime_resolver import available_audio_bitrates, available_video_heights
-from app.model.services.source_input_service import is_playlist_url
 from app.model.config.app_config import AppConfig as Config
-from app.model.config.download_policy import DownloadPolicy
 from app.model.config.app_meta import AppMeta
-from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code, sanitize_url_for_log
-from app.view.components.progress_action_bar import ProgressActionBar
-from app.view.components.source_table import SourceTable
-from app.view.components.section_group import SectionGroup
-from app.view import dialogs
+from app.model.config.download_policy import DownloadPolicy
 from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
+from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code, sanitize_url_for_log
+from app.model.services.download_service import DownloadService
+from app.model.services.localization_service import tr
+from app.model.services.source_input_service import is_playlist_url
+from app.view import dialogs
+from app.view.components.progress_action_bar import ProgressActionBar
+from app.view.components.section_group import SectionGroup
+from app.view.components.source_table import SourceTable
 from app.view.support.source_expansion_ui import (
     ensure_progress_dialog,
     hide_progress_dialog,
@@ -31,6 +30,7 @@ from app.view.support.source_expansion_ui import (
     should_confirm_bulk_add,
     update_progress_dialog_message,
 )
+from app.view.support.status_presenter import compose_status_text, display_texts_for_statuses, is_progress_status, is_terminal_status, status_display_text
 from app.view.support.view_runtime import (
     normalize_network_status,
     open_external_url,
@@ -51,6 +51,7 @@ _LINK_MAX_CHARS = 48
 _DESCRIPTION_MAX_CHARS = 320
 _DOWNLOAD_BULK_PROBE_LIMIT = 10
 
+
 @dataclass
 class _Job:
     key: str
@@ -69,6 +70,7 @@ class _DownloadQueueItem:
     quality: str
     ext: str
     audio_lang: str | None
+
 
 class DownloaderPanel(QtWidgets.QWidget):
     """Downloader tab UI and control logic."""
@@ -570,11 +572,11 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         self._reset_meta_ui()
         if not self._network_available():
-            self.lbl_description.setText(tr("status.offline"))
+            self.lbl_description.setText(status_display_text("status.offline", "status.offline"))
             _LOG.debug("Downloader preview probe blocked. reason=offline job_key=%s", sanitize_url_for_log(key))
             return
 
-        self.lbl_description.setText(tr("status.probing"))
+        self.lbl_description.setText(status_display_text("status.probing", "status.probing"))
         _LOG.debug("Downloader preview probe scheduled. job_key=%s", sanitize_url_for_log(key))
         self._preview_timer.start()
 
@@ -605,7 +607,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             else:
                 self._reset_meta_ui()
                 self.lbl_description.setToolTip("")
-                self.lbl_description.setText(tr("status.offline") if not self._network_available() else tr("status.probing"))
+                self.lbl_description.setText(status_display_text("status.offline", "status.offline") if not self._network_available() else status_display_text("status.probing", "status.probing"))
             return
 
         key = self._selected_job_key()
@@ -622,18 +624,19 @@ class DownloaderPanel(QtWidgets.QWidget):
             header_text = str(header_item.text() or "").strip()
             if header_text:
                 labels.append(header_text)
-        for key in (
-            "status.queued",
-            "status.probing",
-            "status.downloading",
-            "status.postprocessing",
-            "status.done",
-            "status.offline",
-            "status.error",
-        ):
-            label = str(tr(key) or "").strip()
-            if label:
-                labels.append(label)
+        labels.extend(
+            display_texts_for_statuses(
+                (
+                    "status.queued",
+                    "status.probing",
+                    "status.downloading",
+                    "status.postprocessing",
+                    "status.done",
+                    "status.offline",
+                    "status.error",
+                )
+            )
+        )
         metrics = QtGui.QFontMetrics(self.table.font())
         text_width = max((metrics.horizontalAdvance(label) for label in labels), default=0)
         cfg = self._ui
@@ -1648,12 +1651,12 @@ class DownloaderPanel(QtWidgets.QWidget):
         meta_dict = meta if isinstance(meta, dict) else None
 
         if only_audio:
-            bitrates = available_audio_bitrates(meta_dict)
+            bitrates = DownloadService.available_audio_bitrates(meta_dict)
             if bitrates:
                 return ["Auto", *[f"{int(v)}k" for v in bitrates if int(v) > 0]]
             return ["Auto", "320k", "256k", "192k", "128k"]
 
-        heights = available_video_heights(
+        heights = DownloadService.available_video_heights(
             meta_dict,
             min_h=Config.downloader_min_video_height(),
             max_h=Config.downloader_max_video_height(),
@@ -1947,10 +1950,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.action_bar.reset()
         self._sync_buttons()
 
-    @staticmethod
-    def _status_display_text(status_key: str, fallback: str) -> str:
-        return tr(status_key) if str(status_key or "").startswith("status.") else str(fallback or "")
-
     def _render_job_status_text(self, key: str, status_key: str) -> None:
         row = self._row_for_key(key)
         if row < 0:
@@ -1960,12 +1959,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         if item is None:
             return
 
-        base_text = self._status_display_text(status_key, status_key)
         pct = self._pct_by_key.get(key)
-        text = base_text
-        if pct is not None and 0 <= int(pct) < 100 and status_key in {"status.downloading", "status.postprocessing"}:
-            text = f"{base_text} ({int(pct)}%)"
-        item.setText(text)
+        item.setText(compose_status_text(status_key, pct, fallback=status_key))
 
     def _set_job_status(self, key: str, status: str) -> None:
         idx = self._find_job_index(key)
@@ -1974,9 +1969,12 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         status_key = self._job_status_key(status)
         self._status_base_by_key[key] = status_key
-        if status_key in {"status.done"}:
-            self._pct_by_key[key] = 100
-        elif status_key in {"status.error", "status.offline", "status.queued", "status.probing"}:
+        if is_terminal_status(status_key):
+            if status_key == "status.done":
+                self._pct_by_key[key] = 100
+            else:
+                self._pct_by_key.pop(key, None)
+        elif not is_progress_status(status_key):
             self._pct_by_key.pop(key, None)
 
         self._render_job_status_text(key, status_key)

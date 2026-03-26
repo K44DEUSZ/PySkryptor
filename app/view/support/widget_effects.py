@@ -73,8 +73,8 @@ def sync_progress_text_role(progress_bar: QtWidgets.QProgressBar) -> None:
     if maximum > minimum:
         value = int(progress_bar.value())
         filled = int(round(((value - minimum) * 100.0) / float(maximum - minimum)))
-        if filled >= int(cfg.progress_text_accent_threshold_pct):
-            role = "accent"
+        if filled >= int(cfg.progress_text_active_threshold_pct):
+            role = "active"
     progress_bar.setProperty("progressTextRole", role)
     repolish_widget(progress_bar)
 
@@ -108,5 +108,8 @@ def configure_floating_popup_surface(host: QtWidgets.QWidget, body: QtWidgets.QW
     host.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
     host.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
     host.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+    host.setProperty("uiSurface", "floatingHost")
+    body.setProperty("uiSurface", "floatingBody")
+    enable_styled_background(host)
     enable_styled_background(body)
     apply_floating_shadow(body)

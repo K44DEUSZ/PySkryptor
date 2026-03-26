@@ -89,10 +89,10 @@ class SpectrumPalette:
 def app_palette_colors(theme: str) -> dict[str, QtGui.QColor]:
     resolved = active_theme_key(theme)
     return {
-        'highlight': theme_color(resolved, '@BORDER_ACTIVE@'),
+        'highlight': theme_color(resolved, '@ACTIVE_BG_STRONG@'),
         'link': theme_color(resolved, '@BORDER_ACTIVE@'),
-        'link_visited': theme_color(resolved, '@LINK_VISITED@'),
-        'highlighted_text': theme_color(resolved, '@TEXT_ON_HIGHLIGHT@'),
+        'link_visited': theme_color(resolved, '@BORDER_PRESSED@'),
+        'highlighted_text': theme_color(resolved, '@TEXT_ON_ACTIVE@'),
     }
 
 def floating_shadow_color(theme: str | None = None, *, app: QtWidgets.QApplication | None = None) -> QtGui.QColor:
@@ -103,21 +103,21 @@ def spectrum_palette(state: str, *, theme: str | None = None, app: QtWidgets.QAp
     resolved_theme = active_theme_key(theme, app=app)
     state_key = str(state or '').strip().lower() or 'idle'
 
-    background = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL@'))
-    border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_BASE@'))
-    track = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_HOVER@'))
-    bar = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_ACCENT_SOFT_HOVER@'))
+    background = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG@'))
+    border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_DEFAULT@'))
+    track = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_HOVER@'))
+    bar = _color_with_alpha(theme_color(resolved_theme, '@ACTIVE_BG_HOVER@'))
 
     if state_key == 'active':
-        bar = _color_with_alpha(theme_color(resolved_theme, '@BORDER_ACTIVE@'))
+        bar = _color_with_alpha(theme_color(resolved_theme, '@ACTIVE_BG_STRONG@'))
     elif state_key == 'paused':
         border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_SUBTLE@'))
-        track = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_DISABLED@'))
+        track = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_DISABLED@'))
         bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_DISABLED@'), 180)
     elif state_key == 'disabled':
-        background = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_DISABLED@'))
+        background = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_DISABLED@'))
         border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_SUBTLE@'))
-        track = _color_with_alpha(theme_color(resolved_theme, '@SURFACE_CONTROL_DISABLED@'))
+        track = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_DISABLED@'))
         bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_DISABLED@'), 132)
     elif state_key == 'error':
         border = _color_with_alpha(theme_color(resolved_theme, '@TEXT_ERROR@'))
@@ -128,37 +128,35 @@ def spectrum_palette(state: str, *, theme: str | None = None, app: QtWidgets.QAp
 def _theme_tokens() -> dict[str, dict[str, str]]:
     return {
         'light': {
-            '@SURFACE_WINDOW@': '#F5F7F5',
-            '@SURFACE_PANEL@': '#FFFFFF',
-            '@SURFACE_CONTROL@': '#FFFFFF',
-            '@SURFACE_CONTROL_HOVER@': '#F1F5F1',
-            '@SURFACE_CONTROL_DISABLED@': '#F2F4F2',
-            '@SURFACE_HEADER@': '#EFF3EF',
-            '@BORDER_BASE@': '#D6DDD6',
+            '@APP_BG@': '#F4F7F4',
+            '@PANEL_BG@': '#FFFFFF',
+            '@POPUP_BG@': '#FBFCFB',
+            '@HEADER_BG@': '#EEF3EE',
+            '@CONTROL_BG@': '#FFFFFF',
+            '@CONTROL_BG_HOVER@': '#F2F6F2',
+            '@CONTROL_BG_DISABLED@': '#F2F5F2',
+            '@FIELD_BG@': '#EFF3EF',
+            '@FIELD_BG_HOVER@': '#F4F7F4',
+            '@FIELD_BG_ACTIVE@': '#EDF5E5',
+            '@CONTEXT_HOVER_BG@': '#14384038',
+            '@CONTEXT_SELECTED_BG@': '#2E70A82E',
+            '@ACTIVE_BG@': '#2470A82E',
+            '@ACTIVE_BG_HOVER@': '#3070A82E',
+            '@ACTIVE_BG_STRONG@': '#70A82E',
+            '@BORDER_DEFAULT@': '#D4DDD4',
             '@BORDER_SUBTLE@': '#E1E6E1',
+            '@BORDER_MUTED@': '#CAD3CA',
             '@BORDER_GRID@': '#D5DDD5',
-            '@BORDER_HEADER@': '#CAD3CA',
             '@BORDER_ACTIVE@': '#70A82E',
             '@BORDER_PRESSED@': '#5E9326',
-            '@LINK_VISITED@': '#5E8F28',
+            '@TEXT_PRIMARY@': '#3A3F3A',
+            '@TEXT_SECONDARY@': '#667066',
+            '@TEXT_DISABLED@': '#9AA39A',
             '@TEXT_SUCCESS@': '#4E7821',
             '@TEXT_ERROR@': '#B8473F',
-            '@TEXT_PRIMARY@': '#3A3F3A',
-            '@TEXT_MUTED@': '#667066',
-            '@TEXT_DISABLED@': '#9AA39A',
-            '@TEXT_ON_ACCENT@': '#FFFFFF',
-            '@TEXT_ON_SELECTED@': '#1F241F',
-            '@TEXT_ON_HIGHLIGHT@': '#2B3328',
-            '@TEXT_TAB_HOVER@': '#3A3F3A',
+            '@TEXT_ON_ACTIVE@': '#FFFFFF',
+            '@TEXT_ON_SELECTION@': '#1F241F',
             '@PROGRESS_FILL@': '#4E7821',
-            '@SELECTION_BG@': '#3070A82E',
-            '@SURFACE_HOVER@': '#123A3F3A',
-            '@SURFACE_SELECTED@': '#3070A82E',
-            '@SURFACE_ACCENT_SOFT@': '#1470A82E',
-            '@SURFACE_ACCENT_SOFT_HOVER@': '#1C70A82E',
-            '@SURFACE_ACCENT@': '#1A70A82E',
-            '@SURFACE_ACCENT_HOVER@': '#2270A82E',
-            '@SURFACE_ACCENT_STRONG@': '#2870A82E',
             '@SCROLLBAR_TRACK@': '#0C3A3F3A',
             '@SCROLLBAR_HANDLE@': '#2D3A3F3A',
             '@SCROLLBAR_HANDLE_HOVER@': '#413A3F3A',
@@ -178,37 +176,35 @@ def _theme_tokens() -> dict[str, dict[str, str]]:
             '@ICON_RADIO_CHECKED_DISABLED@': '@ASSETS@/icons/radio_checked_light_disabled.svg',
         },
         'dark': {
-            '@SURFACE_WINDOW@': '#121513',
-            '@SURFACE_PANEL@': '#171B18',
-            '@SURFACE_CONTROL@': '#1A1F1B',
-            '@SURFACE_CONTROL_HOVER@': '#1F261F',
-            '@SURFACE_CONTROL_DISABLED@': '#141816',
-            '@SURFACE_HEADER@': '#141816',
-            '@BORDER_BASE@': '#2B332D',
+            '@APP_BG@': '#121513',
+            '@PANEL_BG@': '#171B18',
+            '@POPUP_BG@': '#1A201B',
+            '@HEADER_BG@': '#141816',
+            '@CONTROL_BG@': '#1A1F1B',
+            '@CONTROL_BG_HOVER@': '#202720',
+            '@CONTROL_BG_DISABLED@': '#141816',
+            '@FIELD_BG@': '#151A16',
+            '@FIELD_BG_HOVER@': '#1B211C',
+            '@FIELD_BG_ACTIVE@': '#1E271B',
+            '@CONTEXT_HOVER_BG@': '#16E6EFE0',
+            '@CONTEXT_SELECTED_BG@': '#3770A82E',
+            '@ACTIVE_BG@': '#2270A82E',
+            '@ACTIVE_BG_HOVER@': '#2E70A82E',
+            '@ACTIVE_BG_STRONG@': '#5E9326',
+            '@BORDER_DEFAULT@': '#2B332D',
             '@BORDER_SUBTLE@': '#232B25',
+            '@BORDER_MUTED@': '#425045',
             '@BORDER_GRID@': '#364037',
-            '@BORDER_HEADER@': '#425045',
             '@BORDER_ACTIVE@': '#70A82E',
             '@BORDER_PRESSED@': '#5E9326',
-            '@LINK_VISITED@': '#5E8F28',
+            '@TEXT_PRIMARY@': '#E6EFE0',
+            '@TEXT_SECONDARY@': '#AAB6A4',
+            '@TEXT_DISABLED@': '#707B72',
             '@TEXT_SUCCESS@': '#8FCD48',
             '@TEXT_ERROR@': '#F08F86',
-            '@TEXT_PRIMARY@': '#E6EFE0',
-            '@TEXT_MUTED@': '#AAB6A4',
-            '@TEXT_DISABLED@': '#707B72',
-            '@TEXT_ON_ACCENT@': '#F5FAEF',
-            '@TEXT_ON_SELECTED@': '#F5FAEF',
-            '@TEXT_ON_HIGHLIGHT@': '#0F140F',
-            '@TEXT_TAB_HOVER@': '#D2E5BB',
+            '@TEXT_ON_ACTIVE@': '#F5FAEF',
+            '@TEXT_ON_SELECTION@': '#F5FAEF',
             '@PROGRESS_FILL@': '#4E7821',
-            '@SELECTION_BG@': '#4670A82E',
-            '@SURFACE_HOVER@': '#16D2E5BB',
-            '@SURFACE_SELECTED@': '#3770A82E',
-            '@SURFACE_ACCENT_SOFT@': '#1E70A82E',
-            '@SURFACE_ACCENT_SOFT_HOVER@': '#2870A82E',
-            '@SURFACE_ACCENT@': '#2270A82E',
-            '@SURFACE_ACCENT_HOVER@': '#2C70A82E',
-            '@SURFACE_ACCENT_STRONG@': '#3770A82E',
             '@SCROLLBAR_TRACK@': '#0AE6EFE0',
             '@SCROLLBAR_HANDLE@': '#1AE6EFE0',
             '@SCROLLBAR_HANDLE_HOVER@': '#28E6EFE0',

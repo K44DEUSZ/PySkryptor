@@ -7,24 +7,21 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-from app.controller.contracts import SettingsCoordinatorProtocol
-
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.components.popup_combo import PopupComboBox, LanguageCombo, set_combo_data
-
+from app.controller.contracts import SettingsCoordinatorProtocol
 from app.model.config.app_config import AppConfig as Config
-from app.model.services.model_resolution_service import ModelResolutionService
-from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.config.language_policy import LanguagePolicy
+from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
 from app.model.runtime_resolver import transcription_language_codes, translation_language_codes
-from app.model.services.localization_service import tr, list_locales
-from app.view.components.choice_toggle import ChoiceToggle
+from app.model.services.localization_service import list_locales, tr
+from app.model.services.model_resolution_service import ModelResolutionService
 from app.view import dialogs
+from app.view.components.choice_toggle import ChoiceToggle
+from app.view.components.popup_combo import LanguageCombo, PopupComboBox, set_combo_data
 from app.view.components.section_group import SectionGroup
 from app.view.support.options_autosave import OptionsAutosave
-from app.view.support.theme_runtime import system_theme_key
 from app.view.support.settings_mapping import (
     collect_combo_fields,
     collect_spin_fields,
@@ -33,6 +30,7 @@ from app.view.support.settings_mapping import (
     populate_spin_fields,
     populate_toggle_fields,
 )
+from app.view.support.theme_runtime import system_theme_key
 from app.view.support.view_runtime import open_local_path
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
 from app.view.support.widget_setup import (
@@ -44,6 +42,7 @@ from app.view.support.widget_setup import (
     setup_spinbox,
 )
 from app.view.ui_config import ui
+
 
 class _YesNoToggle(ChoiceToggle):
     """Convenience yes/no toggle."""
@@ -62,6 +61,7 @@ class _YesNoToggle(ChoiceToggle):
             height=height,
             parent=parent,
         )
+
 
 class SettingsPanel(QtWidgets.QWidget):
     """Settings page with app, engine and downloader configuration."""
@@ -274,8 +274,6 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         if advanced:
             self._advanced_rows.append(row)
-        if track_dirty_label:
-            label_widget.setProperty("dirtySetting", False)
         return row
 
     def _row(self, label: str, control: QtWidgets.QWidget, tooltip: str, *,
@@ -1132,6 +1130,15 @@ class SettingsPanel(QtWidgets.QWidget):
         if isinstance(label, QtWidgets.QWidget):
             label.setEnabled(bool(enabled))
 
+    @staticmethod
+    def _find_setting_row(control: QtWidgets.QWidget | None) -> QtWidgets.QWidget | None:
+        current = control
+        while isinstance(current, QtWidgets.QWidget):
+            if getattr(current, "_setting_control", None) is control:
+                return current
+            current = current.parentWidget()
+        return None
+
     def _on_logging_toggle(self) -> None:
         enabled = bool(self.tg_log_enabled.is_first_checked())
         self._set_row_control_enabled(self._log_level_row, enabled)
@@ -1229,14 +1236,22 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_chunk_length_s.setValue(int(runtime.get("chunk_length_s", 45) or 45))
         self.sp_stride_length_s.setValue(int(runtime.get("stride_length_s", 5) or 5))
         for widget in (self.cb_context_policy, self.cb_silence_guard, self.cb_language_stability, self.sp_chunk_length_s, self.sp_stride_length_s):
-            widget.setEnabled(bool(editable))
+            row = self._find_setting_row(widget)
+            if row is not None:
+                self._set_row_control_enabled(row, editable, control=widget)
+            else:
+                widget.setEnabled(bool(editable))
 
     def _apply_translation_runtime_to_controls(self, runtime: dict[str, Any], *, editable: bool) -> None:
         set_combo_data(self.cb_tr_style, runtime.get("style"), fallback_data=RuntimeProfiles.TRANSLATION_STYLE_BALANCED)
         self.sp_tr_beams.setValue(int(runtime.get("num_beams", 3) or 3))
         self.sp_tr_no_repeat.setValue(int(runtime.get("no_repeat_ngram_size", 0) or 0))
         for widget in (self.cb_tr_style, self.sp_tr_beams, self.sp_tr_no_repeat):
-            widget.setEnabled(bool(editable))
+            row = self._find_setting_row(widget)
+            if row is not None:
+                self._set_row_control_enabled(row, editable, control=widget)
+            else:
+                widget.setEnabled(bool(editable))
 
     def _sync_transcription_profile_controls(self) -> None:
         profile = RuntimeProfiles.normalize_transcription_profile(self.cb_transcription_profile.currentData() or RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE)
@@ -1409,8 +1424,6 @@ class SettingsPanel(QtWidgets.QWidget):
     def _populate_model_settings(self, model: dict[str, Any]) -> None:
         t_model = self._section_dict(model, "transcription_model")
         x_model = self._section_dict(model, "translation_model")
-        t_adv = self._section_dict(t_model, "advanced")
-        x_adv = self._section_dict(x_model, "advanced")
 
         self._populate_model_engines()
 

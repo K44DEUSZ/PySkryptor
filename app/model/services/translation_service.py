@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import queue
 import re
 import subprocess
 import sys
-import threading
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -14,9 +16,9 @@ import torch
 
 from app.model.config.app_config import AppConfig as Config, ConfigError
 from app.model.config.runtime_profiles import RuntimeProfiles
-from app.model.domain.errors import AppError
-from app.model.services.settings_service import SettingsCatalog
+from app.model.domain.errors import AppError, OperationCancelled
 from app.model.helpers.string_utils import normalize_lang_code
+from app.model.services.settings_service import SettingsCatalog
 
 _LOG = logging.getLogger(__name__)
 
@@ -47,32 +49,225 @@ class _WorkerIO:
     proc: subprocess.Popen
     lock: threading.Lock
 
-_WORKER: _WorkerIO | None = None
-_WORKER_GUARD = threading.Lock()
+@dataclass(frozen=True)
+class _TranslationWorkerPolicy:
+    poll_interval_s: float = 0.1
+    ping_timeout_s: float = 15.0
+    warmup_timeout_s: float = 600.0
+    request_timeout_s: float = 120.0
+
+
+class _TranslationWorkerClient:
+    """Private worker transport for TranslationService RPC calls."""
+
+    def __init__(self, *, policy: _TranslationWorkerPolicy | None = None) -> None:
+        self._policy = policy or _TranslationWorkerPolicy()
+        self._worker: _WorkerIO | None = None
+        self._guard = threading.Lock()
+
+    @property
+    def policy(self) -> _TranslationWorkerPolicy:
+        return self._policy
+
+    def dispose(self, *, log_reason: str = "") -> None:
+        with self._guard:
+            io = self._worker
+            self._worker = None
+
+        if io is None:
+            return
+
+        if log_reason:
+            _LOG.debug("Translation worker disposing. reason=%s", log_reason)
+
+        proc = io.proc
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError) as proc_ex:
+            _LOG.debug("Translation worker process kill skipped. detail=%s", proc_ex)
+
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                continue
+
+    def _read_worker_line(
+        self,
+        stdout: Any,
+        *,
+        timeout_s: float,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> str:
+        result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+        def _reader() -> None:
+            try:
+                line = stdout.readline()
+                result_queue.put(("ok", "" if line is None else str(line)))
+            except BaseException as ex:
+                result_queue.put(("error", ex))
+
+        reader = threading.Thread(target=_reader, name="translation-worker-readline", daemon=True)
+        reader.start()
+        deadline = time.monotonic() + max(0.1, float(timeout_s))
+
+        while True:
+            if cancel_check is not None and cancel_check():
+                self.dispose(log_reason="cancelled")
+                raise OperationCancelled()
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.dispose(log_reason="rpc_timeout")
+                raise TranslationError("error.translation.no_response_from_worker")
+
+            try:
+                status, value = result_queue.get(timeout=min(self._policy.poll_interval_s, remaining))
+            except queue.Empty:
+                continue
+
+            if status == "error":
+                self.dispose(log_reason="read_failed")
+                raise TranslationError("error.translation.worker_protocol_error", detail=str(value))
+            if not isinstance(value, str):
+                self.dispose(log_reason="invalid_read_type")
+                raise TranslationError(
+                    "error.translation.worker_protocol_error",
+                    detail=f"unexpected response type: {type(value).__name__}",
+                )
+            return value
+
+    def ensure_worker(self, *, log: LogFn | None = None) -> None:
+        with self._guard:
+            if self._worker is not None and self._worker.proc.poll() is None:
+                _LOG.debug("Translation worker reused. worker=translation")
+                return
+
+            _LOG.debug("Translation worker starting. worker=translation")
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "app.model.services.translation_service", "--worker"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    cwd=str(Config.PATHS.ROOT_DIR),
+                )
+            except (OSError, ValueError, RuntimeError) as ex:
+                self._worker = None
+                _LOG.warning("Translation worker start failed. detail=%s", ex)
+                raise TranslationError("error.translation.worker_start_failed", detail=str(ex))
+
+            self._worker = _WorkerIO(proc=proc, lock=threading.Lock())
+
+        try:
+            rep = self.rpc({"cmd": "ping"}, timeout_s=self._policy.ping_timeout_s)
+        except AppError:
+            self.dispose(log_reason="ping_failed")
+            raise
+        except Exception as ex:
+            self.dispose(log_reason="ping_failed")
+            _LOG.warning("Translation worker ping failed. detail=%s", ex)
+            raise TranslationError("error.translation.worker_ping_failed")
+
+        ok = bool(isinstance(rep, dict) and rep.get("ok", False))
+        if not ok:
+            self.dispose(log_reason="ping_rejected")
+
+            err_key = str(rep.get("error_key") or "").strip() if isinstance(rep, dict) else ""
+            err_params = rep.get("error_params") if isinstance(rep, dict) else None
+            if err_key:
+                det = str(rep.get("error") or "").strip()
+                if det:
+                    _LOG.debug("Translation worker ping error detail. detail=%s", det)
+                raise TranslationError(err_key, **dict(err_params or {}))
+
+            code = str(rep.get("code", "")) if isinstance(rep, dict) else ""
+            err = str(rep.get("error", "")) if isinstance(rep, dict) else ""
+            msg = (err or code or "ping failed").strip()
+            raise TranslationError("error.translation.worker_ping_failed", detail=msg)
+
+        _LOG.debug("Translation worker ping succeeded. worker=translation")
+        if log:
+            log("Translation engine ready.")
+        _LOG.info("Translation engine ready.")
+
+    def rpc(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout_s: float,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        io = self._worker
+        if io is None or io.proc.poll() is not None:
+            raise TranslationError("error.translation.worker_not_running")
+
+        stdin = io.proc.stdin
+        stdout = io.proc.stdout
+        if stdin is None or stdout is None:
+            raise TranslationError("error.translation.worker_protocol_error", detail="worker stdio unavailable")
+
+        line = json.dumps(payload, ensure_ascii=True)
+        with io.lock:
+            try:
+                stdin.write(line + "\n")
+                stdin.flush()
+            except (OSError, ValueError) as ex:
+                self.dispose(log_reason="write_failed")
+                raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
+            out = self._read_worker_line(stdout, timeout_s=timeout_s, cancel_check=cancel_check)
+        if not out:
+            self.dispose(log_reason="worker_eof")
+            raise TranslationError("error.translation.no_response_from_worker")
+        try:
+            rep = json.loads(out)
+        except json.JSONDecodeError as ex:
+            self.dispose(log_reason="invalid_json")
+            raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
+        return rep if isinstance(rep, dict) else {}
+
+
+_WORKER_CLIENT = _TranslationWorkerClient()
 
 class TranslationService:
     """Translation via a dedicated worker process."""
 
-
     def warmup(self, *, log: LogFn | None = None) -> bool:
-        try:
-            self._ensure_worker(log=log)
-            rep = self._rpc({"cmd": "warmup", **self._runtime_request_payload()})
-            if not isinstance(rep, dict) or not rep.get("ok", False):
-                raise TranslationError(
-                    "error.translation.worker_error",
-                    detail=str(rep.get("error") or rep.get("code") or "warmup failed"),
-                )
-            return True
-        except AppError:
-            return False
+        _WORKER_CLIENT.ensure_worker(log=log)
+        rep = _WORKER_CLIENT.rpc(
+            {"cmd": "warmup", **self._runtime_request_payload()},
+            timeout_s=_WORKER_CLIENT.policy.warmup_timeout_s,
+        )
+        if not isinstance(rep, dict) or not rep.get("ok", False):
+            _WORKER_CLIENT.dispose(log_reason="warmup_failed")
+            raise TranslationError(
+                "error.translation.worker_error",
+                detail=str(rep.get("error") or rep.get("code") or "warmup failed"),
+            )
+        return True
 
-    def translate(self, text: str, *, src_lang: str, tgt_lang: str, log: LogFn | None = None) -> str:
+    def translate(
+        self,
+        text: str,
+        *,
+        src_lang: str,
+        tgt_lang: str,
+        log: LogFn | None = None,
+        progress_cb: Callable[[int], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> str:
         t = str(text or "").strip()
         if not t:
             return ""
 
-        self._ensure_worker(log=log)
+        _WORKER_CLIENT.ensure_worker(log=log)
 
         sup = _supported()
         if not sup:
@@ -100,14 +295,14 @@ class TranslationService:
         chunk_max_chars = int(runtime_payload["chunk_max_chars"])
         profile = str(runtime_payload["profile"])
         style_id = str(runtime_payload["style"])
+        chunks = _chunk_text(t, max_chars=chunk_max_chars)
+        chunk_count = len(chunks)
 
-        debug_chunk_count = 0
         if _LOG.isEnabledFor(logging.DEBUG):
-            debug_chunk_count = len(_chunk_text(t, max_chars=chunk_max_chars))
             _LOG.debug(
                 "Translation request prepared. worker=translation text_chars=%s chunk_count=%s src_lang=%s tgt_lang=%s device=%s dtype=%s profile=%s style=%s",
                 len(t),
-                debug_chunk_count,
+                chunk_count,
                 src,
                 tgt,
                 device_str,
@@ -116,27 +311,80 @@ class TranslationService:
                 style_id,
             )
 
+        if progress_cb is not None:
+            progress_cb(0)
+
+        out_parts: list[str] = []
+        total = max(1, chunk_count)
+        for idx, chunk in enumerate(chunks, start=1):
+            if cancel_check is not None and cancel_check():
+                raise OperationCancelled()
+            out_parts.append(
+                self._translate_chunk_text(
+                    chunk=chunk,
+                    src=src,
+                    tgt=tgt,
+                    runtime_payload=runtime_payload,
+                    cancel_check=cancel_check,
+                )
+            )
+            if progress_cb is not None:
+                progress_cb(int(round((idx / float(total)) * 100)))
+
+        out = "\n\n".join([part for part in out_parts if str(part).strip()]).strip()
+        if not out:
+            raise TranslationError("error.translation.empty_result")
+
+        if _LOG.isEnabledFor(logging.DEBUG):
+            _LOG.debug(
+                "Translation request finished. worker=translation text_chars=%s output_chars=%s chunk_count=%s",
+                len(t),
+                len(out),
+                chunk_count,
+            )
+        return out
+
+    def _translate_chunk_text(
+        self,
+        *,
+        chunk: str,
+        src: str,
+        tgt: str,
+        runtime_payload: dict[str, Any],
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> str:
         payload = {
             "cmd": "translate",
-            "text": t,
+            "text": str(chunk or ""),
             "src": src,
             "tgt": tgt,
             **runtime_payload,
         }
 
         try:
-            rep = self._rpc(payload)
+            rep = _WORKER_CLIENT.rpc(
+                payload,
+                timeout_s=_WORKER_CLIENT.policy.request_timeout_s,
+                cancel_check=cancel_check,
+            )
         except AppError:
             raise
         except Exception as ex:
             _LOG.exception("Translation worker protocol error.")
             raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
 
+        out = self._extract_text_from_reply(rep)
+        if not out:
+            raise TranslationError("error.translation.empty_result")
+        return out
+
+    @staticmethod
+    def _extract_text_from_reply(rep: dict[str, Any] | Any) -> str:
         if not isinstance(rep, dict) or not rep.get("ok", False):
             err_key = str(rep.get("error_key") or "").strip() if isinstance(rep, dict) else ""
             err_params = rep.get("error_params") if isinstance(rep, dict) else None
             if err_key:
-                det = str(rep.get("error") or "").strip()
+                det = str(rep.get("error") or "").strip() if isinstance(rep, dict) else ""
                 if det:
                     _LOG.debug("Translation worker error detail. detail=%s", det)
                 raise TranslationError(err_key, **dict(err_params or {}))
@@ -146,88 +394,7 @@ class TranslationService:
             msg = (err or code or "unknown").strip()
             raise TranslationError("error.translation.worker_error", detail=msg)
 
-        out = str(rep.get("text", "") or "").strip()
-        if not out:
-            raise TranslationError("error.translation.empty_result")
-
-        if _LOG.isEnabledFor(logging.DEBUG):
-            _LOG.debug(
-                "Translation request finished. worker=translation text_chars=%s output_chars=%s chunk_count=%s",
-                len(t),
-                len(out),
-                debug_chunk_count,
-            )
-        return out
-
-    def _ensure_worker(self, *, log: LogFn | None = None) -> None:
-        global _WORKER
-
-        def _dispose() -> None:
-            global _WORKER
-            if _WORKER is None:
-                return
-            try:
-                _WORKER.proc.kill()
-            except (ProcessLookupError, OSError) as proc_ex:
-                _LOG.debug("Translation worker process kill skipped. detail=%s", proc_ex)
-            _WORKER = None
-
-        with _WORKER_GUARD:
-            if _WORKER is not None and _WORKER.proc.poll() is None:
-                _LOG.debug("Translation worker reused. worker=translation")
-                return
-
-            _LOG.debug("Translation worker starting. worker=translation")
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, "-m", "app.model.services.translation_service", "--worker"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    bufsize=1,
-                    cwd=str(Config.PATHS.ROOT_DIR),
-                )
-            except (OSError, ValueError, RuntimeError) as ex:
-                _WORKER = None
-                _LOG.warning("Translation worker start failed. detail=%s", ex)
-                raise TranslationError("error.translation.worker_start_failed", detail=str(ex))
-
-            _WORKER = _WorkerIO(proc=proc, lock=threading.Lock())
-
-        try:
-            rep = self._rpc({"cmd": "ping"})
-        except AppError:
-            _dispose()
-            raise
-        except Exception as ex:
-            _dispose()
-            _LOG.warning("Translation worker ping failed. detail=%s", ex)
-            raise TranslationError("error.translation.worker_ping_failed")
-
-        ok = bool(isinstance(rep, dict) and rep.get("ok", False))
-        if not ok:
-            _dispose()
-
-            err_key = str(rep.get("error_key") or "").strip() if isinstance(rep, dict) else ""
-            err_params = rep.get("error_params") if isinstance(rep, dict) else None
-            if err_key:
-                det = str(rep.get("error") or "").strip()
-                if det:
-                    _LOG.debug("Translation worker ping error detail. detail=%s", det)
-                raise TranslationError(err_key, **dict(err_params or {}))
-
-            code = str(rep.get("code", "")) if isinstance(rep, dict) else ""
-            err = str(rep.get("error", "")) if isinstance(rep, dict) else ""
-            msg = (err or code or "ping failed").strip()
-            raise TranslationError("error.translation.worker_ping_failed", detail=msg)
-
-        _LOG.debug("Translation worker ping succeeded. worker=translation")
-        if log:
-            log("Translation engine ready.")
-        _LOG.info("Translation engine ready.")
+        return str(rep.get("text", "") or "").strip()
 
     @staticmethod
     def _runtime_request_payload() -> dict[str, Any]:
@@ -259,31 +426,6 @@ class TranslationService:
             "num_beams": int(runtime["num_beams"]),
             "no_repeat_ngram_size": int(runtime["no_repeat_ngram_size"]),
         }
-
-    @staticmethod
-    def _rpc(payload: dict[str, Any]) -> dict[str, Any]:
-        global _WORKER
-        if _WORKER is None or _WORKER.proc.poll() is not None:
-            raise TranslationError("error.translation.worker_not_running")
-
-        io = _WORKER
-        stdin = io.proc.stdin
-        stdout = io.proc.stdout
-        if stdin is None or stdout is None:
-            raise TranslationError("error.translation.worker_protocol_error", detail="worker stdio unavailable")
-
-        line = json.dumps(payload, ensure_ascii=True)
-        with io.lock:
-            stdin.write(line + "\n")
-            stdin.flush()
-            out = stdout.readline()
-        if not out:
-            raise TranslationError("error.translation.no_response_from_worker")
-        try:
-            rep = json.loads(out)
-        except json.JSONDecodeError as ex:
-            raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
-        return rep if isinstance(rep, dict) else {}
 
 @dataclass
 class _LoadedM2M100:

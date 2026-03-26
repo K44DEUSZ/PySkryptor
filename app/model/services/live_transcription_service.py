@@ -8,6 +8,7 @@ from typing import Any, Callable
 from app.model.config.app_config import AppConfig as Config
 from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.config.language_policy import LanguagePolicy
+from app.model.domain.errors import AppError
 from app.model.helpers.chunking import pcm16le_bytes_to_float32, seconds_to_frames
 from app.model.helpers.transcription_runtime import (
     audio_rms_level,
@@ -243,7 +244,10 @@ class LiveTranscriptionService:
                 source_text,
                 src_lang=src_lang,
                 tgt_lang=self._tgt_lang,
+                cancel_check=self._cancel_check,
             )
+        except AppError:
+            return ""
         except (AttributeError, RuntimeError, TypeError, ValueError):
             return ""
 
@@ -752,4 +756,3 @@ class LiveTranscriptionService:
 
         out.extend(self._drain_buffered_chunks(ignore_cancel=ignore_cancel))
         return out
-

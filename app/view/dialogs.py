@@ -13,6 +13,7 @@ from app.model.helpers.string_utils import sanitize_filename
 from app.view.support.theme_runtime import apply_windows_dark_titlebar
 from app.view.support.widget_setup import (
     build_layout_host,
+    setup_label,
     setup_button,
     setup_input,
     setup_spinbox,
@@ -76,16 +77,15 @@ def _tune_dialog_window(dlg: QtWidgets.QDialog, cfg) -> None:
     dlg.setMaximumWidth(cfg.dialog_max_w)
     apply_windows_dark_titlebar(dlg)
 
-def _bold_label(text: str) -> QtWidgets.QLabel:
+def _wrap_label(text: str) -> QtWidgets.QLabel:
     lbl = QtWidgets.QLabel(text)
-    f = lbl.font()
-    f.setBold(True)
-    lbl.setFont(f)
     lbl.setWordWrap(True)
     return lbl
 
-def _wrap_label(text: str) -> QtWidgets.QLabel:
+
+def _section_label(text: str) -> QtWidgets.QLabel:
     lbl = QtWidgets.QLabel(text)
+    setup_label(lbl, role="sectionTitle")
     lbl.setWordWrap(True)
     return lbl
 
@@ -109,20 +109,23 @@ def _message_dialog(
     _tune_dialog_layout(lay, cfg)
 
     if header:
-        lay.addWidget(_bold_label(header))
+        header_label = QtWidgets.QLabel(header)
+        setup_label(header_label, role="sectionTitle")
+        header_label.setWordWrap(True)
+        lay.addWidget(header_label)
 
     lay.addWidget(_wrap_label(message))
     lay.addStretch(1)
 
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
         ok_btn.setText(ok_text or tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
         ok_btn.setDefault(True)
-    btns.accepted.connect(dlg.accept)
+    button_box.accepted.connect(dlg.accept)
 
-    lay.addWidget(btns)
+    lay.addWidget(button_box)
     dlg.exec_()
 
 def _confirm_dialog(
@@ -147,19 +150,22 @@ def _confirm_dialog(
     _tune_dialog_layout(lay, cfg)
 
     if header:
-        lay.addWidget(_bold_label(header))
+        header_label = QtWidgets.QLabel(header)
+        setup_label(header_label, role="sectionTitle")
+        header_label.setWordWrap(True)
+        lay.addWidget(header_label)
 
     lay.addWidget(_wrap_label(message))
     lay.addStretch(1)
 
-    btns = QtWidgets.QDialogButtonBox()
-    btn_accept = btns.addButton(accept_text, QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_reject = btns.addButton(reject_text, QtWidgets.QDialogButtonBox.RejectRole)
+    button_box = QtWidgets.QDialogButtonBox()
+    btn_accept = button_box.addButton(accept_text, QtWidgets.QDialogButtonBox.AcceptRole)
+    btn_reject = button_box.addButton(reject_text, QtWidgets.QDialogButtonBox.RejectRole)
     _tune_buttons(cfg, btn_accept, btn_reject)
 
-    btns.accepted.connect(dlg.accept)
-    btns.rejected.connect(dlg.reject)
-    lay.addWidget(btns)
+    button_box.accepted.connect(dlg.accept)
+    button_box.rejected.connect(dlg.reject)
+    lay.addWidget(button_box)
 
     if default_accept:
         btn_accept.setDefault(True)
@@ -228,17 +234,17 @@ def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
 
-    lay.addWidget(_bold_label(tr("dialog.live.no_devices.header")))
+    lay.addWidget(_section_label(tr("dialog.live.no_devices.header")))
     lay.addWidget(_wrap_label(tr("dialog.live.no_devices.text")))
     lay.addStretch(1)
 
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
         ok_btn.setText(tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
-    btns.accepted.connect(dlg.accept)
-    lay.addWidget(btns)
+    button_box.accepted.connect(dlg.accept)
+    lay.addWidget(button_box)
 
     dlg.exec_()
 
@@ -283,7 +289,7 @@ def ask_bulk_add_plan(
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
-    lay.addWidget(_bold_label(tr("dialog.bulk_add.header")))
+    lay.addWidget(_section_label(tr("dialog.bulk_add.header")))
     lay.addWidget(_wrap_label("\n".join(details)))
 
     if preview:
@@ -336,17 +342,17 @@ def ask_bulk_add_plan(
     rb_first.toggled.connect(_sync_spinbox)
     _sync_spinbox()
 
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
-    cancel_btn = btns.button(QtWidgets.QDialogButtonBox.Cancel)
+    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
+    cancel_btn = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
     if ok_btn and cancel_btn:
         ok_btn.setText(tr("ctrl.add"))
         cancel_btn.setText(tr("ctrl.cancel"))
         _tune_buttons(cfg, ok_btn, cancel_btn)
         ok_btn.setDefault(True)
-    btns.accepted.connect(dlg.accept)
-    btns.rejected.connect(dlg.reject)
-    lay.addWidget(btns)
+    button_box.accepted.connect(dlg.accept)
+    button_box.rejected.connect(dlg.reject)
+    lay.addWidget(button_box)
 
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return "cancel", 0
@@ -371,7 +377,7 @@ class ExpansionProgressDialog(QtWidgets.QDialog):
 
         lay = QtWidgets.QVBoxLayout(self)
         _tune_dialog_layout(lay, cfg)
-        lay.addWidget(_bold_label(tr("dialog.expansion_progress.header")))
+        lay.addWidget(_section_label(tr("dialog.expansion_progress.header")))
 
         self._message_label = _wrap_label(tr("dialog.expansion_progress.generic"))
         lay.addWidget(self._message_label)
@@ -383,14 +389,14 @@ class ExpansionProgressDialog(QtWidgets.QDialog):
         lay.addWidget(self._bar)
         lay.addStretch(1)
 
-        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        cancel_btn = btns.button(QtWidgets.QDialogButtonBox.Cancel)
+        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
+        cancel_btn = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
         if cancel_btn:
             cancel_btn.setText(tr("ctrl.cancel"))
             _tune_buttons(cfg, cancel_btn)
             cancel_btn.setDefault(True)
-        btns.rejected.connect(self.cancel_requested.emit)
-        lay.addWidget(btns)
+        button_box.rejected.connect(self.cancel_requested.emit)
+        lay.addWidget(button_box)
 
     def set_message(self, text: str) -> None:
         self._message_label.setText(str(text or tr("dialog.expansion_progress.generic")))
@@ -455,7 +461,7 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     _tune_dialog_layout(layout, cfg)
 
     dlg.setWindowTitle(tr("dialog.conflict.title"))
-    layout.addWidget(_bold_label(tr("dialog.conflict.header")))
+    layout.addWidget(_section_label(tr("dialog.conflict.header")))
     layout.addWidget(_wrap_label(tr("dialog.conflict.text", name=stem)))
 
     rb_skip = QtWidgets.QRadioButton(tr("dialog.conflict.skip"))
@@ -490,16 +496,16 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
     rb_over.toggled.connect(sync_ui)
     sync_ui()
 
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    layout.addWidget(btns)
+    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+    layout.addWidget(button_box)
 
-    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
         ok_btn.setText(tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
         ok_btn.setDefault(True)
 
-    btns.accepted.connect(dlg.accept)
+    button_box.accepted.connect(dlg.accept)
 
     dlg.exec_()
 
@@ -525,7 +531,7 @@ def ask_download_duplicate(
     _tune_dialog_layout(layout, cfg)
 
     dlg.setWindowTitle(tr("dialog.down.exists.title"))
-    layout.addWidget(_bold_label(tr("dialog.down.exists.header")))
+    layout.addWidget(_section_label(tr("dialog.down.exists.header")))
     layout.addWidget(_wrap_label(tr("dialog.down.exists.text", title=title)))
 
     rb_skip = QtWidgets.QRadioButton(tr("dialog.down.exists.skip"))
@@ -563,16 +569,16 @@ def ask_download_duplicate(
     rb_over.toggled.connect(sync_ui)
     sync_ui()
 
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    layout.addWidget(btns)
+    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+    layout.addWidget(button_box)
 
-    ok_btn = btns.button(QtWidgets.QDialogButtonBox.Ok)
+    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
     if ok_btn:
         ok_btn.setText(tr("ctrl.ok"))
         _tune_buttons(cfg, ok_btn)
         ok_btn.setDefault(True)
 
-    btns.accepted.connect(dlg.accept)
+    button_box.accepted.connect(dlg.accept)
 
     dlg.exec_()
 
@@ -592,19 +598,19 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
     _tune_dialog_layout(lay, cfg)
 
     dlg.setWindowTitle(tr("dialog.restart_required.title"))
-    lay.addWidget(_bold_label(tr("dialog.restart_required.header")))
+    lay.addWidget(_section_label(tr("dialog.restart_required.header")))
     lay.addWidget(_wrap_label(tr("dialog.restart_required.text")))
     lay.addStretch(1)
 
-    btns = QtWidgets.QDialogButtonBox()
-    btn_restart = btns.addButton(tr("dialog.restart_required.restart"), QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_later = btns.addButton(tr("dialog.restart_required.later"), QtWidgets.QDialogButtonBox.RejectRole)
+    button_box = QtWidgets.QDialogButtonBox()
+    btn_restart = button_box.addButton(tr("dialog.restart_required.restart"), QtWidgets.QDialogButtonBox.AcceptRole)
+    btn_later = button_box.addButton(tr("dialog.restart_required.later"), QtWidgets.QDialogButtonBox.RejectRole)
     _tune_buttons(cfg, btn_restart, btn_later)
 
     btn_restart.clicked.connect(dlg.accept)
     btn_later.clicked.connect(dlg.reject)
 
-    lay.addWidget(btns)
+    lay.addWidget(button_box)
 
     return dlg.exec_() == QtWidgets.QDialog.Accepted
 
@@ -695,4 +701,3 @@ def show_error(
         header=tr("dialog.error.header"),
         ok_text=tr("ctrl.ok"),
     )
-

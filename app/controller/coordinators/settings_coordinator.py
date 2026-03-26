@@ -3,15 +3,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.controller.contracts import SettingsPanelViewProtocol
-
 from PyQt5 import QtCore
 
+from app.controller.contracts import SettingsPanelViewProtocol
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
 
 if TYPE_CHECKING:
     from app.model.domain.entities import SettingsSnapshot
+
 
 class SettingsCoordinator(QtCore.QObject):
     """Owns the Settings worker lifecycle for the Settings panel."""

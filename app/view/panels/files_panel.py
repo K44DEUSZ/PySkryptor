@@ -1,17 +1,33 @@
 # app/view/panels/files_panel.py
 from __future__ import annotations
 
+import logging
 import os
-import re
 from pathlib import Path
 from typing import Any, cast
 
-from app.controller.contracts import FilesCoordinatorProtocol
-
-import logging
-
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from app.controller.contracts import FilesCoordinatorProtocol
+from app.model.config.app_config import AppConfig as Config
+from app.model.config.download_policy import DownloadPolicy
+from app.model.config.language_policy import LanguagePolicy
+from app.model.config.model_registry import ModelRegistry
+from app.model.domain.entities import TranscriptionSessionRequest
+from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
+from app.model.helpers.string_utils import format_hms, normalize_lang_code
+from app.model.io.media_probe import is_url_source
+from app.model.runtime_resolver import (
+    build_files_quick_options_payload,
+    build_transcription_session_request,
+    transcription_output_modes,
+    translation_runtime_available,
+)
+from app.model.services.ai_models_service import AIModelsService
+from app.model.services.localization_service import current_language, tr
+from app.model.services.source_input_service import build_entries, parse_source_input, try_add_source_key
+from app.view import dialogs
+from app.view.components.choice_toggle import ChoiceToggle
 from app.view.components.popup_combo import (
     LanguageCombo,
     PopupComboBox,
@@ -19,25 +35,10 @@ from app.view.components.popup_combo import (
     rebuild_code_combo,
     set_combo_data,
 )
-from app.view.components.choice_toggle import ChoiceToggle
-from app.view import dialogs
 from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.runtime_badge import RuntimeBadgeWidget
 from app.view.components.section_group import SectionGroup
 from app.view.components.source_table import SourceTable
-from app.model.services.localization_service import current_language, tr
-from app.model.config.download_policy import DownloadPolicy
-from app.model.config.model_registry import ModelRegistry
-from app.model.runtime_resolver import (
-    active_transcription_model_cfg,
-    active_translation_model_cfg,
-    build_files_quick_options_payload,
-    build_transcription_session_request,
-    transcription_output_modes,
-    translation_runtime_available,
-)
-from app.model.services.source_input_service import build_entries, parse_source_input, try_add_source_key
-from app.view.support.options_autosave import OptionsAutosave
 from app.view.support.language_options import (
     build_source_language_items,
     build_target_language_items,
@@ -48,12 +49,7 @@ from app.view.support.language_options import (
     supported_source_language_codes,
     supported_target_language_codes,
 )
-from app.model.config.app_config import AppConfig as Config
-from app.model.config.language_policy import LanguagePolicy
-from app.model.domain.entities import TranscriptionSessionRequest
-from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
-from app.model.helpers.string_utils import format_hms, normalize_lang_code
-from app.model.io.media_probe import is_url_source
+from app.view.support.options_autosave import OptionsAutosave
 from app.view.support.source_expansion_ui import (
     ensure_progress_dialog,
     hide_progress_dialog,
@@ -70,6 +66,17 @@ from app.view.support.view_runtime import (
     open_local_path,
     read_network_status,
 )
+from app.view.support.status_presenter import (
+    RuntimePresentation,
+    build_runtime_presentation,
+    build_static_runtime_presentation,
+    compose_status_text,
+    display_texts_for_statuses,
+    is_active_work_status,
+    is_terminal_status,
+    normalize_status_base_key,
+    status_display_text,
+)
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import (
     build_field_stack,
@@ -83,6 +90,7 @@ from app.view.support.widget_setup import (
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
+
 
 class FilesPanel(QtWidgets.QWidget):
     """Files tab: manage sources and batch transcription/translation."""
@@ -186,16 +194,17 @@ class FilesPanel(QtWidgets.QWidget):
         base_h = cfg.control_min_h
 
         self.model_info = RuntimeBadgeWidget()
-        self.model_info.set_summary_status(tr("files.runtime.status_loading"), state="loading")
-        self.model_info.set_summary_icon(
-            self._status_icon(
-                "status_loading",
-                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_BrowserReload),
-            )
+        loading_presentation = build_static_runtime_presentation(
+            text=tr("files.runtime.status_loading"),
+            state="loading",
+            icon_name="status_loading",
         )
+        self.model_info.set_summary_presentation(loading_presentation)
+        self.model_info.set_summary_icon(self._icon_for_runtime_presentation(loading_presentation))
         self.model_info.set_device_value(tr("common.na"))
-        self.model_info.set_asr_value(tr("common.na"), state="neutral")
-        self.model_info.set_translation_value(tr("common.na"), state="neutral")
+        neutral_presentation = build_static_runtime_presentation(text=tr("common.na"), state="neutral")
+        self.model_info.set_asr_presentation(neutral_presentation)
+        self.model_info.set_translation_presentation(neutral_presentation)
 
         self._build_top_section(root, base_h)
         self._build_details_section(root)
@@ -520,7 +529,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _apply_saved_quick_options(self) -> None:
         self._opt_autosave.set_blocked(True)
         try:
-            tcfg = self._get_transcription_cfg()
+            tcfg = Config.transcription_cfg_dict()
 
             self.opt_download_audio_only.setChecked(bool(tcfg.get("download_audio_only", True)))
             self.chk_keep_url_audio.setChecked(bool(tcfg.get("url_keep_audio", False)))
@@ -541,10 +550,10 @@ class FilesPanel(QtWidgets.QWidget):
             translate_after = bool(tcfg.get("translate_after_transcription", Config.transcription_translate_after_enabled()))
             self.tg_mode.set_first_checked(not translate_after)
 
-            tr_mdl = self._get_translation_model_cfg()
+            tr_mdl = AIModelsService.current_model_cfg("translation")
             tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
-            tr_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
-            self.tg_mode.set_second_enabled(tr_enabled)
+            translation_option_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
+            self.tg_mode.set_second_enabled(translation_option_enabled)
 
             self._rebuild_target_language_combo(
                 desired=LanguagePolicy.PREFERRED,
@@ -614,13 +623,16 @@ class FilesPanel(QtWidgets.QWidget):
             key = self.tbl.internal_key_at(row, self.COL_PATH)
             if not key or key in self._transcript_by_key:
                 continue
+            active_base = str(self._status_base_by_key.get(str(key), '') or '').strip()
+            if active_base and is_active_work_status(active_base):
+                continue
             self._set_pending_row_status(row, self._pending_status_for_key(key))
 
     def _set_pending_row_status(self, row: int, status_key: str) -> None:
         item = self.tbl.item(row, self.COL_STATUS)
         if item is None:
             return
-        text = tr(status_key) if str(status_key or '').startswith('status.') else str(status_key or '')
+        text = status_display_text(status_key, status_key)
         item.setText(text)
         item.setToolTip('')
 
@@ -636,7 +648,9 @@ class FilesPanel(QtWidgets.QWidget):
             network_key = 'files.runtime.network_checking'
             network_state = 'loading'
         try:
-            self.model_info.set_network_value(tr(network_key), state=network_state)
+            self.model_info.set_network_presentation(
+                build_static_runtime_presentation(text=tr(network_key), state=network_state)
+            )
         except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
             _LOG.debug("Files runtime network badge update skipped. detail=%s", ex)
 
@@ -651,6 +665,60 @@ class FilesPanel(QtWidgets.QWidget):
     @staticmethod
     def _disabled_value() -> str:
         return str(tr("files.runtime.value_disabled") or "").strip() or "disabled"
+
+    @staticmethod
+    def _model_engine_disabled(model_cfg: dict[str, Any]) -> bool:
+        engine = str(model_cfg.get("engine_name") or "none").strip().lower()
+        return ModelRegistry.is_disabled_engine_name(engine) or engine == "null"
+
+    def _build_runtime_engine_presentation(
+        self,
+        *,
+        model_cfg: dict[str, Any],
+        ready: bool,
+        error_key: str | None,
+        error_params: dict[str, Any],
+    ) -> RuntimePresentation:
+        disabled = self._model_engine_disabled(model_cfg)
+        engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
+        return build_runtime_presentation(
+            ready=bool(ready and (not disabled)),
+            disabled=disabled,
+            ready_text=engine_name,
+            disabled_text=self._disabled_value(),
+            missing_text=tr("files.runtime.status_missing"),
+            error_key=error_key,
+            error_params=error_params,
+        )
+
+    def _build_runtime_summary_presentation(self) -> RuntimePresentation:
+        return build_runtime_presentation(
+            ready=self._transcription_ready,
+            disabled=self._model_engine_disabled(AIModelsService.current_model_cfg("transcription")),
+            ready_text=tr("files.runtime.status_ready"),
+            disabled_text=tr("files.runtime.status_disabled"),
+            missing_text=tr("files.runtime.status_missing"),
+            error_key=self._transcription_error_key,
+            error_params=self._transcription_error_params,
+            icon_names={
+                "ready": "status_ready",
+                "disabled": "status_info",
+                "error": "status_error",
+                "missing": "status_error",
+            },
+        )
+
+    def _icon_for_runtime_presentation(self, presentation: RuntimePresentation) -> QtGui.QIcon:
+        icon_name = str(presentation.icon_name or "").strip()
+        if icon_name == "status_ready":
+            fallback = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton)
+        elif icon_name == "status_info":
+            fallback = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation)
+        elif icon_name == "status_loading":
+            fallback = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_BrowserReload)
+        else:
+            fallback = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxCritical)
+        return self._status_icon(icon_name or "status_error", fallback)
 
     def _on_quick_option_changed(self, *_args) -> None:
         self._sync_options_and_autosave(refresh_targets=True)
@@ -719,18 +787,6 @@ class FilesPanel(QtWidgets.QWidget):
         for ext in DownloadPolicy.DOWNLOAD_VIDEO_OUTPUT_EXTENSIONS:
             self.cmb_video_ext.addItem(str(ext), ext)
         self.cmb_video_ext.setCurrentIndex(0)
-
-    @staticmethod
-    def _get_transcription_cfg() -> dict[str, Any]:
-        return Config.transcription_cfg_dict()
-
-    @staticmethod
-    def _get_transcription_model_cfg() -> dict[str, Any]:
-        return active_transcription_model_cfg()
-
-    @staticmethod
-    def _get_translation_model_cfg() -> dict[str, Any]:
-        return active_translation_model_cfg()
 
     @staticmethod
     def _effective_source_language_code(selection: str | None, *, supported: list[str] | None = None) -> str:
@@ -869,26 +925,27 @@ class FilesPanel(QtWidgets.QWidget):
             if btn:
                 btn.setEnabled(False)
 
-    def _translation_enabled(self) -> bool:
-        return bool(self._translation_ready) and translation_runtime_available(model_cfg=self._get_translation_model_cfg())
+    def _translation_runtime_available(self) -> bool:
+        return bool(self._translation_ready) and translation_runtime_available(
+            translation_error_key=self._translation_error_key,
+            model_cfg=AIModelsService.current_model_cfg("translation"),
+        )
 
     def _refresh_mode_badge(self) -> None:
-        t_cfg = self._get_transcription_model_cfg()
-        asr_eng_raw = str(t_cfg.get("engine_name", "none") or "none").strip()
-        asr_eng_norm = asr_eng_raw.lower()
-        asr_disabled = ModelRegistry.is_disabled_engine_name(asr_eng_norm) or asr_eng_norm == "null"
-        asr_value = self._disabled_value() if asr_disabled else asr_eng_raw
-
-        x_cfg = self._get_translation_model_cfg()
-        tr_eng_raw = str(x_cfg.get("engine_name", "none") or "none").strip()
-        tr_eng_norm = tr_eng_raw.lower()
-        tr_disabled = ModelRegistry.is_disabled_engine_name(tr_eng_norm) or tr_eng_norm == "null"
-        tr_value = self._disabled_value() if tr_disabled else tr_eng_raw
-
-        asr_state = "disabled" if asr_disabled else ("ready" if self._transcription_ready else "missing")
-        tr_state = "disabled" if tr_disabled else ("ready" if self._translation_ready else "missing")
-        self.model_info.set_asr_value(asr_value, state=asr_state)
-        self.model_info.set_translation_value(tr_value, state=tr_state)
+        asr_presentation = self._build_runtime_engine_presentation(
+            model_cfg=AIModelsService.current_model_cfg("transcription"),
+            ready=self._transcription_ready,
+            error_key=self._transcription_error_key,
+            error_params=self._transcription_error_params,
+        )
+        translation_presentation = self._build_runtime_engine_presentation(
+            model_cfg=AIModelsService.current_model_cfg("translation"),
+            ready=self._translation_ready,
+            error_key=self._translation_error_key,
+            error_params=self._translation_error_params,
+        )
+        self.model_info.set_asr_presentation(asr_presentation)
+        self.model_info.set_translation_presentation(translation_presentation)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if obj is self.tbl.viewport() and event.type() == QtCore.QEvent.Type.Resize:
@@ -900,7 +957,7 @@ class FilesPanel(QtWidgets.QWidget):
         running = self._is_transcription_running()
         model_ready = self._transcription_ready
 
-        tr_enabled = self._translation_enabled()
+        translation_available = self._translation_runtime_available()
 
         if not model_ready:
             self.lbl_mode.setEnabled(False)
@@ -923,12 +980,12 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         self.tg_mode.setEnabled(not running)
-        self.tg_mode.set_second_enabled(bool(tr_enabled and (not running)))
-        if not tr_enabled:
+        self.tg_mode.set_second_enabled(bool(translation_available and (not running)))
+        if not translation_available:
             if not self.tg_mode.is_first_checked():
                 self.tg_mode.set_first_checked(True)
 
-        translate_mode = bool(not self.tg_mode.is_first_checked()) and tr_enabled
+        translate_mode = bool(not self.tg_mode.is_first_checked()) and translation_available
         self.lbl_target_lang.setEnabled((not running) and translate_mode)
         self.cmb_target_lang.setEnabled((not running) and translate_mode)
 
@@ -951,17 +1008,23 @@ class FilesPanel(QtWidgets.QWidget):
     def _status_width(self) -> int:
         cfg = self._ui
         labels = [str(tr('files.details.col.status') or '').strip()]
-        for key in (
-            'status.queued',
-            'status.offline',
-            'status.downloading',
-            'status.transcribing',
-            'status.processing',
-            'status.saved',
-            'status.done',
-            'status.error',
-        ):
-            labels.append(str(tr(key) or '').strip())
+        labels.extend(
+            display_texts_for_statuses(
+                (
+                    'status.queued',
+                    'status.offline',
+                    'status.processing',
+                    'status.downloading',
+                    'status.transcribing',
+                    'status.translating',
+                    'status.saving',
+                    'status.saved',
+                    'status.done',
+                    'status.skipped',
+                    'status.error',
+                )
+            )
+        )
         metrics = QtGui.QFontMetrics(self.tbl.font())
         text_width = max((metrics.horizontalAdvance(label) for label in labels if label), default=0)
         min_w = int(cfg.control_min_w + cfg.pad_x_l)
@@ -1623,7 +1686,7 @@ class FilesPanel(QtWidgets.QWidget):
             source_language=self._effective_source_language_code(self._session_source_language, supported=supported_source),
             target_language=self._effective_target_language_code(self._session_target_language, supported=supported_target),
             translate_after_transcription=bool(
-                (not self.tg_mode.is_first_checked()) and self._translation_enabled()
+                (not self.tg_mode.is_first_checked()) and self._translation_runtime_available()
             ),
             output_formats=output_formats,
             download_audio_only=bool(self.opt_download_audio_only.isChecked()),
@@ -1790,24 +1853,8 @@ class FilesPanel(QtWidgets.QWidget):
             self.action_bar.reset()
 
     @staticmethod
-    def _normalize_status_base_key(status: str) -> str:
-        try:
-            return re.sub(r"\s*\(\d+%\)\s*$", "", str(status or "")).strip()
-        except (TypeError, ValueError):
-            return str(status or "").strip()
-
-    @staticmethod
-    def _is_terminal_status(status: str) -> bool:
-        return status in ("status.done", "status.saved", "status.skipped", "status.error")
-
-    @staticmethod
-    def _status_display_text(base_key: str, raw_status: str) -> str:
-        if str(base_key or "").startswith("status."):
-            return tr(base_key)
-        return str(base_key or raw_status or "")
-
-    def _should_reset_progress_for_status_change(self, prev_base: str | None, new_base: str, status: str) -> bool:
-        return bool(prev_base and prev_base != new_base and not self._is_terminal_status(status))
+    def _should_reset_progress_for_status_change(prev_base: str | None, new_base: str, status: str) -> bool:
+        return bool(prev_base and prev_base != new_base and not is_terminal_status(status))
 
     def _render_row_status_text(self, key: str, row: int, status: str, base_text: str) -> None:
         it = self.tbl.item(row, self.COL_STATUS)
@@ -1815,9 +1862,7 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         pct = self._pct_by_key.get(key)
-        text = base_text or status
-        if status not in ("status.done", "status.saved") and pct is not None and 0 < int(pct) < 100 and "(" not in status:
-            text = f"{base_text} ({int(pct)}%)"
+        text = compose_status_text(status, pct, fallback=base_text or status)
         it.setText(text)
 
     def _apply_terminal_status_state(self, key: str, status: str) -> None:
@@ -1833,14 +1878,6 @@ class FilesPanel(QtWidgets.QWidget):
             self._transcript_by_key.pop(key, None)
             self._set_preview_enabled(key, False)
 
-    def _compose_progress_status_text(self, base_key: str, pct: int) -> str:
-        base_text = self._status_display_text(base_key, base_key)
-        text = base_text
-        show_zero_for = {"status.downloading", "status.transcribing", "status.saving"}
-        if pct < 100 and (pct > 0 or base_key in show_zero_for):
-            text = f"{base_text} ({pct}%)"
-        return text
-
     @QtCore.pyqtSlot(str, str)
     def on_item_status(self, key: str, status: str) -> None:
         if self._was_cancelled:
@@ -1852,8 +1889,8 @@ class FilesPanel(QtWidgets.QWidget):
         if row is None:
             return
 
-        base_key = self._normalize_status_base_key(status)
-        base_text = self._status_display_text(base_key, status)
+        base_key = normalize_status_base_key(status)
+        base_text = status_display_text(base_key, status)
         prev_base = self._status_base_by_key.get(key)
         if self._should_reset_progress_for_status_change(prev_base, base_key, status):
             self._pct_by_key.pop(key, None)
@@ -1877,7 +1914,7 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         base_key = self._status_base_by_key.get(key) or "status.processing"
-        text = self._compose_progress_status_text(base_key, pct)
+        text = compose_status_text(base_key, pct, fallback=base_key)
 
         it = self.tbl.item(row, self.COL_STATUS)
         if it:
@@ -2014,42 +2051,9 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _apply_runtime_model_state(self) -> None:
         """Apply model readiness state pushed by the controller."""
-        if self._transcription_ready:
-            self._on_model_ready()
-            return
-
-        model_cfg = active_transcription_model_cfg()
-        engine = str(model_cfg.get("engine_name") or "none").strip().lower()
-
-        if ModelRegistry.is_disabled_engine_name(engine) or engine == "null":
-            self.model_info.set_summary_status(tr("files.runtime.status_disabled"), state="disabled")
-            self.model_info.set_summary_icon(
-                self._status_icon(
-                    "status_info",
-                    self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation),
-                )
-            )
-        else:
-            self.model_info.set_summary_status(tr("files.runtime.status_missing"), state="missing")
-            self.model_info.set_summary_icon(
-                self._status_icon(
-                    "status_error",
-                    self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxCritical),
-                )
-            )
-
-        self.model_info.set_device_value(str(Config.DEVICE_FRIENDLY_NAME or tr("common.na")))
-        self._refresh_mode_badge()
-        self._update_buttons()
-
-    def _on_model_ready(self) -> None:
-        self.model_info.set_summary_status(tr("files.runtime.status_ready"), state="ready")
-        self.model_info.set_summary_icon(
-            self._status_icon(
-                "status_ready",
-                self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton),
-            )
-        )
+        summary_presentation = self._build_runtime_summary_presentation()
+        self.model_info.set_summary_presentation(summary_presentation)
+        self.model_info.set_summary_icon(self._icon_for_runtime_presentation(summary_presentation))
         self.model_info.set_device_value(str(Config.DEVICE_FRIENDLY_NAME or tr("common.na")))
         self._refresh_mode_badge()
         self._update_buttons()

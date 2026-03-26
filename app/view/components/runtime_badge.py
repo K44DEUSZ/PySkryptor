@@ -4,10 +4,11 @@ from __future__ import annotations
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.model.services.localization_service import tr
+from app.view.support.status_presenter import RuntimePresentation
 from app.view.support.widget_effects import repolish_widget
 from app.view.ui_config import ui
 
-_VALID_RUNTIME_STATES = {"ready", "loading", "offline", "disabled", "missing", "neutral"}
+_VALID_RUNTIME_STATES = {"ready", "loading", "offline", "disabled", "missing", "neutral", "error"}
 
 class RuntimeBadgeWidget(QtWidgets.QFrame):
     """Compact runtime information badge for the Files tab."""
@@ -17,6 +18,7 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
         cfg = ui(self)
         row_spacing = int(cfg.space_s)
         self.setObjectName("RuntimeBadgeWidget")
+        self.setProperty("role", "runtimeBadge")
         self.setFrameShape(QtWidgets.QFrame.NoFrame)
         self.setFrameShadow(QtWidgets.QFrame.Plain)
 
@@ -30,9 +32,12 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
 
         self.lbl_summary_label = QtWidgets.QLabel(tr("files.runtime.status_label"))
         self.lbl_summary_label.setObjectName("RuntimeSummaryLabel")
+        self.lbl_summary_label.setProperty("role", "runtimeLabel")
 
         self.lbl_summary_value = QtWidgets.QLabel(tr("files.runtime.status_loading"))
         self.lbl_summary_value.setObjectName("RuntimeSummaryValue")
+        self.lbl_summary_value.setProperty("role", "runtimeValue")
+        self.lbl_summary_value.setProperty("runtimeValueType", "summary")
         self.lbl_summary_value.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
 
         summary_box = QtWidgets.QHBoxLayout()
@@ -111,10 +116,12 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
     ) -> tuple[QtWidgets.QLabel, QtWidgets.QLabel]:
         label = QtWidgets.QLabel(tr(label_key))
         label.setObjectName(label_object_name)
+        label.setProperty("role", "runtimeLabel")
         label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
 
         value = QtWidgets.QLabel(tr("common.na"))
         value.setObjectName(value_object_name)
+        value.setProperty("role", "runtimeValue")
         value.setWordWrap(True)
         value.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
         value.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -123,31 +130,28 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
 
         return label, value
 
-    def set_summary_status(self, text: str, *, state: str) -> None:
-        self.lbl_summary_value.setText(str(text or ""))
-        self._set_line_state(self.lbl_summary_value, state)
-
     def set_summary_icon(self, icon: QtGui.QIcon) -> None:
         self.ico.setPixmap(icon.pixmap(18, 18))
 
     @staticmethod
-    def _set_value_text(label: QtWidgets.QLabel, text: str) -> None:
-        value = str(text or "")
-        label.setText(value)
-        label.setToolTip("")
+    def _apply_presentation(label: QtWidgets.QLabel, presentation: RuntimePresentation) -> None:
+        label.setText(str(presentation.text or ""))
+        label.setToolTip(str(presentation.tooltip or ""))
+        RuntimeBadgeWidget._set_line_state(label, presentation.state)
+
+    def set_summary_presentation(self, presentation: RuntimePresentation) -> None:
+        self._apply_presentation(self.lbl_summary_value, presentation)
 
     def set_device_value(self, text: str) -> None:
-        self._set_value_text(self.lbl_device_value, text)
+        self.lbl_device_value.setText(str(text or ""))
+        self.lbl_device_value.setToolTip("")
         self._set_line_state(self.lbl_device_value, "neutral")
 
-    def set_asr_value(self, text: str, *, state: str) -> None:
-        self._set_value_text(self.lbl_asr_value, text)
-        self._set_line_state(self.lbl_asr_value, state)
+    def set_asr_presentation(self, presentation: RuntimePresentation) -> None:
+        self._apply_presentation(self.lbl_asr_value, presentation)
 
-    def set_translation_value(self, text: str, *, state: str) -> None:
-        self._set_value_text(self.lbl_translation_value, text)
-        self._set_line_state(self.lbl_translation_value, state)
+    def set_translation_presentation(self, presentation: RuntimePresentation) -> None:
+        self._apply_presentation(self.lbl_translation_value, presentation)
 
-    def set_network_value(self, text: str, *, state: str) -> None:
-        self._set_value_text(self.lbl_network_value, text)
-        self._set_line_state(self.lbl_network_value, state)
+    def set_network_presentation(self, presentation: RuntimePresentation) -> None:
+        self._apply_presentation(self.lbl_network_value, presentation)

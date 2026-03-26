@@ -9,6 +9,7 @@ from typing import Any, Callable
 from PyQt5 import QtCore
 
 from app.controller.workers.task_worker import TaskWorker
+from app.model.domain.errors import AppError
 from app.model.domain.runtime_state import AppRuntimeState
 from app.model.io.file_manager import FileManager
 from app.model.services.ai_models_service import AIModelsService, ModelNotInstalledError
@@ -122,10 +123,12 @@ def _warmup_model_runtime(
         _LOG.debug("Startup %s model ready. %s=%s", name, ready_log_key, bool(getattr(next_state, ready_key)))
         return next_state
     except ModelNotInstalledError as ex:
+        params = dict(getattr(ex, "params", {}) or {})
+        path = str(getattr(ex, "path", params.get("path", "")) or "")
         changes = {
             ready_key: False,
             error_key_key: getattr(ex, "key", "error.model.not_installed"),
-            error_params_key: {"path": str(getattr(ex, "path", ""))},
+            error_params_key: {"path": path},
         }
         if result_key is not None:
             changes[result_key] = None
@@ -133,7 +136,22 @@ def _warmup_model_runtime(
         _LOG.debug(
             "Startup %s model missing. path=%s",
             name,
-            getattr(next_state, error_params_key).get("path", ""),
+            path,
+        )
+        return next_state
+    except AppError as ex:
+        changes = {
+            ready_key: False,
+            error_key_key: getattr(ex, "key", "error.generic"),
+            error_params_key: dict(getattr(ex, "params", {}) or {}),
+        }
+        if result_key is not None:
+            changes[result_key] = None
+        next_state = replace(state, **changes)
+        _LOG.debug(
+            "Startup %s warmup failed. error_key=%s",
+            name,
+            getattr(next_state, error_key_key),
         )
         return next_state
 
@@ -142,8 +160,8 @@ def _task_load_transcription_model(_runtime: _StartupRuntime, progress: Progress
     next_state = _warmup_model_runtime(
         state,
         name="transcription",
-        enabled=bool(svc.transcription.is_enabled()),
-        ensure_ready=svc.ensure_transcription_ready,
+        enabled=svc.is_enabled("transcription"),
+        ensure_ready=lambda: svc.ensure_ready("transcription"),
         ready_key="transcription_ready",
         ready_log_key="asr_ready",
         error_key_key="transcription_error_key",
@@ -158,8 +176,8 @@ def _task_warmup_translation_model(_runtime: _StartupRuntime, progress: Progress
     next_state = _warmup_model_runtime(
         state,
         name="translation",
-        enabled=bool(svc.translation.is_enabled()),
-        ensure_ready=svc.ensure_translation_ready,
+        enabled=svc.is_enabled("translation"),
+        ensure_ready=lambda: svc.ensure_ready("translation"),
         ready_key="translation_ready",
         ready_log_key="translation_ready",
         error_key_key="translation_error_key",

@@ -46,7 +46,7 @@ class UIConfig:
     progress_anim_interval_ms: int = 33
     progress_anim_small_delta_threshold: int = 8
     progress_anim_divisor: int = 6
-    progress_text_accent_threshold_pct: int = 48
+    progress_text_active_threshold_pct: int = 48
 
     spectrum_min_h: int = 46
     spectrum_bar_count: int = 18

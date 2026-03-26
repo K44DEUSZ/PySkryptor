@@ -5,14 +5,11 @@ from dataclasses import dataclass
 from typing import Any, Iterable, TypeAlias
 
 from app.model.config.app_config import AppConfig as Config
-from app.model.config.runtime_profiles import RuntimeProfiles
 from app.model.config.language_policy import LanguagePolicy
-from app.model.domain.entities import TranscriptionSessionRequest
-from app.model.domain.runtime_state import AppRuntimeState
-from app.model.helpers.string_utils import normalize_lang_code
-from app.model.services.ai_models_service import current_transcription_model_cfg, current_translation_model_cfg
 from app.model.config.model_registry import ModelRegistry
-from app.model.services.download_service import DownloadService
+from app.model.config.runtime_profiles import RuntimeProfiles
+from app.model.domain.entities import TranscriptionSessionRequest
+from app.model.helpers.string_utils import normalize_lang_code
 from app.model.services.settings_service import SettingsCatalog
 
 PatchPayload: TypeAlias = dict[str, Any]
@@ -32,31 +29,6 @@ def transcription_language_codes() -> list[str]:
 def transcription_output_modes() -> tuple[dict[str, Any], ...]:
     """Return configured transcription output modes for UI selectors."""
     return SettingsCatalog.transcription_output_modes()
-
-
-def active_transcription_model_cfg() -> PatchPayload:
-    """Return active transcription model metadata for view/runtime summaries."""
-    return current_transcription_model_cfg()
-
-
-def active_translation_model_cfg() -> PatchPayload:
-    """Return active translation model metadata for view/runtime summaries."""
-    return current_translation_model_cfg()
-
-
-def available_audio_bitrates(meta: dict[str, Any] | None = None) -> tuple[int, ...]:
-    """Return sorted audio bitrate candidates resolved from probe metadata."""
-    return tuple(DownloadService.available_audio_bitrates(meta))
-
-
-def available_video_heights(
-    meta: dict[str, Any] | None = None,
-    *,
-    min_h: int = 0,
-    max_h: int = 0,
-) -> tuple[int, ...]:
-    """Return sorted video height candidates resolved from probe metadata."""
-    return tuple(DownloadService.available_video_heights(meta, min_h=min_h, max_h=max_h))
 
 
 def supported_translation_lang_codes() -> set[str]:
@@ -229,11 +201,11 @@ def build_transcription_session_request(
 
 def translation_runtime_available(
     *,
-    runtime_state: AppRuntimeState | None = None,
+    translation_error_key: str | None = None,
     model_cfg: dict[str, Any] | None = None,
 ) -> bool:
     """Return True when translation runtime is available for UI actions."""
-    if runtime_state is not None and bool(str(runtime_state.translation_error_key or "").strip()):
+    if bool(str(translation_error_key or "").strip()):
         return False
 
     engine_dir = getattr(getattr(Config, "PATHS", None), "TRANSLATION_ENGINE_DIR", None)

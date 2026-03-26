@@ -1,14 +1,14 @@
 # app/controller/coordinators/downloader_coordinator.py
 from __future__ import annotations
 
-from app.controller.contracts import DownloaderPanelViewProtocol
-
 from PyQt5 import QtCore
 
+from app.controller.contracts import DownloaderPanelViewProtocol
 from app.controller.support.source_expansion import build_manual_input_worker, start_expansion_worker
 from app.controller.workers.download_worker import DownloadWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.task_thread_runner import TaskThreadRunner
+
 
 class DownloaderCoordinator(QtCore.QObject):
     """Owns Downloader-panel workers and centralizes duplicate/probe routing."""
