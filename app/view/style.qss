@@ -235,10 +235,14 @@ QAbstractSpinBox[chrome="field"]::down-button:pressed {
 }
 
 QToolButton[chrome="field"]:open::menu-button,
-QToolButton[chrome="field"][focusWithin="true"]::menu-button,
+QToolButton[chrome="field"][focusWithin="true"]::menu-button {
+    background: @ACTIVE_BG@;
+    border-left: 1px solid @BORDER_ACTIVE@;
+}
+
 QComboBox[chrome="field"][popupOpen="true"]::drop-down,
 QComboBox[chrome="field"][focusWithin="true"]::drop-down {
-    background: @ACTIVE_BG@;
+    background: @CONTROL_BG@;
     border-left: 1px solid @BORDER_ACTIVE@;
 }
 
@@ -329,11 +333,16 @@ QLineEdit[chrome="field"]:focus {
 }
 
 QToolButton[chrome="field"]:open,
-QToolButton[chrome="field"][focusWithin="true"],
+QToolButton[chrome="field"][focusWithin="true"] {
+    background: @ACTIVE_BG_HOVER@;
+    border: 1px solid @BORDER_ACTIVE@;
+    color: @TEXT_PRIMARY@;
+}
+
 QComboBox[chrome="field"][popupOpen="true"],
 QComboBox[chrome="field"][focusWithin="true"],
 QAbstractSpinBox[chrome="field"][focusWithin="true"] {
-    background: @ACTIVE_BG_HOVER@;
+    background: @FIELD_BG_ACTIVE@;
     border: 1px solid @BORDER_ACTIVE@;
     color: @TEXT_PRIMARY@;
 }
@@ -344,19 +353,27 @@ QComboBox[chrome="field"][focusWithin="true"] {
     selection-color: @TEXT_ON_SELECTION@;
 }
 
-QComboBox[chrome="field"][popupOpen="true"]::drop-down,
 QToolButton[chrome="field"]:open::menu-button,
-QToolButton[chrome="field"][focusWithin="true"]::menu-button,
+QToolButton[chrome="field"][focusWithin="true"]::menu-button {
+    background: @ACTIVE_BG@;
+    border-left: 1px solid @BORDER_ACTIVE@;
+}
+
+QComboBox[chrome="field"][popupOpen="true"]::drop-down,
 QAbstractSpinBox[chrome="field"][focusWithin="true"]::up-button,
 QAbstractSpinBox[chrome="field"][focusWithin="true"]::down-button {
     background: @ACTIVE_BG@;
     border-left: 1px solid @BORDER_ACTIVE@;
 }
 
+QToolButton[chrome="field"]:open::menu-button:hover,
+QToolButton[chrome="field"][focusWithin="true"]::menu-button:hover {
+    background: @ACTIVE_BG_HOVER@;
+    border-left: 1px solid @BORDER_ACTIVE@;
+}
+
 QComboBox[chrome="field"][popupOpen="true"]::drop-down:hover,
 QComboBox[chrome="field"][focusWithin="true"]::drop-down:hover,
-QToolButton[chrome="field"]:open::menu-button:hover,
-QToolButton[chrome="field"][focusWithin="true"]::menu-button:hover,
 QAbstractSpinBox[chrome="field"][focusWithin="true"]::up-button:hover,
 QAbstractSpinBox[chrome="field"][focusWithin="true"]::down-button:hover {
     background: @ACTIVE_BG_HOVER@;
