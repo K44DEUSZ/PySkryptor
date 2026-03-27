@@ -215,7 +215,12 @@ class LivePanel(QtWidgets.QWidget):
             height=base_h,
         )
         self.tg_output_mode.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        output_mode_host, _ = build_field_stack(self, tr("live.output_mode.label"), self.tg_output_mode, buddy=self.tg_output_mode)
+        output_mode_host, _ = build_field_stack(
+            self,
+            tr("live.output_mode.label"),
+            self.tg_output_mode,
+            buddy=self.tg_output_mode,
+        )
 
         self.tg_mode = ChoiceToggle(
             first_text=tr("files.options.mode.transcribe"),
@@ -228,9 +233,17 @@ class LivePanel(QtWidgets.QWidget):
         self.cmb_profile = PopupComboBox()
         setup_combo(self.cmb_profile, min_h=base_h)
         profile_options = (
-            (RuntimeProfiles.LIVE_PROFILE_LOW_LATENCY, tr("live.profile.low_latency"), tr("live.profile.help.low_latency")),
+            (
+                RuntimeProfiles.LIVE_PROFILE_LOW_LATENCY,
+                tr("live.profile.low_latency"),
+                tr("live.profile.help.low_latency"),
+            ),
             (RuntimeProfiles.LIVE_PROFILE_BALANCED, tr("live.profile.balanced"), tr("live.profile.help.balanced")),
-            (RuntimeProfiles.LIVE_PROFILE_HIGH_CONTEXT, tr("live.profile.high_context"), tr("live.profile.help.high_context")),
+            (
+                RuntimeProfiles.LIVE_PROFILE_HIGH_CONTEXT,
+                tr("live.profile.high_context"),
+                tr("live.profile.help.high_context"),
+            ),
         )
         for value, label, tooltip in profile_options:
             self.cmb_profile.addItem(label, value)
@@ -239,14 +252,24 @@ class LivePanel(QtWidgets.QWidget):
         profile_host, _ = build_field_stack(self, tr("live.profile.label"), self.cmb_profile, buddy=self.cmb_profile)
 
 
-        self.cmb_src_lang = LanguageCombo(codes_provider=supported_source_language_codes)
-        self.cmb_src_lang.setMinimumHeight(base_h)
+        self.cmb_source_language = LanguageCombo(codes_provider=supported_source_language_codes)
+        self.cmb_source_language.setMinimumHeight(base_h)
 
-        self.cmb_tgt_lang = LanguageCombo(codes_provider=supported_target_language_codes)
-        self.cmb_tgt_lang.setMinimumHeight(base_h)
+        self.cmb_target_language = LanguageCombo(codes_provider=supported_target_language_codes)
+        self.cmb_target_language.setMinimumHeight(base_h)
 
-        src_lang_host, _ = build_field_stack(self, tr("common.field.source_language"), self.cmb_src_lang, buddy=self.cmb_src_lang)
-        tgt_lang_host, _ = build_field_stack(self, tr("common.field.target_language"), self.cmb_tgt_lang, buddy=self.cmb_tgt_lang)
+        src_lang_host, _ = build_field_stack(
+            self,
+            tr("common.field.source_language"),
+            self.cmb_source_language,
+            buddy=self.cmb_source_language,
+        )
+        tgt_lang_host, _ = build_field_stack(
+            self,
+            tr("common.field.target_language"),
+            self.cmb_target_language,
+            buddy=self.cmb_target_language,
+        )
 
         s_lay.addWidget(device_host, 0, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         s_lay.addWidget(output_mode_host, 0, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
@@ -262,7 +285,12 @@ class LivePanel(QtWidgets.QWidget):
         setup_layout(c_lay, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
         root.addWidget(controls_box)
 
-        controls_left, left_lay = build_layout_host(parent=self, layout="vbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
+        controls_left, left_lay = build_layout_host(
+            parent=self,
+            layout="vbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.spacing,
+        )
         btn_big_row, big_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
 
         self.btn_start = QtWidgets.QPushButton(tr("live.ctrl.start"))
@@ -275,7 +303,12 @@ class LivePanel(QtWidgets.QWidget):
         left_lay.addWidget(btn_big_row)
 
         save_clear_outer, out_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=0)
-        save_clear_inner, in_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
+        save_clear_inner, in_lay = build_layout_host(
+            parent=self,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.spacing,
+        )
 
         self.btn_save = QtWidgets.QPushButton(tr("live.ctrl.save_transcript"))
         self.btn_clear = QtWidgets.QPushButton(tr("live.ctrl.clear"))
@@ -295,18 +328,33 @@ class LivePanel(QtWidgets.QWidget):
 
         self.lbl_detected_title = QtWidgets.QLabel(tr("live.detected_language_label"))
         self.lbl_detected_title.setProperty("role", "fieldLabel")
-        self.lbl_detected_value = QtWidgets.QLabel("—")
+        self.lbl_detected_value = QtWidgets.QLabel(tr("common.na"))
         self.lbl_detected_value.setWordWrap(True)
 
-        status_row, status_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.space_s)
+        status_row, status_row_lay = build_layout_host(
+            parent=self,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.space_s,
+        )
         status_row_lay.addWidget(self.lbl_status_title, 0)
         status_row_lay.addWidget(self.lbl_status_value, 1)
 
-        detected_row, detected_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.space_s)
+        detected_row, detected_row_lay = build_layout_host(
+            parent=self,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.space_s,
+        )
         detected_row_lay.addWidget(self.lbl_detected_title, 0)
         detected_row_lay.addWidget(self.lbl_detected_value, 1)
 
-        info_row, info_row_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
+        info_row, info_row_lay = build_layout_host(
+            parent=self,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.spacing,
+        )
         info_row_lay.addWidget(status_row, 1)
         info_row_lay.addWidget(detected_row, 1)
 
@@ -322,22 +370,37 @@ class LivePanel(QtWidgets.QWidget):
 
     def _build_output_section(self, root: QtWidgets.QVBoxLayout) -> None:
         cfg = self._ui
-        self.txt_src = QtWidgets.QTextEdit()
-        setup_text_editor(self.txt_src, placeholder=tr("live.placeholder.source"))
-        self.txt_src.setReadOnly(True)
+        self.txt_source = QtWidgets.QTextEdit()
+        setup_text_editor(self.txt_source, placeholder=tr("live.placeholder.source"))
+        self.txt_source.setReadOnly(True)
 
-        self.txt_tgt = QtWidgets.QTextEdit()
-        setup_text_editor(self.txt_tgt, placeholder=tr("live.placeholder.target"))
-        self.txt_tgt.setReadOnly(True)
+        self.txt_target = QtWidgets.QTextEdit()
+        setup_text_editor(self.txt_target, placeholder=tr("live.placeholder.target"))
+        self.txt_target.setReadOnly(True)
 
-        out_text_host, out_text_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
-        self.src_text_host, src_text_lay = build_layout_host(parent=self, layout="vbox", margins=(0, 0, 0, 0), spacing=0)
-        self.tgt_text_host, tgt_text_lay = build_layout_host(parent=self, layout="vbox", margins=(0, 0, 0, 0), spacing=0)
+        out_text_host, out_text_lay = build_layout_host(
+            parent=self,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.spacing,
+        )
+        self.source_text_host, src_text_lay = build_layout_host(
+            parent=self,
+            layout="vbox",
+            margins=(0, 0, 0, 0),
+            spacing=0,
+        )
+        self.target_text_host, tgt_text_lay = build_layout_host(
+            parent=self,
+            layout="vbox",
+            margins=(0, 0, 0, 0),
+            spacing=0,
+        )
 
-        src_text_lay.addWidget(self.txt_src, 1)
-        tgt_text_lay.addWidget(self.txt_tgt, 1)
-        out_text_lay.addWidget(self.src_text_host, 1)
-        out_text_lay.addWidget(self.tgt_text_host, 1)
+        src_text_lay.addWidget(self.txt_source, 1)
+        tgt_text_lay.addWidget(self.txt_target, 1)
+        out_text_lay.addWidget(self.source_text_host, 1)
+        out_text_lay.addWidget(self.target_text_host, 1)
         root.addWidget(out_text_host, 1)
 
     def _wire_signals(self) -> None:
@@ -352,8 +415,8 @@ class LivePanel(QtWidgets.QWidget):
         self.tg_output_mode.changed.connect(self._on_quick_option_changed)
         self.tg_mode.changed.connect(self._on_quick_option_changed)
         self.cmb_profile.currentIndexChanged.connect(self._on_quick_option_changed)
-        self.cmb_src_lang.currentIndexChanged.connect(self._on_source_language_changed)
-        self.cmb_tgt_lang.currentIndexChanged.connect(self._on_target_language_changed)
+        self.cmb_source_language.currentIndexChanged.connect(self._on_source_language_changed)
+        self.cmb_target_language.currentIndexChanged.connect(self._on_target_language_changed)
 
     def _restore_initial_state(self) -> None:
         self._apply_saved_options_to_ui()
@@ -419,12 +482,12 @@ class LivePanel(QtWidgets.QWidget):
             ui_language=current_language(),
         )
         rebuild_code_combo(
-            self.cmb_src_lang,
+            self.cmb_source_language,
             src_items,
             desired_code=self._resolve_source_language_selection(self._session_source_language),
             fallback_code=LanguagePolicy.PREFERRED,
         )
-        self._session_source_language = combo_current_code(self.cmb_src_lang, default=LanguagePolicy.PREFERRED)
+        self._session_source_language = combo_current_code(self.cmb_source_language, default=LanguagePolicy.PREFERRED)
 
         tgt_codes = supported_target_language_codes()
         tgt_items = build_target_language_items(
@@ -433,12 +496,12 @@ class LivePanel(QtWidgets.QWidget):
             ui_language=current_language(),
         )
         rebuild_code_combo(
-            self.cmb_tgt_lang,
+            self.cmb_target_language,
             tgt_items,
             desired_code=self._resolve_target_language_selection(self._session_target_language),
             fallback_code=LanguagePolicy.PREFERRED,
         )
-        self._session_target_language = combo_current_code(self.cmb_tgt_lang, default=LanguagePolicy.PREFERRED)
+        self._session_target_language = combo_current_code(self.cmb_target_language, default=LanguagePolicy.PREFERRED)
 
     @staticmethod
     def _effective_source_language_code(selection: str) -> str:
@@ -465,15 +528,27 @@ class LivePanel(QtWidgets.QWidget):
         self._trigger_quick_options_autosave(sync_ui=False)
 
     def _on_source_language_changed(self, *_args) -> None:
-        self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or LanguagePolicy.PREFERRED)
+        self._session_source_language = str(
+            self.cmb_source_language.code()
+            or self._session_source_language
+            or LanguagePolicy.PREFERRED
+        )
         self._trigger_quick_options_autosave(sync_ui=False)
 
     def _on_target_language_changed(self, *_args) -> None:
-        self._session_target_language = str(self.cmb_tgt_lang.code() or self._session_target_language or LanguagePolicy.PREFERRED)
+        self._session_target_language = str(
+            self.cmb_target_language.code()
+            or self._session_target_language
+            or LanguagePolicy.PREFERRED
+        )
         self._trigger_quick_options_autosave(sync_ui=False)
 
     def _build_quick_options_payload(self) -> dict[str, Any]:
-        mode = RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE if self._is_translate_mode_checked() else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
+        mode = (
+            RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE
+            if self._is_translate_mode_checked()
+            else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
+        )
         profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or Config.live_ui_profile())
         output_mode = self._current_output_mode()
         device_name = str(self.cmb_device.currentData() or "").strip()
@@ -488,11 +563,25 @@ class LivePanel(QtWidgets.QWidget):
 
     def _on_quick_options_saved(self, _snap: object) -> None:
         self._saved_device_name = str(self.cmb_device.currentData() or self._saved_device_name or "").strip()
-        self._saved_profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or self._saved_profile)
-        self._saved_mode = RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE if self._is_translate_mode_checked() else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
+        self._saved_profile = RuntimeProfiles.normalize_live_profile(
+            self.cmb_profile.currentData() or self._saved_profile
+        )
+        self._saved_mode = (
+            RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE
+            if self._is_translate_mode_checked()
+            else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
+        )
         self._saved_output_mode = self._current_output_mode()
-        self._session_source_language = str(self.cmb_src_lang.code() or self._session_source_language or LanguagePolicy.PREFERRED)
-        self._session_target_language = str(self.cmb_tgt_lang.code() or self._session_target_language or LanguagePolicy.PREFERRED)
+        self._session_source_language = str(
+            self.cmb_source_language.code()
+            or self._session_source_language
+            or LanguagePolicy.PREFERRED
+        )
+        self._session_target_language = str(
+            self.cmb_target_language.code()
+            or self._session_target_language
+            or LanguagePolicy.PREFERRED
+        )
 
     def _commit_quick_options_payload(self, payload: dict[str, Any]) -> None:
         coord = self.coordinator()
@@ -620,17 +709,19 @@ class LivePanel(QtWidgets.QWidget):
     def _build_live_session_request(self) -> dict[str, Any]:
         device_name = str(self.cmb_device.currentData() or "").strip()
         source_language = self._effective_source_language_code(
-            str(self.cmb_src_lang.code() or self._session_source_language or LanguagePolicy.PREFERRED)
+            str(self.cmb_source_language.code() or self._session_source_language or LanguagePolicy.PREFERRED)
         )
 
         translation_available = self._translation_runtime_available()
         translate_requested = self._is_translate_mode_checked() and translation_available
         translation_runtime = self._translation_runtime(
             requested_enabled=translate_requested,
-            target_code=self.cmb_tgt_lang.code(),
+            target_code=self.cmb_target_language.code(),
         )
 
-        profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or RuntimeProfiles.LIVE_DEFAULT_PROFILE)
+        profile = RuntimeProfiles.normalize_live_profile(
+            self.cmb_profile.currentData() or RuntimeProfiles.LIVE_DEFAULT_PROFILE
+        )
         output_mode = self._current_output_mode()
         self._session_output_mode = output_mode
         runtime_profile = RuntimeProfiles.resolve_live_runtime(
@@ -659,7 +750,11 @@ class LivePanel(QtWidgets.QWidget):
         translate_requested = bool(session_request.pop("translate_requested", False))
 
         _LOG.debug(
-            "Live session prepared. device=%s profile=%s output_mode=%s translate_requested=%s translate_enabled=%s source_language=%s target_language=%s chunk_length_s=%s stride_length_s=%s",
+            (
+                "Live session prepared. device=%s profile=%s output_mode=%s "
+                "translate_requested=%s translate_enabled=%s source_language=%s "
+                "target_language=%s chunk_length_s=%s stride_length_s=%s"
+            ),
             session_request.get("device_name", ""),
             session_request.get("profile", ""),
             session_request.get("output_mode", ""),
@@ -760,25 +855,25 @@ class LivePanel(QtWidgets.QWidget):
     def _apply_render_output(self, *, force: bool = False) -> None:
         is_translate = self._is_translate_mode_effective()
 
-        if force or self.tgt_text_host.isVisible() != is_translate:
-            self.tgt_text_host.setVisible(is_translate)
+        if force or self.target_text_host.isVisible() != is_translate:
+            self.target_text_host.setVisible(is_translate)
 
-        self.txt_src.setPlaceholderText(tr("live.placeholder.source"))
+        self.txt_source.setPlaceholderText(tr("live.placeholder.source"))
         source_text = self._current_render_source_text()
         if force or source_text != self._applied_source:
-            self._set_text_edit_text(self.txt_src, source_text, force=force)
+            self._set_text_edit_text(self.txt_source, source_text, force=force)
             self._applied_source = source_text
 
         if not is_translate:
             if force or self._applied_target:
-                self._set_text_edit_text(self.txt_tgt, "", force=force)
+                self._set_text_edit_text(self.txt_target, "", force=force)
                 self._applied_target = ""
             return
 
-        self.txt_tgt.setPlaceholderText(tr("live.placeholder.target"))
+        self.txt_target.setPlaceholderText(tr("live.placeholder.target"))
         target_text = self._current_render_target_text()
         if force or target_text != self._applied_target:
-            self._set_text_edit_text(self.txt_tgt, target_text, force=force)
+            self._set_text_edit_text(self.txt_target, target_text, force=force)
             self._applied_target = target_text
 
     def _save_transcript(self) -> None:
@@ -809,7 +904,7 @@ class LivePanel(QtWidgets.QWidget):
             )
         except Exception as e:
             self._set_status("status.error")
-            self.txt_src.setPlainText(tr("error.generic", detail=str(e)))
+            dialogs.show_error(self, key="error.generic", params={"detail": str(e)})
 
     @staticmethod
     def _model_engine_disabled(model_cfg: dict[str, Any]) -> bool:
@@ -851,7 +946,7 @@ class LivePanel(QtWidgets.QWidget):
     def _apply_translation_runtime_tooltips(self, presentation: RuntimePresentation) -> None:
         tooltip = "" if presentation.state == "ready" else str(presentation.tooltip or presentation.text or "")
         self.tg_mode.setToolTip(tooltip)
-        self.cmb_tgt_lang.setToolTip(tooltip)
+        self.cmb_target_language.setToolTip(tooltip)
 
     def _should_show_translation_runtime_feedback(self) -> bool:
         if self._live_is_running() or self._state != self.STATE_STOPPED:
@@ -865,7 +960,7 @@ class LivePanel(QtWidgets.QWidget):
         target_code: str | None = None,
     ) -> Any:
         enabled = self._translation_runtime_available() if requested_enabled is None else bool(requested_enabled)
-        target = self.cmb_tgt_lang.code() if target_code is None else str(target_code or "")
+        target = self.cmb_target_language.code() if target_code is None else str(target_code or "")
         return compute_translation_runtime(
             requested_enabled=enabled,
             target_code=target,
@@ -880,8 +975,8 @@ class LivePanel(QtWidgets.QWidget):
             self.tg_output_mode,
             self.tg_mode,
             self.cmb_profile,
-            self.cmb_src_lang,
-            self.cmb_tgt_lang,
+            self.cmb_source_language,
+            self.cmb_target_language,
             self.btn_start,
             self.btn_pause,
             self.btn_stop,
@@ -932,7 +1027,7 @@ class LivePanel(QtWidgets.QWidget):
     def _format_detected_language(lang_code: str) -> str:
         code = str(lang_code or "").strip().lower()
         if not code:
-            return "—"
+            return tr("common.na")
         label = language_display_name(code, ui_lang=current_language())
         return str(label or code)
 
@@ -964,7 +1059,11 @@ class LivePanel(QtWidgets.QWidget):
             return
         self._last_availability_debug_key = state
         _LOG.debug(
-            "Live availability changed. reason=%s panel=live asr_ready=%s microphones=%s state=%s running=%s translation_available=%s translate_effective=%s",
+            (
+                "Live availability changed. reason=%s panel=live asr_ready=%s "
+                "microphones=%s state=%s running=%s translation_available=%s "
+                "translate_effective=%s"
+            ),
             reason,
             bool(self._transcription_ready),
             bool(self._has_audio_devices),
@@ -1093,7 +1192,7 @@ class LivePanel(QtWidgets.QWidget):
         self.tg_mode.setEnabled(can_config)
         self.cmb_profile.setEnabled(can_config)
 
-        self.cmb_src_lang.setEnabled(can_config)
+        self.cmb_source_language.setEnabled(can_config)
 
         self._apply_translation_runtime_tooltips(translation_presentation)
         if can_config:
@@ -1103,7 +1202,7 @@ class LivePanel(QtWidgets.QWidget):
                 self.tg_mode.setEnabled(False)
 
         wants_translate = self._is_translate_mode_checked() and translation_available
-        self.cmb_tgt_lang.setEnabled(can_config and wants_translate)
+        self.cmb_target_language.setEnabled(can_config and wants_translate)
 
         if self._state == self.STATE_STOPPED:
             self.btn_start.setEnabled(not running)
@@ -1129,7 +1228,11 @@ class LivePanel(QtWidgets.QWidget):
 
     def on_worker_failed(self, key: str, params: dict[str, Any]) -> None:
         self._set_panel_state(self.STATE_STOPPED, status="status.error", update_buttons=False)
-        _LOG.debug("Live worker failure received. detail=%s path=%s", str((params or {}).get("detail") or ""), str((params or {}).get("path") or ""))
+        _LOG.debug(
+            "Live worker failure received. detail=%s path=%s",
+            str((params or {}).get("detail") or ""),
+            str((params or {}).get("path") or ""),
+        )
         self.spectrum.clear()
         self._sync_spectrum_state()
         dialogs.show_error(self, key=key, params=params)

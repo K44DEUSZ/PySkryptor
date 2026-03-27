@@ -99,7 +99,12 @@ def floating_shadow_color(theme: str | None = None, *, app: QtWidgets.QApplicati
     resolved = active_theme_key(theme, app=app)
     return theme_color(resolved, '@FLOATING_SHADOW@')
 
-def spectrum_palette(state: str, *, theme: str | None = None, app: QtWidgets.QApplication | None = None) -> SpectrumPalette:
+def spectrum_palette(
+    state: str,
+    *,
+    theme: str | None = None,
+    app: QtWidgets.QApplication | None = None,
+) -> SpectrumPalette:
     resolved_theme = active_theme_key(theme, app=app)
     state_key = str(state or '').strip().lower() or 'idle'
 

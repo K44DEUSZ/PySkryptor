@@ -308,7 +308,17 @@ class LiveTranscriptionService:
                         generate_kwargs=fallback_kwargs,
                     )
                 except TypeError:
-                    candidate_kwargs = {k: v for k, v in fallback_kwargs.items() if k not in ("no_speech_threshold", "logprob_threshold", "compression_ratio_threshold", "temperature")}
+                    candidate_kwargs = {
+                        k: v
+                        for k, v in fallback_kwargs.items()
+                        if k
+                        not in (
+                            "no_speech_threshold",
+                            "logprob_threshold",
+                            "compression_ratio_threshold",
+                            "temperature",
+                        )
+                    }
                     try:
                         result = self._pipe(
                             payload,
@@ -331,11 +341,16 @@ class LiveTranscriptionService:
 
         language_changed = False
         detected = "" if self._source_language_forced else extract_detected_language_from_result(result)
-        if not detected and not self._source_language_forced and (self._translate or not self._src_lang) and can_detect_language_from_audio(
-            audio,
-            sr=self._sr,
-            signal_kind=signal_kind,
-            profile=self._profile,
+        if (
+            not detected
+            and not self._source_language_forced
+            and (self._translate or not self._src_lang)
+            and can_detect_language_from_audio(
+                audio,
+                sr=self._sr,
+                signal_kind=signal_kind,
+                profile=self._profile,
+            )
         ):
             detected = detect_language_from_pipe_runtime(
                 pipe=self._pipe,
@@ -352,7 +367,10 @@ class LiveTranscriptionService:
                 or can_detect_language_from_audio(audio, sr=self._sr, signal_kind=signal_kind, profile=self._profile)
             ):
                 self._language_hits[normalized_detected] = int(self._language_hits.get(normalized_detected, 0)) + 1
-                if self._language_hits[normalized_detected] >= max(1, self._stable_language_min_hits) and normalized_detected != self._detected_lang:
+                if (
+                    self._language_hits[normalized_detected] >= max(1, self._stable_language_min_hits)
+                    and normalized_detected != self._detected_lang
+                ):
                     self._detected_lang = normalized_detected
                     language_changed = True
 

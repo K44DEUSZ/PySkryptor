@@ -1,4 +1,4 @@
-# app/controller/platform/logging.py
+# app/controller/platform/logging_setup.py
 from __future__ import annotations
 
 import atexit

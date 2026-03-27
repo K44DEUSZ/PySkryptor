@@ -177,13 +177,21 @@ def build_transcription_session_request(
 
     fmts_raw = patch.get("output_formats")
     if isinstance(fmts_raw, (list, tuple)):
-        output_mode_ids = tuple(str(mode_id or "").strip().lower() for mode_id in fmts_raw if str(mode_id or "").strip())
+        output_mode_ids = tuple(
+            str(mode_id or "").strip().lower()
+            for mode_id in fmts_raw
+            if str(mode_id or "").strip()
+        )
     else:
         output_mode_ids = tuple()
     if not output_mode_ids:
         output_mode_ids = tuple(Config.transcription_output_mode_ids())
 
-    src = LanguagePolicy.AUTO if LanguagePolicy.is_auto(source_language) else (normalize_lang_code(source_language, drop_region=False) or LanguagePolicy.AUTO)
+    src = (
+        LanguagePolicy.AUTO
+        if LanguagePolicy.is_auto(source_language)
+        else (normalize_lang_code(source_language, drop_region=False) or LanguagePolicy.AUTO)
+    )
     tgt = normalize_lang_code(target_language, drop_region=True) if str(target_language or "").strip() else ""
 
     return TranscriptionSessionRequest(

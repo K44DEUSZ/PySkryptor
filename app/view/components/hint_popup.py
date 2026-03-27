@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from typing import Optional
-from PyQt5 import QtCore, QtGui, QtWidgets
 
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import QRect
+
+from app.view.support.popup_host import clamp_popup_geometry, hide_popup_widget
 from app.view.support.widget_effects import (
     configure_floating_popup_surface,
-    popup_host_root_margins,
     overlay_edge_gap,
+    popup_host_root_margins,
 )
 from app.view.ui_config import ui
 
@@ -88,7 +91,7 @@ class HintPopup(QtWidgets.QWidget):
         pos: QtCore.QPoint,
         text: str,
         *,
-        avoid_rect: Optional["QtCore.QRect"] = None,
+        avoid_rect: Optional["QRect"] = None,
     ) -> None:
         self._label.setText(str(text or "").strip())
         self.adjustSize()
@@ -110,6 +113,7 @@ class HintPopup(QtWidgets.QWidget):
                 geom.moveTop(max(avail.top() + edge, avail.bottom() - geom.height() - edge))
             if geom.top() < avail.top() + edge:
                 geom.moveTop(avail.top() + edge)
+        geom = clamp_popup_geometry(geom, point=pos, fallback_widget=self)
 
         self.move(geom.topLeft())
         self.show()
@@ -164,5 +168,4 @@ class InfoButton(QtWidgets.QToolButton):
 
     def _hide_hint(self) -> None:
         popup = self.__class__._popup
-        if popup is not None:
-            popup.hide()
+        hide_popup_widget(popup)

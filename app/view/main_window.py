@@ -12,7 +12,7 @@ from app.controller.contracts import (
     SettingsPanelViewProtocol,
 )
 from app.model.config.app_meta import AppMeta
-from app.view.panels.registry import PanelTabSpec, build_main_tab_specs
+from app.view.panels.tab_specs import PanelTabSpec, build_main_tab_specs
 from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
 from app.view.support.view_runtime import normalize_network_status
 from app.view.support.widget_effects import enable_styled_background
@@ -208,7 +208,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if target is focus_w or focus_w.isAncestorOf(target):
             return
 
-        popup_roles = {'comboPopupHost', 'comboPopup', 'comboPopupList', 'comboPopupViewport', 'hintPopupHost', 'hintPopup'}
+        popup_roles = {
+            'comboPopupHost',
+            'comboPopup',
+            'comboPopupList',
+            'comboPopupViewport',
+            'hintPopupHost',
+            'hintPopup',
+        }
         w = target
         while w is not None:
             if str(w.property('role') or '') in popup_roles:

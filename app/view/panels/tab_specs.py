@@ -1,4 +1,4 @@
-# app/view/panels/registry.py
+# app/view/panels/tab_specs.py
 from __future__ import annotations
 
 from dataclasses import dataclass

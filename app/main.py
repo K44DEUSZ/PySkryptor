@@ -21,7 +21,7 @@ if __package__ in (None, ''):
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.coordinators.app_coordinator import AppCoordinator
-from app.controller.platform.logging import LoggingSetup
+from app.controller.platform.logging_setup import LoggingSetup
 from app.model.config.app_config import AppConfig as Config
 from app.model.config.app_meta import AppMeta
 from app.model.domain.runtime_state import AppRuntimeState

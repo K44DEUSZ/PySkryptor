@@ -262,7 +262,11 @@ class SourceTable(QtWidgets.QTableWidget):
         if mode == self._width_mode:
             return
         self._width_mode = mode
-        policy = QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded if overflow else QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        policy = (
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if overflow
+            else QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.setHorizontalScrollBarPolicy(policy)
         self.viewport().update()
 
@@ -276,13 +280,19 @@ class SourceTable(QtWidgets.QTableWidget):
 
         viewport = self.viewport()
         last_column = int(visible_columns[-1])
-        x = min(int(viewport.width() - 1), int(self.columnViewportPosition(last_column) + self.columnWidth(last_column) - 1))
+        x = min(
+            int(viewport.width() - 1),
+            int(self.columnViewportPosition(last_column) + self.columnWidth(last_column) - 1),
+        )
         if x < 0 or x >= int(viewport.width()):
             return
 
         painter = QtGui.QPainter(viewport)
         try:
-            painter.fillRect(QtCore.QRect(int(x), 0, 1, int(viewport.height())), viewport.palette().brush(viewport.backgroundRole()))
+            painter.fillRect(
+                QtCore.QRect(int(x), 0, 1, int(viewport.height())),
+                viewport.palette().brush(viewport.backgroundRole()),
+            )
 
             if self.rowCount() <= 0:
                 return
@@ -307,7 +317,12 @@ class SourceTable(QtWidgets.QTableWidget):
                 if isinstance(delegate, QtWidgets.QStyledItemDelegate):
                     delegate.initStyleOption(option, index)
                 option.rect = strip
-                self.style().drawPrimitive(QtWidgets.QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, self)
+                self.style().drawPrimitive(
+                    QtWidgets.QStyle.PrimitiveElement.PE_PanelItemViewItem,
+                    option,
+                    painter,
+                    self,
+                )
         finally:
             painter.end()
 
@@ -614,7 +629,11 @@ class SourceTable(QtWidgets.QTableWidget):
             for fill_target in self._header_fill_target_candidates(state, include_manual=False):
                 if int(fill_target) not in widths:
                     continue
-                desired = self._clamp_resizable_width(state, int(fill_target), int(widths[int(fill_target)] + int(capacity)))
+                desired = self._clamp_resizable_width(
+                    state,
+                    int(fill_target),
+                    int(widths[int(fill_target)] + int(capacity)),
+                )
                 extra = max(0, int(desired - widths[int(fill_target)]))
                 if extra <= 0:
                     continue
@@ -845,7 +864,11 @@ class SourceTable(QtWidgets.QTableWidget):
                 resizable_columns=resizable_columns,
                 fixed_total=fixed_total,
                 preferred_widths=None,
-                stretch_weights={int(col): int(weight) for col, weight in weights.items() if int(col) in resizable_columns},
+                stretch_weights={
+                    int(col): int(weight)
+                    for col, weight in weights.items()
+                    if int(col) in resizable_columns
+                },
             )
         finally:
             self._header_layout_applying = False
@@ -896,7 +919,11 @@ class SourceTable(QtWidgets.QTableWidget):
                 resizable_columns=resizable_columns,
                 fixed_total=fixed_total,
                 preferred_widths=preferred_widths,
-                stretch_weights={int(col): int(weight) for col, weight in stretch_weights.items() if int(col) in resizable_columns},
+                stretch_weights={
+                    int(col): int(weight)
+                    for col, weight in stretch_weights.items()
+                    if int(col) in resizable_columns
+                },
             )
         finally:
             self._header_layout_applying = False
@@ -1026,7 +1053,11 @@ class SourceTable(QtWidgets.QTableWidget):
                 continue
 
             widget_host = cast(QtWidgets.QWidget, host)
-            hints = [int(widget_host.minimumSizeHint().width()), int(widget_host.sizeHint().width()), int(widget_host.minimumWidth())]
+            hints = [
+                int(widget_host.minimumSizeHint().width()),
+                int(widget_host.sizeHint().width()),
+                int(widget_host.minimumWidth()),
+            ]
             layout = host.layout()
             margin_width = 0
             if layout is not None:

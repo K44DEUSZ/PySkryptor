@@ -2,21 +2,23 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable, cast
-import weakref
 
 from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
-from app.model.services.localization_service import SpecialLanguageOptions, build_language_options
 from app.model.config.language_policy import LanguagePolicy
 from app.model.helpers.string_utils import normalize_lang_code
+from app.model.services.localization_service import SpecialLanguageOptions, build_language_options
 from app.view.components.hint_popup import hint_popup
+from app.view.support.popup_host import (
+    PopupHostBinding,
+    PopupHostRegistry,
+    PopupHostProtocol,
+    anchored_popup_geometry,
+    hide_popup_widget,
+)
 from app.view.support.widget_effects import (
-    bind_tracked_window,
-    contains_widget_chain,
-    enable_styled_background,
-    install_app_event_filter,
     configure_floating_popup_surface,
-    overlay_edge_gap,
+    enable_styled_background,
     popup_host_root_margins,
     repolish_widget,
 )
@@ -27,9 +29,6 @@ _POPUP_VISIBLE_ROWS_DEFAULT = 10
 _POPUP_MULTISELECT_VISIBLE_ROWS_DEFAULT = 8
 _POPUP_COMBO_EXTRA_W = 52
 _POPUP_MULTISELECT_EXTRA_W = 60
-
-def _popup_anchor_gap_y(cfg) -> int:
-    return max(1, int(cfg.space_s) // 2)
 
 def _popup_content_extra_h(cfg) -> int:
     return int(cfg.pad_y_l) + int(cfg.space_s)
@@ -71,36 +70,6 @@ def _layout_contents_margins(layout: QtWidgets.QLayout | None) -> tuple[int, int
         return 0, 0, 0, 0
     margins = layout.contentsMargins()
     return int(margins.left()), int(margins.top()), int(margins.right()), int(margins.bottom())
-
-def _anchor_available_geometry(anchor: QtWidgets.QWidget) -> QtCore.QRect:
-    screen_pos = anchor.mapToGlobal(QtCore.QPoint(0, anchor.height()))
-    screen = QtWidgets.QApplication.screenAt(screen_pos) or anchor.screen() or QtWidgets.QApplication.primaryScreen()
-    return screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1920, 1080)
-
-def _anchored_popup_geometry(
-    anchor: QtWidgets.QWidget,
-    *,
-    width: int,
-    height: int,
-    host_margins: tuple[int, int, int, int] = (0, 0, 0, 0),
-) -> QtCore.QRect:
-    avail = _anchor_available_geometry(anchor)
-    cfg = ui(anchor)
-    edge = overlay_edge_gap(cfg)
-    popup_gap_y = max(0, _popup_anchor_gap_y(cfg) - 1)
-    left_margin, top_margin, right_margin, bottom_margin = (int(v) for v in host_margins)
-
-    x = anchor.mapToGlobal(QtCore.QPoint(0, 0)).x() - left_margin
-    y_below = anchor.mapToGlobal(QtCore.QPoint(0, anchor.height() + popup_gap_y)).y() - top_margin
-    y_above = anchor.mapToGlobal(QtCore.QPoint(0, 0 - popup_gap_y)).y() - (height - bottom_margin)
-    y = y_below if y_below + height <= avail.bottom() + 1 or y_above < avail.top() else y_above
-
-    if x + width > avail.right() - edge:
-        x = max(avail.left() + edge, avail.right() - width - edge)
-    if x < avail.left() + edge:
-        x = avail.left() + edge
-
-    return QtCore.QRect(int(x), int(y), int(width), int(height))
 
 def normalize_combo_code(code: str, *, default: str = "") -> str:
     raw = LanguagePolicy.normalize_choice_value(code)
@@ -220,33 +189,33 @@ class _PopupCheckItem(QtWidgets.QWidget):
         lay = QtWidgets.QHBoxLayout(self)
         setup_layout(lay, cfg=cfg, margins=(cfg.pad_x_m, 0, cfg.pad_x_m, 0), spacing=0)
 
-        self.checkbox = QtWidgets.QCheckBox(str(text), self)
-        self.checkbox.setProperty("role", "menuCheck")
-        self.checkbox.setChecked(bool(checked))
-        self.checkbox.setMinimumHeight(int(cfg.control_min_h))
-        self.checkbox.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self.checkbox.installEventFilter(self)
-        self.checkbox.toggled.connect(self._on_toggled)
-        lay.addWidget(self.checkbox, 1)
+        self.chk_item = QtWidgets.QCheckBox(str(text), self)
+        self.chk_item.setProperty("role", "menuCheck")
+        self.chk_item.setChecked(bool(checked))
+        self.chk_item.setMinimumHeight(int(cfg.control_min_h))
+        self.chk_item.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.chk_item.installEventFilter(self)
+        self.chk_item.toggled.connect(self._on_toggled)
+        lay.addWidget(self.chk_item, 1)
 
         self._set_hovered(False)
         self._sync_state()
 
     def text(self) -> str:
-        return str(self.checkbox.text() or "")
+        return str(self.chk_item.text() or "")
 
     def is_checked(self) -> bool:
-        return bool(self.checkbox.isChecked())
+        return bool(self.chk_item.isChecked())
 
     def set_checked(self, checked: bool) -> None:
-        self.checkbox.setChecked(bool(checked))
+        self.chk_item.setChecked(bool(checked))
 
     def _set_hovered(self, hovered: bool) -> None:
         self.setProperty("hovered", bool(hovered))
         repolish_widget(self)
 
     def _sync_state(self) -> None:
-        self.setProperty("checkedState", bool(self.checkbox.isChecked()))
+        self.setProperty("checkedState", bool(self.chk_item.isChecked()))
         repolish_widget(self)
 
     def _on_toggled(self) -> None:
@@ -255,7 +224,7 @@ class _PopupCheckItem(QtWidgets.QWidget):
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == QtCore.Qt.MouseButton.LeftButton and self.rect().contains(event.pos()):
-            self.checkbox.toggle()
+            self.chk_item.toggle()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -270,7 +239,7 @@ class _PopupCheckItem(QtWidgets.QWidget):
 
     # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
-        if obj is self.checkbox:
+        if obj is self.chk_item:
             if event.type() == QtCore.QEvent.Type.Enter:
                 self._set_hovered(True)
             elif event.type() == QtCore.QEvent.Type.Leave:
@@ -410,7 +379,7 @@ class ComboPopup(QtWidgets.QWidget):
         width = self._popup_width(combo) + left_margin + right_margin
         height = self._popup_height(combo)
         self.setGeometry(
-            _anchored_popup_geometry(
+            anchored_popup_geometry(
                 combo,
                 width=width,
                 height=height,
@@ -586,7 +555,11 @@ class MultiSelectPopup(QtWidgets.QWidget):
         needs_scroll = len(self._rows) > self._visible_row_count()
         scroll_w = 0
         if needs_scroll:
-            scroll_w = self._scroll.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent, None, self._scroll)
+            scroll_w = self._scroll.style().pixelMetric(
+                QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent,
+                None,
+                self._scroll,
+            )
         return max(int(field.width()), int(text_w + scroll_w + int(_POPUP_MULTISELECT_EXTRA_W)))
 
     def _popup_height(self, field: "PopupMultiSelectField") -> int:
@@ -611,7 +584,7 @@ class MultiSelectPopup(QtWidgets.QWidget):
         width = self._popup_width(field) + left_margin + right_margin
         height = self._popup_height(field)
         self.setGeometry(
-            _anchored_popup_geometry(
+            anchored_popup_geometry(
                 field,
                 width=width,
                 height=height,
@@ -624,22 +597,14 @@ class MultiSelectPopup(QtWidgets.QWidget):
         self.closed.emit()
 
 class _PopupHostComboMixin:
-    _OPEN_HOSTS: "weakref.WeakSet[_PopupHostComboMixin]" = weakref.WeakSet()
-    _tracked_window: QtWidgets.QWidget | None
-    _app_filter_installed: bool
     _visual_state_sync_pending: bool
+    _popup_binding: PopupHostBinding
 
     def _register_popup_host(self) -> None:
-        self._OPEN_HOSTS.add(self)
+        PopupHostRegistry.register(cast(PopupHostProtocol, cast(object, self)))
 
     def _close_other_popups(self) -> None:
-        for host in tuple(self._OPEN_HOSTS):
-            if host is self:
-                continue
-            try:
-                host.hide_popup()
-            except (AttributeError, RuntimeError, TypeError):
-                continue
+        PopupHostRegistry.close_others(cast(PopupHostProtocol, cast(object, self)))
 
     def _popup_widget(self) -> QtWidgets.QWidget | None:
         return None
@@ -653,12 +618,11 @@ class _PopupHostComboMixin:
             focus_widget.installEventFilter(cast(QtCore.QObject, cast(object, self)))
 
     def _install_app_filter(self) -> None:
-        owner = cast(QtCore.QObject, cast(object, self))
-        self._app_filter_installed = install_app_event_filter(owner, installed=self._app_filter_installed)
+        self._popup_binding.install_app_filter()
 
     def _bind_window(self) -> None:
         owner = cast(QtWidgets.QWidget, cast(object, self))
-        self._tracked_window = bind_tracked_window(owner, self._tracked_window, owner)
+        self._popup_binding.bind_window(owner)
 
     def _schedule_visual_state_sync(self) -> None:
         if bool(getattr(self, "_visual_state_sync_pending", False)):
@@ -674,9 +638,7 @@ class _PopupHostComboMixin:
 
     def hide_popup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()
-        if _widget_visible(popup):
-            popup.hide()
-        else:
+        if not hide_popup_widget(popup):
             self.sync_visual_state()
 
     def sync_visual_state(self) -> None:
@@ -697,38 +659,21 @@ class _PopupHostComboMixin:
 
     def _contains_widget(self, widget: QtWidgets.QWidget | None) -> bool:
         popup = self._popup_widget()
-        return contains_widget_chain(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
+        return self._popup_binding.contains_widget(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
 
     # noinspection PyPep8Naming
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
-        popup = self._popup_widget()
-        if _widget_visible(popup):
-            if event.type() in {QtCore.QEvent.Type.ApplicationDeactivate, QtCore.QEvent.Type.WindowDeactivate}:
-                self.hide_popup()
-            elif event.type() in {QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.Wheel} and isinstance(
-                event, (QtGui.QMouseEvent, QtGui.QWheelEvent)
-            ):
-                target = obj if isinstance(obj, QtWidgets.QWidget) else QtWidgets.QApplication.widgetAt(event.globalPos())
-                if not self._contains_widget(target):
-                    self.hide_popup()
-
-        if obj is self._tracked_window:
-            if event.type() in {
-                QtCore.QEvent.Type.Move,
-                QtCore.QEvent.Type.Resize,
-                QtCore.QEvent.Type.Hide,
-                QtCore.QEvent.Type.WindowDeactivate,
-            }:
-                self.hide_popup()
-                self._schedule_visual_state_sync()
-        elif obj is self._popup_focus_widget():
-            if event.type() in {
-                QtCore.QEvent.Type.FocusIn,
-                QtCore.QEvent.Type.FocusOut,
-                QtCore.QEvent.Type.Hide,
-                QtCore.QEvent.Type.EnabledChange,
-            }:
-                self._schedule_visual_state_sync()
+        handled = self._popup_binding.handle_dismiss_event(
+            obj=obj,
+            event=event,
+            popup_widget=self._popup_widget(),
+            hide_popup=self.hide_popup,
+            contains_widget=self._contains_widget,
+            popup_focus_widget=self._popup_focus_widget(),
+            on_state_change=self._schedule_visual_state_sync,
+        )
+        if handled:
+            return True
         return QtWidgets.QWidget.eventFilter(cast(QtWidgets.QWidget, cast(object, self)), obj, event)
 
     # noinspection PyPep8Naming
@@ -746,16 +691,12 @@ class _PopupHostComboMixin:
     # noinspection PyPep8Naming
     def moveEvent(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.moveEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
-        popup = self._popup_widget()
-        if popup is not None:
-            popup.refresh_geometry()
+        self._popup_binding.refresh_geometry(self._popup_widget())
 
     # noinspection PyPep8Naming
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.resizeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
-        popup = self._popup_widget()
-        if popup is not None:
-            popup.refresh_geometry()
+        self._popup_binding.refresh_geometry(self._popup_widget())
 
     # noinspection PyPep8Naming
     def focusInEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
@@ -784,17 +725,9 @@ class _PopupHostComboMixin:
         self._schedule_visual_state_sync()
 
     def __del__(self) -> None:
-        try:
-            if self._tracked_window is not None:
-                self._tracked_window.removeEventFilter(cast(QtCore.QObject, cast(object, self)))
-        except (AttributeError, RuntimeError, TypeError):
-            self._tracked_window = None
-        try:
-            app = QtWidgets.QApplication.instance()
-            if app is not None and self._app_filter_installed:
-                app.removeEventFilter(cast(QtCore.QObject, cast(object, self)))
-        except (AttributeError, RuntimeError, TypeError):
-            self._app_filter_installed = False
+        binding = getattr(self, "_popup_binding", None)
+        if isinstance(binding, PopupHostBinding):
+            binding.cleanup()
 
 class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
     """Combo box that renders and controls the custom popup list widget."""
@@ -802,11 +735,10 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
         super().__init__(parent)
         self.setProperty("focusWithin", False)
         self.setProperty("popupOpen", False)
+        self._popup_binding = PopupHostBinding(self)
         self._popup = ComboPopup(self)
         self._popup.index_chosen.connect(self._on_popup_index_chosen)
         self._popup.closed.connect(self._on_popup_closed)
-        self._tracked_window: QtWidgets.QWidget | None = None
-        self._app_filter_installed = False
         self._visual_state_sync_pending = False
         self._bind_popup_focus_widget()
         self._bind_window()
@@ -970,8 +902,7 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
         self._items: list[str] = []
         self._placeholder = ""
         self._display_text = ""
-        self._tracked_window: QtWidgets.QWidget | None = None
-        self._app_filter_installed = False
+        self._popup_binding = PopupHostBinding(self)
         self._visual_state_sync_pending = False
         self._popup = MultiSelectPopup(self)
         self._popup.selection_changed.connect(self._on_popup_selection_changed)
@@ -1020,12 +951,6 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
         popup = self._popup_widget()
         if popup is not None:
             popup.set_items(self._items, self.selected_items())
-
-    def show_popup(self) -> None:
-        self.showPopup()
-
-    def hide_popup(self) -> None:
-        super().hide_popup()
 
     def showPopup(self) -> None:  # type: ignore[override]
         popup = self._popup_widget()

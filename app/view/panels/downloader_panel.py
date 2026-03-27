@@ -13,7 +13,12 @@ from app.model.config.app_config import AppConfig as Config
 from app.model.config.app_meta import AppMeta
 from app.model.config.download_policy import DownloadPolicy
 from app.model.domain.results import ExpandedSourceItem, SourceExpansionResult
-from app.model.helpers.string_utils import format_bytes, format_hms, normalize_lang_code, sanitize_url_for_log
+from app.model.helpers.string_utils import (
+    format_bytes,
+    format_hms,
+    normalize_lang_code,
+    sanitize_url_for_log,
+)
 from app.model.services.download_service import DownloadService
 from app.model.services.localization_service import tr
 from app.model.services.source_input_service import is_playlist_url
@@ -30,7 +35,13 @@ from app.view.support.source_expansion_ui import (
     should_confirm_bulk_add,
     update_progress_dialog_message,
 )
-from app.view.support.status_presenter import compose_status_text, display_texts_for_statuses, is_progress_status, is_terminal_status, status_display_text
+from app.view.support.status_presenter import (
+    compose_status_text,
+    display_texts_for_statuses,
+    is_progress_status,
+    is_terminal_status,
+    status_display_text,
+)
 from app.view.support.view_runtime import (
     normalize_network_status,
     open_external_url,
@@ -38,7 +49,13 @@ from app.view.support.view_runtime import (
     read_network_status,
 )
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
-from app.view.support.widget_setup import build_layout_host, make_grid, setup_button, setup_input, setup_layout
+from app.view.support.widget_setup import (
+    build_layout_host,
+    make_grid,
+    setup_button,
+    setup_input,
+    setup_layout,
+)
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
@@ -54,6 +71,7 @@ _DOWNLOAD_BULK_PROBE_LIMIT = 10
 
 @dataclass
 class _Job:
+    """Mutable queue row state tracked while the downloader panel is open."""
     key: str
     url: str
     output_types: list[str]
@@ -64,6 +82,7 @@ class _Job:
 
 @dataclass(frozen=True)
 class _DownloadQueueItem:
+    """Normalized single download step prepared from one queue row."""
     key: str
     url: str
     kind: str
@@ -205,10 +224,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         details_group = SectionGroup(self, object_name="DownloaderDetailsGroup")
         details_layout = cast(QtWidgets.QVBoxLayout, details_group.root)
 
-        self.table = SourceTable()
-        self.table.setObjectName("DownloaderQueueTable")
-        self.table.setColumnCount(9)
-        self.table.setHorizontalHeaderLabels(
+        self.tbl_queue = SourceTable()
+        self.tbl_queue.setObjectName("DownloaderQueueTable")
+        self.tbl_queue.setColumnCount(9)
+        self.tbl_queue.setHorizontalHeaderLabels(
             [
                 "",
                 "#",
@@ -221,20 +240,20 @@ class DownloaderPanel(QtWidgets.QWidget):
                 tr("files.details.col.status"),
             ]
         )
-        self.table.verticalHeader().setVisible(False)
-        self.table.setCornerButtonEnabled(False)
-        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.setSortingEnabled(False)
-        self.table.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
-        self.table.setAcceptDrops(False)
-        self.table.setWordWrap(True)
-        self.table.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
+        self.tbl_queue.verticalHeader().setVisible(False)
+        self.tbl_queue.setCornerButtonEnabled(False)
+        self.tbl_queue.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.tbl_queue.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.tbl_queue.setAlternatingRowColors(True)
+        self.tbl_queue.setSortingEnabled(False)
+        self.tbl_queue.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
+        self.tbl_queue.setAcceptDrops(False)
+        self.tbl_queue.setWordWrap(True)
+        self.tbl_queue.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
 
         self._header_mode = "empty"
         self._apply_empty_header_mode()
-        details_layout.addWidget(self.table, 2)
+        details_layout.addWidget(self.tbl_queue, 2)
         self._queue_group = details_group
         root.addWidget(details_group, 2)
 
@@ -345,10 +364,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.action_bar.primary_clicked.connect(self._on_download_selected)
         self.action_bar.secondary_clicked.connect(self._on_cancel_clicked)
 
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
-        self.table.itemSelectionChanged.connect(self._sync_buttons)
-        self.table.cellClicked.connect(self._on_table_cell_clicked)
-        self.table.delete_pressed.connect(self._on_remove_selected)
+        self.tbl_queue.itemSelectionChanged.connect(self._on_selection_changed)
+        self.tbl_queue.itemSelectionChanged.connect(self._sync_buttons)
+        self.tbl_queue.cellClicked.connect(self._on_table_cell_clicked)
+        self.tbl_queue.delete_pressed.connect(self._on_remove_selected)
 
         parent_signal = getattr(parent, "network_status_changed", None)
         if parent_signal is not None:
@@ -459,18 +478,21 @@ class DownloaderPanel(QtWidgets.QWidget):
         state = (
             self._network_status,
             bool(self._download_is_running()),
-            int(self.table.rowCount()),
+            int(self.tbl_queue.rowCount()),
             bool(self.action_bar.primary_btn.isEnabled()) if hasattr(self.action_bar, "primary_btn") else False,
             )
         if state == self._last_availability_debug_key:
             return
         self._last_availability_debug_key = state
         _LOG.debug(
-            "Downloader availability changed. reason=%s panel=downloader online=%s running=%s queued_rows=%s can_start=%s",
+            (
+                "Downloader availability changed. reason=%s panel=downloader online=%s running=%s "
+                "queued_rows=%s can_start=%s"
+            ),
             reason,
             bool(self._network_available()),
             bool(self._download_is_running()),
-            self.table.rowCount(),
+            self.tbl_queue.rowCount(),
             bool(self.action_bar.primary_btn.isEnabled()) if hasattr(self.action_bar, "primary_btn") else False,
             )
 
@@ -492,7 +514,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         running = self._download_is_running()
         expanding = self._expansion_is_running()
         online = self._network_available()
-        can_start = bool((not running) and (not expanding) and self.table.rowCount() > 0 and online)
+        can_start = bool((not running) and (not expanding) and self.tbl_queue.rowCount() > 0 and online)
         self.action_bar.set_primary_enabled(can_start)
         self.action_bar.set_secondary_enabled(bool(running))
 
@@ -500,11 +522,11 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.btn_add.setEnabled((not running) and (not expanding) and online)
 
         can_edit_queue = not running and not expanding
-        self.btn_remove_selected.setEnabled(can_edit_queue and bool(self.table.rows_for_removal(self.COL_CHECK)))
-        self.btn_clear_list.setEnabled(can_edit_queue and self.table.rowCount() > 0)
+        self.btn_remove_selected.setEnabled(can_edit_queue and bool(self.tbl_queue.rows_for_removal(self.COL_CHECK)))
+        self.btn_clear_list.setEnabled(can_edit_queue and self.tbl_queue.rowCount() > 0)
 
-        self.table.setEnabled(not running)
-        self.table.set_header_checkbox_enabled(bool(can_edit_queue and self.table.rowCount() > 0))
+        self.tbl_queue.setEnabled(not running)
+        self.tbl_queue.set_header_checkbox_enabled(bool(can_edit_queue and self.tbl_queue.rowCount() > 0))
         self._update_open_in_browser_state()
         self._log_queue_state(reason="buttons_synced")
 
@@ -607,7 +629,11 @@ class DownloaderPanel(QtWidgets.QWidget):
             else:
                 self._reset_meta_ui()
                 self.lbl_description.setToolTip("")
-                self.lbl_description.setText(status_display_text("status.offline", "status.offline") if not self._network_available() else status_display_text("status.probing", "status.probing"))
+                self.lbl_description.setText(
+                    status_display_text("status.offline", "status.offline")
+                    if not self._network_available()
+                    else status_display_text("status.probing", "status.probing")
+                )
             return
 
         key = self._selected_job_key()
@@ -619,7 +645,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def _status_width(self) -> int:
         labels: list[str] = []
-        header_item = self.table.horizontalHeaderItem(self.COL_STATUS)
+        header_item = self.tbl_queue.horizontalHeaderItem(self.COL_STATUS)
         if header_item is not None:
             header_text = str(header_item.text() or "").strip()
             if header_text:
@@ -637,7 +663,7 @@ class DownloaderPanel(QtWidgets.QWidget):
                 )
             )
         )
-        metrics = QtGui.QFontMetrics(self.table.font())
+        metrics = QtGui.QFontMetrics(self.tbl_queue.font())
         text_width = max((metrics.horizontalAdvance(label) for label in labels), default=0)
         cfg = self._ui
         min_w = int(cfg.control_min_w)
@@ -665,8 +691,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         language_cap_w = int(cfg.control_min_w + cfg.control_min_h + cfg.margin + cfg.space_s - 1)
         status_cap_w = int(title_min_w + cfg.control_min_h + cfg.margin * 3)
         fit_padding = int(cfg.margin + cfg.pad_x_m)
-        self.table.reset_header_user_widths()
-        self.table.apply_content_header_layout(
+        self.tbl_queue.reset_header_user_widths()
+        self.tbl_queue.apply_content_header_layout(
             check_col=self.COL_CHECK,
             number_col=self.COL_NO,
             fill_column=self.COL_PATH,
@@ -731,31 +757,31 @@ class DownloaderPanel(QtWidgets.QWidget):
         column_growth_pad_w = int(cfg.pad_y_l)
         status_cap_w = int(title_min_w + cfg.control_min_h + cfg.margin * 3)
         fit_padding = int(cfg.margin + cfg.pad_x_m)
-        outputs_width = self.table.column_widget_width_hint(
+        outputs_width = self.tbl_queue.column_widget_width_hint(
             self.COL_OUTPUTS,
             fallback=outputs_fallback_w,
             pad=outputs_pad_w,
             cap=outputs_cap_w,
         )
-        quality_width = self.table.column_widget_width_hint(
+        quality_width = self.tbl_queue.column_widget_width_hint(
             self.COL_QUALITY,
             fallback=quality_fallback_w,
             pad=quality_pad_w,
             cap=quality_cap_w,
         )
-        formats_width = self.table.column_widget_width_hint(
+        formats_width = self.tbl_queue.column_widget_width_hint(
             self.COL_FORMATS,
             fallback=formats_fallback_w,
             pad=formats_pad_w,
             cap=formats_cap_w,
         )
-        language_width = self.table.column_widget_width_hint(
+        language_width = self.tbl_queue.column_widget_width_hint(
             self.COL_LANGUAGE,
             fallback=language_fallback_w,
             pad=language_pad_w,
             cap=language_cap_w,
         )
-        self.table.apply_content_header_layout(
+        self.tbl_queue.apply_content_header_layout(
             check_col=self.COL_CHECK,
             number_col=self.COL_NO,
             fill_column=self.COL_PATH,
@@ -791,7 +817,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         )
 
     def _schedule_queue_header_refresh(self) -> None:
-        self.table.schedule_populated_header_refresh(
+        self.tbl_queue.schedule_populated_header_refresh(
             is_active=lambda: self._header_mode == 'populated',
             reapply=self._apply_populated_header_mode,
         )
@@ -830,8 +856,8 @@ class DownloaderPanel(QtWidgets.QWidget):
 
     def _collect_checked_job_keys(self) -> list[str]:
         keys: list[str] = []
-        for row in self.table.checked_rows(self.COL_CHECK):
-            key = self.table.internal_key_at(row, self.COL_TITLE)
+        for row in self.tbl_queue.checked_rows(self.COL_CHECK):
+            key = self.tbl_queue.internal_key_at(row, self.COL_TITLE)
             if key and key not in keys:
                 keys.append(key)
         return keys
@@ -894,7 +920,11 @@ class DownloaderPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         if coord is None:
             url = self._make_job_key(raw)
-            _LOG.debug("Downloader URL normalized without coordinator. raw=%s normalized=%s", sanitize_url_for_log(raw), sanitize_url_for_log(url))
+            _LOG.debug(
+                "Downloader URL normalized without coordinator. raw=%s normalized=%s",
+                sanitize_url_for_log(raw),
+                sanitize_url_for_log(url),
+            )
             self._add_single_job(url)
             return
 
@@ -955,13 +985,21 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._jobs.append(job)
         row = self._append_job_row(job)
         self._select_row(row)
-        _LOG.debug("Downloader job added. job_key=%s default_ext=%s", sanitize_url_for_log(job.key), DownloadPolicy.download_default_video_ext())
+        _LOG.debug(
+            "Downloader job added. job_key=%s default_ext=%s",
+            sanitize_url_for_log(job.key),
+            DownloadPolicy.download_default_video_ext(),
+        )
         self._start_probe(job)
         self.ed_url.clear()
         self._sync_buttons()
         return row
 
-    def _apply_expansion_result(self, result: SourceExpansionResult, items: tuple[ExpandedSourceItem, ...]) -> tuple[int, int, list[str]]:
+    def _apply_expansion_result(
+        self,
+        result: SourceExpansionResult,
+        items: tuple[ExpandedSourceItem, ...],
+    ) -> tuple[int, int, list[str]]:
         added_keys: list[str] = []
         duplicate_count = 0
         selected_row = -1
@@ -979,7 +1017,11 @@ class DownloaderPanel(QtWidgets.QWidget):
             if selected_row < 0:
                 selected_row = row
             added_keys.append(job.key)
-            self._prime_job_meta(job.key, title=str(getattr(item, "title", "") or ""), duration_s=getattr(item, "duration_s", None))
+            self._prime_job_meta(
+                job.key,
+                title=str(getattr(item, "title", "") or ""),
+                duration_s=getattr(item, "duration_s", None),
+            )
 
         if selected_row >= 0:
             self._select_row(selected_row)
@@ -1012,7 +1054,13 @@ class DownloaderPanel(QtWidgets.QWidget):
             if added_count == 0 and duplicate_count > 0:
                 message = tr("down.msg.already_on_list")
         elif limited and added_count > 0 and duplicate_count > 0:
-            message = tr("down.msg.bulk_add_summary_limited_with_duplicates", added=added_count, selected=selected, total=total, skipped=duplicate_count)
+            message = tr(
+                "down.msg.bulk_add_summary_limited_with_duplicates",
+                added=added_count,
+                selected=selected,
+                total=total,
+                skipped=duplicate_count,
+            )
         elif limited and added_count > 0:
             message = tr("down.msg.bulk_add_summary_limited", added=added_count, selected=selected, total=total)
         elif added_count > 0 and duplicate_count > 0:
@@ -1142,11 +1190,11 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._thumb_by_key.pop(job_key, None)
 
     def _finalize_queue_rows_changed(self, *, next_row: int | None = None) -> None:
-        self.table.renumber_rows(self.COL_NO)
-        if self.table.rowCount() > 0:
+        self.tbl_queue.renumber_rows(self.COL_NO)
+        if self.tbl_queue.rowCount() > 0:
             self._apply_populated_header_mode()
             if next_row is not None:
-                self._select_row(min(max(0, int(next_row)), self.table.rowCount() - 1))
+                self._select_row(min(max(0, int(next_row)), self.tbl_queue.rowCount() - 1))
         else:
             self._apply_empty_header_mode()
         self._refresh_meta_panel()
@@ -1156,14 +1204,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         if self._download_is_running():
             return
 
-        rows = sorted(self.table.rows_for_removal(self.COL_CHECK), reverse=True)
+        rows = sorted(self.tbl_queue.rows_for_removal(self.COL_CHECK), reverse=True)
         if not rows:
             return
 
         next_row = max(0, min(rows))
-        keys = [self.table.internal_key_at(r, self.COL_TITLE) for r in rows]
+        keys = [self.tbl_queue.internal_key_at(r, self.COL_TITLE) for r in rows]
         for r in rows:
-            self.table.removeRow(r)
+            self.tbl_queue.removeRow(r)
 
         key_set = {k for k in keys if k}
         self._jobs = [j for j in self._jobs if j.key not in key_set]
@@ -1179,15 +1227,15 @@ class DownloaderPanel(QtWidgets.QWidget):
         for job in list(self._jobs):
             self._clear_job_state(job.key)
 
-        self.table.setRowCount(0)
+        self.tbl_queue.setRowCount(0)
         self._jobs = []
         self._meta_by_key = {}
         self._thumb_by_key = {}
         self._finalize_queue_rows_changed()
 
     def _append_job_row(self, job: _Job) -> int:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
+        row = self.tbl_queue.rowCount()
+        self.tbl_queue.insertRow(row)
 
         self._build_job_row_static_cells(row, job)
         self._build_job_row_outputs_cell(row, job)
@@ -1199,84 +1247,91 @@ class DownloaderPanel(QtWidgets.QWidget):
         return row
 
     def _build_job_row_static_cells(self, row: int, job: _Job) -> None:
-        self.table.setCellWidget(row, self.COL_CHECK, self.table.make_checkbox_cell(on_changed=self._sync_buttons))
+        self.tbl_queue.setCellWidget(
+            row,
+            self.COL_CHECK,
+            self.tbl_queue.make_checkbox_cell(on_changed=self._sync_buttons),
+        )
 
         it_no = QtWidgets.QTableWidgetItem(str(row + 1))
         it_no.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
-        self.table.setItem(row, self.COL_NO, it_no)
+        self.tbl_queue.setItem(row, self.COL_NO, it_no)
 
         it_title = QtWidgets.QTableWidgetItem(tr("common.loading"))
         it_title.setData(QtCore.Qt.ItemDataRole.UserRole, job.key)
-        self.table.setItem(row, self.COL_TITLE, it_title)
+        self.tbl_queue.setItem(row, self.COL_TITLE, it_title)
 
         it_link = QtWidgets.QTableWidgetItem(self._short_link_text(job.url))
         it_link.setToolTip(job.url)
         it_link.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter))
-        self.table.setItem(row, self.COL_SOURCE, it_link)
+        self.tbl_queue.setItem(row, self.COL_SOURCE, it_link)
 
     def _build_job_row_outputs_cell(self, row: int, job: _Job) -> None:
         type_items = [tr("down.select.type.video"), tr("down.select.type.audio")]
-        btn_types = self.table.make_multi_select_field(
+        btn_types = self.tbl_queue.make_multi_select_field(
             internal_key=job.key,
             items=type_items,
             selected=[type_items[0]] if job.output_types else [],
             placeholder=tr("down.select.outputs.placeholder"),
             on_changed=self._on_outputs_changed,
             )
-        self.table.setCellWidget(row, self.COL_OUTPUTS, btn_types)
+        self.tbl_queue.setCellWidget(row, self.COL_OUTPUTS, btn_types)
 
     def _build_job_row_quality_cell(self, row: int, job: _Job) -> None:
-        cb_quality = self.table.make_simple_combo(
+        cb_quality = self.tbl_queue.make_simple_combo(
             internal_key=job.key,
             items=self._quality_items_for_job(job),
             on_changed=self._on_quality_changed,
             )
-        self.table.setCellWidget(row, self.COL_QUALITY, cb_quality)
+        self.tbl_queue.setCellWidget(row, self.COL_QUALITY, cb_quality)
 
     def _build_job_row_formats_cell(self, row: int, job: _Job) -> None:
-        btn_exts = self.table.make_multi_select_field(
+        btn_exts = self.tbl_queue.make_multi_select_field(
             internal_key=job.key,
             items=list(self._format_items(job.output_types)),
             selected=list(job.output_exts or []),
             placeholder=tr("down.select.formats.placeholder"),
             on_changed=self._on_formats_changed,
             )
-        self.table.setCellWidget(row, self.COL_FORMATS, btn_exts)
+        self.tbl_queue.setCellWidget(row, self.COL_FORMATS, btn_exts)
 
     def _build_job_row_audio_cell(self, row: int, job: _Job) -> None:
-        cb_audio = self.table.make_audio_track_combo(
+        cb_audio = self.tbl_queue.make_audio_track_combo(
             internal_key=job.key,
             default_text=tr("down.select.audio_track.default"),
             on_changed=self._on_audio_changed,
             enabled=False,
             )
-        self.table.setCellWidget(row, self.COL_LANGUAGE, cb_audio)
+        self.tbl_queue.setCellWidget(row, self.COL_LANGUAGE, cb_audio)
 
     def _build_job_row_status_cell(self, row: int, job: _Job) -> None:
         it_status = QtWidgets.QTableWidgetItem("")
         it_status.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
-        self.table.setItem(row, self.COL_STATUS, it_status)
+        self.tbl_queue.setItem(row, self.COL_STATUS, it_status)
         self._set_job_status(job.key, job.status)
 
     def _finalize_appended_job_row(self, row: int) -> None:
-        self.table.setRowHeight(row, int(self._ui.control_min_h + 8))
-        if self.table.rowCount() == 1:
+        self.tbl_queue.setRowHeight(row, int(self._ui.control_min_h + 8))
+        if self.tbl_queue.rowCount() == 1:
             self._apply_populated_header_mode()
         else:
-            self.table.schedule_populated_header_refresh(
+            self.tbl_queue.schedule_populated_header_refresh(
                 is_active=lambda: self._header_mode == "populated",
                 reapply=self._apply_populated_header_mode,
             )
 
     def _select_row(self, row: int) -> None:
-        if row < 0 or row >= self.table.rowCount():
+        if row < 0 or row >= self.tbl_queue.rowCount():
             return
-        self.table.setCurrentCell(row, self.COL_TITLE)
-        self.table.selectRow(row)
-        self.table.scrollToItem(self.table.item(row, self.COL_TITLE), QtWidgets.QAbstractItemView.PositionAtCenter)
+        self.tbl_queue.setCurrentCell(row, self.COL_TITLE)
+        self.tbl_queue.selectRow(row)
+        self.tbl_queue.scrollToItem(
+            self.tbl_queue.item(row, self.COL_TITLE),
+            QtWidgets.QAbstractItemView.PositionAtCenter,
+        )
 
     def _selected_job_key(self) -> str:
-        return self.table.selected_internal_key(self.COL_TITLE)
+        return self.tbl_queue.selected_internal_key(self.COL_TITLE)
 
     def _on_selection_changed(self) -> None:
         self._refresh_meta_panel()
@@ -1288,7 +1343,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         mods = QtWidgets.QApplication.keyboardModifiers()
         if not (mods & QtCore.Qt.KeyboardModifier.ControlModifier):
             return
-        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
+        job = self._job_for_key(self.tbl_queue.internal_key_at(row, self.COL_TITLE))
         if job is None:
             return
         url = str(job.url or "").strip()
@@ -1342,7 +1397,11 @@ class DownloaderPanel(QtWidgets.QWidget):
             return "-"
 
         if len(desc) > _DESCRIPTION_MAX_CHARS:
-            return desc[: _DESCRIPTION_MAX_CHARS - 3] + "..." if _DESCRIPTION_MAX_CHARS > 3 else desc[:_DESCRIPTION_MAX_CHARS]
+            return (
+                desc[: _DESCRIPTION_MAX_CHARS - 3] + "..."
+                if _DESCRIPTION_MAX_CHARS > 3
+                else desc[:_DESCRIPTION_MAX_CHARS]
+            )
         return desc
 
     def _apply_meta_value_labels(self, meta: dict[str, Any]) -> None:
@@ -1356,8 +1415,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._set_meta_value_text(self.lbl_title, title or "-")
         self._set_meta_value_text(self.lbl_channel, uploader)
         self._set_meta_value_text(self.lbl_upload_date, self._meta_upload_date_text(meta))
-        self._set_meta_value_text(self.lbl_duration, format_hms(int(duration)) if isinstance(duration, (int, float)) else "-")
-        self._set_meta_value_text(self.lbl_est_size, format_bytes(int(est_size)) if isinstance(est_size, (int, float)) else "-")
+        self._set_meta_value_text(
+            self.lbl_duration,
+            format_hms(int(duration)) if isinstance(duration, (int, float)) else "-",
+        )
+        self._set_meta_value_text(
+            self.lbl_est_size,
+            format_bytes(int(est_size)) if isinstance(est_size, (int, float)) else "-",
+        )
         self._set_meta_value_text(self.lbl_views, self._format_meta_count(meta.get("view_count")))
         self._set_meta_value_text(self.lbl_likes, self._format_meta_count(meta.get("like_count")))
 
@@ -1473,7 +1538,11 @@ class DownloaderPanel(QtWidgets.QWidget):
         if coord is None:
             return
 
-        _LOG.debug("Downloader probe request started. job_key=%s url=%s", sanitize_url_for_log(job_key), sanitize_url_for_log(url))
+        _LOG.debug(
+            "Downloader probe request started. job_key=%s url=%s",
+            sanitize_url_for_log(job_key),
+            sanitize_url_for_log(url),
+        )
         coord.start_probe(job_key=job_key, url=url)
 
         if self._row_for_key(job_key) >= 0:
@@ -1497,7 +1566,11 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._refresh_row_from_meta(job_key)
             self._set_job_status(job_key, "queued")
 
-        _LOG.debug("Downloader probe ready. job_key=%s title=%s", sanitize_url_for_log(job_key), str((meta or {}).get("title") or (meta or {}).get("id") or ""))
+        _LOG.debug(
+            "Downloader probe ready. job_key=%s title=%s",
+            sanitize_url_for_log(job_key),
+            str((meta or {}).get("title") or (meta or {}).get("id") or ""),
+        )
         self._refresh_meta_panel()
 
     def on_probe_error(self, job_key: str, err_key: str, params: dict[str, Any]) -> None:
@@ -1514,7 +1587,11 @@ class DownloaderPanel(QtWidgets.QWidget):
             meta["_error_key"] = str(err_key)
             meta["_error_params"] = (params or {})
 
-        _LOG.debug("Downloader probe error. job_key=%s detail=%s", sanitize_url_for_log(job_key), str((params or {}).get("detail") or ""))
+        _LOG.debug(
+            "Downloader probe error. job_key=%s detail=%s",
+            sanitize_url_for_log(job_key),
+            str((params or {}).get("detail") or ""),
+        )
         self._refresh_meta_panel()
 
     def _refresh_row_from_meta(self, job_key: str) -> None:
@@ -1528,13 +1605,13 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         title = str(meta.get("title") or meta.get("id") or "").strip()
         if title:
-            it = self.table.item(r, self.COL_TITLE)
+            it = self.tbl_queue.item(r, self.COL_TITLE)
             if it is not None:
                 it.setText(title)
                 it.setToolTip(title)
 
         url = str(meta.get("webpage_url") or meta.get("original_url") or "").strip() or job_key
-        it_link = self.table.item(r, self.COL_SOURCE)
+        it_link = self.tbl_queue.item(r, self.COL_SOURCE)
         if it_link is not None:
             it_link.setText(self._short_link_text(url))
             it_link.setToolTip(url)
@@ -1543,14 +1620,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         job = self._job_for_key(job_key)
         if job is not None:
             self._refresh_quality_row_option(r, job)
-        self.table.schedule_populated_header_refresh(
+        self.tbl_queue.schedule_populated_header_refresh(
             is_active=lambda: self._header_mode == "populated",
             reapply=self._apply_populated_header_mode,
         )
 
     def _update_audio_tracks_row(self, row: int, meta: dict[str, Any]) -> None:
-        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
-        codes = self.table.update_audio_tracks(
+        job = self._job_for_key(self.tbl_queue.internal_key_at(row, self.COL_TITLE))
+        codes = self.tbl_queue.update_audio_tracks(
             row=row,
             col=self.COL_LANGUAGE,
             meta=meta,
@@ -1558,14 +1635,14 @@ class DownloaderPanel(QtWidgets.QWidget):
             preferred_lang_code=job.audio_lang if job is not None else None,
             internal_key=job.key if job is not None else None,
         )
-        self.table.apply_probe_diag_notice(row=row, col=self.COL_LANGUAGE, status_col=self.COL_STATUS, meta=meta)
+        self.tbl_queue.apply_probe_diag_notice(row=row, col=self.COL_LANGUAGE, status_col=self.COL_STATUS, meta=meta)
 
-        cb_audio = self.table.combo_at(row, self.COL_LANGUAGE)
+        cb_audio = self.tbl_queue.combo_at(row, self.COL_LANGUAGE)
         if isinstance(cb_audio, QtWidgets.QComboBox):
             cb_audio.setEnabled(bool(len(codes) > 2))
 
     def _row_for_key(self, key: str) -> int:
-        return self.table.row_for_internal_key(self.COL_TITLE, key)
+        return self.tbl_queue.row_for_internal_key(self.COL_TITLE, key)
 
     def _job_for_key(self, key: str) -> _Job | None:
         idx = self._find_job_index(key)
@@ -1602,7 +1679,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._refresh_row_options(row)
 
     def _refresh_row_options(self, row: int) -> None:
-        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
+        job = self._job_for_key(self.tbl_queue.internal_key_at(row, self.COL_TITLE))
         if job is None:
             return
 
@@ -1612,12 +1689,15 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._schedule_queue_header_refresh()
 
     def _refresh_quality_row_option(self, row: int, job: _Job) -> None:
-        cb_quality = self.table.combo_at(row, self.COL_QUALITY)
+        cb_quality = self.tbl_queue.combo_at(row, self.COL_QUALITY)
         if not isinstance(cb_quality, QtWidgets.QComboBox):
             return
 
         default_quality = DownloadPolicy.download_ui_default_quality()
-        previous_value = str(job.quality or cb_quality.currentText() or default_quality).strip().lower() or default_quality
+        previous_value = (
+            str(job.quality or cb_quality.currentText() or default_quality).strip().lower()
+            or default_quality
+        )
         items = self._quality_items_for_job(job)
         selected_value = previous_value if previous_value in {x.lower() for x in items} else default_quality
 
@@ -1633,7 +1713,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         job.quality = str(cb_quality.currentText() or DownloadPolicy.download_ui_default_quality()).strip().lower()
 
     def _refresh_audio_row_option(self, row: int, job: _Job) -> None:
-        cb_audio = self.table.combo_at(row, self.COL_LANGUAGE)
+        cb_audio = self.tbl_queue.combo_at(row, self.COL_LANGUAGE)
         if not isinstance(cb_audio, QtWidgets.QComboBox):
             return
 
@@ -1686,26 +1766,29 @@ class DownloaderPanel(QtWidgets.QWidget):
         return uniq
 
     def _rebuild_formats_button(self, row: int) -> None:
-        job = self._job_for_key(self.table.internal_key_at(row, self.COL_TITLE))
+        job = self._job_for_key(self.tbl_queue.internal_key_at(row, self.COL_TITLE))
         if job is None:
             return
 
         items = list(self._format_items(job.output_types))
         keep = self._current_format_selection(row, job, items)
-        btn = self.table.make_multi_select_field(
+        btn = self.tbl_queue.make_multi_select_field(
             internal_key=job.key,
             items=items,
             selected=keep,
             placeholder=tr("down.select.formats.placeholder"),
             on_changed=self._on_formats_changed,
             )
-        self.table.setCellWidget(row, self.COL_FORMATS, btn)
+        self.tbl_queue.setCellWidget(row, self.COL_FORMATS, btn)
 
-        btn_cell = self.table.multi_select_field_at(row, self.COL_FORMATS)
-        job.output_exts = [str(x).strip().lower() for x in ((btn_cell.property("selected_items") if btn_cell is not None else []) or [])]
+        btn_cell = self.tbl_queue.multi_select_field_at(row, self.COL_FORMATS)
+        job.output_exts = [
+            str(x).strip().lower()
+            for x in ((btn_cell.property("selected_items") if btn_cell is not None else []) or [])
+        ]
 
     def _current_format_selection(self, row: int, job: _Job, items: list[str]) -> list[str]:
-        w = self.table.multi_select_field_at(row, self.COL_FORMATS)
+        w = self.tbl_queue.multi_select_field_at(row, self.COL_FORMATS)
         prev = list(w.property("selected_items") or []) if w is not None else []
         keep = [str(x).strip().lower() for x in prev if str(x).strip().lower() in items]
         if keep:
@@ -1718,7 +1801,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         if job is None:
             return
         row = self._row_for_key(job_key)
-        cb = self.table.combo_at(row, self.COL_QUALITY) if row >= 0 else None
+        cb = self.tbl_queue.combo_at(row, self.COL_QUALITY) if row >= 0 else None
         if isinstance(cb, QtWidgets.QComboBox):
             job.quality = str(cb.currentText() or DownloadPolicy.download_ui_default_quality()).strip().lower()
             self._schedule_queue_header_refresh()
@@ -1739,7 +1822,13 @@ class DownloaderPanel(QtWidgets.QWidget):
         row = self._row_for_key(job_key)
         if row < 0:
             return
-        job.audio_lang = normalize_lang_code(self.table.audio_lang_code_at(row, self.COL_LANGUAGE), drop_region=True) or None
+        job.audio_lang = (
+            normalize_lang_code(
+                self.tbl_queue.audio_lang_code_at(row, self.COL_LANGUAGE),
+                drop_region=True,
+            )
+            or None
+        )
         self._schedule_queue_header_refresh()
 
     def _on_download_selected(self) -> None:
@@ -1816,7 +1905,11 @@ class DownloaderPanel(QtWidgets.QWidget):
             return
 
         if self._dup_apply_all_action in ("skip", "overwrite"):
-            _LOG.debug("Downloader duplicate decision reused. action=%s expected=%s", self._dup_apply_all_action, Path(expected).name)
+            _LOG.debug(
+                "Downloader duplicate decision reused. action=%s expected=%s",
+                self._dup_apply_all_action,
+                Path(expected).name,
+            )
             self._submit_duplicate_resolution(self._dup_apply_all_action, "")
             return
 
@@ -1876,7 +1969,12 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.action_bar.set_progress(100)
         active_key = self._active_download_key()
         self._set_job_status(active_key, "done")
-        _LOG.debug("Downloader item finished. job_key=%s path=%s remaining_items=%s", sanitize_url_for_log(active_key), Path(path).name, len(self._queue_items))
+        _LOG.debug(
+            "Downloader item finished. job_key=%s path=%s remaining_items=%s",
+            sanitize_url_for_log(active_key),
+            Path(path).name,
+            len(self._queue_items),
+        )
 
         if self._closing:
             return
@@ -1915,7 +2013,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         if not dialogs.ask_cancel(self):
             return
         self._download_aborted = True
-        _LOG.debug("Downloader queue cancellation requested. job_key=%s", sanitize_url_for_log(self._active_download_key()))
+        _LOG.debug(
+            "Downloader queue cancellation requested. job_key=%s",
+            sanitize_url_for_log(self._active_download_key()),
+        )
         coord = self.coordinator()
         if coord is not None:
             coord.cancel_download()
@@ -1955,7 +2056,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         if row < 0:
             return
 
-        item = self.table.item(row, self.COL_STATUS)
+        item = self.tbl_queue.item(row, self.COL_STATUS)
         if item is None:
             return
 

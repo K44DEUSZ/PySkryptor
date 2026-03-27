@@ -50,7 +50,10 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: Ap
     friendly = str(getattr(config_cls, "DEVICE_FRIENDLY_NAME", dev_str))
     _LOG.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
     _LOG.debug(
-        "Runtime engine settings applied. preferred_device=%s precision=%s fp32_math_mode=%s low_cpu_mem_usage=%s device=%s dtype=%s tf32_enabled=%s",
+        (
+            "Runtime engine settings applied. preferred_device=%s precision=%s fp32_math_mode=%s "
+            "low_cpu_mem_usage=%s device=%s dtype=%s tf32_enabled=%s"
+        ),
         str((snap.engine or {}).get("preferred_device", "auto")),
         str((snap.engine or {}).get("precision", "auto")),
         str((snap.engine or {}).get("fp32_math_mode", "ieee")),
@@ -155,7 +158,11 @@ def _warmup_model_runtime(
         )
         return next_state
 
-def _task_load_transcription_model(_runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
+def _task_load_transcription_model(
+    _runtime: _StartupRuntime,
+    progress: ProgressCb,
+    state: AppRuntimeState,
+) -> AppRuntimeState:
     svc = AIModelsService()
     next_state = _warmup_model_runtime(
         state,
@@ -171,7 +178,11 @@ def _task_load_transcription_model(_runtime: _StartupRuntime, progress: Progress
     progress(100)
     return next_state
 
-def _task_warmup_translation_model(_runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
+def _task_warmup_translation_model(
+    _runtime: _StartupRuntime,
+    progress: ProgressCb,
+    state: AppRuntimeState,
+) -> AppRuntimeState:
     svc = AIModelsService()
     next_state = _warmup_model_runtime(
         state,
@@ -193,7 +204,13 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> l
         StartupTask(label=labels["init"], weight=2, min_display_ms=300, fn=_task_init_runtime, runtime=runtime),
         StartupTask(label=labels["dirs"], weight=1, min_display_ms=300, fn=_task_ensure_dirs, runtime=runtime),
         StartupTask(label=labels["ffmpeg"], weight=1, min_display_ms=300, fn=_task_setup_ffmpeg, runtime=runtime),
-        StartupTask(label=labels["asr"], weight=4, min_display_ms=0, fn=_task_load_transcription_model, runtime=runtime),
+        StartupTask(
+            label=labels["asr"],
+            weight=4,
+            min_display_ms=0,
+            fn=_task_load_transcription_model,
+            runtime=runtime,
+        ),
         StartupTask(label=labels["tr"], weight=3, min_display_ms=0, fn=_task_warmup_translation_model, runtime=runtime),
     ]
 

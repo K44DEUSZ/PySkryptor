@@ -702,7 +702,12 @@ class DownloadService:
                     p = Path(value)
                 except (TypeError, ValueError, OSError):
                     continue
-                if stage_dir in p.parents and p.exists() and p.is_file() and not DownloadService._is_partial_artifact(p):
+                if (
+                    stage_dir in p.parents
+                    and p.exists()
+                    and p.is_file()
+                    and not DownloadService._is_partial_artifact(p)
+                ):
                     paths.append(p)
 
         return list(dict.fromkeys(paths))
@@ -888,7 +893,11 @@ class DownloadService:
 
         info_dict = info if isinstance(info, dict) else {}
         raw_type = str(info_dict.get("_type") or "").strip().lower()
-        raw_entries = list(info_dict.get("entries") or []) if isinstance(info_dict.get("entries"), (list, tuple)) else []
+        raw_entries = (
+            list(info_dict.get("entries") or [])
+            if isinstance(info_dict.get("entries"), (list, tuple))
+            else []
+        )
         playlist_markers = (
             str(info_dict.get("playlist") or "").strip(),
             str(info_dict.get("playlist_id") or "").strip(),
@@ -919,7 +928,11 @@ class DownloadService:
                 entry_url = raw_entry_url
             if not entry_url:
                 entry_id = str(entry.get("id") or "").strip()
-                ie_key = str(entry.get("ie_key") or entry.get("extractor_key") or entry.get("extractor") or "").strip().lower()
+                ie_key = (
+                    str(entry.get("ie_key") or entry.get("extractor_key") or entry.get("extractor") or "")
+                    .strip()
+                    .lower()
+                )
                 if entry_id and "youtube" in ie_key:
                     entry_url = f"https://www.youtube.com/watch?v={entry_id}"
             if not entry_url:
@@ -941,7 +954,12 @@ class DownloadService:
         if not out:
             raise DownloadError("error.playlist.empty", url=url)
 
-        _LOG.info("Playlist resolved (flat). url=%s title=%s count=%s", safe_url, playlist_title or playlist_url, len(out))
+        _LOG.info(
+            "Playlist resolved (flat). url=%s title=%s count=%s",
+            safe_url,
+            playlist_title or playlist_url,
+            len(out),
+        )
         return PlaylistResolveResult(
             playlist_title=playlist_title or playlist_url,
             playlist_url=playlist_url,
@@ -951,7 +969,11 @@ class DownloadService:
 
     def probe(self, url: str) -> dict[str, Any]:
         safe_url = sanitize_url_for_log(url)
-        ydl_opts: dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=True)
+        ydl_opts: dict[str, Any] = self._base_ydl_opts(
+            url=url,
+            quiet=not _LOG.isEnabledFor(logging.DEBUG),
+            skip_download=True,
+        )
         _LOG.debug("Download probe started. url=%s quiet=%s", safe_url, bool(ydl_opts.get("quiet", False)))
 
         try:
@@ -1143,7 +1165,11 @@ class DownloadService:
         contract = self._download_contract(kind=kind, purpose=purpose_l, keep_output=bool(keep_output), ext_l=ext_l)
         plan_ext = str(contract.get("plan_ext") or "").strip().lower()
         final_ext = str(contract.get("final_ext") or "").strip().lower()
-        artifact_policy = str(contract.get("artifact_policy") or DownloadPolicy.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT).strip().lower()
+        artifact_policy = (
+            str(contract.get("artifact_policy") or DownloadPolicy.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT)
+            .strip()
+            .lower()
+        )
 
         if DownloadPolicy.is_download_audio_auto_value(audio_lang):
             audio_lang = None
@@ -1173,9 +1199,18 @@ class DownloadService:
         stage_dir = self._create_download_stage(stem=stem)
         outtmpl = self._build_stage_outtmpl(stage_dir=stage_dir, stem=stem)
 
-        ydl_opts: dict[str, Any] = self._base_ydl_opts(url=url, quiet=not _LOG.isEnabledFor(logging.DEBUG), skip_download=False)
+        ydl_opts: dict[str, Any] = self._base_ydl_opts(
+            url=url,
+            quiet=not _LOG.isEnabledFor(logging.DEBUG),
+            skip_download=False,
+        )
         ydl_opts.update({
-            "format": plan.get("format") or (DownloadPolicy.DOWNLOAD_FALLBACK_AUDIO_SELECTOR if kind == "audio" else DownloadPolicy.DOWNLOAD_FALLBACK_VIDEO_SELECTOR),
+            "format": plan.get("format")
+            or (
+                DownloadPolicy.DOWNLOAD_FALLBACK_AUDIO_SELECTOR
+                if kind == "audio"
+                else DownloadPolicy.DOWNLOAD_FALLBACK_VIDEO_SELECTOR
+            ),
             "outtmpl": outtmpl,
             "progress_hooks": [_hook],
             "postprocessor_hooks": [_post_hook],
@@ -1189,7 +1224,10 @@ class DownloadService:
             ydl_opts["merge_output_format"] = merge_output_format
 
         _LOG.debug(
-            "Download started. url=%s kind=%s quality=%s ext=%s audio_lang=%s purpose=%s keep_output=%s final_out_dir=%s stage_dir=%s stem=%s plan=%s",
+            (
+                "Download started. url=%s kind=%s quality=%s ext=%s audio_lang=%s purpose=%s "
+                "keep_output=%s final_out_dir=%s stage_dir=%s stem=%s plan=%s"
+            ),
             sanitize_url_for_log(url),
             kind,
             quality,
@@ -1222,7 +1260,10 @@ class DownloadService:
                 )
             stage_files = self._stage_files(stage_dir)
             _LOG.debug(
-                "Download postprocess state. url=%s requested_ext=%s info_ext=%s info_filepath=%s stage_dir=%s stage_files=%s",
+                (
+                    "Download postprocess state. url=%s requested_ext=%s info_ext=%s "
+                    "info_filepath=%s stage_dir=%s stage_files=%s"
+                ),
                 sanitize_url_for_log(url),
                 ext_l,
                 self._normalize_ext((info or {}).get("ext")),
@@ -1240,7 +1281,10 @@ class DownloadService:
             )
             if artifact is None:
                 _LOG.warning(
-                    "Download finished without stage artifact. url=%s requested_ext=%s final_ext=%s artifact_policy=%s info_ext=%s stage_dir=%s stage_files=%s",
+                    (
+                        "Download finished without stage artifact. url=%s requested_ext=%s final_ext=%s "
+                        "artifact_policy=%s info_ext=%s stage_dir=%s stage_files=%s"
+                    ),
                     sanitize_url_for_log(url),
                     ext_l,
                     final_ext,
@@ -1265,7 +1309,10 @@ class DownloadService:
                 )
                 self._cleanup_stage_dir(stage_dir)
                 _LOG.info(
-                    "Download finished. url=%s requested_ext=%s final_ext=%s artifact_policy=%s resolved_artifact=%s promoted=%s",
+                    (
+                        "Download finished. url=%s requested_ext=%s final_ext=%s artifact_policy=%s "
+                        "resolved_artifact=%s promoted=%s"
+                    ),
                     sanitize_url_for_log(url),
                     ext_l,
                     final_ext,
@@ -1302,7 +1349,10 @@ class DownloadService:
                 self._log_network_error(action="download", url=url, ex=ex)
                 raise DownloadError(network_key)
             _LOG.debug(
-                "Download failed. url=%s requested_ext=%s final_ext=%s artifact_policy=%s info_ext=%s info_filepath=%s stage_dir=%s stage_files=%s detail=%s",
+                (
+                    "Download failed. url=%s requested_ext=%s final_ext=%s artifact_policy=%s info_ext=%s "
+                    "info_filepath=%s stage_dir=%s stage_files=%s detail=%s"
+                ),
                 sanitize_url_for_log(url),
                 ext_l,
                 final_ext,

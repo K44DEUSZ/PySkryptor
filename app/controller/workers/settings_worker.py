@@ -14,6 +14,7 @@ from app.model.services.settings_service import SettingsService
 
 _LOG = logging.getLogger(__name__)
 
+
 class SettingsWorker(TaskWorker):
     """Background worker for loading/saving application settings."""
 
@@ -24,10 +25,6 @@ class SettingsWorker(TaskWorker):
         super().__init__()
         self._action = str(action or "").strip().lower()
         self._payload = payload or {}
-
-    def _handle_failure(self, ex: BaseException) -> None:
-        key, params = self._exception_to_i18n(ex)
-        self._emit_failure(str(key), dict(params or {}))
 
     def _execute(self) -> None:
         if self._action == "load":

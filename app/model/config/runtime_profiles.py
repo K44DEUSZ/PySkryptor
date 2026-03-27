@@ -410,9 +410,16 @@ class RuntimeProfiles:
     @classmethod
     def resolve_transcription_runtime(cls, *, profile: Any, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         normalized_profile = cls.normalize_transcription_profile(profile)
-        base_profile = cls.TRANSCRIPTION_DEFAULT_PROFILE if normalized_profile == cls.TRANSCRIPTION_PROFILE_CUSTOM else normalized_profile
+        base_profile = (
+            cls.TRANSCRIPTION_DEFAULT_PROFILE
+            if normalized_profile == cls.TRANSCRIPTION_PROFILE_CUSTOM
+            else normalized_profile
+        )
         base = cls._merge_profile(
-            cls._TRANSCRIPTION_PROFILE_DEFAULTS.get(base_profile, cls._TRANSCRIPTION_PROFILE_DEFAULTS[cls.TRANSCRIPTION_DEFAULT_PROFILE]),
+            cls._TRANSCRIPTION_PROFILE_DEFAULTS.get(
+                base_profile,
+                cls._TRANSCRIPTION_PROFILE_DEFAULTS[cls.TRANSCRIPTION_DEFAULT_PROFILE],
+            ),
             overrides if normalized_profile == cls.TRANSCRIPTION_PROFILE_CUSTOM else None,
         )
         runtime = cls._resolve_transcription_semantics(profile=base)
@@ -426,9 +433,16 @@ class RuntimeProfiles:
     @classmethod
     def resolve_translation_runtime(cls, *, profile: Any, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         normalized_profile = cls.normalize_translation_profile(profile)
-        base_profile = cls.TRANSLATION_DEFAULT_PROFILE if normalized_profile == cls.TRANSLATION_PROFILE_CUSTOM else normalized_profile
+        base_profile = (
+            cls.TRANSLATION_DEFAULT_PROFILE
+            if normalized_profile == cls.TRANSLATION_PROFILE_CUSTOM
+            else normalized_profile
+        )
         base = cls._merge_profile(
-            cls._TRANSLATION_PROFILE_DEFAULTS.get(base_profile, cls._TRANSLATION_PROFILE_DEFAULTS[cls.TRANSLATION_DEFAULT_PROFILE]),
+            cls._TRANSLATION_PROFILE_DEFAULTS.get(
+                base_profile,
+                cls._TRANSLATION_PROFILE_DEFAULTS[cls.TRANSLATION_DEFAULT_PROFILE],
+            ),
             overrides if normalized_profile == cls.TRANSLATION_PROFILE_CUSTOM else None,
         )
         style = cls.normalize_translation_style(base.get("style"))
@@ -451,7 +465,10 @@ class RuntimeProfiles:
     ) -> dict[str, Any]:
         output_mode_id = cls.normalize_live_output_mode(output_mode)
         normalized_profile = cls.normalize_live_profile(profile)
-        base = cls._merge_profile(cls._LIVE_AUDIO_SIGNAL_PROFILE, cls._LIVE_PROFILE_DEFAULTS.get(normalized_profile, {}))
+        base = cls._merge_profile(
+            cls._LIVE_AUDIO_SIGNAL_PROFILE,
+            cls._LIVE_PROFILE_DEFAULTS.get(normalized_profile, {}),
+        )
         base = cls._merge_profile(base, overrides)
         context_policy = cls.normalize_context_policy(base.get("context_policy"))
         silence_guard = cls.normalize_silence_guard(base.get("silence_guard"))

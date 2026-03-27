@@ -21,6 +21,7 @@ SpectrumValues: TypeAlias = Sequence[float]
 
 @runtime_checkable
 class FilesCoordinatorProtocol(Protocol):
+    """Controller-facing contract for the files panel workflow."""
     def is_probe_running(self) -> bool: ...
     def is_transcribing(self) -> bool: ...
     def is_expanding(self) -> bool: ...
@@ -41,6 +42,7 @@ class FilesCoordinatorProtocol(Protocol):
 
 
 class FilesPanelViewProtocol(Protocol):
+    """View callbacks exposed by the files panel."""
     def bind_coordinator(self, coordinator: FilesCoordinatorProtocol) -> None: ...
     def on_runtime_state_changed(
         self,
@@ -81,6 +83,7 @@ class FilesPanelViewProtocol(Protocol):
 
 @runtime_checkable
 class LiveCoordinatorProtocol(Protocol):
+    """Controller-facing contract for the live transcription panel."""
     def is_running(self) -> bool: ...
     def start_session(
         self,
@@ -102,6 +105,7 @@ class LiveCoordinatorProtocol(Protocol):
 
 
 class LivePanelViewProtocol(Protocol):
+    """View callbacks exposed by the live panel."""
     def bind_coordinator(self, coordinator: LiveCoordinatorProtocol) -> None: ...
     def refresh_defaults_from_settings(self) -> None: ...
     def on_runtime_state_changed(
@@ -128,6 +132,7 @@ class LivePanelViewProtocol(Protocol):
 
 @runtime_checkable
 class DownloaderCoordinatorProtocol(Protocol):
+    """Controller-facing contract for the downloader queue panel."""
     def is_downloading(self) -> bool: ...
     def is_probe_running(self, job_key: str | None = None) -> bool: ...
     def is_expanding(self) -> bool: ...
@@ -150,6 +155,7 @@ class DownloaderCoordinatorProtocol(Protocol):
 
 
 class DownloaderPanelViewProtocol(Protocol):
+    """View callbacks exposed by the downloader panel."""
     def bind_coordinator(self, coordinator: DownloaderCoordinatorProtocol) -> None: ...
     def on_probe_ready(self, job_key: str, meta: ProbeMeta) -> None: ...
     def on_expansion_busy_changed(self, busy: bool) -> None: ...
@@ -168,6 +174,7 @@ class DownloaderPanelViewProtocol(Protocol):
 
 @runtime_checkable
 class SettingsCoordinatorProtocol(Protocol):
+    """Controller-facing contract for loading and saving settings."""
     def is_busy(self) -> bool: ...
     def load(self) -> WorkerRef | None: ...
     def save(self, payload: SettingsPayload | None = None) -> WorkerRef | None: ...
@@ -177,6 +184,7 @@ class SettingsCoordinatorProtocol(Protocol):
 
 
 class SettingsPanelViewProtocol(Protocol):
+    """View callbacks exposed by the settings panel."""
     def bind_coordinator(self, coordinator: SettingsCoordinatorProtocol) -> None: ...
     def on_settings_loaded(self, snap: SettingsSnapshot) -> None: ...
     def on_saved(self, action: str, snap: SettingsSnapshot) -> None: ...
@@ -184,6 +192,7 @@ class SettingsPanelViewProtocol(Protocol):
 
 
 class MainWindowPanelsHostProtocol(Protocol):
+    """Container that owns the main window panel instances."""
     files_panel: FilesPanelViewProtocol | None
     live_panel: LivePanelViewProtocol | None
     downloader_panel: DownloaderPanelViewProtocol | None

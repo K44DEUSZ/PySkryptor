@@ -218,9 +218,9 @@ class FilesPanel(QtWidgets.QWidget):
         top_grid.setVerticalSpacing(cfg.space_l)
         self._top_section_host.setLayout(top_grid)
 
-        self.src_edit = QtWidgets.QLineEdit()
-        self.src_edit.setObjectName("FilesSourceInput")
-        setup_input(self.src_edit, placeholder=tr("files.placeholder"), min_h=base_h)
+        self.ed_source_input = QtWidgets.QLineEdit()
+        self.ed_source_input.setObjectName("FilesSourceInput")
+        setup_input(self.ed_source_input, placeholder=tr("files.placeholder"), min_h=base_h)
 
         self.btn_src_add = QtWidgets.QPushButton(tr("ctrl.add"))
         self.btn_src_add.setObjectName("FilesAddSource")
@@ -236,7 +236,7 @@ class FilesPanel(QtWidgets.QWidget):
         top_btn_box.addWidget(self.btn_src_add, 1)
         top_btn_box.addWidget(self.btn_open_output, 3)
 
-        top_grid.addWidget(self.src_edit, 0, 0, 1, 3)
+        top_grid.addWidget(self.ed_source_input, 0, 0, 1, 3)
         top_grid.addWidget(top_btn_host, 0, 3)
 
         self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
@@ -259,10 +259,10 @@ class FilesPanel(QtWidgets.QWidget):
         details_group = SectionGroup(self, object_name="FilesDetailsGroup")
         details_layout = cast(QtWidgets.QVBoxLayout, details_group.root)
 
-        self.tbl = SourceTable()
-        self.tbl.setObjectName("SourcesTable")
-        self.tbl.setColumnCount(9)
-        self.tbl.setHorizontalHeaderLabels([
+        self.tbl_sources = SourceTable()
+        self.tbl_sources.setObjectName("SourcesTable")
+        self.tbl_sources.setColumnCount(9)
+        self.tbl_sources.setHorizontalHeaderLabels([
             "",
             "#",
             tr("files.details.col.name"),
@@ -273,15 +273,15 @@ class FilesPanel(QtWidgets.QWidget):
             tr("files.details.col.status"),
             tr("files.details.col.preview"),
         ])
-        self.tbl.verticalHeader().setVisible(False)
-        self.tbl.setCornerButtonEnabled(False)
-        self.tbl.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        self.tbl.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.tbl.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
+        self.tbl_sources.verticalHeader().setVisible(False)
+        self.tbl_sources.setCornerButtonEnabled(False)
+        self.tbl_sources.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.tbl_sources.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.tbl_sources.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
 
         self._apply_empty_header_mode()
 
-        details_layout.addWidget(self.tbl, 2)
+        details_layout.addWidget(self.tbl_sources, 2)
         self._details_group = details_group
         root.addWidget(details_group, 2)
 
@@ -296,14 +296,14 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_main_row(self, root: QtWidgets.QVBoxLayout, base_h: int) -> None:
         cfg = self._ui
-        self.options_group = SectionGroup(
+        self.grp_options = SectionGroup(
             self,
             object_name="QuickOptions",
             role="panelGroup",
             layout="grid",
         )
-        self.options_group.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-        ql = cast(QtWidgets.QGridLayout, self.options_group.root)
+        self.grp_options.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+        ql = cast(QtWidgets.QGridLayout, self.grp_options.root)
         setup_layout(
             ql,
             cfg=cfg,
@@ -321,14 +321,14 @@ class FilesPanel(QtWidgets.QWidget):
         ql.addWidget(target_host, 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         ql.addWidget(tmp_host, 2, 0, 1, 2)
 
-        self.model_group = SectionGroup(
+        self.grp_model = SectionGroup(
             self,
             object_name="ModelSection",
             role="panelGroup",
             layout="vbox",
         )
-        self.model_group.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-        mg = cast(QtWidgets.QVBoxLayout, self.model_group.root)
+        self.grp_model.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+        mg = cast(QtWidgets.QVBoxLayout, self.grp_model.root)
         setup_layout(mg, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
         mg.addWidget(self.model_info)
         mg.addStretch(1)
@@ -336,8 +336,8 @@ class FilesPanel(QtWidgets.QWidget):
         self._main_row_host = QtWidgets.QWidget(self)
         main_row = QtWidgets.QHBoxLayout(self._main_row_host)
         setup_layout(main_row, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_l)
-        main_row.addWidget(self.model_group, 1)
-        main_row.addWidget(self.options_group, 3)
+        main_row.addWidget(self.grp_model, 1)
+        main_row.addWidget(self.grp_options, 3)
         root.addWidget(self._main_row_host, 0)
 
     def _build_mode_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
@@ -355,26 +355,26 @@ class FilesPanel(QtWidgets.QWidget):
         )
 
     def _build_target_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
-        self.cmb_target_lang = LanguageCombo(codes_provider=supported_target_language_codes)
-        self.cmb_target_lang.setMinimumHeight(base_h)
+        self.cmb_target_language = LanguageCombo(codes_provider=supported_target_language_codes)
+        self.cmb_target_language.setMinimumHeight(base_h)
         return build_field_stack(
             self,
             tr("common.field.target_language"),
-            self.cmb_target_lang,
-            buddy=self.cmb_target_lang,
+            self.cmb_target_language,
+            buddy=self.cmb_target_language,
         )
 
     def _build_source_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
-        self.cmb_source_lang = LanguageCombo(
+        self.cmb_source_language = LanguageCombo(
             special_first=("lang.special.auto_detect", LanguagePolicy.AUTO),
             codes_provider=supported_source_language_codes,
         )
-        self.cmb_source_lang.setMinimumHeight(base_h)
+        self.cmb_source_language.setMinimumHeight(base_h)
         return build_field_stack(
             self,
             tr("common.field.source_language"),
-            self.cmb_source_lang,
-            buddy=self.cmb_source_lang,
+            self.cmb_source_language,
+            buddy=self.cmb_source_language,
         )
 
     def _build_output_formats_field(self, _base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
@@ -482,7 +482,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _wire_signals(self, parent: QtWidgets.QWidget | None) -> None:
         self.btn_src_add.clicked.connect(self._on_add_clicked)
-        self.src_edit.returnPressed.connect(self._on_add_clicked)
+        self.ed_source_input.returnPressed.connect(self._on_add_clicked)
 
         self.btn_add_files.clicked.connect(self._on_add_files_clicked)
         self.btn_add_folder.clicked.connect(self._on_add_folder_clicked)
@@ -493,13 +493,13 @@ class FilesPanel(QtWidgets.QWidget):
         self.action_bar.primary_clicked.connect(self._on_start_clicked)
         self.action_bar.secondary_clicked.connect(self._on_cancel_clicked)
 
-        self.tbl.itemSelectionChanged.connect(self._update_buttons)
-        self.tbl.cellClicked.connect(self._on_table_cell_clicked)
-        self.tbl.viewport().installEventFilter(self)
-        self.tbl.paths_dropped.connect(self._on_paths_dropped)
-        self.tbl.delete_pressed.connect(self._on_remove_selected)
-        self.tbl.preview_requested.connect(self._on_preview_requested)
-        self.tbl.cellDoubleClicked.connect(lambda row, _col: self._open_transcript_for_row(row))
+        self.tbl_sources.itemSelectionChanged.connect(self._update_buttons)
+        self.tbl_sources.cellClicked.connect(self._on_table_cell_clicked)
+        self.tbl_sources.viewport().installEventFilter(self)
+        self.tbl_sources.paths_dropped.connect(self._on_paths_dropped)
+        self.tbl_sources.delete_pressed.connect(self._on_remove_selected)
+        self.tbl_sources.preview_requested.connect(self._on_preview_requested)
+        self.tbl_sources.cellDoubleClicked.connect(lambda row, _col: self._open_transcript_for_row(row))
 
         self.tg_mode.changed.connect(self._on_quick_option_changed)
         self.opt_download_audio_only.toggled.connect(self._on_quick_option_changed)
@@ -510,8 +510,8 @@ class FilesPanel(QtWidgets.QWidget):
             cb.toggled.connect(self._on_quick_option_changed)
         self.cmb_audio_ext.currentIndexChanged.connect(self._on_quick_option_changed)
         self.cmb_video_ext.currentIndexChanged.connect(self._on_quick_option_changed)
-        self.cmb_target_lang.currentTextChanged.connect(self._on_target_language_changed)
-        self.cmb_source_lang.currentTextChanged.connect(self._on_source_language_changed)
+        self.cmb_target_language.currentTextChanged.connect(self._on_target_language_changed)
+        self.cmb_source_language.currentTextChanged.connect(self._on_source_language_changed)
 
         parent_signal = getattr(parent, "network_status_changed", None)
         if parent_signal is not None:
@@ -547,7 +547,9 @@ class FilesPanel(QtWidgets.QWidget):
                 if vext in DownloadPolicy.DOWNLOAD_VIDEO_OUTPUT_EXTENSIONS:
                     set_combo_data(self.cmb_video_ext, vext)
 
-            translate_after = bool(tcfg.get("translate_after_transcription", Config.transcription_translate_after_enabled()))
+            translate_after = bool(
+                tcfg.get("translate_after_transcription", Config.transcription_translate_after_enabled())
+            )
             self.tg_mode.set_first_checked(not translate_after)
 
             tr_mdl = AIModelsService.current_model_cfg("translation")
@@ -574,11 +576,11 @@ class FilesPanel(QtWidgets.QWidget):
                 cb.setChecked(mid in selected)
         finally:
             self._session_target_language = combo_current_code(
-                self.cmb_target_lang,
+                self.cmb_target_language,
                 default=LanguagePolicy.PREFERRED,
             )
             self._session_source_language = combo_current_code(
-                self.cmb_source_lang,
+                self.cmb_source_language,
                 default=LanguagePolicy.PREFERRED,
             )
             self._opt_autosave.set_blocked(False)
@@ -619,8 +621,8 @@ class FilesPanel(QtWidgets.QWidget):
         return 'status.queued'
 
     def _refresh_pending_row_statuses(self) -> None:
-        for row in range(self.tbl.rowCount()):
-            key = self.tbl.internal_key_at(row, self.COL_PATH)
+        for row in range(self.tbl_sources.rowCount()):
+            key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
             if not key or key in self._transcript_by_key:
                 continue
             active_base = str(self._status_base_by_key.get(str(key), '') or '').strip()
@@ -629,7 +631,7 @@ class FilesPanel(QtWidgets.QWidget):
             self._set_pending_row_status(row, self._pending_status_for_key(key))
 
     def _set_pending_row_status(self, row: int, status_key: str) -> None:
-        item = self.tbl.item(row, self.COL_STATUS)
+        item = self.tbl_sources.item(row, self.COL_STATUS)
         if item is None:
             return
         text = status_display_text(status_key, status_key)
@@ -725,7 +727,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _on_target_language_changed(self, *_args) -> None:
         current = combo_current_code(
-            self.cmb_target_lang,
+            self.cmb_target_language,
             default=LanguagePolicy.PREFERRED,
         )
         self._session_target_language = self._resolve_target_language_selection(current)
@@ -733,7 +735,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _on_source_language_changed(self, *_args) -> None:
         self._session_source_language = combo_current_code(
-            self.cmb_source_lang,
+            self.cmb_source_language,
             default=LanguagePolicy.PREFERRED,
         )
         self._sync_options_and_autosave()
@@ -745,8 +747,12 @@ class FilesPanel(QtWidgets.QWidget):
         keep_audio = bool(self.chk_keep_url_audio.isChecked())
         keep_video = bool(self.chk_keep_url_video.isChecked()) and (not audio_only)
 
-        audio_ext = str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext()).strip().lower().lstrip(".")
-        video_ext = str(self.cmb_video_ext.currentData() or Config.transcription_url_video_ext()).strip().lower().lstrip(".")
+        audio_ext = (
+            str(self.cmb_audio_ext.currentData() or Config.transcription_url_audio_ext()).strip().lower().lstrip(".")
+        )
+        video_ext = (
+            str(self.cmb_video_ext.currentData() or Config.transcription_url_video_ext()).strip().lower().lstrip(".")
+        )
 
         if not output_formats:
             output_formats = list(Config.transcription_output_mode_ids())
@@ -816,7 +822,7 @@ class FilesPanel(QtWidgets.QWidget):
         )
         wanted = self._resolve_source_language_selection(desired, supported=codes)
         rebuild_code_combo(
-            self.cmb_source_lang,
+            self.cmb_source_language,
             items,
             desired_code=wanted,
             fallback_code=LanguagePolicy.PREFERRED,
@@ -825,14 +831,14 @@ class FilesPanel(QtWidgets.QWidget):
     def _refresh_source_languages_if_ready(self) -> None:
         desired = (
             self._session_source_language
-            or combo_current_code(self.cmb_source_lang, default=LanguagePolicy.PREFERRED)
+            or combo_current_code(self.cmb_source_language, default=LanguagePolicy.PREFERRED)
             or LanguagePolicy.PREFERRED
         )
         supported = supported_source_language_codes()
         resolved_selection = self._resolve_source_language_selection(desired, supported=supported)
         self._rebuild_source_language_combo(desired=resolved_selection, supported=supported)
         self._session_source_language = combo_current_code(
-            self.cmb_source_lang,
+            self.cmb_source_language,
             default=LanguagePolicy.PREFERRED,
         )
 
@@ -862,14 +868,14 @@ class FilesPanel(QtWidgets.QWidget):
     def _refresh_target_languages_if_ready(self) -> None:
         desired = (
             self._session_target_language
-            or combo_current_code(self.cmb_target_lang, default=LanguagePolicy.PREFERRED)
+            or combo_current_code(self.cmb_target_language, default=LanguagePolicy.PREFERRED)
             or LanguagePolicy.PREFERRED
         )
         supported = supported_target_language_codes()
         resolved_selection = self._resolve_target_language_selection(desired, supported=supported)
         self._rebuild_target_language_combo(desired=resolved_selection, supported=supported)
         self._session_target_language = combo_current_code(
-            self.cmb_target_lang,
+            self.cmb_target_language,
             default=LanguagePolicy.PREFERRED,
         )
 
@@ -897,7 +903,7 @@ class FilesPanel(QtWidgets.QWidget):
         )
         wanted = self._resolve_target_language_selection(desired, supported=codes)
         rebuild_code_combo(
-            self.cmb_target_lang,
+            self.cmb_target_language,
             items,
             desired_code=wanted,
             fallback_code=LanguagePolicy.PREFERRED,
@@ -907,7 +913,7 @@ class FilesPanel(QtWidgets.QWidget):
         row = self._row_by_key.get(str(key))
         if row is None:
             return
-        w = self.tbl.cellWidget(row, self.COL_PREVIEW)
+        w = self.tbl_sources.cellWidget(row, self.COL_PREVIEW)
         if not w:
             return
         btn = w.findChild(QtWidgets.QAbstractButton)
@@ -917,8 +923,8 @@ class FilesPanel(QtWidgets.QWidget):
     def _reset_previews(self) -> None:
         self._output_dir_by_key.clear()
         self._transcript_by_key.clear()
-        for r in range(self.tbl.rowCount()):
-            w = self.tbl.cellWidget(r, self.COL_PREVIEW)
+        for r in range(self.tbl_sources.rowCount()):
+            w = self.tbl_sources.cellWidget(r, self.COL_PREVIEW)
             if not w:
                 continue
             btn = w.findChild(QtWidgets.QAbstractButton)
@@ -948,7 +954,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.model_info.set_translation_presentation(translation_presentation)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
-        if obj is self.tbl.viewport() and event.type() == QtCore.QEvent.Type.Resize:
+        if obj is self.tbl_sources.viewport() and event.type() == QtCore.QEvent.Type.Resize:
             if getattr(self, "_header_mode", "") == "empty":
                 self._apply_empty_column_widths()
         return super().eventFilter(obj, event)
@@ -968,9 +974,9 @@ class FilesPanel(QtWidgets.QWidget):
             self.out_checks_host.setEnabled(False)
 
             self.lbl_source_lang.setEnabled(False)
-            self.cmb_source_lang.setEnabled(False)
+            self.cmb_source_language.setEnabled(False)
             self.lbl_target_lang.setEnabled(False)
-            self.cmb_target_lang.setEnabled(False)
+            self.cmb_target_language.setEnabled(False)
 
             self.opt_download_audio_only.setEnabled(False)
             self.chk_keep_url_audio.setEnabled(False)
@@ -987,10 +993,10 @@ class FilesPanel(QtWidgets.QWidget):
 
         translate_mode = bool(not self.tg_mode.is_first_checked()) and translation_available
         self.lbl_target_lang.setEnabled((not running) and translate_mode)
-        self.cmb_target_lang.setEnabled((not running) and translate_mode)
+        self.cmb_target_language.setEnabled((not running) and translate_mode)
 
         self.lbl_source_lang.setEnabled(not running)
-        self.cmb_source_lang.setEnabled(not running)
+        self.cmb_source_language.setEnabled(not running)
 
         audio_only = bool(self.opt_download_audio_only.isChecked())
 
@@ -1025,7 +1031,7 @@ class FilesPanel(QtWidgets.QWidget):
                 )
             )
         )
-        metrics = QtGui.QFontMetrics(self.tbl.font())
+        metrics = QtGui.QFontMetrics(self.tbl_sources.font())
         text_width = max((metrics.horizontalAdvance(label) for label in labels if label), default=0)
         min_w = int(cfg.control_min_w + cfg.pad_x_l)
         pad_w = int(cfg.pad_x_l + cfg.pad_y_l + cfg.space_l - 1)
@@ -1049,8 +1055,8 @@ class FilesPanel(QtWidgets.QWidget):
         source_min_w = int(preview_width + max(0, cfg.space_s - 1))
         language_min_w = int(cfg.control_min_w + cfg.pad_x_l)
         path_min_w = int(cfg.control_min_w + cfg.control_min_h * 3 + max(0, cfg.space_s - 1))
-        self.tbl.reset_header_user_widths()
-        self.tbl.apply_weighted_header_layout(
+        self.tbl_sources.reset_header_user_widths()
+        self.tbl_sources.apply_weighted_header_layout(
             check_col=self.COL_CHECK,
             number_col=self.COL_NO,
             fill_column=self.COL_PATH,
@@ -1091,13 +1097,13 @@ class FilesPanel(QtWidgets.QWidget):
         path_min_w = int(cfg.control_min_w + cfg.control_min_h * 3 + max(0, cfg.space_s - 1))
         status_min_w = int(cfg.control_min_w + cfg.pad_x_l)
         fit_padding = int(cfg.margin + cfg.pad_x_l)
-        language_width = self.tbl.column_widget_width_hint(
+        language_width = self.tbl_sources.column_widget_width_hint(
             self.COL_LANG,
             fallback=language_fallback_w,
             pad=language_pad_w,
             cap=language_cap_w,
         )
-        self.tbl.apply_content_header_layout(
+        self.tbl_sources.apply_content_header_layout(
             check_col=self.COL_CHECK,
             number_col=self.COL_NO,
             fill_column=self.COL_PATH,
@@ -1130,7 +1136,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _apply_empty_column_widths(self) -> None:
         if getattr(self, '_header_mode', '') == 'empty':
-            self.tbl.reapply_header_layout()
+            self.tbl_sources.reapply_header_layout()
 
     def _on_preview_requested(self, key: str) -> None:
         key = str(key or "").strip()
@@ -1167,10 +1173,10 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _update_audio_tracks(self, row: int, meta: dict[str, Any]) -> None:
         default_text = tr("down.select.audio_track.default")
-        internal_key = self.tbl.internal_key_at(row, self.COL_PATH)
+        internal_key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
         if internal_key:
             self._audio_lang_by_key.setdefault(internal_key, None)
-        self.tbl.update_audio_tracks(
+        self.tbl_sources.update_audio_tracks(
             row=row,
             col=self.COL_LANG,
             meta=meta,
@@ -1182,11 +1188,11 @@ class FilesPanel(QtWidgets.QWidget):
         self._update_buttons()
 
     def _reset_url_rows_to_original_keys(self) -> None:
-        for r in range(self.tbl.rowCount()):
-            if self.tbl.text_at(r, self.COL_SRC) != tr("files.source.url"):
+        for r in range(self.tbl_sources.rowCount()):
+            if self.tbl_sources.text_at(r, self.COL_SRC) != tr("files.source.url"):
                 continue
 
-            it_path = self.tbl.item(r, self.COL_PATH)
+            it_path = self.tbl_sources.item(r, self.COL_PATH)
             if not it_path:
                 continue
 
@@ -1194,13 +1200,13 @@ class FilesPanel(QtWidgets.QWidget):
             if not display_url:
                 continue
 
-            current_internal = self.tbl.internal_key_at(r, self.COL_PATH)
+            current_internal = self.tbl_sources.internal_key_at(r, self.COL_PATH)
             if current_internal == display_url:
                 it_path.setData(QtCore.Qt.ItemDataRole.UserRole, display_url)
                 self._display_path_by_key[display_url] = display_url
                 self._origin_src_by_key[display_url] = "url"
                 self._row_by_key[display_url] = r
-                self.tbl.set_cell_internal_key(r, self.COL_LANG, display_url)
+                self.tbl_sources.set_cell_internal_key(r, self.COL_LANG, display_url)
                 self._audio_lang_by_key.setdefault(display_url, None)
                 continue
 
@@ -1225,7 +1231,7 @@ class FilesPanel(QtWidgets.QWidget):
             if old_key in self._audio_lang_by_key:
                 self._audio_lang_by_key[new_key] = self._audio_lang_by_key.pop(old_key)
 
-            self.tbl.set_cell_internal_key(r, self.COL_LANG, new_key)
+            self.tbl_sources.set_cell_internal_key(r, self.COL_LANG, new_key)
 
             self._transcript_by_key.pop(old_key, None)
 
@@ -1245,7 +1251,7 @@ class FilesPanel(QtWidgets.QWidget):
         if col not in (self.COL_SRC, self.COL_PATH):
             return
 
-        target = self.tbl.text_at(row, self.COL_PATH)
+        target = self.tbl_sources.text_at(row, self.COL_PATH)
         if not target:
             return
 
@@ -1270,8 +1276,8 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _source_keys_in_table(self) -> list[str]:
         keys: list[str] = []
-        for r in range(self.tbl.rowCount()):
-            key = self.tbl.internal_key_at(r, self.COL_PATH)
+        for r in range(self.tbl_sources.rowCount()):
+            key = self.tbl_sources.internal_key_at(r, self.COL_PATH)
             if key:
                 keys.append(key)
         return keys
@@ -1284,55 +1290,59 @@ class FilesPanel(QtWidgets.QWidget):
         title: str = "",
         duration_s: int | None = None,
     ) -> None:
-        if self.tbl.rowCount() == 0:
+        if self.tbl_sources.rowCount() == 0:
             self._apply_populated_header_mode()
 
-        row = self.tbl.rowCount()
-        self.tbl.insertRow(row)
+        row = self.tbl_sources.rowCount()
+        self.tbl_sources.insertRow(row)
 
-        self.tbl.setCellWidget(row, self.COL_CHECK, self.tbl.make_checkbox_cell(on_changed=self._update_buttons))
+        self.tbl_sources.setCellWidget(
+            row,
+            self.COL_CHECK,
+            self.tbl_sources.make_checkbox_cell(on_changed=self._update_buttons),
+        )
 
         it_no = QtWidgets.QTableWidgetItem(str(row + 1))
         it_no.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
-        self.tbl.setItem(row, self.COL_NO, it_no)
+        self.tbl_sources.setItem(row, self.COL_NO, it_no)
 
         initial_title = str(title or "").strip() or tr("common.loading")
         it_title = QtWidgets.QTableWidgetItem(initial_title)
-        self.tbl.setItem(row, self.COL_TITLE, it_title)
+        self.tbl_sources.setItem(row, self.COL_TITLE, it_title)
 
         initial_dur = format_hms(duration_s, blank_for_none=True)
         it_dur = QtWidgets.QTableWidgetItem(initial_dur or tr("common.na"))
         it_dur.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
-        self.tbl.setItem(row, self.COL_DUR, it_dur)
+        self.tbl_sources.setItem(row, self.COL_DUR, it_dur)
 
         it_src = QtWidgets.QTableWidgetItem(src_label)
         it_src.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
-        self.tbl.setItem(row, self.COL_SRC, it_src)
+        self.tbl_sources.setItem(row, self.COL_SRC, it_src)
         it_src.setToolTip(src_label)
 
-        lang_cb = self.tbl.make_audio_track_combo(
+        lang_cb = self.tbl_sources.make_audio_track_combo(
             internal_key=key,
             default_text=tr("down.select.audio_track.default"),
             on_changed=self._on_lang_combo_changed,
             enabled=False,
         )
-        self.tbl.setCellWidget(row, self.COL_LANG, lang_cb)
+        self.tbl_sources.setCellWidget(row, self.COL_LANG, lang_cb)
         self._audio_lang_by_key.setdefault(key, None)
 
         it_path = QtWidgets.QTableWidgetItem(key)
         it_path.setToolTip(key)
         it_path.setData(QtCore.Qt.ItemDataRole.UserRole, key)
-        self.tbl.setItem(row, self.COL_PATH, it_path)
+        self.tbl_sources.setItem(row, self.COL_PATH, it_path)
 
         pending_status = self._pending_status_for_key(key)
         it_status = QtWidgets.QTableWidgetItem(tr(pending_status))
         it_status.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
-        self.tbl.setItem(row, self.COL_STATUS, it_status)
+        self.tbl_sources.setItem(row, self.COL_STATUS, it_status)
 
-        self.tbl.setCellWidget(
+        self.tbl_sources.setCellWidget(
             row,
             self.COL_PREVIEW,
-            self.tbl.make_preview_cell(
+            self.tbl_sources.make_preview_cell(
                 internal_key=key,
                 tooltip=tr("files.preview.open_folder"),
                 enabled=False,
@@ -1344,15 +1354,15 @@ class FilesPanel(QtWidgets.QWidget):
         self._display_path_by_key[key] = key
 
     def _update_row_from_meta(self, row: int, meta: dict[str, Any]) -> None:
-        if row < 0 or row >= self.tbl.rowCount():
+        if row < 0 or row >= self.tbl_sources.rowCount():
             return
 
         title = str(meta.get("name") or meta.get("title") or tr("common.na"))
         duration = meta.get("duration")
 
-        self.tbl.item(row, self.COL_TITLE).setText(title)
+        self.tbl_sources.item(row, self.COL_TITLE).setText(title)
         txt = format_hms(duration, blank_for_none=True)
-        self.tbl.item(row, self.COL_DUR).setText(txt or tr("common.na"))
+        self.tbl_sources.item(row, self.COL_DUR).setText(txt or tr("common.na"))
         self._update_audio_tracks(row, meta)
 
     def _start_metadata_for(self, keys: list[str]) -> None:
@@ -1368,14 +1378,14 @@ class FilesPanel(QtWidgets.QWidget):
             coord.start_probe(entries)
 
     def _update_buttons(self) -> None:
-        has_items = self.tbl.rowCount() > 0
-        has_sel = bool(self.tbl.rows_for_removal(self.COL_CHECK))
+        has_items = self.tbl_sources.rowCount() > 0
+        has_sel = bool(self.tbl_sources.rows_for_removal(self.COL_CHECK))
         model_ready = self._transcription_ready
         running = self._is_transcription_running()
         expanding = self._files_is_expanding()
         busy = bool(running or expanding)
 
-        self.src_edit.setEnabled((not busy) and model_ready)
+        self.ed_source_input.setEnabled((not busy) and model_ready)
 
         self.action_bar.set_primary_enabled(has_items and model_ready and not busy)
         self.action_bar.set_secondary_enabled(running)
@@ -1389,26 +1399,26 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_add_files.setEnabled(not busy and model_ready)
         self.btn_add_folder.setEnabled(not busy and model_ready)
 
-        self.tbl.setEnabled(model_ready and not expanding)
-        self.tbl.setAcceptDrops(bool(model_ready and (not busy)))
+        self.tbl_sources.setEnabled(model_ready and not expanding)
+        self.tbl_sources.setAcceptDrops(bool(model_ready and (not busy)))
         if model_ready and (not busy):
-            self.tbl.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
+            self.tbl_sources.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
         else:
-            self.tbl.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
+            self.tbl_sources.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
 
         if busy:
-            self.tbl.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+            self.tbl_sources.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         else:
-            self.tbl.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+            self.tbl_sources.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
 
-        self.tbl.set_header_checkbox_enabled(bool((not running) and model_ready and has_items))
+        self.tbl_sources.set_header_checkbox_enabled(bool((not running) and model_ready and has_items))
 
-        for r in range(self.tbl.rowCount()):
-            cb = self.tbl.checkbox_at(r, self.COL_CHECK)
+        for r in range(self.tbl_sources.rowCount()):
+            cb = self.tbl_sources.checkbox_at(r, self.COL_CHECK)
             if cb is not None:
                 cb.setEnabled(bool((not running) and model_ready))
 
-            w = self.tbl.combo_at(r, self.COL_LANG)
+            w = self.tbl_sources.combo_at(r, self.COL_LANG)
             if isinstance(w, QtWidgets.QComboBox):
                 can_choose = bool(w.property("has_choices"))
                 w.setEnabled(bool(can_choose and (not running) and model_ready))
@@ -1442,11 +1452,11 @@ class FilesPanel(QtWidgets.QWidget):
             mapping.clear()
 
     def _finalize_source_rows_changed(self) -> None:
-        self.tbl.renumber_rows(self.COL_NO)
+        self.tbl_sources.renumber_rows(self.COL_NO)
         self._update_buttons()
 
     def _try_parse_and_validate_manual_source(self) -> dict[str, Any] | None:
-        parsed = parse_source_input(self.src_edit.text())
+        parsed = parse_source_input(self.ed_source_input.text())
         if not parsed.get("ok", False):
             err = str(parsed.get("error") or "")
             if err in ("not_found", "unsupported"):
@@ -1511,7 +1521,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._finalize_source_rows_changed()
 
         if result.origin_kind in {"manual_input", "playlist"}:
-            self.src_edit.clear()
+            self.ed_source_input.clear()
 
         return len(added), duplicate_count
 
@@ -1531,7 +1541,13 @@ class FilesPanel(QtWidgets.QWidget):
             if added_count == 0 and duplicate_count > 0:
                 message = tr("files.msg.already_on_list")
         elif limited and added_count > 0 and duplicate_count > 0:
-            message = tr("files.msg.bulk_add_summary_limited_with_duplicates", added=added_count, selected=selected, total=total, skipped=duplicate_count)
+            message = tr(
+                "files.msg.bulk_add_summary_limited_with_duplicates",
+                added=added_count,
+                selected=selected,
+                total=total,
+                skipped=duplicate_count,
+            )
         elif limited and added_count > 0:
             message = tr("files.msg.bulk_add_summary_limited", added=added_count, selected=selected, total=total)
         elif added_count > 0 and duplicate_count > 0:
@@ -1552,7 +1568,7 @@ class FilesPanel(QtWidgets.QWidget):
         )
 
     def _reset_sources_view_state(self) -> None:
-        self.tbl.setRowCount(0)
+        self.tbl_sources.setRowCount(0)
         self.action_bar.reset()
         self._apply_empty_header_mode()
         self._update_buttons()
@@ -1565,7 +1581,7 @@ class FilesPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         if coord is None:
             return
-        coord.expand_manual_input(self.src_edit.text())
+        coord.expand_manual_input(self.ed_source_input.text())
 
     def _on_paths_dropped(self, paths: list[str]) -> None:
         coord = self.coordinator()
@@ -1577,18 +1593,18 @@ class FilesPanel(QtWidgets.QWidget):
         if not rows:
             return
         for r in sorted(set(rows), reverse=True):
-            key = self.tbl.internal_key_at(r, self.COL_PATH)
+            key = self.tbl_sources.internal_key_at(r, self.COL_PATH)
             if key:
                 self._discard_source_state(key)
-            self.tbl.removeRow(r)
+            self.tbl_sources.removeRow(r)
 
-        if self.tbl.rowCount() == 0:
+        if self.tbl_sources.rowCount() == 0:
             self._apply_empty_header_mode()
 
         self._finalize_source_rows_changed()
 
     def _open_transcript_for_row(self, row: int) -> None:
-        key = self.tbl.internal_key_at(row, self.COL_PATH)
+        key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
         if not key:
             return
         path = self._transcript_by_key.get(key)
@@ -1626,7 +1642,7 @@ class FilesPanel(QtWidgets.QWidget):
         coord.expand_local_paths([str(p)], origin_kind="folder")
 
     def _on_remove_selected(self) -> None:
-        rows = self.tbl.rows_for_removal(self.COL_CHECK)
+        rows = self.tbl_sources.rows_for_removal(self.COL_CHECK)
         self._remove_rows(rows)
 
     def _on_clear_clicked(self) -> None:
@@ -1668,7 +1684,7 @@ class FilesPanel(QtWidgets.QWidget):
             row = self._row_by_key.get(key)
             if row is None:
                 continue
-            it = self.tbl.item(row, self.COL_STATUS)
+            it = self.tbl_sources.item(row, self.COL_STATUS)
             if it:
                 it.setText("-")
 
@@ -1683,8 +1699,14 @@ class FilesPanel(QtWidgets.QWidget):
         supported_source = supported_source_language_codes()
         supported_target = supported_target_language_codes()
         return build_transcription_session_request(
-            source_language=self._effective_source_language_code(self._session_source_language, supported=supported_source),
-            target_language=self._effective_target_language_code(self._session_target_language, supported=supported_target),
+            source_language=self._effective_source_language_code(
+                self._session_source_language,
+                supported=supported_source,
+            ),
+            target_language=self._effective_target_language_code(
+                self._session_target_language,
+                supported=supported_target,
+            ),
             translate_after_transcription=bool(
                 (not self.tg_mode.is_first_checked()) and self._translation_runtime_available()
             ),
@@ -1703,12 +1725,12 @@ class FilesPanel(QtWidgets.QWidget):
         coord.cancel_transcription()
 
     def _reset_non_finished_rows_after_cancel(self) -> None:
-        for row in range(self.tbl.rowCount()):
-            key = self.tbl.internal_key_at(row, self.COL_PATH)
+        for row in range(self.tbl_sources.rowCount()):
+            key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
             finished = bool(key and self._transcript_by_key.get(key))
             if finished:
                 continue
-            it = self.tbl.item(row, self.COL_STATUS)
+            it = self.tbl_sources.item(row, self.COL_STATUS)
             if it:
                 it.setText("-")
 
@@ -1857,7 +1879,7 @@ class FilesPanel(QtWidgets.QWidget):
         return bool(prev_base and prev_base != new_base and not is_terminal_status(status))
 
     def _render_row_status_text(self, key: str, row: int, status: str, base_text: str) -> None:
-        it = self.tbl.item(row, self.COL_STATUS)
+        it = self.tbl_sources.item(row, self.COL_STATUS)
         if it is None:
             return
 
@@ -1916,7 +1938,7 @@ class FilesPanel(QtWidgets.QWidget):
         base_key = self._status_base_by_key.get(key) or "status.processing"
         text = compose_status_text(base_key, pct, fallback=base_key)
 
-        it = self.tbl.item(row, self.COL_STATUS)
+        it = self.tbl_sources.item(row, self.COL_STATUS)
         if it:
             it.setText(text)
 
@@ -1933,7 +1955,7 @@ class FilesPanel(QtWidgets.QWidget):
         if row is None:
             return
 
-        it = self.tbl.item(row, self.COL_STATUS)
+        it = self.tbl_sources.item(row, self.COL_STATUS)
         if it:
             it.setText(tr("status.error"))
             it.setToolTip(tr(error_key, **eparams))
@@ -1944,7 +1966,7 @@ class FilesPanel(QtWidgets.QWidget):
         row = self._row_by_key.get(str(key))
         if row is None:
             return
-        self.tbl.set_cell_internal_key(row, self.COL_PREVIEW, str(key))
+        self.tbl_sources.set_cell_internal_key(row, self.COL_PREVIEW, str(key))
 
     def _migrate_source_runtime_maps(self, old_key: str, new_key: str, row: int) -> str:
         display = self._display_path_by_key.get(old_key, old_key)
@@ -1974,11 +1996,11 @@ class FilesPanel(QtWidgets.QWidget):
         return display
 
     def _retarget_source_row_widgets(self, row: int, new_key: str) -> None:
-        self.tbl.set_cell_internal_key(row, self.COL_LANG, new_key)
-        self.tbl.set_cell_internal_key(row, self.COL_PREVIEW, new_key)
+        self.tbl_sources.set_cell_internal_key(row, self.COL_LANG, new_key)
+        self.tbl_sources.set_cell_internal_key(row, self.COL_PREVIEW, new_key)
 
     def _apply_source_row_path_display(self, row: int, new_key: str, display: str) -> None:
-        it_path = self.tbl.item(row, self.COL_PATH)
+        it_path = self.tbl_sources.item(row, self.COL_PATH)
         if it_path is None:
             return
         it_path.setData(QtCore.Qt.ItemDataRole.UserRole, new_key)

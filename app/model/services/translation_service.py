@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import torch
 
@@ -29,8 +29,9 @@ class TranslationError(AppError):
         super().__init__(str(key), dict(params or {}))
 
 LogFn = Callable[[str], None]
+_ReadWorkerValue = str | BaseException
 
-def _norm_lang(code: str) -> str:
+def _norm_lang(code: str | None) -> str:
     return normalize_lang_code(code, drop_region=True)
 
 def _supported() -> set[str]:
@@ -101,14 +102,15 @@ class _TranslationWorkerClient:
         timeout_s: float,
         cancel_check: Callable[[], bool] | None = None,
     ) -> str:
-        result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+        result_queue: queue.Queue[_ReadWorkerValue] = queue.Queue(maxsize=1)
 
         def _reader() -> None:
             try:
                 line = stdout.readline()
-                result_queue.put(("ok", "" if line is None else str(line)))
+                line_text = "" if line is None else str(line)
+                result_queue.put(line_text)
             except BaseException as ex:
-                result_queue.put(("error", ex))
+                result_queue.put(ex)
 
         reader = threading.Thread(target=_reader, name="translation-worker-readline", daemon=True)
         reader.start()
@@ -125,20 +127,15 @@ class _TranslationWorkerClient:
                 raise TranslationError("error.translation.no_response_from_worker")
 
             try:
-                status, value = result_queue.get(timeout=min(self._policy.poll_interval_s, remaining))
+                result = result_queue.get(timeout=min(self._policy.poll_interval_s, remaining))
             except queue.Empty:
                 continue
 
-            if status == "error":
-                self.dispose(log_reason="read_failed")
-                raise TranslationError("error.translation.worker_protocol_error", detail=str(value))
-            if not isinstance(value, str):
-                self.dispose(log_reason="invalid_read_type")
-                raise TranslationError(
-                    "error.translation.worker_protocol_error",
-                    detail=f"unexpected response type: {type(value).__name__}",
-                )
-            return value
+            if isinstance(result, str):
+                return cast(str, result)
+
+            self.dispose(log_reason="read_failed")
+            raise TranslationError("error.translation.worker_protocol_error", detail=str(result))
 
     def ensure_worker(self, *, log: LogFn | None = None) -> None:
         with self._guard:
@@ -300,7 +297,10 @@ class TranslationService:
 
         if _LOG.isEnabledFor(logging.DEBUG):
             _LOG.debug(
-                "Translation request prepared. worker=translation text_chars=%s chunk_count=%s src_lang=%s tgt_lang=%s device=%s dtype=%s profile=%s style=%s",
+                (
+                    "Translation request prepared. worker=translation text_chars=%s chunk_count=%s "
+                    "src_lang=%s tgt_lang=%s device=%s dtype=%s profile=%s style=%s"
+                ),
                 len(t),
                 chunk_count,
                 src,

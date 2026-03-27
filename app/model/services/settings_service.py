@@ -350,7 +350,11 @@ class SettingsService:
 
         return {
             "language": str(self._schema_value(src, schema, "language", "auto") or "auto"),
-            "theme": self._enum_str(self._schema_value(src, schema, "theme", "auto"), ("auto", "light", "dark"), "app.theme"),
+            "theme": self._enum_str(
+                self._schema_value(src, schema, "theme", "auto"),
+                ("auto", "light", "dark"),
+                "app.theme",
+            ),
             "logging": {
                 "enabled": bool(self._schema_value(logging_cfg, logging_schema, "enabled", True)),
                 "level": level,
@@ -370,8 +374,16 @@ class SettingsService:
                     "last_used_target_language": _last_used_target(live_cfg, live_schema, "last_used_target_language"),
                 },
                 "files": {
-                    "last_used_source_language": _last_used_source(files_cfg, files_schema, "last_used_source_language"),
-                    "last_used_target_language": _last_used_target(files_cfg, files_schema, "last_used_target_language"),
+                    "last_used_source_language": _last_used_source(
+                        files_cfg,
+                        files_schema,
+                        "last_used_source_language",
+                    ),
+                    "last_used_target_language": _last_used_target(
+                        files_cfg,
+                        files_schema,
+                        "last_used_target_language",
+                    ),
                 },
             },
         }
@@ -490,7 +502,12 @@ class SettingsService:
                 "engine_signature": x_meta["engine_signature"],
                 "profile": profile_tr,
                 "max_new_tokens": _coerce_int(self._schema_value(x, x_schema, "max_new_tokens", 256), 256, 16, 8192),
-                "chunk_max_chars": _coerce_int(self._schema_value(x, x_schema, "chunk_max_chars", 1200), 1200, 200, 20000),
+                "chunk_max_chars": _coerce_int(
+                    self._schema_value(x, x_schema, "chunk_max_chars", 1200),
+                    1200,
+                    200,
+                    20000,
+                ),
                 "advanced": {
                     "style": self._optional_normalized(
                         self._schema_value(x_adv, x_adv_schema, "style", None),
@@ -567,7 +584,9 @@ class SettingsService:
                 SettingsCatalog.download_video_exts(),
                 "transcription.url_video_ext",
             ),
-            "translate_after_transcription": bool(self._schema_value(src, schema, "translate_after_transcription", False)),
+            "translate_after_transcription": bool(
+                self._schema_value(src, schema, "translate_after_transcription", False)
+            ),
         }
 
     def _validate_translation(self, src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
@@ -652,7 +671,11 @@ class SettingsService:
         network = self._ensure_dict(settings.get("network", {}), "network")
 
         if "low_cpu_mem_usage" not in engine:
-            t_old = (model.get("transcription_model") or {}) if isinstance(model.get("transcription_model"), dict) else {}
+            t_old = (
+                (model.get("transcription_model") or {})
+                if isinstance(model.get("transcription_model"), dict)
+                else {}
+            )
             x_old = (model.get("translation_model") or {}) if isinstance(model.get("translation_model"), dict) else {}
             for cand in (t_old.get("low_cpu_mem_usage"), x_old.get("low_cpu_mem_usage")):
                 if isinstance(cand, bool):

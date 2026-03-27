@@ -303,7 +303,11 @@ def extract_detected_language_from_result(out: dict[str, Any]) -> str:
 
 
 def _resolve_whisper_runtime(pipe: Any) -> tuple[Any, Any, Any]:
-    fe = getattr(pipe, "feature_extractor", None) or getattr(getattr(pipe, "processor", None), "feature_extractor", None)
+    fe = getattr(pipe, "feature_extractor", None) or getattr(
+        getattr(pipe, "processor", None),
+        "feature_extractor",
+        None,
+    )
     tok = getattr(pipe, "tokenizer", None) or getattr(getattr(pipe, "processor", None), "tokenizer", None)
     model = getattr(pipe, "model", None)
     return fe, tok, model
@@ -401,7 +405,13 @@ def _select_language_from_logits(logits: Any, *, lang_to_id: dict[str, int]) -> 
         return best_lang
 
 
-def _detect_language_from_decoder_runtime(*, model: Any, tokenizer: Any, input_features: Any, lang_to_id: dict[str, int]) -> str:
+def _detect_language_from_decoder_runtime(
+    *,
+    model: Any,
+    tokenizer: Any,
+    input_features: Any,
+    lang_to_id: dict[str, int],
+) -> str:
     try:
         sot_id = tokenizer.convert_tokens_to_ids("<|startoftranscript|>")
         if sot_id is None:

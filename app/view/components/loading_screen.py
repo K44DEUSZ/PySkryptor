@@ -150,11 +150,17 @@ class LoadingScreenWidget(QtWidgets.QWidget):
             return
         cfg = ui(self)
         max_w = max(
-            min(int(self.width() * _LOADING_LOGO_WIDTH_RATIO), int(cfg.control_min_w * 5 + cfg.control_min_h * 2 - max(0, cfg.space_s - 1))),
+            min(
+                int(self.width() * _LOADING_LOGO_WIDTH_RATIO),
+                int(cfg.control_min_w * 5 + cfg.control_min_h * 2 - max(0, cfg.space_s - 1)),
+            ),
             int(cfg.control_min_w * 3),
         )
         max_h = max(
-            min(int(self.height() * _LOADING_LOGO_HEIGHT_RATIO), int(cfg.control_min_h * 6 + cfg.pad_y_l * 3 + cfg.space_s - 1)),
+            min(
+                int(self.height() * _LOADING_LOGO_HEIGHT_RATIO),
+                int(cfg.control_min_h * 6 + cfg.pad_y_l * 3 + cfg.space_s - 1),
+            ),
             int(cfg.control_min_h * 4),
         )
         brand.update_for_bounds(max_w, max_h)

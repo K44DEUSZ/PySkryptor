@@ -266,11 +266,18 @@ class TranscriptionService:
     def _build_session_options(*, session_request: TranscriptionSessionRequest) -> _SessionOptions:
         model_cfg = Config.transcription_model_raw_cfg_dict()
 
-        output_mode_ids = [str(mode_id or "").strip().lower() for mode_id in session_request.output_formats if str(mode_id or "").strip()]
+        output_mode_ids = [
+            str(mode_id or "").strip().lower()
+            for mode_id in session_request.output_formats
+            if str(mode_id or "").strip()
+        ]
         if not output_mode_ids:
             output_mode_ids = list(Config.transcription_output_mode_ids())
 
-        output_modes = [TranscriptionOutputPolicy.get_transcription_output_mode(str(mode_id)) for mode_id in output_mode_ids]
+        output_modes = [
+            TranscriptionOutputPolicy.get_transcription_output_mode(str(mode_id))
+            for mode_id in output_mode_ids
+        ]
         want_timestamps = any(
             bool(mode.get("timestamps", False)) or str(mode.get("ext", "")).strip().lower() == "srt"
             for mode in output_modes
@@ -289,7 +296,9 @@ class TranscriptionService:
         download_audio_only = bool(session_request.download_audio_only)
         url_download_kind = "audio" if download_audio_only else "video"
         url_download_ext = audio_ext if download_audio_only else video_ext
-        url_keep_download = bool(session_request.url_keep_audio if download_audio_only else session_request.url_keep_video)
+        url_keep_download = bool(
+            session_request.url_keep_audio if download_audio_only else session_request.url_keep_video
+        )
 
         advanced_cfg = model_cfg.get("advanced") if isinstance(model_cfg.get("advanced"), dict) else {}
         profile = RuntimeProfiles.normalize_transcription_profile(
@@ -522,7 +531,10 @@ class TranscriptionService:
 
         runtime.tracker.set_weight(key, weight=float(max(15.0, min(3600.0, dur_s))))
         _LOG.debug(
-            "Transcription stage finished. session_id=%s source_key=%s stage=preprocess duration_ms=%s tmp_name=%s duration_s=%s",
+            (
+                "Transcription stage finished. session_id=%s source_key=%s stage=preprocess "
+                "duration_ms=%s tmp_name=%s duration_s=%s"
+            ),
             runtime.session_id,
             debug_source_key(key),
             int((time.perf_counter() - preprocess_started) * 1000.0),
@@ -568,7 +580,10 @@ class TranscriptionService:
         )
         runtime.tracker.mark_done(key)
         _LOG.debug(
-            "Transcription stage finished. session_id=%s source_key=%s stage=save duration_ms=%s output_dir=%s primary_saved=%s",
+            (
+                "Transcription stage finished. session_id=%s source_key=%s stage=save "
+                "duration_ms=%s output_dir=%s primary_saved=%s"
+            ),
             runtime.session_id,
             debug_source_key(key),
             int((time.perf_counter() - save_started) * 1000.0),
@@ -588,7 +603,13 @@ class TranscriptionService:
                 local_count += 1
         return local_count, url_count
 
-    def _register_session_tracker(self, *, tracker: _ProgressTracker, entries: list[SourceEntry], want_translate: bool) -> None:
+    def _register_session_tracker(
+        self,
+        *,
+        tracker: _ProgressTracker,
+        entries: list[SourceEntry],
+        want_translate: bool,
+    ) -> None:
         for entry in entries:
             key = self._entry_source_key(entry)
             tracker.register(
@@ -663,7 +684,11 @@ class TranscriptionService:
         local_count, url_count = self._count_session_sources(entries=entries)
         _LOG.info("Transcription session started. items=%d", len(entries))
         _LOG.debug(
-            "Transcription session planned. session_id=%s items=%s local_count=%s url_count=%s translate_requested=%s translate_effective=%s source_language=%s target_language=%s output_modes=%s",
+            (
+                "Transcription session planned. session_id=%s items=%s local_count=%s url_count=%s "
+                "translate_requested=%s translate_effective=%s source_language=%s "
+                "target_language=%s output_modes=%s"
+            ),
             runtime.session_id,
             len(entries),
             local_count,
@@ -851,7 +876,10 @@ class TranscriptionService:
                 runtime_profile=runtime.options.runtime_profile,
             )
             _LOG.debug(
-                "Transcription stage finished. session_id=%s source_key=%s stage=transcribe duration_ms=%s text_chars=%s segments=%s detected_lang=%s",
+                (
+                    "Transcription stage finished. session_id=%s source_key=%s stage=transcribe "
+                    "duration_ms=%s text_chars=%s segments=%s detected_lang=%s"
+                ),
                 runtime.session_id,
                 debug_source_key(key),
                 int((time.perf_counter() - transcribe_started) * 1000.0),
@@ -931,7 +959,10 @@ class TranscriptionService:
         translate_started = time.perf_counter()
         src_lang = self._pick_source_language(default_lang=runtime.options.default_lang, detected_lang=detected_lang)
         _LOG.debug(
-            "Translation source language resolved. session_id=%s source_key=%s default_lang=%s detected_lang=%s resolved=%s",
+            (
+                "Translation source language resolved. session_id=%s source_key=%s default_lang=%s "
+                "detected_lang=%s resolved=%s"
+            ),
             runtime.session_id,
             debug_source_key(key),
             runtime.options.default_lang or "",
@@ -978,7 +1009,11 @@ class TranscriptionService:
                 )
             except AppError as ex:
                 had_errors = True
-                callbacks.item_error(key, str(getattr(ex, "key", "error.generic")), dict(getattr(ex, "params", {}) or {}))
+                callbacks.item_error(
+                    key,
+                    str(getattr(ex, "key", "error.generic")),
+                    dict(getattr(ex, "params", {}) or {}),
+                )
                 translated_text = ""
             else:
                 if has_segment_translation:
@@ -992,7 +1027,11 @@ class TranscriptionService:
                         )
                     except AppError as ex:
                         had_errors = True
-                        callbacks.item_error(key, str(getattr(ex, "key", "error.generic")), dict(getattr(ex, "params", {}) or {}))
+                        callbacks.item_error(
+                            key,
+                            str(getattr(ex, "key", "error.generic")),
+                            dict(getattr(ex, "params", {}) or {}),
+                        )
                         translated_text = ""
                         translated_segments = None
 
@@ -1004,7 +1043,10 @@ class TranscriptionService:
             item_progress=callbacks.item_progress,
         )
         _LOG.debug(
-            "Transcription stage finished. session_id=%s source_key=%s stage=translate duration_ms=%s text_chars=%s segments=%s",
+            (
+                "Transcription stage finished. session_id=%s source_key=%s stage=translate "
+                "duration_ms=%s text_chars=%s segments=%s"
+            ),
             runtime.session_id,
             debug_source_key(key),
             int((time.perf_counter() - translate_started) * 1000.0),
@@ -1085,7 +1127,17 @@ class TranscriptionService:
         keep = runtime.options.url_keep_download
         quality = runtime.options.url_download_quality
 
-        _LOG.debug("Transcription URL materialization started. source_key=%s kind=%s ext=%s keep_download=%s audio_lang=%s", safe_url, kind, ext, bool(keep), request.audio_lang or "")
+        _LOG.debug(
+            (
+                "Transcription URL materialization started. source_key=%s kind=%s ext=%s "
+                "keep_download=%s audio_lang=%s"
+            ),
+            safe_url,
+            kind,
+            ext,
+            bool(keep),
+            request.audio_lang or "",
+        )
 
         on_dl = self._build_stage_progress_callback(
             tracker=runtime.tracker,
@@ -1125,7 +1177,12 @@ class TranscriptionService:
             pct=100,
             item_progress=callbacks.item_progress,
         )
-        _LOG.debug("Transcription URL materialization finished. source_key=%s new_key=%s duration_ms=%s", safe_url, debug_source_key(new_key), int((time.perf_counter() - download_started) * 1000.0))
+        _LOG.debug(
+            "Transcription URL materialization finished. source_key=%s new_key=%s duration_ms=%s",
+            safe_url,
+            debug_source_key(new_key),
+            int((time.perf_counter() - download_started) * 1000.0),
+        )
         return _MaterializedWorkItem(
             source_key=new_key,
             source_path=dst,
@@ -1155,7 +1212,17 @@ class TranscriptionService:
             dur_s = 0.0 if rate <= 0 else float(frames) / float(rate)
         chunk_len_s, stride_len_s, step_s = normalize_chunk_params(chunk_len_s, stride_len_s)
         n_chunks = estimate_chunks(dur_s, chunk_len_s, stride_len_s)
-        _LOG.debug("Transcription wav started. source_key=%s duration_s=%s chunks=%s require_language=%s timestamps=%s", debug_source_key(key), round(dur_s, 2), n_chunks, bool(require_language), bool(want_timestamps))
+        _LOG.debug(
+            (
+                "Transcription wav started. source_key=%s duration_s=%s chunks=%s "
+                "require_language=%s timestamps=%s"
+            ),
+            debug_source_key(key),
+            round(dur_s, 2),
+            n_chunks,
+            bool(require_language),
+            bool(want_timestamps),
+        )
 
         profile = dict(runtime_profile or {})
         merged_parts: list[str] = []
@@ -1165,7 +1232,14 @@ class TranscriptionService:
         previous_prompt_text = ""
         stable_language_min_hits = int(profile.get("stable_language_min_hits", 2) or 2)
 
-        for i, ch in enumerate(iter_wav_mono_chunks(wav_path, chunk_len_s=chunk_len_s, stride_len_s=stride_len_s), start=1):
+        for i, ch in enumerate(
+            iter_wav_mono_chunks(
+                wav_path,
+                chunk_len_s=chunk_len_s,
+                stride_len_s=stride_len_s,
+            ),
+            start=1,
+        ):
             if cancel_check():
                 raise OperationCancelled()
 
@@ -1252,7 +1326,13 @@ class TranscriptionService:
             stage="transcribe",
             pct=100,
         )
-        _LOG.debug("Transcription wav finished. source_key=%s text_chars=%s segments=%s detected_lang=%s", debug_source_key(key), len(merged_text), len(segments), detected_lang or "")
+        _LOG.debug(
+            "Transcription wav finished. source_key=%s text_chars=%s segments=%s detected_lang=%s",
+            debug_source_key(key),
+            len(merged_text),
+            len(segments),
+            detected_lang or "",
+        )
         return merged_text, segments, detected_lang
 
     @staticmethod
@@ -1300,7 +1380,21 @@ class TranscriptionService:
                     raise TranscriptionError("error.transcription.timestamps_unsupported") from ex
                 fallback_kwargs = dict(generate_kwargs)
                 fallback_kwargs.pop("prompt_ids", None)
-                for candidate_kwargs in (fallback_kwargs, {k: v for k, v in fallback_kwargs.items() if k not in ("no_speech_threshold", "logprob_threshold", "compression_ratio_threshold", "temperature")}, {"task": "transcribe", **({"language": normalized_lang} if normalized_lang else {})}):
+                for candidate_kwargs in (
+                    fallback_kwargs,
+                    {
+                        k: v
+                        for k, v in fallback_kwargs.items()
+                        if k
+                        not in (
+                            "no_speech_threshold",
+                            "logprob_threshold",
+                            "compression_ratio_threshold",
+                            "temperature",
+                        )
+                    },
+                    {"task": "transcribe", **({"language": normalized_lang} if normalized_lang else {})},
+                ):
                     try:
                         out = pipe(
                             payload,
@@ -1327,7 +1421,11 @@ class TranscriptionService:
 
         if bool(require_language):
             lang = extract_detected_language_from_result(out)
-            if not lang and not normalized_lang and can_detect_language_from_audio(audio, sr=sr, signal_kind=signal_kind, profile=profile):
+            if (
+                not lang
+                and not normalized_lang
+                and can_detect_language_from_audio(audio, sr=sr, signal_kind=signal_kind, profile=profile)
+            ):
                 lang = detect_language_from_pipe_runtime(pipe=pipe, audio=audio, sr=sr)
                 if lang:
                     out["language"] = lang

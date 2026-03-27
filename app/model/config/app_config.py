@@ -92,7 +92,11 @@ class AppConfig:
     def bulk_add_confirmation_cfg_dict(cls) -> dict[str, Any]:
         app_cfg = cls._snapshot_section_dict("app")
         ui_cfg = app_cfg.get("ui", {}) if isinstance(app_cfg.get("ui"), dict) else {}
-        bulk_cfg = ui_cfg.get("bulk_add_confirmation", {}) if isinstance(ui_cfg.get("bulk_add_confirmation"), dict) else {}
+        bulk_cfg = (
+            ui_cfg.get("bulk_add_confirmation", {})
+            if isinstance(ui_cfg.get("bulk_add_confirmation"), dict)
+            else {}
+        )
         return dict(bulk_cfg) if isinstance(bulk_cfg, dict) else {}
 
     @classmethod
@@ -138,12 +142,16 @@ class AppConfig:
     @classmethod
     def _tab_last_used_source_language(cls, tab_name: str) -> str:
         cfg = cls._ui_tab_cfg_dict(tab_name)
-        return LanguagePolicy.normalize_last_used_source_language(cfg.get("last_used_source_language", LanguagePolicy.AUTO))
+        return LanguagePolicy.normalize_last_used_source_language(
+            cfg.get("last_used_source_language", LanguagePolicy.AUTO)
+        )
 
     @classmethod
     def _tab_last_used_target_language(cls, tab_name: str) -> str:
         cfg = cls._ui_tab_cfg_dict(tab_name)
-        return LanguagePolicy.normalize_last_used_target_language(cfg.get("last_used_target_language", LanguagePolicy.DEFAULT_UI))
+        return LanguagePolicy.normalize_last_used_target_language(
+            cfg.get("last_used_target_language", LanguagePolicy.DEFAULT_UI)
+        )
 
     @classmethod
     def resolve_default_source_language_for_tab(cls, tab_name: str) -> str:
@@ -292,7 +300,10 @@ class AppConfig:
 
     @classmethod
     def downloader_max_video_height(cls) -> int:
-        raw_max = cls._coerce_int(cls._snapshot_section_value("downloader", "max_video_height"), cls.downloader_min_video_height())
+        raw_max = cls._coerce_int(
+            cls._snapshot_section_value("downloader", "max_video_height"),
+            cls.downloader_min_video_height(),
+        )
         return max(cls.downloader_min_video_height(), raw_max)
 
     @classmethod
@@ -400,14 +411,20 @@ class AppConfig:
     def _apply_translation_engine_dir(cls, model: dict[str, Any]) -> None:
         tcfg = model.get("translation_model", {})
         from app.model.services.model_resolution_service import ModelResolutionService
-        resolved = ModelResolutionService.resolve_model_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="translation")
+        resolved = ModelResolutionService.resolve_model_engine_name(
+            tcfg if isinstance(tcfg, dict) else {},
+            task="translation",
+        )
         cls.PATHS.TRANSLATION_ENGINE_DIR = cls.PATHS.AI_MODELS_DIR / resolved
 
     @classmethod
     def _apply_transcription_engine_dir(cls, model: dict[str, Any]) -> None:
         tcfg = model.get("transcription_model", {})
         from app.model.services.model_resolution_service import ModelResolutionService
-        resolved = ModelResolutionService.resolve_model_engine_name(tcfg if isinstance(tcfg, dict) else {}, task="transcription")
+        resolved = ModelResolutionService.resolve_model_engine_name(
+            tcfg if isinstance(tcfg, dict) else {},
+            task="transcription",
+        )
         cls.PATHS.TRANSCRIPTION_ENGINE_DIR = cls.PATHS.AI_MODELS_DIR / resolved
 
     @classmethod

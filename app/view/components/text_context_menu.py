@@ -5,12 +5,9 @@ from typing import Any, Callable, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from app.view.support.popup_host import PopupHostBinding, clamp_popup_geometry, hide_popup_widget
 from app.view.support.widget_effects import (
-    bind_tracked_window,
     configure_floating_popup_surface,
-    contains_widget_chain,
-    install_app_event_filter,
-    overlay_edge_gap,
     popup_host_root_margins,
     repolish_widget,
 )
@@ -195,12 +192,16 @@ class _TextContextActionRow(QtWidgets.QFrame):
         super().mouseReleaseEvent(event)
 
 class _TextContextSeparator(QtWidgets.QFrame):
+    """One-pixel separator used inside the custom text context popup."""
+
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setProperty("role", "textContextSeparator")
         self.setFixedHeight(1)
 
 class _TextContextPopup(QtWidgets.QWidget):
+    """Floating context menu popup shared by supported text editors."""
+
     def __init__(self) -> None:
         super().__init__(
             None,
@@ -221,22 +222,23 @@ class _TextContextPopup(QtWidgets.QWidget):
         configure_floating_popup_surface(self, self._body)
 
         self._content = QtWidgets.QVBoxLayout(self._body)
-        setup_layout(self._content, cfg=cfg, margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s), spacing=cfg.space_s)
+        setup_layout(
+            self._content,
+            cfg=cfg,
+            margins=(cfg.space_s, cfg.space_s, cfg.space_s, cfg.space_s),
+            spacing=cfg.space_s,
+        )
 
         root.addWidget(self._body)
 
-        self._tracked_window: QtWidgets.QWidget | None = None
-        self._app_filter_installed = False
-        self._install_app_filter()
-
-    def _install_app_filter(self) -> None:
-        self._app_filter_installed = install_app_event_filter(self, installed=self._app_filter_installed)
+        self._popup_binding = PopupHostBinding(self)
+        self._popup_binding.install_app_filter()
 
     def _bind_window(self, widget: QtWidgets.QWidget | None) -> None:
-        self._tracked_window = bind_tracked_window(self, self._tracked_window, widget)
+        self._popup_binding.bind_window(widget)
 
     def _contains_widget(self, widget: QtWidgets.QWidget | None) -> bool:
-        return contains_widget_chain(widget, self, self._body)
+        return self._popup_binding.contains_widget(widget, self, self._body)
 
     def _clear_content(self) -> None:
         while self._content.count():
@@ -271,52 +273,30 @@ class _TextContextPopup(QtWidgets.QWidget):
 
         geom = self.frameGeometry()
         geom.moveTopLeft(global_pos)
-
-        screen = QtWidgets.QApplication.screenAt(global_pos) or widget.screen() or QtWidgets.QApplication.primaryScreen()
-        if screen is not None:
-            cfg = ui(widget)
-            edge = overlay_edge_gap(cfg)
-            avail = screen.availableGeometry()
-            if geom.right() > avail.right() - edge:
-                geom.moveLeft(max(avail.left() + edge, avail.right() - geom.width() - edge))
-            if geom.bottom() > avail.bottom() - edge:
-                geom.moveTop(max(avail.top() + edge, avail.bottom() - geom.height() - edge))
-            if geom.left() < avail.left() + edge:
-                geom.moveLeft(avail.left() + edge)
-            if geom.top() < avail.top() + edge:
-                geom.moveTop(avail.top() + edge)
+        geom = clamp_popup_geometry(geom, point=global_pos, fallback_widget=widget)
 
         self.move(geom.topLeft())
         self.show()
         self.raise_()
 
-
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if not self.isVisible():
-            return super().eventFilter(obj, event)
-
-        if obj is self._tracked_window and event.type() in {
-            QtCore.QEvent.Type.Move,
-            QtCore.QEvent.Type.Resize,
-            QtCore.QEvent.Type.Hide,
-            QtCore.QEvent.Type.WindowDeactivate,
-        }:
-            self.hide()
-        elif event.type() in {QtCore.QEvent.Type.ApplicationDeactivate, QtCore.QEvent.Type.WindowDeactivate}:
-            self.hide()
-        elif event.type() == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
-            if event.key() == QtCore.Qt.Key.Key_Escape:
-                self.hide()
-                event.accept()
-                return True
-        elif event.type() in {QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.Wheel} and isinstance(
-            event,
-            (QtGui.QMouseEvent, QtGui.QWheelEvent),
-        ):
-            target = obj if isinstance(obj, QtWidgets.QWidget) else QtWidgets.QApplication.widgetAt(event.globalPos())
-            if not self._contains_widget(target):
-                self.hide()
+        handled = self._popup_binding.handle_dismiss_event(
+            obj=obj,
+            event=event,
+            popup_widget=self,
+            hide_popup=self.hide_popup,
+            contains_widget=self._contains_widget,
+            handle_escape=True,
+        )
+        if handled:
+            return True
         return super().eventFilter(obj, event)
+
+    def hide_popup(self) -> None:
+        hide_popup_widget(self)
+
+    def __del__(self) -> None:
+        self._popup_binding.cleanup()
 
 _TEXT_CONTEXT_POPUP: _TextContextPopup | None = None
 
@@ -337,7 +317,12 @@ def build_text_context_menu(widget: QtWidgets.QWidget) -> list[Any]:
 
     if read_only:
         return [
-            (_text_menu_label("copy"), _text_menu_shortcut(QtGui.QKeySequence.Copy), has_selection, getattr(widget, "copy", None)),
+            (
+                _text_menu_label("copy"),
+                _text_menu_shortcut(QtGui.QKeySequence.Copy),
+                has_selection,
+                getattr(widget, "copy", None),
+            ),
             (
                 _text_menu_label("select_all"),
                 _text_menu_shortcut(QtGui.QKeySequence.SelectAll),
@@ -347,13 +332,43 @@ def build_text_context_menu(widget: QtWidgets.QWidget) -> list[Any]:
         ]
 
     return [
-        (_text_menu_label("undo"), _text_menu_shortcut(QtGui.QKeySequence.Undo), _text_widget_can_undo(widget), getattr(widget, "undo", None)),
-        (_text_menu_label("redo"), _text_menu_shortcut(QtGui.QKeySequence.Redo), _text_widget_can_redo(widget), getattr(widget, "redo", None)),
+        (
+            _text_menu_label("undo"),
+            _text_menu_shortcut(QtGui.QKeySequence.Undo),
+            _text_widget_can_undo(widget),
+            getattr(widget, "undo", None),
+        ),
+        (
+            _text_menu_label("redo"),
+            _text_menu_shortcut(QtGui.QKeySequence.Redo),
+            _text_widget_can_redo(widget),
+            getattr(widget, "redo", None),
+        ),
         None,
-        (_text_menu_label("cut"), _text_menu_shortcut(QtGui.QKeySequence.Cut), has_selection, getattr(widget, "cut", None)),
-        (_text_menu_label("copy"), _text_menu_shortcut(QtGui.QKeySequence.Copy), has_selection, getattr(widget, "copy", None)),
-        (_text_menu_label("paste"), _text_menu_shortcut(QtGui.QKeySequence.Paste), can_paste, getattr(widget, "paste", None)),
-        (_text_menu_label("delete"), _text_menu_shortcut(QtGui.QKeySequence.Delete), has_selection, lambda: _delete_text_selection(widget)),
+        (
+            _text_menu_label("cut"),
+            _text_menu_shortcut(QtGui.QKeySequence.Cut),
+            has_selection,
+            getattr(widget, "cut", None),
+        ),
+        (
+            _text_menu_label("copy"),
+            _text_menu_shortcut(QtGui.QKeySequence.Copy),
+            has_selection,
+            getattr(widget, "copy", None),
+        ),
+        (
+            _text_menu_label("paste"),
+            _text_menu_shortcut(QtGui.QKeySequence.Paste),
+            can_paste,
+            getattr(widget, "paste", None),
+        ),
+        (
+            _text_menu_label("delete"),
+            _text_menu_shortcut(QtGui.QKeySequence.Delete),
+            has_selection,
+            lambda: _delete_text_selection(widget),
+        ),
         None,
         (
             _text_menu_label("select_all"),
@@ -364,6 +379,8 @@ def build_text_context_menu(widget: QtWidgets.QWidget) -> list[Any]:
     ]
 
 class _TextContextMenuFilter(QtCore.QObject):
+    """Intercepts the native context menu event for supported text widgets."""
+
     def __init__(self, widget: QtWidgets.QWidget) -> None:
         super().__init__(widget)
         self._widget = widget

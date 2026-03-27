@@ -52,7 +52,12 @@ class AboutPanel(QtWidgets.QWidget):
         left = QtWidgets.QWidget()
         left.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         left_layout = QtWidgets.QVBoxLayout(left)
-        setup_layout(left_layout, cfg=cfg, margins=(cfg.margin * 2, cfg.margin * 2, cfg.margin, cfg.margin), spacing=cfg.spacing)
+        setup_layout(
+            left_layout,
+            cfg=cfg,
+            margins=(cfg.margin * 2, cfg.margin * 2, cfg.margin, cfg.margin),
+            spacing=cfg.spacing,
+        )
 
         path = logo_svg_path()
         if path is not None:
@@ -100,7 +105,12 @@ class AboutPanel(QtWidgets.QWidget):
         license_group = SectionGroup(self, object_name="AboutLicenseGroup")
         license_group.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         license_layout = cast(QtWidgets.QVBoxLayout, license_group.root)
-        setup_layout(license_layout, cfg=cfg, margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin), spacing=cfg.spacing)
+        setup_layout(
+            license_layout,
+            cfg=cfg,
+            margins=(cfg.margin, cfg.margin, cfg.margin, cfg.margin),
+            spacing=cfg.spacing,
+        )
 
         summary = html.escape(tr("about.license.summary")).replace("\n", "<br>")
         summary_label = QtWidgets.QLabel(f"<div style='line-height:1.35'>{summary}</div>")
@@ -176,12 +186,17 @@ class AboutPanel(QtWidgets.QWidget):
             int(cfg.control_min_w * 2),
         )
         max_h = max(
-            min(int(self.height() * _ABOUT_LOGO_HEIGHT_RATIO), int(cfg.window_min_h - (cfg.button_big_h * 6 + cfg.pad_y_m * 4))),
+            min(
+                int(self.height() * _ABOUT_LOGO_HEIGHT_RATIO),
+                int(cfg.window_min_h - (cfg.button_big_h * 6 + cfg.pad_y_m * 4)),
+            ),
             int(cfg.button_big_h * 4 + cfg.pad_y_l * 2),
         )
 
         self._logo.update_for_bounds(max_w, max_h)
-        self._left.setMaximumWidth(min(int(self.width() * _ABOUT_LEFT_PANEL_MAX_RATIO), self._logo.width() + cfg.margin * 4))
+        self._left.setMaximumWidth(
+            min(int(self.width() * _ABOUT_LEFT_PANEL_MAX_RATIO), self._logo.width() + cfg.margin * 4)
+        )
 
     def _on_anchor_clicked(self, _url: QtCore.QUrl) -> None:
         self._open_license_file()

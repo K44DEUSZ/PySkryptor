@@ -86,14 +86,22 @@ class CommandRunner:
                 try:
                     proc.kill()
                 except (ProcessLookupError, OSError) as ex:
-                    _LOG.debug("Command cancellation kill skipped. cmd=%s detail=%s", " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args, ex)
+                    _LOG.debug(
+                        "Command cancellation kill skipped. cmd=%s detail=%s",
+                        " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args,
+                        ex,
+                    )
                 raise AppError(key="error.cancelled", params={})
 
             if timeout_s is not None and waited_s >= float(timeout_s):
                 try:
                     proc.kill()
                 except (ProcessLookupError, OSError) as ex:
-                    _LOG.debug("Command timeout kill skipped. cmd=%s detail=%s", " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args, ex)
+                    _LOG.debug(
+                        "Command timeout kill skipped. cmd=%s detail=%s",
+                        " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args,
+                        ex,
+                    )
                 raise AppError(key="error.external_tool_timeout", params={"seconds": float(timeout_s)})
 
             if proc.poll() is not None:

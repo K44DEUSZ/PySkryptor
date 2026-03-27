@@ -202,7 +202,13 @@ def build_setting_row(
     grid = cast(QtWidgets.QGridLayout, layout)
 
     label = QtWidgets.QLabel(str(label_text or ""), host)
-    label.setMinimumWidth(int(label_min_width if label_min_width is not None else resolved_cfg.control_min_w + resolved_cfg.space_l * 10))
+    label.setMinimumWidth(
+        int(
+            label_min_width
+            if label_min_width is not None
+            else resolved_cfg.control_min_w + resolved_cfg.space_l * 10
+        )
+    )
     label.setWordWrap(True)
     label.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Preferred)
     if label_role is not None:

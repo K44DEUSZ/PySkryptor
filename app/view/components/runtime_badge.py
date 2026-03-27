@@ -26,9 +26,9 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
         layout.setContentsMargins(cfg.margin, cfg.margin, cfg.margin, cfg.margin)
         layout.setSpacing(int(cfg.spacing))
 
-        self.ico = QtWidgets.QLabel()
-        self.ico.setFixedSize(18, 18)
-        self.ico.setObjectName("RuntimeSummaryIcon")
+        self.lbl_icon = QtWidgets.QLabel()
+        self.lbl_icon.setFixedSize(18, 18)
+        self.lbl_icon.setObjectName("RuntimeSummaryIcon")
 
         self.lbl_summary_label = QtWidgets.QLabel(tr("files.runtime.status_label"))
         self.lbl_summary_label.setObjectName("RuntimeSummaryLabel")
@@ -43,7 +43,7 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
         summary_box = QtWidgets.QHBoxLayout()
         summary_box.setContentsMargins(0, 0, 0, 0)
         summary_box.setSpacing(int(cfg.spacing))
-        summary_box.addWidget(self.ico, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
+        summary_box.addWidget(self.lbl_icon, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
         summary_box.addWidget(self.lbl_summary_label, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
         summary_box.addWidget(self.lbl_summary_value, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
         summary_box.addStretch(1)
@@ -131,7 +131,7 @@ class RuntimeBadgeWidget(QtWidgets.QFrame):
         return label, value
 
     def set_summary_icon(self, icon: QtGui.QIcon) -> None:
-        self.ico.setPixmap(icon.pixmap(18, 18))
+        self.lbl_icon.setPixmap(icon.pixmap(18, 18))
 
     @staticmethod
     def _apply_presentation(label: QtWidgets.QLabel, presentation: RuntimePresentation) -> None:

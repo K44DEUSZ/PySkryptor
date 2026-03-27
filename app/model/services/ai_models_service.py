@@ -30,7 +30,9 @@ def _enrich_model_cfg(
     resolved_name: str = "",
 ) -> dict[str, Any]:
     cfg = dict(model_cfg) if isinstance(model_cfg, dict) else {}
-    engine_name = str(resolved_name or ModelResolutionService.active_engine_name(task=task) or cfg.get("engine_name", "") or "").strip()
+    engine_name = str(
+        resolved_name or ModelResolutionService.active_engine_name(task=task) or cfg.get("engine_name", "") or ""
+    ).strip()
     if not engine_name or engine_name == Config.MISSING_VALUE:
         return cfg
 
@@ -131,7 +133,11 @@ def _cpu_model_name() -> str | None:
             lines = [l.strip() for l in (out or "").splitlines() if l.strip()]
             return lines[1] if len(lines) >= 2 else None
         if sysname == "darwin":
-            out = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], stderr=subprocess.DEVNULL, text=True)
+            out = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
             return str(out or "").strip() or None
         if Path("/proc/cpuinfo").exists():
             txt = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore")
@@ -178,7 +184,10 @@ class _TranscriptionModelLoader:
 
         _LOG.info("Loading transcription model '%s' from '%s'.", engine_name, model_path)
         _LOG.debug(
-            "Transcription model load parameters. engine_name=%s device=%s dtype=%s low_cpu_mem_usage=%s use_safetensors=%s",
+            (
+                "Transcription model load parameters. engine_name=%s device=%s dtype=%s "
+                "low_cpu_mem_usage=%s use_safetensors=%s"
+            ),
             engine_name,
             str(device),
             getattr(dtype, "__str__", lambda: str(dtype))(),
@@ -284,7 +293,9 @@ class AIModelsService:
             dtype = _resolve_torch_dtype(pref_prec, device)
 
             Config.DEVICE_ID = str(device)
-            Config.DTYPE_ID = "float16" if dtype is torch.float16 else ("bfloat16" if dtype is torch.bfloat16 else "float32")
+            Config.DTYPE_ID = (
+                "float16" if dtype is torch.float16 else ("bfloat16" if dtype is torch.bfloat16 else "float32")
+            )
 
             if getattr(device, "type", "cpu") == "cuda" and has_cuda:
                 try:

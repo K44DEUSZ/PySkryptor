@@ -65,7 +65,8 @@ class LiveTranscriptionWorker(SessionWorker):
         self._output_mode = RuntimeProfiles.normalize_live_output_mode(output_mode)
         self._profile = RuntimeProfiles.normalize_live_profile(profile)
         self._runtime_profile = dict(
-            runtime_profile or RuntimeProfiles.resolve_live_runtime(output_mode=self._output_mode, profile=self._profile)
+            runtime_profile
+            or RuntimeProfiles.resolve_live_runtime(output_mode=self._output_mode, profile=self._profile)
         )
 
         self._pause = threading.Event()
@@ -575,7 +576,10 @@ class LiveTranscriptionWorker(SessionWorker):
             if should_log and (now_s - self._last_backlog_debug_s) >= self._backlog_debug_interval_s:
                 self._last_backlog_debug_s = now_s
                 _LOG.debug(
-                    "Live audio backlog updated. worker=live_transcription backlog=%s compacted=%s total_compactions=%s",
+                    (
+                        "Live audio backlog updated. worker=live_transcription backlog=%s compacted=%s "
+                        "total_compactions=%s"
+                    ),
                     backlog,
                     int(compactions),
                     int(self._backlog_compactions),
@@ -689,7 +693,10 @@ class LiveTranscriptionWorker(SessionWorker):
         self._pause.clear()
 
         _LOG.debug(
-            "Live worker starting. worker=live_transcription device=%s source_language=%s target_language=%s translate_enabled=%s profile=%s output_mode=%s",
+            (
+                "Live worker starting. worker=live_transcription device=%s source_language=%s "
+                "target_language=%s translate_enabled=%s profile=%s output_mode=%s"
+            ),
             self._device_name,
             self._src_lang,
             self._tgt_lang,

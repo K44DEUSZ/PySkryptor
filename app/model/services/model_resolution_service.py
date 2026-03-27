@@ -115,7 +115,11 @@ class ModelResolutionService:
     @classmethod
     def active_engine_name(cls, *, task: str) -> str:
         task_id = str(task or "").strip().lower()
-        engine_dir = Config.PATHS.TRANSLATION_ENGINE_DIR if task_id == "translation" else Config.PATHS.TRANSCRIPTION_ENGINE_DIR
+        engine_dir = (
+            Config.PATHS.TRANSLATION_ENGINE_DIR
+            if task_id == "translation"
+            else Config.PATHS.TRANSCRIPTION_ENGINE_DIR
+        )
         name = str(getattr(engine_dir, "name", "") or "").strip()
         if not name or name == Config.MISSING_VALUE:
             return ""

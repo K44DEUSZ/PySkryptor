@@ -18,6 +18,8 @@ class SettingsCoordinator(QtCore.QObject):
 
     busy_changed = QtCore.pyqtSignal(bool)
     failed = QtCore.pyqtSignal(str, dict)
+    settings_loaded = QtCore.pyqtSignal(object)
+    saved = QtCore.pyqtSignal(str, object)
     settings_applied = QtCore.pyqtSignal()
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
@@ -31,12 +33,19 @@ class SettingsCoordinator(QtCore.QObject):
             return
         previous = self._view
         if previous is not None:
-            try:
-                self.failed.disconnect(previous.on_error)
-            except (TypeError, RuntimeError):
-                pass
+            for signal, slot in (
+                (self.failed, previous.on_error),
+                (self.settings_loaded, previous.on_settings_loaded),
+                (self.saved, previous.on_saved),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
         self._view = panel
         self.failed.connect(panel.on_error)
+        self.settings_loaded.connect(panel.on_settings_loaded)
+        self.saved.connect(panel.on_saved)
 
     def is_busy(self) -> bool:
         return self._runner.is_running()
@@ -65,14 +74,15 @@ class SettingsCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: SettingsWorker) -> None:
+            def _on_loaded(snap: "SettingsSnapshot") -> None:
+                self.settings_loaded.emit(snap)
+
             def _on_saved(saved_action: str, snap: "SettingsSnapshot") -> None:
-                if self._view is not None:
-                    self._view.on_saved(saved_action, snap)
+                self.saved.emit(saved_action, snap)
                 if str(saved_action or "").strip().lower() in {"save", "restore_defaults"}:
                     self.settings_applied.emit()
 
-            if self._view is not None:
-                wk.settings_loaded.connect(self._view.on_settings_loaded)
+            wk.settings_loaded.connect(_on_loaded)
             wk.saved.connect(_on_saved)
             wk.failed.connect(self.failed)
 
