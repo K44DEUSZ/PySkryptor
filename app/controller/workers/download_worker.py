@@ -10,18 +10,18 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
-from app.controller.workers.task_worker import PendingDecision, TaskWorker
+from app.controller.workers.access_task_worker import AccessTaskWorker
+from app.controller.workers.task_worker import PendingDecision
 from app.model.core.config.config import AppConfig
-from app.model.core.domain.errors import OperationCancelled
 from app.model.core.utils.path_utils import ensure_unique_path
 from app.model.core.utils.string_utils import sanitize_filename
-from app.model.download.domain import CookieInterventionRequest, DownloadError, DownloadInterventionRequired
+from app.model.download.domain import DownloadError, SourceAccessInterventionRequired
 from app.model.download.service import DownloadService
 
 _LOG = logging.getLogger(__name__)
 
 
-class DownloadWorker(TaskWorker):
+class DownloadWorker(AccessTaskWorker):
     """Background worker that probes or downloads a single remote media source."""
 
     meta_ready = QtCore.pyqtSignal(dict)
@@ -29,7 +29,6 @@ class DownloadWorker(TaskWorker):
     progress_pct = QtCore.pyqtSignal(int)
     stage_changed = QtCore.pyqtSignal(str)
     duplicate_check = QtCore.pyqtSignal(str, str)
-    cookie_intervention_required = QtCore.pyqtSignal(dict)
 
     download_finished = QtCore.pyqtSignal(Path)
     download_error = QtCore.pyqtSignal(str, dict)
@@ -58,11 +57,10 @@ class DownloadWorker(TaskWorker):
         self._audio_track_id = str(audio_track_id or "").strip() or None
         self._browser_cookies_mode_override = str(browser_cookies_mode_override or "").strip().lower() or None
         self._cookie_file_override: str | None = None
+        self._access_mode_override: str | None = None
 
         self._duplicate_decision = PendingDecision(default_action="skip")
-        self._cookie_intervention_decision = PendingDecision(default_action="cancel")
         self._duplicate_lock = threading.Lock()
-        self._cookie_intervention_lock = threading.Lock()
 
     @property
     def job_key(self) -> str:
@@ -72,8 +70,6 @@ class DownloadWorker(TaskWorker):
         super().cancel()
         with self._duplicate_lock:
             self._cancel_pending_decision(self._duplicate_decision)
-        with self._cookie_intervention_lock:
-            self._cancel_pending_decision(self._cookie_intervention_decision)
 
     @QtCore.pyqtSlot(str, str)
     def on_duplicate_decided(self, action: str, new_name: str = "") -> None:
@@ -84,15 +80,6 @@ class DownloadWorker(TaskWorker):
                 value=str(new_name or "").strip(),
             )
 
-    @QtCore.pyqtSlot(str, str)
-    def on_cookie_intervention_decided(self, action: str, value: str = "") -> None:
-        with self._cookie_intervention_lock:
-            self._set_pending_decision(
-                self._cookie_intervention_decision,
-                action=str(action or "").strip().lower(),
-                value=str(value or "").strip(),
-            )
-
     def _emit_download_failure(self, key: str, params: dict[str, object] | None = None) -> None:
         self._emit_failure(str(key), dict(params or {}), self.download_error)
 
@@ -100,98 +87,76 @@ class DownloadWorker(TaskWorker):
         key, params = self._exception_to_i18n(ex)
         self._emit_download_failure(str(key), dict(params or {}))
 
-    def _next_cookie_source_overrides(
-        self,
-        ex: DownloadInterventionRequired,
-        *,
-        browser_cookies_mode_override: str | None,
-        cookie_file_override: str | None,
-    ) -> tuple[str | None, str | None]:
-        request = ex.request
-        payload = dict(request.as_payload())
-        payload["job_key"] = self._job_key
-
-        with self._cookie_intervention_lock:
-            self._cookie_intervention_decision.reset()
-        self.cookie_intervention_required.emit(payload)
-        action, value = self._wait_for_pending_decision(self._cookie_intervention_decision)
-        action = str(action or "").strip().lower()
-        value = str(value or "").strip()
-
-        if self.cancel_check() or action == "cancel":
-            raise OperationCancelled()
-        if action == "without_cookies":
-            return "none", cookie_file_override
-        if action == "use_cookie_file" and value:
-            return "from_file", value
-        return browser_cookies_mode_override, cookie_file_override
-
-    def _should_offer_cookie_file_intervention(
-        self,
-        ex: DownloadError,
-        *,
-        browser_cookies_mode_override: str | None,
-    ) -> bool:
-        err_key = str(getattr(ex, "key", "") or "").strip()
-        if err_key not in {"error.down.authentication_required", "error.down.browser_cookies_unavailable"}:
-            return False
-        return str(browser_cookies_mode_override or "").strip().lower() == "from_browser"
-
-    @staticmethod
-    def _intervention_request_from_error(ex: DownloadError) -> DownloadInterventionRequired:
-        detail = str((getattr(ex, "params", {}) or {}).get("detail") or "").strip()
-        browser = AppConfig.browser_cookie_browser_policy()
-        return DownloadInterventionRequired(
-            CookieInterventionRequest(
-                browser=browser,
-                detail=detail,
-                can_continue_without_cookies=True,
-            )
-        )
-
     def _probe(self, svc: DownloadService) -> dict[str, Any]:
         browser_cookies_mode_override = self._browser_cookies_mode_override
         cookie_file_override = self._cookie_file_override
+        access_mode_override = self._access_mode_override
         while True:
             try:
                 meta = svc.probe(
                     self._url,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                     interactive=True,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._access_mode_override = access_mode_override
                 return meta
-            except DownloadInterventionRequired as ex:
-                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
+            except SourceAccessInterventionRequired as ex:
+                (
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    access_mode_override,
+                ) = self._next_access_intervention_overrides(
                     ex,
+                    payload_key_name="job_key",
+                    payload_key=self._job_key,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._access_mode_override = access_mode_override
                 continue
             except DownloadError as ex:
-                if not self._should_offer_cookie_file_intervention(
+                intervention = DownloadService.intervention_request_from_error(
                     ex,
-                    browser_cookies_mode_override=browser_cookies_mode_override,
-                ):
-                    raise
-                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
-                    self._intervention_request_from_error(ex),
+                    url=self._url,
+                    operation="probe",
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                 )
+                if intervention is None:
+                    raise
+                (
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    access_mode_override,
+                ) = self._next_access_intervention_overrides(
+                    intervention,
+                    payload_key_name="job_key",
+                    payload_key=self._job_key,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
+                )
+                self._browser_cookies_mode_override = browser_cookies_mode_override
+                self._cookie_file_override = cookie_file_override
+                self._access_mode_override = access_mode_override
+                continue
+
+        raise RuntimeError("Download probe intervention loop ended unexpectedly")
 
     def _execute_download(self, svc: DownloadService) -> Path | None:
-        browser_cookies_mode_override = self._browser_cookies_mode_override
-        cookie_file_override = self._cookie_file_override
-
         while True:
             meta = self._probe(svc)
             browser_cookies_mode_override = self._browser_cookies_mode_override
             cookie_file_override = self._cookie_file_override
+            access_mode_override = self._access_mode_override
             title = str(meta.get("title") or meta.get("id") or "download")
             extractor = str(meta.get("extractor") or "").strip()
             source_id = str(meta.get("id") or "").strip()
@@ -242,29 +207,51 @@ class DownloadWorker(TaskWorker):
                     meta=meta,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                 )
-            except DownloadInterventionRequired as ex:
-                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
+            except SourceAccessInterventionRequired as ex:
+                (
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    access_mode_override,
+                ) = self._next_access_intervention_overrides(
                     ex,
+                    payload_key_name="job_key",
+                    payload_key=self._job_key,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._access_mode_override = access_mode_override
                 continue
             except DownloadError as ex:
-                if not self._should_offer_cookie_file_intervention(
+                intervention = DownloadService.intervention_request_from_error(
                     ex,
-                    browser_cookies_mode_override=browser_cookies_mode_override,
-                ):
-                    raise
-                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
-                    self._intervention_request_from_error(ex),
+                    url=self._url,
+                    operation="download",
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
+                )
+                if intervention is None:
+                    raise
+                (
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    access_mode_override,
+                ) = self._next_access_intervention_overrides(
+                    intervention,
+                    payload_key_name="job_key",
+                    payload_key=self._job_key,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._access_mode_override = access_mode_override
                 continue
 
             if self._cancel.is_cancelled:

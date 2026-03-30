@@ -7,6 +7,7 @@ from typing import Any, Callable, cast
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.model.core.runtime.localization import tr
+from app.model.download.policy import DownloadPolicy
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.view.support.widget_effects import repolish_widget
 from app.view.support.widget_setup import (
@@ -132,7 +133,8 @@ class SourceTable(QtWidgets.QTableWidget):
         self._schedule_header_checkbox_sync()
         self._refresh_width_mode(self._header_layout_state)
 
-    def _dispose_widget_tree(self, widget: QtWidgets.QWidget | None) -> None:
+    @staticmethod
+    def _dispose_widget_tree(widget: QtWidgets.QWidget | None) -> None:
         if widget is None:
             return
         popup_fields = [
@@ -1396,8 +1398,12 @@ class SourceTable(QtWidgets.QTableWidget):
 
         diagnostics = meta.get("probe_diagnostics") or {}
         warnings = set(diagnostics.get("warnings") or []) if isinstance(diagnostics, dict) else set()
+        details = dict(diagnostics.get("details") or {}) if isinstance(diagnostics, dict) else {}
+        decision = dict(details.get("extractor_access_decision") or {})
+        decision_state = str(decision.get("state") or details.get("extractor_access_state") or "").strip()
+        decision_action = str(decision.get("action") or details.get("extractor_action") or "").strip()
         has_diagnostics = (
-            bool(warnings or (diagnostics.get("errors") or []))
+            bool(warnings or (diagnostics.get("errors") or []) or decision_state)
             if isinstance(diagnostics, dict)
             else False
         )
@@ -1407,6 +1413,15 @@ class SourceTable(QtWidgets.QTableWidget):
             notice = tr("status.notice.browser_cookies_unavailable")
         elif "authentication_required" in warnings:
             notice = tr("status.notice.authentication_required")
+        elif DownloadPolicy.is_unavailable_extractor_access_state(decision_state):
+            notice = tr("status.notice.extended_access_unavailable")
+        elif DownloadPolicy.is_limited_extractor_access_decision(
+            decision_state,
+            decision_action,
+        ):
+            notice = tr("status.notice.extended_access_limited")
+        elif "extended_access_required" in warnings or "extractor_access_limited" in warnings:
+            notice = tr("status.notice.extended_access_required")
         elif (
             "media_unavailable" in warnings
             or "no_downloadable_formats" in warnings
@@ -1422,6 +1437,9 @@ class SourceTable(QtWidgets.QTableWidget):
             not has_choices
             or "browser_cookies_unavailable" in warnings
             or "authentication_required" in warnings
+            or "extended_access_required" in warnings
+            or "extractor_access_limited" in warnings
+            or bool(decision_state)
             or "media_unavailable" in warnings
             or "no_downloadable_formats" in warnings
             or "no_public_formats" in warnings

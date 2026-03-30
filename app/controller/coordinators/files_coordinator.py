@@ -51,6 +51,7 @@ class FilesCoordinator(QtCore.QObject):
     item_error = QtCore.pyqtSignal(str, str, dict)
     item_output_dir = QtCore.pyqtSignal(str, str)
     conflict_check = QtCore.pyqtSignal(str, str)
+    access_intervention_required = QtCore.pyqtSignal(str, dict)
     session_done = QtCore.pyqtSignal(str, bool, bool, bool)
     quick_options_save_failed = QtCore.pyqtSignal(str, dict)
 
@@ -94,6 +95,7 @@ class FilesCoordinator(QtCore.QObject):
             item_error=self.item_error,
             item_output_dir=self.item_output_dir,
             conflict_check=self.conflict_check,
+            access_intervention_required=self.access_intervention_required,
             session_done=self.session_done,
             transcription_finished=self.transcription_finished,
             quick_options_save_failed=self.quick_options_save_failed,
@@ -121,6 +123,10 @@ class FilesCoordinator(QtCore.QObject):
     def is_busy(self) -> bool:
         return self.is_probe_running() or self.is_transcribing() or self.is_expanding()
 
+    def _emit_access_intervention_payload(self, payload: dict[str, object]) -> None:
+        source_key = str((payload or {}).get("source_key") or (payload or {}).get("job_key") or "")
+        self.access_intervention_required.emit(source_key, dict(payload or {}))
+
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
         return start_manual_input_expansion(
             runner=self._expansion_runner,
@@ -132,6 +138,7 @@ class FilesCoordinator(QtCore.QObject):
             emit_status=self.expansion_status_changed.emit,
             emit_ready=self.expansion_ready.emit,
             emit_failed=self.expansion_failed.emit,
+            emit_access_intervention=self._emit_access_intervention_payload,
             is_busy=self.is_busy,
         )
 
@@ -147,6 +154,7 @@ class FilesCoordinator(QtCore.QObject):
             emit_status=self.expansion_status_changed.emit,
             emit_ready=self.expansion_ready.emit,
             emit_failed=self.expansion_failed.emit,
+            emit_access_intervention=self._emit_access_intervention_payload,
             is_busy=self.is_busy,
         )
 
@@ -211,6 +219,10 @@ class FilesCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: TranscriptionWorker) -> None:
+            def _emit_access_intervention(payload: dict[str, object]) -> None:
+                source_key = str((payload or {}).get("source_key") or "")
+                self.access_intervention_required.emit(source_key, dict(payload or {}))
+
             wk.progress.connect(self.progress)
             wk.failed.connect(self.failed)
             wk.cancelled.connect(self.cancelled)
@@ -221,6 +233,7 @@ class FilesCoordinator(QtCore.QObject):
             wk.item_error.connect(self.item_error)
             wk.item_output_dir.connect(self.item_output_dir)
             wk.conflict_check.connect(self.conflict_check)
+            wk.access_intervention_required.connect(_emit_access_intervention)
             wk.session_done.connect(self.session_done)
 
         def _done() -> None:
@@ -252,5 +265,16 @@ class FilesCoordinator(QtCore.QObject):
             return
         try:
             wk.on_conflict_decided(action, new_stem)
+        except (AttributeError, RuntimeError, TypeError):
+            return
+
+    def resolve_access_intervention(self, _source_key: str, action: str, value: str = "") -> None:
+        worker = self._expansion_worker if self._expansion_runner.is_running() else self._transcription_worker
+        if worker is None:
+            worker = self._transcription_worker if self._transcription_runner.is_running() else self._expansion_worker
+        if worker is None:
+            return
+        try:
+            worker.on_access_intervention_decided(action, value)
         except (AttributeError, RuntimeError, TypeError):
             return

@@ -622,6 +622,7 @@ class DownloadPlanBuilder:
         plan_ext: str,
         lang_base: str,
         selected_audio_track: dict[str, Any],
+        ordered_probe_clients: tuple[str, ...],
         purpose: str,
         keep_output: bool,
         meta: dict[str, Any] | None,
@@ -629,7 +630,11 @@ class DownloadPlanBuilder:
         max_h: int,
     ) -> tuple[dict[str, Any], str]:
         last_error: DownloadError | None = None
-        ordered_clients = TrackInventory.ordered_download_clients_for_track(selected_audio_track)
+        ordered_clients = [
+            str(client or "").strip().lower() or "default"
+            for client in tuple(ordered_probe_clients or ())
+            if str(client or "").strip()
+        ]
         if not ordered_clients:
             raise DownloadError(
                 "error.down.audio_track_probe_only",

@@ -13,8 +13,18 @@ from app.model.download.artifacts import DownloadArtifactManager
 from app.model.download.plan import DownloadPlanBuilder
 from app.model.download.policy import DownloadPolicy
 from app.model.download.inventory import TrackInventory
-from app.model.download.domain import DownloadError, DownloadInterventionRequired
+from app.model.download.domain import (
+    SourceAccessInterventionRequest,
+    DownloadCookieContext,
+    DownloadError,
+    SourceAccessInterventionRequired,
+    ExtractorAccessContext,
+    ExtractorAccessDecision,
+    SourceAccessContext,
+)
 from app.model.download.gateway import YtdlpGateway, YtdlpLogger
+from app.model.download.runtime import detect_extractor_capabilities, resolve_effective_cookie_browser
+from app.model.download.strategy import resolve_extractor_strategy, resolve_extractor_strategy_for_url
 
 _LOG = logging.getLogger(__name__)
 
@@ -40,13 +50,29 @@ class DownloadService:
         url: str,
         *,
         cancel_check: Callable[[], bool] | None = None,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
+        interactive: bool = False,
     ) -> PlaylistResolveResult:
         safe_url = sanitize_url_for_log(url)
+        source_access_context = DownloadService.resolve_source_access_context(
+            url,
+            operation=DownloadPolicy.DOWNLOAD_OPERATION_PLAYLIST,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+            interactive=interactive,
+        )
+        cookie_context = source_access_context.cookie_context
+        DownloadService._validate_cookie_context(cookie_context)
         ydl_opts: dict[str, Any] = YtdlpGateway.base_ydl_opts(
             url=url,
             quiet=not _LOG.isEnabledFor(logging.DEBUG),
             skip_download=True,
             logger=YtdlpLogger(_LOG, cancel_check=cancel_check),
+            cookie_context=cookie_context,
+            source_access_context=source_access_context,
         )
         ydl_opts["noplaylist"] = False
         ydl_opts["extract_flat"] = "in_playlist"
@@ -56,17 +82,39 @@ class DownloadService:
                 url=url,
                 ydl_opts=ydl_opts,
                 download=False,
+                allow_cookie_intervention=bool(cookie_context.interactive and cookie_context.mode == "from_browser"),
             )
         except OperationCancelled:
             raise
         except Exception as ex:
-            if isinstance(ex, (DownloadError, DownloadInterventionRequired)):
+            if isinstance(ex, (DownloadError, SourceAccessInterventionRequired)):
                 raise
             network_key = YtdlpGateway.classify_network_error(ex)
             if network_key:
                 YtdlpGateway.log_network_error(action="playlist", url=url, ex=ex)
             _LOG.debug("Playlist resolve failed. url=%s detail=%s", safe_url, str(ex))
             raise DownloadError("error.playlist.resolve_failed", detail=str(ex)) from ex
+
+        extractor_access_decision = DownloadService._build_extractor_access_decision(
+            extractor_context=source_access_context.extractor_context,
+            runtime=_runtime,
+        )
+        access_request = DownloadService._access_intervention_request_from_decision(
+            extractor_access_decision,
+            source_label=safe_url,
+        )
+        if access_request is not None:
+            current_mode = DownloadPolicy.normalize_extractor_access_mode(
+                source_access_context.extractor_context.access_mode
+            )
+            suggested_mode = DownloadPolicy.normalize_extractor_access_mode(access_request.suggested_access_mode)
+            explicit_mode = (
+                DownloadPolicy.normalize_extractor_access_mode(access_mode_override)
+                if access_mode_override
+                else ""
+            )
+            if not (explicit_mode and explicit_mode == current_mode) and suggested_mode != current_mode:
+                raise SourceAccessInterventionRequired(access_request)
 
         info_dict = info if isinstance(info, dict) else {}
         raw_type = str(info_dict.get("_type") or "").strip().lower()
@@ -149,38 +197,42 @@ class DownloadService:
         *,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
         interactive: bool = False,
     ) -> dict[str, Any]:
         safe_url = sanitize_url_for_log(url)
-        cookies_mode = DownloadService._effective_browser_cookies_mode(browser_cookies_mode_override)
-        advanced_probe_mode = DownloadPolicy.is_advanced_probe_mode_for_url(
-            url=url,
-            browser_cookies_mode=cookies_mode,
+        source_access_context = DownloadService.resolve_source_access_context(
+            url,
+            operation=DownloadPolicy.DOWNLOAD_OPERATION_PROBE,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+            interactive=interactive,
         )
-        collect_probe_variants = DownloadPolicy.should_collect_probe_variants_for_url(
-            url=url,
-            browser_cookies_mode=cookies_mode,
-        )
+        cookie_context = source_access_context.cookie_context
+        extractor_context = source_access_context.extractor_context
+        DownloadService._validate_cookie_context(cookie_context)
+        enhanced_probe_mode = extractor_context.uses_enhanced_access()
+        collect_probe_variants = resolve_extractor_strategy(
+            extractor_context.extractor_key
+        ).collect_probe_variants(extractor_context)
         base_ydl_opts: dict[str, Any] = YtdlpGateway.base_ydl_opts(
             url=url,
             quiet=not _LOG.isEnabledFor(logging.DEBUG),
             skip_download=True,
-            browser_cookies_mode_override=cookies_mode,
-            cookie_file_override=cookie_file_override,
+            cookie_context=cookie_context,
+            source_access_context=source_access_context,
         )
         _LOG.debug(
-            "Download probe started. url=%s quiet=%s cookies_mode=%s advanced=%s",
+            "Download probe started. url=%s quiet=%s cookies_mode=%s enhanced=%s",
             safe_url,
             bool(base_ydl_opts.get("quiet", False)),
-            cookies_mode,
-            advanced_probe_mode,
+            cookie_context.mode,
+            enhanced_probe_mode,
         )
 
         try:
-            attempted_clients = YtdlpGateway.probe_clients_for_url(
-                url,
-                browser_cookies_mode=cookies_mode,
-            )
+            attempted_clients = YtdlpGateway.probe_clients_for_access_context(source_access_context)
             inventories_by_client: dict[str, dict[str, Any]] = {}
             probe_variants: dict[str, dict[str, Any]] = {}
             primary_runtime_by_client: dict[str, dict[str, Any]] = {}
@@ -188,14 +240,21 @@ class DownloadService:
             primary_info: dict[str, Any] | None = None
             last_error: Exception | None = None
 
+            preferred_probe_client = YtdlpGateway.normalize_probe_client(extractor_context.client)
             for probe_client in attempted_clients:
-                ydl_opts = YtdlpGateway.with_probe_client_opts(base_ydl_opts, probe_client=probe_client)
+                ydl_opts = YtdlpGateway.with_probe_client_opts(
+                    base_ydl_opts,
+                    probe_client=probe_client,
+                    extractor_access_context=extractor_context,
+                )
                 try:
                     info, probe_runtime = YtdlpGateway.extract_info_with_fallback(
                         url=url,
                         ydl_opts=ydl_opts,
                         download=False,
-                        allow_cookie_intervention=bool(interactive and advanced_probe_mode),
+                        allow_cookie_intervention=bool(
+                            cookie_context.interactive and cookie_context.mode == "from_browser"
+                        ),
                     )
                 except Exception as ex:
                     last_error = ex
@@ -205,7 +264,7 @@ class DownloadService:
                         probe_client,
                         str(ex),
                     )
-                    if isinstance(ex, DownloadInterventionRequired):
+                    if isinstance(ex, SourceAccessInterventionRequired):
                         raise
                     if len(attempted_clients) == 1:
                         raise
@@ -215,7 +274,11 @@ class DownloadService:
 
                 normalized_probe_client = YtdlpGateway.normalize_probe_client(probe_client)
                 primary_runtime_by_client[normalized_probe_client] = dict(probe_runtime or {})
-                if primary_info is None or probe_client == "default":
+                if (
+                    primary_info is None
+                    or normalized_probe_client == preferred_probe_client
+                    or (preferred_probe_client == "default" and normalized_probe_client == "default")
+                ):
                     primary_info = info
                     primary_probe_client = normalized_probe_client
 
@@ -235,6 +298,10 @@ class DownloadService:
                 raise DownloadError("error.down.probe_failed", detail="probe returned no metadata")
 
             primary_runtime = dict(primary_runtime_by_client.get(primary_probe_client) or {})
+            extractor_access_decision = DownloadService._build_extractor_access_decision(
+                extractor_context=extractor_context,
+                runtime=primary_runtime,
+            )
 
             inventory = TrackInventory.finalize_probe_inventory(
                 inventories_by_client=inventories_by_client,
@@ -253,8 +320,25 @@ class DownloadService:
                 authentication_detail=str(primary_runtime.get("authentication_error") or "").strip(),
                 no_downloadable_formats=bool(primary_runtime.get("no_downloadable_formats")),
                 no_downloadable_formats_detail=str(primary_runtime.get("no_downloadable_formats_detail") or "").strip(),
-                advanced_mode=advanced_probe_mode,
+                extended_access_required=bool(primary_runtime.get("extended_access_required")),
+                extended_access_required_detail=(
+                    str(primary_runtime.get("extended_access_required_detail") or "").strip()
+                ),
+                extractor_access_limited=bool(primary_runtime.get("extractor_access_limited")),
+                extractor_access_limited_detail=(
+                    str(primary_runtime.get("extractor_access_limited_detail") or "").strip()
+                ),
+                browser_cookie_requested=cookie_context.mode == "from_browser",
+                enhanced_mode=enhanced_probe_mode,
+                extractor_access_decision=extractor_access_decision.as_payload(),
             )
+            if probe_diagnostics:
+                details = probe_diagnostics.setdefault("details", {})
+                details["extractor_access_mode"] = extractor_context.access_mode
+                details["extractor_client"] = extractor_context.client
+                details["extractor_capabilities"] = extractor_context.runtime_capabilities.as_payload()
+                details["extractor_access_decision"] = extractor_access_decision.as_payload()
+                details["extractor_action"] = extractor_access_decision.action
             webpage_url = primary_info.get("webpage_url") or primary_info.get("original_url") or url
             result = {
                 "id": primary_info.get("id") or primary_info.get("display_id") or "",
@@ -262,6 +346,9 @@ class DownloadService:
                 "duration": primary_info.get("duration"),
                 "filesize": primary_info.get("filesize") or primary_info.get("filesize_approx"),
                 "extractor": primary_info.get("extractor_key") or primary_info.get("extractor"),
+                "extractor_key": DownloadPolicy.normalize_extractor_key(
+                    primary_info.get("extractor_key") or primary_info.get("extractor")
+                ),
                 "webpage_url": webpage_url,
                 "uploader": primary_info.get("uploader") or primary_info.get("channel") or "",
                 "uploader_id": primary_info.get("uploader_id") or primary_info.get("channel_id") or "",
@@ -276,6 +363,9 @@ class DownloadService:
                 "formats": primary_info.get("formats") or [],
                 "audio_tracks": audio_tracks,
                 "probe_diagnostics": probe_diagnostics,
+                "extractor_capabilities": extractor_context.runtime_capabilities.as_payload(),
+                "extractor_access_decision": extractor_access_decision.as_payload(),
+                "source_access": source_access_context.as_payload(),
             }
             if collect_probe_variants and probe_variants:
                 result["_probe_variants"] = probe_variants
@@ -297,7 +387,7 @@ class DownloadService:
             )
             return result
         except Exception as ex:
-            if isinstance(ex, (DownloadError, DownloadInterventionRequired)):
+            if isinstance(ex, (DownloadError, SourceAccessInterventionRequired)):
                 raise
             network_key = YtdlpGateway.classify_network_error(ex)
             if network_key:
@@ -307,11 +397,490 @@ class DownloadService:
             raise DownloadError("error.down.probe_failed", detail=str(ex))
 
     @staticmethod
-    def _effective_browser_cookies_mode(browser_cookies_mode_override: str | None) -> str:
+    def resolve_cookie_context(
+        *,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        interactive: bool = False,
+    ) -> DownloadCookieContext:
         token = str(browser_cookies_mode_override or "").strip().lower()
-        if token in DownloadPolicy.COOKIE_BROWSER_MODES:
-            return token
-        return AppConfig.browser_cookies_mode()
+        mode = token if token in DownloadPolicy.COOKIE_BROWSER_MODES else AppConfig.browser_cookies_mode()
+        browser_policy = AppConfig.browser_cookie_browser_policy() if mode == "from_browser" else ""
+        cookie_file_path = ""
+        if mode == "from_file":
+            cookie_file_path = str(cookie_file_override or AppConfig.browser_cookie_file_path()).strip()
+        return DownloadCookieContext(
+            mode=mode,
+            browser_policy=browser_policy,
+            cookie_file_path=cookie_file_path,
+            interactive=bool(interactive),
+        )
+
+    @staticmethod
+    def resolve_extractor_access_context(
+        url: str,
+        *,
+        operation: str,
+        access_mode_override: str | None = None,
+    ) -> ExtractorAccessContext:
+        """Resolve extractor-specific access strategy for a single operation."""
+        strategy = resolve_extractor_strategy_for_url(url)
+        runtime_capabilities = detect_extractor_capabilities(strategy.extractor_key)
+        context = strategy.build_access_context(
+            operation=operation,
+            runtime_capabilities=runtime_capabilities,
+        )
+        if access_mode_override is not None:
+            normalized_override = DownloadPolicy.normalize_extractor_access_mode(access_mode_override)
+            override_client = str(context.client or "default").strip().lower() or "default"
+            if normalized_override == DownloadPolicy.EXTRACTOR_ACCESS_MODE_BASIC:
+                override_client = "default"
+            elif context.extractor_key == DownloadPolicy.EXTRACTOR_KEY_YOUTUBE and normalized_override in {
+                DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED,
+                DownloadPolicy.EXTRACTOR_ACCESS_MODE_DEGRADED,
+            }:
+                override_client = DownloadPolicy.youtube_enhanced_client()
+            context = context.with_access_mode(normalized_override, client=override_client)
+        return context
+
+    @staticmethod
+    def resolve_source_access_context(
+        url: str,
+        *,
+        operation: str,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
+        interactive: bool = False,
+    ) -> SourceAccessContext:
+        """Resolve the combined cookie and extractor access context for an operation."""
+        cookie_context = DownloadService.resolve_cookie_context(
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            interactive=interactive,
+        )
+        extractor_context = DownloadService.resolve_extractor_access_context(
+            url,
+            operation=operation,
+            access_mode_override=access_mode_override,
+        )
+        return SourceAccessContext(
+            cookie_context=cookie_context,
+            extractor_context=extractor_context,
+        )
+
+    @staticmethod
+    def _cookie_file_error_detail(cookie_file_path: str) -> str:
+        raw_path = str(cookie_file_path or "").strip()
+        if not raw_path:
+            return "cookies file path is empty"
+        try:
+            candidate = Path(raw_path).expanduser()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return "cookies file path is invalid"
+        if not candidate.exists():
+            return f"cookies file not found: {candidate}"
+        if not candidate.is_file():
+            return f"cookies path is not a file: {candidate}"
+        return ""
+
+    @staticmethod
+    def _cookie_source_label(context: DownloadCookieContext) -> str:
+        if context.mode == "from_browser":
+            resolved = resolve_effective_cookie_browser(context.browser_policy)
+            return str(resolved or context.browser_policy or "").strip()
+        if context.mode == "from_file":
+            raw_path = str(context.cookie_file_path or "").strip()
+            if not raw_path:
+                return ""
+            try:
+                path = Path(raw_path).expanduser()
+            except (OSError, RuntimeError, TypeError, ValueError):
+                return raw_path
+            return str(path.name or path)
+        return ""
+
+    @staticmethod
+    def _validate_cookie_context(context: DownloadCookieContext) -> None:
+        if context.mode != "from_file":
+            return
+        detail = DownloadService._cookie_file_error_detail(context.cookie_file_path)
+        if not detail:
+            return
+        if context.interactive:
+            raise SourceAccessInterventionRequired(
+                SourceAccessInterventionRequest(
+                    kind="cookies",
+                    source_kind="file",
+                    source_label=DownloadService._cookie_source_label(context),
+                    detail=detail,
+                    can_retry=False,
+                    can_choose_cookie_file=True,
+                    can_continue_without_cookies=True,
+                )
+            )
+        raise DownloadError("error.down.cookie_file_invalid", detail=detail)
+
+    @staticmethod
+    def _available_track_probe_clients(
+        selected_audio_track: dict[str, Any],
+        *,
+        meta: dict[str, Any] | None,
+    ) -> tuple[str, ...]:
+        ordered_clients = list(TrackInventory.ordered_probe_clients_for_track(selected_audio_track))
+        if not TrackInventory.probe_variants_from_meta(meta) and "default" not in ordered_clients:
+            ordered_clients.append("default")
+        return tuple(ordered_clients)
+
+    @staticmethod
+    def _ordered_track_download_clients(
+        selected_audio_track: dict[str, Any],
+        *,
+        meta: dict[str, Any] | None,
+        extractor_context: ExtractorAccessContext,
+    ) -> tuple[str, ...]:
+        available_clients = DownloadService._available_track_probe_clients(selected_audio_track, meta=meta)
+        strategy = resolve_extractor_strategy(extractor_context.extractor_key)
+        ordered_clients = strategy.select_download_clients(extractor_context, available_clients)
+        return ordered_clients or available_clients
+
+    @staticmethod
+    def _build_extractor_access_decision(
+        *,
+        extractor_context: ExtractorAccessContext,
+        runtime: dict[str, Any] | None,
+    ) -> ExtractorAccessDecision:
+        runtime_payload = dict(runtime or {})
+        detail = str(
+            runtime_payload.get("extended_access_required_detail")
+            or runtime_payload.get("extractor_access_limited_detail")
+            or ""
+        ).strip()
+        scope = DownloadPolicy.normalize_extractor_access_scope(runtime_payload.get("extended_access_scope"))
+        capabilities = extractor_context.runtime_capabilities
+        access_mode = DownloadPolicy.normalize_extractor_access_mode(extractor_context.access_mode)
+        provider_state = DownloadPolicy.normalize_provider_state(capabilities.provider_state)
+        suggested_access_mode = (
+            DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED
+            if capabilities.enhanced_mode_available
+            else DownloadPolicy.EXTRACTOR_ACCESS_MODE_BASIC
+        )
+
+        if bool(runtime_payload.get("extended_access_required")):
+            if capabilities.enhanced_mode_available and access_mode != DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED:
+                return ExtractorAccessDecision(
+                    extractor_key=extractor_context.extractor_key,
+                    state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED,
+                    action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
+                    detail=detail,
+                    scope=scope,
+                    access_mode=access_mode,
+                    suggested_access_mode=DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED,
+                    provider_state=provider_state,
+                    can_continue_basic=False,
+                )
+            unavailable_state = (
+                DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING
+                if provider_state == DownloadPolicy.EXTRACTOR_PROVIDER_STATE_MISSING
+                else DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE
+            )
+            unavailable_action = (
+                DownloadPolicy.EXTRACTOR_ACCESS_ACTION_INSTALL_PROVIDER
+                if unavailable_state == DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING
+                else DownloadPolicy.EXTRACTOR_ACCESS_ACTION_NONE
+            )
+            return ExtractorAccessDecision(
+                extractor_key=extractor_context.extractor_key,
+                state=unavailable_state,
+                action=unavailable_action,
+                detail=detail or capabilities.provider_detail or capabilities.basic_only_reason,
+                scope=scope,
+                access_mode=access_mode,
+                suggested_access_mode=DownloadPolicy.EXTRACTOR_ACCESS_MODE_UNAVAILABLE,
+                provider_state=provider_state,
+                can_continue_basic=False,
+            )
+
+        if bool(runtime_payload.get("extractor_access_limited")):
+            if access_mode == DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED:
+                return ExtractorAccessDecision(
+                    extractor_key=extractor_context.extractor_key,
+                    state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_DEGRADED,
+                    action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_LIMITED_FORMATS,
+                    detail=detail,
+                    scope=scope,
+                    access_mode=access_mode,
+                    suggested_access_mode=access_mode,
+                    provider_state=provider_state,
+                    can_continue_basic=True,
+                )
+            if capabilities.enhanced_mode_available:
+                return ExtractorAccessDecision(
+                    extractor_key=extractor_context.extractor_key,
+                    state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED,
+                    action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
+                    detail=detail,
+                    scope=scope,
+                    access_mode=access_mode,
+                    suggested_access_mode=DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED,
+                    provider_state=provider_state,
+                    can_continue_basic=True,
+                )
+            return ExtractorAccessDecision(
+                extractor_key=extractor_context.extractor_key,
+                state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_BASIC_LIMITED,
+                action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
+                detail=detail or capabilities.provider_detail or capabilities.basic_only_reason,
+                scope=scope,
+                access_mode=access_mode,
+                suggested_access_mode=DownloadPolicy.EXTRACTOR_ACCESS_MODE_BASIC,
+                provider_state=provider_state,
+                can_continue_basic=True,
+            )
+
+        if access_mode == DownloadPolicy.EXTRACTOR_ACCESS_MODE_ENHANCED:
+            return ExtractorAccessDecision(
+                extractor_key=extractor_context.extractor_key,
+                state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_ACTIVE,
+                action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_NONE,
+                detail=detail,
+                scope=scope,
+                access_mode=access_mode,
+                suggested_access_mode=access_mode,
+                provider_state=provider_state,
+                can_continue_basic=True,
+            )
+
+        if access_mode == DownloadPolicy.EXTRACTOR_ACCESS_MODE_DEGRADED:
+            return ExtractorAccessDecision(
+                extractor_key=extractor_context.extractor_key,
+                state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_DEGRADED,
+                action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
+                detail=detail or capabilities.provider_detail or capabilities.basic_only_reason,
+                scope=scope,
+                access_mode=access_mode,
+                suggested_access_mode=suggested_access_mode,
+                provider_state=provider_state,
+                can_continue_basic=True,
+            )
+
+        if access_mode == DownloadPolicy.EXTRACTOR_ACCESS_MODE_UNAVAILABLE:
+            return ExtractorAccessDecision(
+                extractor_key=extractor_context.extractor_key,
+                state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE,
+                action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_NONE,
+                detail=detail or capabilities.provider_detail or capabilities.basic_only_reason,
+                scope=scope,
+                access_mode=access_mode,
+                suggested_access_mode=DownloadPolicy.EXTRACTOR_ACCESS_MODE_UNAVAILABLE,
+                provider_state=provider_state,
+                can_continue_basic=False,
+            )
+
+        return ExtractorAccessDecision(
+            extractor_key=extractor_context.extractor_key,
+            state=DownloadPolicy.EXTRACTOR_ACCESS_STATE_BASIC_OK,
+            action=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_NONE,
+            detail=detail,
+            scope=scope,
+            access_mode=access_mode,
+            suggested_access_mode=suggested_access_mode,
+            provider_state=provider_state,
+            can_continue_basic=True,
+        )
+
+    @staticmethod
+    def _access_intervention_request_from_decision(
+        decision: ExtractorAccessDecision,
+        *,
+        source_label: str = "",
+    ) -> SourceAccessInterventionRequest | None:
+        """Build a user-actionable source-access intervention from an extractor decision."""
+        state = str(decision.state or "").strip().lower()
+        action = str(decision.action or "").strip().lower()
+        if action == DownloadPolicy.EXTRACTOR_ACCESS_ACTION_NONE and not decision.can_continue_basic:
+            return None
+        can_retry_enhanced = action == DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED
+        can_continue_basic = bool(decision.can_continue_basic)
+        can_continue_degraded = (
+            str(decision.suggested_access_mode or "").strip().lower()
+            == DownloadPolicy.EXTRACTOR_ACCESS_MODE_DEGRADED
+        )
+        if not (can_retry_enhanced or can_continue_basic or can_continue_degraded):
+            return None
+        return SourceAccessInterventionRequest(
+            kind="enhanced_access",
+            source_kind=str(decision.extractor_key or "generic"),
+            source_label=str(source_label or decision.extractor_key or "").strip(),
+            detail=str(decision.detail or "").strip(),
+            state=state,
+            action=action,
+            suggested_access_mode=str(decision.suggested_access_mode or "").strip(),
+            provider_state=str(decision.provider_state or "").strip(),
+            can_retry_enhanced=can_retry_enhanced,
+            can_continue_basic=can_continue_basic,
+            can_continue_degraded=can_continue_degraded,
+        )
+
+    @staticmethod
+    def access_intervention_request_from_meta(meta: dict[str, Any] | None) -> SourceAccessInterventionRequest | None:
+        """Return a user-actionable source-access intervention derived from probe metadata."""
+        if not isinstance(meta, dict):
+            return None
+        payload = meta.get("extractor_access_decision")
+        if not isinstance(payload, dict):
+            diagnostics = meta.get("probe_diagnostics")
+            if isinstance(diagnostics, dict):
+                payload = dict((diagnostics.get("details") or {})).get("extractor_access_decision")
+        if not isinstance(payload, dict):
+            return None
+        decision = ExtractorAccessDecision(
+            extractor_key=str(payload.get("extractor_key") or "generic"),
+            state=str(payload.get("state") or DownloadPolicy.EXTRACTOR_ACCESS_STATE_BASIC_OK),
+            action=str(payload.get("action") or DownloadPolicy.EXTRACTOR_ACCESS_ACTION_NONE),
+            detail=str(payload.get("detail") or ""),
+            scope=str(payload.get("scope") or ""),
+            access_mode=str(payload.get("access_mode") or DownloadPolicy.EXTRACTOR_ACCESS_MODE_BASIC),
+            suggested_access_mode=str(
+                payload.get("suggested_access_mode") or DownloadPolicy.EXTRACTOR_ACCESS_MODE_BASIC
+            ),
+            provider_state=str(payload.get("provider_state") or ""),
+            can_continue_basic=bool(payload.get("can_continue_basic", True)),
+        )
+        source_label = str(
+            meta.get("title")
+            or meta.get("webpage_url")
+            or meta.get("extractor")
+            or meta.get("extractor_key")
+            or decision.extractor_key
+            or ""
+        ).strip()
+        request = DownloadService._access_intervention_request_from_decision(decision, source_label=source_label)
+        if request is None:
+            return None
+        if request.can_retry_enhanced:
+            return request
+        if decision.state in {
+            DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING,
+            DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE,
+        } and (request.can_continue_basic or request.can_continue_degraded):
+            return request
+        return None
+
+    @staticmethod
+    def should_offer_source_access_intervention(
+        ex: DownloadError,
+        *,
+        url: str,
+        operation: str,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
+    ) -> bool:
+        """Return True when a download error can be resolved through an access intervention."""
+        err_key = str(ex.key or "").strip()
+        if err_key in {
+            "error.down.authentication_required",
+            "error.down.browser_cookies_unavailable",
+            "error.down.cookie_file_invalid",
+        }:
+            context = DownloadService.resolve_cookie_context(
+                browser_cookies_mode_override=browser_cookies_mode_override,
+                cookie_file_override=cookie_file_override,
+                interactive=True,
+            )
+            if err_key in {"error.down.authentication_required", "error.down.browser_cookies_unavailable"}:
+                return context.mode == "from_browser"
+            return context.mode == "from_file"
+        if err_key == "error.down.extended_access_required":
+            source_access_context = DownloadService.resolve_source_access_context(
+                url,
+                operation=operation,
+                browser_cookies_mode_override=browser_cookies_mode_override,
+                cookie_file_override=cookie_file_override,
+                access_mode_override=access_mode_override,
+                interactive=True,
+            )
+            decision = DownloadService._build_extractor_access_decision(
+                extractor_context=source_access_context.extractor_context,
+                runtime={
+                    "extended_access_required": True,
+                    "extended_access_required_detail": str((ex.params or {}).get("detail") or ""),
+                },
+            )
+            return DownloadService._access_intervention_request_from_decision(
+                decision,
+                source_label=sanitize_url_for_log(url),
+            ) is not None
+        return False
+
+    @staticmethod
+    def intervention_request_from_error(
+        ex: DownloadError,
+        *,
+        url: str,
+        operation: str,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
+    ) -> SourceAccessInterventionRequired | None:
+        """Build a source-access intervention from a recoverable download error."""
+        if not DownloadService.should_offer_source_access_intervention(
+            ex,
+            url=url,
+            operation=operation,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+        ):
+            return None
+
+        detail = str((ex.params or {}).get("detail") or "").strip()
+        err_key = str(ex.key or "").strip()
+        if err_key in {
+            "error.down.authentication_required",
+            "error.down.browser_cookies_unavailable",
+            "error.down.cookie_file_invalid",
+        }:
+            context = DownloadService.resolve_cookie_context(
+                browser_cookies_mode_override=browser_cookies_mode_override,
+                cookie_file_override=cookie_file_override,
+                interactive=True,
+            )
+            return SourceAccessInterventionRequired(
+                SourceAccessInterventionRequest(
+                    kind="cookies",
+                    source_kind="file" if context.mode == "from_file" else "browser",
+                    source_label=DownloadService._cookie_source_label(context),
+                    detail=detail,
+                    can_retry=context.mode == "from_browser",
+                    can_choose_cookie_file=True,
+                    can_continue_without_cookies=True,
+                )
+            )
+
+        source_access_context = DownloadService.resolve_source_access_context(
+            url,
+            operation=operation,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+            interactive=True,
+        )
+        decision = DownloadService._build_extractor_access_decision(
+            extractor_context=source_access_context.extractor_context,
+            runtime={
+                "extended_access_required": True,
+                "extended_access_required_detail": detail,
+            },
+        )
+        request = DownloadService._access_intervention_request_from_decision(
+            decision,
+            source_label=sanitize_url_for_log(url),
+        )
+        if request is None:
+            return None
+        return SourceAccessInterventionRequired(request)
 
     @staticmethod
     def _probe_diagnostics(meta: dict[str, Any] | None) -> dict[str, Any]:
@@ -324,7 +893,7 @@ class DownloadService:
     def _raise_if_probe_blocks_download(
         meta: dict[str, Any] | None,
         *,
-        browser_cookies_mode_override: str | None,
+        cookie_context: DownloadCookieContext,
     ) -> None:
         diagnostics = DownloadService._probe_diagnostics(meta)
         warnings = {
@@ -340,14 +909,19 @@ class DownloadService:
             detail = str(details.get("authentication_detail") or "").strip()
             raise DownloadError("error.down.authentication_required", detail=detail)
 
+        if "extended_access_required" in warnings:
+            detail = str(details.get("extended_access_required_detail") or "").strip()
+            raise DownloadError("error.down.extended_access_required", detail=detail)
+
         if {"media_unavailable", "no_downloadable_formats", "no_public_formats"} & warnings:
             detail = str(details.get("no_downloadable_formats_detail") or "").strip()
+            if not detail:
+                detail = str(details.get("extractor_access_limited_detail") or "").strip()
             if not detail:
                 detail = "no downloadable media formats found during probe"
             raise DownloadError("error.down.no_downloadable_formats", detail=detail)
 
-        cookies_mode = DownloadService._effective_browser_cookies_mode(browser_cookies_mode_override)
-        if cookies_mode != "from_browser" or "browser_cookies_unavailable" not in warnings:
+        if cookie_context.mode != "from_browser" or "browser_cookies_unavailable" not in warnings:
             return
 
         failures = list(details.get("cookie_browser_failures") or [])
@@ -440,6 +1014,7 @@ class DownloadService:
         meta: dict[str, Any] | None = None,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
     ) -> Path | None:
         min_h = AppConfig.downloader_min_video_height()
         max_h = AppConfig.downloader_max_video_height()
@@ -459,7 +1034,6 @@ class DownloadService:
 
         audio_track_id_norm = str(audio_track_id or "").strip() or None
         lang_base = ""
-        selected_probe_client = "default"
 
         if meta is None:
             try:
@@ -467,18 +1041,44 @@ class DownloadService:
                     url,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
                     interactive=True,
                 )
             except DownloadError as ex:
-                err_key = str(getattr(ex, "key", "") or "").strip()
+                err_key = str(ex.key or "").strip()
                 if audio_track_id_norm or err_key in {
                     "error.down.authentication_required",
                     "error.down.browser_cookies_unavailable",
+                    "error.down.cookie_file_invalid",
+                    "error.down.extended_access_required",
                 }:
                     raise
                 meta = None
 
-        self._raise_if_probe_blocks_download(meta, browser_cookies_mode_override=browser_cookies_mode_override)
+        source_access_context = self.resolve_source_access_context(
+            url,
+            operation=DownloadPolicy.DOWNLOAD_OPERATION_DOWNLOAD,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+            interactive=True,
+        )
+        cookie_context = source_access_context.cookie_context
+        extractor_context = source_access_context.extractor_context
+        selected_probe_client = str(extractor_context.client or "").strip().lower() or "default"
+        access_request = self.access_intervention_request_from_meta(meta)
+        if access_request is not None:
+            current_mode = DownloadPolicy.normalize_extractor_access_mode(extractor_context.access_mode)
+            suggested_mode = DownloadPolicy.normalize_extractor_access_mode(access_request.suggested_access_mode)
+            explicit_mode = (
+                DownloadPolicy.normalize_extractor_access_mode(access_mode_override)
+                if access_mode_override
+                else ""
+            )
+            should_raise_access_request = not (explicit_mode and explicit_mode == current_mode)
+            if should_raise_access_request and suggested_mode != current_mode:
+                raise SourceAccessInterventionRequired(access_request)
+        self._raise_if_probe_blocks_download(meta, cookie_context=cookie_context)
 
         selected_audio_track = None
         if audio_track_id_norm:
@@ -490,18 +1090,25 @@ class DownloadService:
                 )
 
         if selected_audio_track is not None:
+            ordered_probe_clients = self._ordered_track_download_clients(
+                selected_audio_track,
+                meta=meta,
+                extractor_context=extractor_context,
+            )
             plan, selected_probe_client = DownloadPlanBuilder.build_explicit_plan(
                 kind=kind,
                 quality=quality,
                 plan_ext=plan_ext,
                 lang_base=lang_base,
                 selected_audio_track=selected_audio_track,
+                ordered_probe_clients=ordered_probe_clients,
                 purpose=purpose_l,
                 keep_output=bool(keep_output),
                 meta=meta,
                 min_h=min_h,
                 max_h=max_h,
             )
+            source_access_context = source_access_context.with_client(selected_probe_client)
         else:
             if kind == "audio":
                 plan = DownloadPlanBuilder.build_audio_plan(
@@ -531,15 +1138,14 @@ class DownloadService:
         stage_dir = DownloadArtifactManager.create_download_stage(stem=stem)
         outtmpl = DownloadArtifactManager.build_stage_outtmpl(stage_dir=stage_dir, stem=stem)
 
+        self._validate_cookie_context(cookie_context)
         ydl_opts: dict[str, Any] = YtdlpGateway.base_ydl_opts(
             url=url,
             quiet=not _LOG.isEnabledFor(logging.DEBUG),
             skip_download=False,
-            browser_cookies_mode_override=browser_cookies_mode_override,
-            cookie_file_override=cookie_file_override,
+            cookie_context=cookie_context,
+            source_access_context=source_access_context,
         )
-        if selected_audio_track is not None:
-            ydl_opts = YtdlpGateway.with_probe_client_opts(ydl_opts, probe_client=selected_probe_client)
         ydl_opts.update(
             {
                 "format": plan.get("format")
@@ -690,7 +1296,7 @@ class DownloadService:
         except DownloadError:
             DownloadArtifactManager.cleanup_stage_dir(stage_dir)
             raise
-        except DownloadInterventionRequired:
+        except SourceAccessInterventionRequired:
             DownloadArtifactManager.cleanup_stage_dir(stage_dir)
             raise
         except Exception as ex:

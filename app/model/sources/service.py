@@ -8,6 +8,7 @@ from typing import Any
 from app.model.core.domain.errors import AppError
 from app.model.core.domain.results import ExpandedSourceItem, SourceExpansionResult
 from app.model.download.domain import DownloadError
+from app.model.download.policy import DownloadPolicy
 from app.model.download.service import DownloadService
 from app.model.sources.parser import collect_media_files, is_playlist_url, parse_source_input
 from app.model.sources.probe import is_url_source
@@ -31,7 +32,15 @@ class SourceExpansionService:
             return
         cb(str(key or ""), dict(params or {}))
 
-    def expand_manual_input(self, raw: str) -> SourceExpansionResult:
+    def expand_manual_input(
+        self,
+        raw: str,
+        *,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        access_mode_override: str | None = None,
+        interactive: bool = False,
+    ) -> SourceExpansionResult:
         self._emit_status("dialog.expansion_progress.manual_input")
         parsed = parse_source_input(raw)
         if not parsed.get("ok", False):
@@ -49,9 +58,26 @@ class SourceExpansionService:
                 playlist = DownloadService().resolve_playlist(
                     key,
                     cancel_check=self._cancel_check,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
+                    interactive=interactive,
                 )
             except DownloadError as ex:
-                if str(getattr(ex, "key", "")) != "error.playlist.not_playlist":
+                if str(ex.key or "") == "error.playlist.not_playlist":
+                    pass
+                else:
+                    if interactive:
+                        intervention = DownloadService.intervention_request_from_error(
+                            ex,
+                            url=key,
+                            operation=DownloadPolicy.DOWNLOAD_OPERATION_PLAYLIST,
+                            browser_cookies_mode_override=browser_cookies_mode_override,
+                            cookie_file_override=cookie_file_override,
+                            access_mode_override=access_mode_override,
+                        )
+                        if intervention is not None:
+                            raise intervention
                     raise
             else:
                 return SourceExpansionResult(

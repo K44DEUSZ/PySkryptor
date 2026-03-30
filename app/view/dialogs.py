@@ -12,6 +12,7 @@ from app.model.core.config.config import AppConfig
 from app.model.core.config.meta import AppMeta
 from app.model.core.runtime.localization import tr
 from app.model.core.utils.string_utils import sanitize_filename
+from app.model.download.policy import DownloadPolicy
 from app.view.support.theme_runtime import active_theme_key, apply_windows_dark_titlebar
 from app.view.support.widget_setup import (
     build_layout_host,
@@ -850,26 +851,137 @@ def _choose_cookie_file(parent: QtWidgets.QWidget | None) -> str:
     return str(file_path or "").strip()
 
 
-def ask_browser_cookies_intervention(
+def ask_source_access_intervention(
     parent: QtWidgets.QWidget,
     *,
-    browser: str,
+    kind: str,
+    source_kind: str = "",
+    source_label: str = "",
     detail: str = "",
+    state: str = "",
+    provider_state: str = "",
+    can_retry: bool = True,
+    can_choose_cookie_file: bool = True,
     can_continue_without_cookies: bool = True,
+    can_retry_enhanced: bool = False,
+    can_continue_basic: bool = False,
+    can_continue_degraded: bool = False,
 ) -> tuple[str, str]:
-    """Return the next action for a user-actionable browser-cookie failure."""
+    """Return the next action for a user-actionable source-access failure."""
     cfg = ui(parent)
     dlg = QtWidgets.QDialog(parent)
     _tune_dialog_window(dlg, cfg)
     _lock_close(dlg)
-    dlg.setWindowTitle(tr("dialog.down.cookies.title"))
 
     lay = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(lay, cfg)
 
-    browser_label = str(browser or "").strip() or tr("dialog.down.cookies.browser_fallback")
-    lay.addWidget(_section_label(tr("dialog.down.cookies.header", browser=browser_label)))
-    lay.addWidget(_wrap_label(tr("dialog.down.cookies.text", browser=browser_label)))
+    normalized_kind = str(kind or "cookies").strip().lower() or "cookies"
+    selected_action = {"name": "cancel"}
+
+    if normalized_kind == "enhanced_access":
+        dlg.setWindowTitle(tr("dialog.down.access.title"))
+        label = str(source_label or source_kind or tr("dialog.down.access.source_fallback")).strip()
+        state_key = str(state or "").strip().lower()
+        header_key = "dialog.down.access.header"
+        text_key = "dialog.down.access.text"
+        if state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED:
+            text_key = "dialog.down.access.text_enhanced_recommended"
+        elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED:
+            text_key = "dialog.down.access.text_enhanced_required"
+        elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING:
+            text_key = "dialog.down.access.text_provider_missing"
+        elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE:
+            text_key = "dialog.down.access.text_unavailable"
+        lay.addWidget(_section_label(tr(header_key, source=label)))
+        lay.addWidget(_wrap_label(tr(text_key, source=label)))
+        detail_text = str(detail or "").strip()
+        if detail_text:
+            lbl_detail = _wrap_label(detail_text)
+            setup_label(lbl_detail, role="caption")
+            lay.addWidget(lbl_detail)
+        provider_text = str(provider_state or "").strip()
+        if provider_text and provider_text not in {"none", "available"}:
+            lbl_provider = _wrap_label(tr("dialog.down.access.provider_state", state=provider_text))
+            setup_label(lbl_provider, role="caption")
+            lay.addWidget(lbl_provider)
+
+        lay.addStretch(1)
+        button_box = QtWidgets.QDialogButtonBox()
+        btn_retry_enhanced = None
+        if can_retry_enhanced:
+            btn_retry_enhanced = button_box.addButton(
+                tr("dialog.down.access.retry_enhanced"),
+                QtWidgets.QDialogButtonBox.AcceptRole,
+            )
+        btn_continue_basic = None
+        if can_continue_basic:
+            btn_continue_basic = button_box.addButton(
+                tr("dialog.down.access.continue_basic"),
+                QtWidgets.QDialogButtonBox.ActionRole,
+            )
+        btn_continue_degraded = None
+        if can_continue_degraded:
+            btn_continue_degraded = button_box.addButton(
+                tr("dialog.down.access.continue_degraded"),
+                QtWidgets.QDialogButtonBox.ActionRole,
+            )
+        btn_cancel = button_box.addButton(tr("ctrl.cancel"), QtWidgets.QDialogButtonBox.RejectRole)
+        buttons = [
+            button
+            for button in (
+                btn_retry_enhanced,
+                btn_continue_basic,
+                btn_continue_degraded,
+                btn_cancel,
+            )
+            if button is not None
+        ]
+        _tune_buttons(cfg, *buttons)
+        if btn_retry_enhanced is not None:
+            btn_retry_enhanced.setDefault(True)
+        elif btn_continue_basic is not None:
+            btn_continue_basic.setDefault(True)
+
+        def finish(action_name: str) -> None:
+            selected_action["name"] = str(action_name or "cancel")
+            if action_name == "cancel":
+                dlg.reject()
+            else:
+                dlg.accept()
+
+        if btn_retry_enhanced is not None:
+            connect_qt_signal(
+                btn_retry_enhanced.clicked,
+                lambda: finish(DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED),
+            )
+        if btn_continue_basic is not None:
+            connect_qt_signal(
+                btn_continue_basic.clicked,
+                lambda: finish(DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC),
+            )
+        if btn_continue_degraded is not None:
+            connect_qt_signal(
+                btn_continue_degraded.clicked,
+                lambda: finish(DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED),
+            )
+        connect_qt_signal(btn_cancel.clicked, lambda: finish("cancel"))
+        lay.addWidget(button_box)
+
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return "cancel", ""
+        return str(selected_action.get("name") or "cancel"), ""
+
+    dlg.setWindowTitle(tr("dialog.down.cookies.title"))
+    source_kind = str(source_kind or "browser").strip().lower()
+    if source_kind == "file":
+        label = str(source_label or "").strip() or tr("dialog.down.cookies.source_file_fallback")
+        lay.addWidget(_section_label(tr("dialog.down.cookies.header_file", file=label)))
+        lay.addWidget(_wrap_label(tr("dialog.down.cookies.text_file", file=label)))
+    else:
+        label = str(source_label or "").strip() or tr("dialog.down.cookies.source_browser_fallback")
+        lay.addWidget(_section_label(tr("dialog.down.cookies.header_browser", browser=label)))
+        lay.addWidget(_wrap_label(tr("dialog.down.cookies.text_browser", browser=label)))
 
     detail_text = str(detail or "").strip()
     if detail_text:
@@ -880,11 +992,15 @@ def ask_browser_cookies_intervention(
     lay.addStretch(1)
 
     button_box = QtWidgets.QDialogButtonBox()
-    btn_retry = button_box.addButton(tr("dialog.down.cookies.retry"), QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_use_file = button_box.addButton(
-        tr("dialog.down.cookies.use_file"),
-        QtWidgets.QDialogButtonBox.ActionRole,
-    )
+    btn_retry = None
+    if can_retry:
+        btn_retry = button_box.addButton(tr("dialog.down.cookies.retry"), QtWidgets.QDialogButtonBox.AcceptRole)
+    btn_use_file = None
+    if can_choose_cookie_file:
+        btn_use_file = button_box.addButton(
+            tr("dialog.down.cookies.use_file"),
+            QtWidgets.QDialogButtonBox.ActionRole,
+        )
     btn_without = None
     if can_continue_without_cookies:
         btn_without = button_box.addButton(
@@ -893,13 +1009,12 @@ def ask_browser_cookies_intervention(
         )
     btn_cancel = button_box.addButton(tr("ctrl.cancel"), QtWidgets.QDialogButtonBox.RejectRole)
 
-    buttons = [btn_retry, btn_use_file, btn_cancel]
-    if btn_without is not None:
-        buttons.insert(2, btn_without)
+    buttons = [button for button in (btn_retry, btn_use_file, btn_without, btn_cancel) if button is not None]
     _tune_buttons(cfg, *buttons)
-    btn_retry.setDefault(True)
-
-    selected_action = {"name": "cancel"}
+    if btn_retry is not None:
+        btn_retry.setDefault(True)
+    elif btn_use_file is not None:
+        btn_use_file.setDefault(True)
 
     def finish(action_name: str) -> None:
         selected_action["name"] = str(action_name or "cancel")
@@ -908,8 +1023,10 @@ def ask_browser_cookies_intervention(
         else:
             dlg.accept()
 
-    connect_qt_signal(btn_retry.clicked, lambda: finish("retry"))
-    connect_qt_signal(btn_use_file.clicked, lambda: finish("use_cookie_file"))
+    if btn_retry is not None:
+        connect_qt_signal(btn_retry.clicked, lambda: finish("retry"))
+    if btn_use_file is not None:
+        connect_qt_signal(btn_use_file.clicked, lambda: finish("use_cookie_file"))
     if btn_without is not None:
         connect_qt_signal(btn_without.clicked, lambda: finish("without_cookies"))
     connect_qt_signal(btn_cancel.clicked, lambda: finish("cancel"))

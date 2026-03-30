@@ -32,6 +32,7 @@ def start_expansion_worker(
     emit_status: Callable[[str, dict[str, Any]], None],
     emit_ready: Callable[[object], None],
     emit_failed: Callable[[str, dict[str, Any]], None],
+    emit_access_intervention: Callable[[dict[str, Any]], None] | None,
     is_busy: Callable[[], bool],
 ) -> SourceExpansionWorker | None:
     """Start a source-expansion worker using the shared coordinator lifecycle."""
@@ -43,6 +44,8 @@ def start_expansion_worker(
         wk.status_changed.connect(emit_status)
         wk.expanded.connect(emit_ready)
         wk.failed.connect(emit_failed)
+        if emit_access_intervention is not None:
+            wk.access_intervention_required.connect(emit_access_intervention)
 
     def _done() -> None:
         set_worker(None)
@@ -64,6 +67,7 @@ def start_manual_input_expansion(
     emit_status: Callable[[str, dict[str, Any]], None],
     emit_ready: Callable[[object], None],
     emit_failed: Callable[[str, dict[str, Any]], None],
+    emit_access_intervention: Callable[[dict[str, Any]], None] | None,
     is_busy: Callable[[], bool],
 ) -> SourceExpansionWorker | None:
     """Start manual-input expansion if no expansion worker is already running."""
@@ -80,6 +84,7 @@ def start_manual_input_expansion(
         emit_status=emit_status,
         emit_ready=emit_ready,
         emit_failed=emit_failed,
+        emit_access_intervention=emit_access_intervention,
         is_busy=is_busy,
     )
 
@@ -96,6 +101,7 @@ def start_local_paths_expansion(
     emit_status: Callable[[str, dict[str, Any]], None],
     emit_ready: Callable[[object], None],
     emit_failed: Callable[[str, dict[str, Any]], None],
+    emit_access_intervention: Callable[[dict[str, Any]], None] | None,
     is_busy: Callable[[], bool],
 ) -> SourceExpansionWorker | None:
     """Start local-path expansion if no expansion worker is already running."""
@@ -112,6 +118,7 @@ def start_local_paths_expansion(
         emit_status=emit_status,
         emit_ready=emit_ready,
         emit_failed=emit_failed,
+        emit_access_intervention=emit_access_intervention,
         is_busy=is_busy,
     )
 

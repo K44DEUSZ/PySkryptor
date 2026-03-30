@@ -2,10 +2,34 @@
 from __future__ import annotations
 
 import os
+import pkgutil
 import sys
+from functools import lru_cache
+from importlib import metadata
+from importlib.util import find_spec
 from pathlib import Path
 
+from app.model.download.domain import ExtractorCapabilityReport
 from app.model.download.policy import DownloadPolicy
+
+_PROVIDER_PACKAGE_HINTS: tuple[str, ...] = (
+    "bgutil-ytdlp-pot-provider",
+    "yt-dlp-getpot-wpc",
+    "po-token",
+    "po_token",
+    "potoken",
+    "bgutil",
+    "getpot",
+)
+
+_PROVIDER_NAMESPACE_HINTS: tuple[str, ...] = (
+    "bgutil",
+    "po",
+    "pot",
+    "token",
+    "getpot",
+    "wpc",
+)
 
 
 def _browser_from_hint(value: str | None) -> str | None:
@@ -123,6 +147,117 @@ def _firefox_cookie_store_paths(profile_root: Path) -> tuple[Path, ...]:
     for profile_dir in profile_dirs:
         candidates.append(profile_dir / "cookies.sqlite")
     return _existing_paths(candidates)
+
+
+@lru_cache(maxsize=None)
+def _distribution_names() -> tuple[str, ...]:
+    names: list[str] = []
+    try:
+        distributions = metadata.distributions()
+    except (AttributeError, ImportError, OSError, TypeError, ValueError):
+        return tuple()
+    for dist in distributions:
+        try:
+            name = str(dist.metadata["Name"] or "").strip().lower()
+        except (AttributeError, KeyError, TypeError, ValueError):
+            name = ""
+        if name:
+            names.append(name)
+    return tuple(dict.fromkeys(names))
+
+
+@lru_cache(maxsize=None)
+def _namespace_module_names(namespace: str) -> tuple[str, ...]:
+    try:
+        spec = find_spec(namespace)
+    except (ImportError, AttributeError, ModuleNotFoundError, ValueError):
+        return tuple()
+    if spec is None or not spec.submodule_search_locations:
+        return tuple()
+    names: list[str] = []
+    for module_info in pkgutil.iter_modules(spec.submodule_search_locations):
+        names.append(str(module_info.name or "").strip().lower())
+    return tuple(dict.fromkeys(names))
+
+
+def _provider_install_hint(provider_name: str) -> str:
+    normalized = str(provider_name or "").strip().lower()
+    if "bgutil" in normalized:
+        return "bgutil-ytdlp-pot-provider"
+    if "getpot" in normalized or "wpc" in normalized:
+        return "yt-dlp-getpot-wpc"
+    return "bgutil-ytdlp-pot-provider"
+
+
+@lru_cache(maxsize=None)
+def detect_extended_extractor_provider_name() -> str:
+    """Return the first likely provider plugin name available in the runtime."""
+    for name in _distribution_names():
+        if "yt-dlp" in name and any(token in name for token in _PROVIDER_PACKAGE_HINTS):
+            return name
+        if name.startswith("bgutil") and "yt" in name:
+            return name
+
+    namespace_modules = list(_namespace_module_names("yt_dlp_plugins"))
+    namespace_modules.extend(_namespace_module_names("yt_dlp_plugins.extractor"))
+    for module_name in namespace_modules:
+        if any(token in module_name for token in _PROVIDER_NAMESPACE_HINTS):
+            return f"yt_dlp_plugins.{module_name}"
+    return ""
+
+
+@lru_cache(maxsize=None)
+def has_extended_extractor_provider() -> bool:
+    """Return True when a likely extended extractor provider plugin is available."""
+    return bool(detect_extended_extractor_provider_name())
+
+
+@lru_cache(maxsize=None)
+def detect_extractor_capabilities(extractor_key: str | None) -> ExtractorCapabilityReport:
+    """Return a runtime capability snapshot for the given extractor strategy."""
+    normalized_extractor_key = DownloadPolicy.normalize_extractor_key(extractor_key)
+    if normalized_extractor_key != DownloadPolicy.EXTRACTOR_KEY_YOUTUBE:
+        return ExtractorCapabilityReport(
+            extractor_key=normalized_extractor_key,
+            provider_state=DownloadPolicy.EXTRACTOR_PROVIDER_STATE_NONE,
+        )
+
+    provider_name = detect_extended_extractor_provider_name()
+    provider_available = bool(provider_name)
+    provider_state = (
+        DownloadPolicy.EXTRACTOR_PROVIDER_STATE_AVAILABLE
+        if provider_available
+        else DownloadPolicy.EXTRACTOR_PROVIDER_STATE_MISSING
+    )
+    provider_install_hint = _provider_install_hint(provider_name)
+    notes: list[str] = []
+    basic_only_reason = ""
+
+    if provider_available:
+        notes.append("provider_available")
+        notes.append(provider_name)
+        notes.append("enhanced_mode_available")
+        provider_detail = provider_name
+    else:
+        basic_only_reason = DownloadPolicy.EXTRACTOR_PROVIDER_STATE_MISSING
+        provider_detail = "provider plugin not detected in runtime"
+        notes.append(DownloadPolicy.EXTRACTOR_PROVIDER_STATE_MISSING)
+        notes.append("basic_only")
+
+    return ExtractorCapabilityReport(
+        extractor_key=normalized_extractor_key,
+        supports_extended_access=True,
+        enhanced_mode_available=bool(provider_available),
+        provider_plugin_available=bool(provider_available),
+        provider_name=provider_name,
+        provider_state=provider_state,
+        provider_install_hint=provider_install_hint,
+        provider_detail=provider_detail,
+        visitor_data_supported=bool(provider_available),
+        po_token_supported=bool(provider_available),
+        basic_only_reason=basic_only_reason,
+        notes=tuple(notes),
+    )
 
 
 def detect_windows_installed_cookie_browsers() -> tuple[str, ...]:

@@ -170,7 +170,7 @@
         "header": "The file already exists"
       },
       "cookies": {
-        "title": "Browser cookies unavailable",
+        "title": "Cookies unavailable",
         "header": "Could not read cookies from {browser}",
         "text": "Close the browser and try again, or continue without cookies for this operation.",
         "retry": "Retry after closing browser",
@@ -178,7 +178,27 @@
         "browser_fallback": "selected browser",
         "use_file": "Use cookies file...",
         "file_title": "Select cookies file",
-        "file_filter": "Cookies files (*.txt *.sqlite *.db);;All files (*.*)"
+        "file_filter": "Cookies files (*.txt *.sqlite *.db);;All files (*.*)",
+        "header_browser": "Could not read cookies from {browser}",
+        "header_file": "Could not use cookies file {file}",
+        "text_browser": "Close the browser and try again, choose a cookies file, or continue without cookies for this operation.",
+        "text_file": "Choose a different cookies file or continue without cookies for this operation.",
+        "source_browser_fallback": "selected browser",
+        "source_file_fallback": "selected cookies file"
+      },
+      "access": {
+        "title": "Source access requires a decision",
+        "header": "Source {source} requires extended access",
+        "text": "This source needs an additional access strategy. Choose the next step for this operation.",
+        "text_enhanced_recommended": "This source may work more completely in enhanced access mode. You can retry with enhanced access or continue in basic mode.",
+        "text_enhanced_required": "This source requires enhanced access. If the environment supports it, retry in enhanced mode.",
+        "text_provider_missing": "Full access to this source requires additional runtime support. You can continue in basic mode only when the source still offers limited access.",
+        "text_unavailable": "Full access to this source is currently unavailable. You can continue only in a limited mode when such a path exists.",
+        "retry_enhanced": "Retry with enhanced access",
+        "continue_basic": "Continue in basic mode",
+        "continue_degraded": "Continue in limited mode",
+        "provider_state": "Extended access state: {state}",
+        "source_fallback": "current source"
       }
     },
     "confirm": {
@@ -278,7 +298,9 @@
       "browser_cookies_unavailable": "❌ Browser cookies are unavailable. Details: {detail}",
       "authentication_required": "❌ This source requires authentication. Details: {detail}",
       "audio_track_probe_only": "❌ The selected audio track was detected only during probing and cannot be downloaded reliably.",
-      "no_downloadable_formats": "❌ No downloadable media formats are available. Details: {detail}"
+      "no_downloadable_formats": "❌ No downloadable media formats are available. Details: {detail}",
+      "cookie_file_invalid": "❌ Cookies file is invalid. Details: {detail}",
+      "extended_access_required": "❌ This source requires extended extractor access. Details: {detail}"
     },
     "external_tool_failed": "❌ External tool failed. Command: {cmd}",
     "external_tool_timeout": "❌ External tool timed out after {seconds} s.",
@@ -715,6 +737,9 @@
       "guarded_tip": "Filters silence, weak signal, and suspicious fragments most aggressively. Best for recordings with pauses, noise, background music, or a high hallucination risk.",
       "custom": "Custom",
       "custom_tip": "Unlocks manual editing of transcription profile parameters. Starts from the values of the currently selected built-in profile."
+    },
+    "tooltip": {
+      "browser_cookies_file_path": "Path to an exported cookies file used in advanced mode for authenticated yt_dlp downloads. For some services, this is more stable than reading a live browser profile when browser-cookie access is blocked or rotated."
     }
   },
   "status": {
@@ -730,7 +755,10 @@
       "browser_cookies_unavailable": "Browser cookies unavailable",
       "authentication_required": "Authentication required",
       "audio_tracks_probe_only": "Some detected audio tracks are probe-only",
-      "media_unavailable": "No downloadable media formats available"
+      "media_unavailable": "No downloadable media formats available",
+      "extended_access_required": "This source requires extended extractor access or exposes only limited formats",
+      "extended_access_limited": "This source works in basic mode, but some formats may be limited",
+      "extended_access_unavailable": "This source requires extended extractor access that is not available in this runtime"
     },
     "offline": "Offline",
     "paused": "⏸️ Paused",

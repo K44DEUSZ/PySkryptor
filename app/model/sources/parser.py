@@ -101,16 +101,6 @@ def normalize_source_key(raw: str) -> str:
     return str(raw or "").strip()
 
 
-def try_add_source_key(existing: set[str], raw: str) -> tuple[bool, str, bool]:
-    """Try to add a source key, returning (ok, normalized_key, duplicate)."""
-    key = normalize_source_key(raw)
-    if not key:
-        return False, "", False
-    if key in existing:
-        return False, key, True
-    existing.add(key)
-    return True, key, False
-
 
 def build_entries(source_keys: list[str], audio_track_by_key: dict[str, str]) -> list[dict[str, Any]]:
     """Build normalized transcription entries, attaching audio tracks only for URLs."""

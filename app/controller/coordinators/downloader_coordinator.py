@@ -20,7 +20,7 @@ class DownloaderCoordinator(QtCore.QObject):
 
     probe_meta_ready = QtCore.pyqtSignal(str, dict)
     probe_failed = QtCore.pyqtSignal(str, str, dict)
-    cookie_intervention_required = QtCore.pyqtSignal(str, dict)
+    access_intervention_required = QtCore.pyqtSignal(str, dict)
     expansion_busy_changed = QtCore.pyqtSignal(bool)
     expansion_status_changed = QtCore.pyqtSignal(str, dict)
     expansion_ready = QtCore.pyqtSignal(object)
@@ -53,7 +53,7 @@ class DownloaderCoordinator(QtCore.QObject):
             new_view=panel,
             probe_meta_ready=self.probe_meta_ready,
             probe_failed=self.probe_failed,
-            cookie_intervention_required=self.cookie_intervention_required,
+            access_intervention_required=self.access_intervention_required,
             expansion_busy_changed=self.expansion_busy_changed,
             expansion_status_changed=self.expansion_status_changed,
             expansion_ready=self.expansion_ready,
@@ -82,6 +82,10 @@ class DownloaderCoordinator(QtCore.QObject):
 
     def is_busy(self) -> bool:
         return self.is_probe_running() or self.is_downloading() or self.is_expanding()
+
+    def _emit_access_intervention_payload(self, payload: dict[str, object]) -> None:
+        job_key = str((payload or {}).get("job_key") or (payload or {}).get("source_key") or "")
+        self.access_intervention_required.emit(job_key, dict(payload or {}))
 
     def start_probe(
         self,
@@ -116,12 +120,12 @@ class DownloaderCoordinator(QtCore.QObject):
             def _emit_probe_failed(err_key: str, params: dict[str, object]) -> None:
                 self.probe_failed.emit(_job_key, str(err_key), dict(params or {}))
 
-            def _emit_cookie_intervention(params: dict[str, object]) -> None:
-                self.cookie_intervention_required.emit(_job_key, dict(params or {}))
+            def _emit_access_intervention(params: dict[str, object]) -> None:
+                self.access_intervention_required.emit(_job_key, dict(params or {}))
 
             wk.meta_ready.connect(_emit_probe_ready)
             wk.download_error.connect(_emit_probe_failed)
-            wk.cookie_intervention_required.connect(_emit_cookie_intervention)
+            wk.access_intervention_required.connect(_emit_access_intervention)
 
         def _done(*, _job_key: str = key) -> None:
             self._probe_runners.pop(_job_key, None)
@@ -151,6 +155,7 @@ class DownloaderCoordinator(QtCore.QObject):
             emit_status=self.expansion_status_changed.emit,
             emit_ready=self.expansion_ready.emit,
             emit_failed=self.expansion_failed.emit,
+            emit_access_intervention=self._emit_access_intervention_payload,
             is_busy=self.is_busy,
         )
 
@@ -190,8 +195,8 @@ class DownloaderCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: DownloadWorker) -> None:
-            def _emit_cookie_intervention(params: dict[str, object]) -> None:
-                self.cookie_intervention_required.emit(str(wk.job_key or job_key), dict(params or {}))
+            def _emit_access_intervention(params: dict[str, object]) -> None:
+                self.access_intervention_required.emit(str(wk.job_key or job_key), dict(params or {}))
 
             wk.progress_pct.connect(self.progress_pct)
             wk.stage_changed.connect(self.stage_changed)
@@ -199,7 +204,7 @@ class DownloaderCoordinator(QtCore.QObject):
             wk.download_finished.connect(self.download_finished)
             wk.download_error.connect(self.failed)
             wk.cancelled.connect(self.cancelled)
-            wk.cookie_intervention_required.connect(_emit_cookie_intervention)
+            wk.access_intervention_required.connect(_emit_access_intervention)
 
         def _done() -> None:
             self._download_worker = None
@@ -221,16 +226,18 @@ class DownloaderCoordinator(QtCore.QObject):
         except (AttributeError, RuntimeError, TypeError):
             return
 
-    def resolve_cookie_intervention(self, job_key: str, action: str, value: str = "") -> None:
+    def resolve_access_intervention(self, job_key: str, action: str, value: str = "") -> None:
         key = str(job_key or "").strip()
         worker = self._probe_workers.get(key)
         if worker is None:
             active_worker = self._download_worker
             if active_worker is not None and active_worker.job_key == key:
                 worker = active_worker
+        if worker is None and self._expansion_runner.is_running():
+            worker = self._expansion_worker
         if worker is None:
             return
         try:
-            worker.on_cookie_intervention_decided(action, value)
+            worker.on_access_intervention_decided(action, value)
         except (AttributeError, RuntimeError, TypeError):
             return

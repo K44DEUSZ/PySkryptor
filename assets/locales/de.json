@@ -170,7 +170,7 @@
         "header": "Die Datei existiert bereits"
       },
       "cookies": {
-        "title": "Browser-Cookies sind nicht verfügbar",
+        "title": "Cookies sind nicht verfügbar",
         "header": "Cookies aus {browser} konnten nicht gelesen werden",
         "text": "Schließe den Browser und versuche es erneut oder fahre für diesen Vorgang ohne Cookies fort.",
         "retry": "Nach dem Schließen erneut versuchen",
@@ -178,7 +178,27 @@
         "browser_fallback": "ausgewählter Browser",
         "use_file": "Cookie-Datei verwenden...",
         "file_title": "Cookie-Datei auswählen",
-        "file_filter": "Cookie-Dateien (*.txt *.sqlite *.db);;Alle Dateien (*.*)"
+        "file_filter": "Cookie-Dateien (*.txt *.sqlite *.db);;Alle Dateien (*.*)",
+        "header_browser": "Cookies aus {browser} konnten nicht gelesen werden",
+        "header_file": "Die Cookie-Datei {file} konnte nicht verwendet werden",
+        "text_browser": "Schließe den Browser und versuche es erneut, wähle eine Cookie-Datei oder fahre für diesen Vorgang ohne Cookies fort.",
+        "text_file": "Wähle eine andere Cookie-Datei oder fahre für diesen Vorgang ohne Cookies fort.",
+        "source_browser_fallback": "ausgewählter Browser",
+        "source_file_fallback": "ausgewählte Cookie-Datei"
+      },
+      "access": {
+        "title": "Quellzugriff erfordert eine Entscheidung",
+        "header": "Die Quelle {source} erfordert erweiterten Zugriff",
+        "text": "Diese Quelle benötigt eine zusätzliche Zugriffsstrategie. Wähle den nächsten Schritt für diesen Vorgang.",
+        "text_enhanced_recommended": "Diese Quelle kann im erweiterten Zugriffsmodus vollständiger funktionieren. Du kannst es erneut mit erweitertem Zugriff versuchen oder im Basismodus fortfahren.",
+        "text_enhanced_required": "Diese Quelle erfordert erweiterten Zugriff. Wenn die Umgebung dies unterstützt, versuche es erneut im erweiterten Modus.",
+        "text_provider_missing": "Der vollständige Zugriff auf diese Quelle erfordert zusätzliche Laufzeitunterstützung. Du kannst nur dann im Basismodus fortfahren, wenn die Quelle weiterhin eingeschränkten Zugriff bietet.",
+        "text_unavailable": "Der vollständige Zugriff auf diese Quelle ist derzeit nicht verfügbar. Du kannst nur in einem eingeschränkten Modus fortfahren, wenn ein solcher Pfad vorhanden ist.",
+        "retry_enhanced": "Mit erweitertem Zugriff erneut versuchen",
+        "continue_basic": "Im Basismodus fortfahren",
+        "continue_degraded": "Im eingeschränkten Modus fortfahren",
+        "provider_state": "Status des erweiterten Zugriffs: {state}",
+        "source_fallback": "aktuelle Quelle"
       }
     },
     "confirm": {
@@ -278,7 +298,9 @@
       "browser_cookies_unavailable": "❌ Browser-Cookies sind nicht verfügbar. Details: {detail}",
       "authentication_required": "❌ Diese Quelle erfordert eine Anmeldung. Details: {detail}",
       "audio_track_probe_only": "❌ Die ausgewählte Audiospur wurde nur beim Prüfen erkannt und kann nicht zuverlässig heruntergeladen werden.",
-      "no_downloadable_formats": "❌ Keine herunterladbaren Medienformate verfügbar. Details: {detail}"
+      "no_downloadable_formats": "❌ Keine herunterladbaren Medienformate verfügbar. Details: {detail}",
+      "cookie_file_invalid": "❌ Die Cookie-Datei ist ungültig. Details: {detail}",
+      "extended_access_required": "❌ Diese Quelle erfordert erweiterten Extractor-Zugriff. Details: {detail}"
     },
     "external_tool_failed": "❌ Externes Werkzeug fehlgeschlagen. Befehl: {cmd}",
     "external_tool_timeout": "❌ Externes Werkzeug hat nach {seconds} s das Zeitlimit überschritten.",
@@ -715,6 +737,9 @@
       "guarded_tip": "Filtert Stille, schwaches Signal und verdächtige Fragmente am stärksten. Am besten für Aufnahmen mit Pausen, Rauschen, Hintergrundmusik oder hohem Halluzinationsrisiko.",
       "custom": "Benutzerdefiniert",
       "custom_tip": "Entsperrt die manuelle Bearbeitung der Transkriptionsprofil-Parameter. Startet mit den Werten des aktuell gewählten eingebauten Profils."
+    },
+    "tooltip": {
+      "browser_cookies_file_path": "Pfad zu einer exportierten Cookie-Datei, die im erweiterten Modus für authentifizierte yt_dlp-Downloads verwendet wird. Für einige Dienste ist das stabiler als das Lesen eines laufenden Browser-Profils, wenn Browser-Cookies blockiert werden oder rotieren."
     }
   },
   "status": {
@@ -730,7 +755,10 @@
       "browser_cookies_unavailable": "Browser-Cookies sind nicht verfügbar",
       "authentication_required": "Anmeldung erforderlich",
       "audio_tracks_probe_only": "Einige erkannte Audiospuren sind nur für die Analyse verfügbar",
-      "media_unavailable": "Keine herunterladbaren Medienformate verfügbar"
+      "media_unavailable": "Keine herunterladbaren Medienformate verfügbar",
+      "extended_access_required": "Diese Quelle erfordert erweiterten Extractor-Zugriff oder bietet nur eingeschränkte Formate",
+      "extended_access_limited": "Diese Quelle funktioniert im Basismodus, aber einige Formate können eingeschränkt sein",
+      "extended_access_unavailable": "Diese Quelle erfordert erweiterten Extractor-Zugriff, der in dieser Laufzeit nicht verfügbar ist"
     },
     "offline": "Offline",
     "paused": "⏸️ Pausiert",

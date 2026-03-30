@@ -78,7 +78,7 @@ class WorkerRunner(QtCore.QObject):
 
         th.finished.connect(th.deleteLater)
         th.finished.connect(self._cleanup)
-        th.started.connect(worker.run, QtCore.Qt.QueuedConnection)
+        th.started.connect(worker.run, QtCore.Qt.ConnectionType.QueuedConnection)
 
         self._thread = th
         self._worker = worker

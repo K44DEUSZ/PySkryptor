@@ -20,7 +20,7 @@ from app.model.core.utils.string_utils import (
 )
 from app.model.download.policy import DownloadPolicy
 from app.model.download.service import DownloadService
-from app.model.sources.parser import is_playlist_url
+from app.model.sources.duplicates import SourceDuplicateRecord, evaluate_source_duplicate
 from app.view import dialogs
 from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.section_group import SectionGroup
@@ -39,7 +39,6 @@ from app.view.support.status_presenter import (
     display_texts_for_statuses,
     is_progress_status,
     is_terminal_status,
-    status_display_text,
 )
 from app.view.support.host_runtime import (
     normalize_network_status,
@@ -79,6 +78,7 @@ class _Job:
     quality: str
     audio_track_id: str | None
     status: str
+
 
 @dataclass(frozen=True)
 class _DownloadQueueItem:
@@ -143,11 +143,32 @@ class DownloaderPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         return bool(coord is not None and coord.is_probe_running(job_key))
 
+    def _new_job_key(self) -> str:
+        self._job_seq += 1
+        return f"download-job-{self._job_seq}"
+
+    def _job_duplicate_records(self) -> list[SourceDuplicateRecord]:
+        records: list[SourceDuplicateRecord] = []
+        for job in self._jobs:
+            records.append(
+                SourceDuplicateRecord(
+                    source_key=str(job.url or "").strip(),
+                    is_terminal=is_terminal_status(self._job_status_key(job.status)),
+                )
+            )
+        return records
+
+    def _can_add_job_url(self, url: str) -> tuple[bool, bool]:
+        decision = evaluate_source_duplicate(self._job_duplicate_records(), url)
+        return bool(decision.allow), bool(decision.duplicate)
+
     def _init_state(self, parent: QtWidgets.QWidget | None) -> None:
+        self._job_seq = 0
         self._jobs: list[_Job] = []
         self._meta_by_key: dict[str, dict[str, Any]] = {}
         self._thumb_by_key: dict[str, QtGui.QPixmap] = {}
         self._thumb_reply_by_key: dict[str, QtNetwork.QNetworkReply] = {}
+        self._thumb_job_key_by_reply_id: dict[int, str] = {}
         self._queue_items: list[_DownloadQueueItem] = []
         self._pct_by_key: dict[str, int] = {}
         self._status_base_by_key: dict[str, str] = {}
@@ -161,6 +182,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._last_availability_debug_key: tuple | None = None
 
         self._net = QtNetwork.QNetworkAccessManager(self)
+        self._net.finished.connect(self._on_network_reply_finished)
 
         self._post_timer = QtCore.QTimer(self)
         self._post_timer.setInterval(_POSTPROCESS_INTERVAL_MS)
@@ -824,7 +846,7 @@ class DownloaderPanel(QtWidgets.QWidget):
 
         coord = self.coordinator()
         if coord is None:
-            url = self._make_job_key(raw)
+            url = self._normalize_job_url(raw)
             _LOG.debug(
                 "Downloader URL normalized without coordinator. raw=%s normalized=%s",
                 sanitize_url_for_log(raw),
@@ -850,13 +872,12 @@ class DownloaderPanel(QtWidgets.QWidget):
     def _bulk_add_target_label() -> str:
         return tr("dialog.bulk_add.target.downloads")
 
-    @staticmethod
-    def _build_job_from_url(url: str) -> _Job:
-        key = str(url or "").strip()
+    def _build_job_from_url(self, url: str) -> _Job:
+        source_url = str(url or "").strip()
         first_ext = DownloadPolicy.download_default_video_ext()
         return _Job(
-            key=key,
-            url=key,
+            key=self._new_job_key(),
+            url=source_url,
             output_types=["video"],
             output_exts=[str(first_ext).strip().lower()],
             quality=DownloadPolicy.download_ui_default_quality(),
@@ -879,20 +900,22 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._refresh_row_from_meta(job_key)
 
     def _add_single_job(self, url: str) -> int:
-        key = str(url or "").strip()
-        if not key:
+        source_url = str(url or "").strip()
+        if not source_url:
             return -1
-        if self._find_job_index(key) >= 0:
-            _LOG.debug("Downloader add skipped. reason=duplicate job_key=%s", sanitize_url_for_log(key))
+        allow, duplicate = self._can_add_job_url(source_url)
+        if not allow:
+            if duplicate:
+                _LOG.debug("Downloader add skipped. reason=duplicate source_url=%s", sanitize_url_for_log(source_url))
             return -1
 
-        job = self._build_job_from_url(key)
+        job = self._build_job_from_url(source_url)
         self._jobs.append(job)
         row = self._append_job_row(job)
         self._select_row(row)
         _LOG.debug(
-            "Downloader job added. job_key=%s default_ext=%s",
-            sanitize_url_for_log(job.key),
+            "Downloader job added. source_url=%s default_ext=%s",
+            sanitize_url_for_log(job.url),
             DownloadPolicy.download_default_video_ext(),
         )
         self._start_probe(job)
@@ -910,11 +933,13 @@ class DownloaderPanel(QtWidgets.QWidget):
         selected_row = -1
 
         for item in items:
-            url = self._make_job_key(str(getattr(item, "key", "") or "").strip())
+            url = self._normalize_job_url(str(getattr(item, "key", "") or "").strip())
             if not url:
                 continue
-            if self._find_job_index(url) >= 0:
-                duplicate_count += 1
+            allow, duplicate = self._can_add_job_url(url)
+            if not allow:
+                if duplicate:
+                    duplicate_count += 1
                 continue
             job = self._build_job_from_url(url)
             self._jobs.append(job)
@@ -1040,7 +1065,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         dialogs.show_error(self, key, params or {})
 
     @staticmethod
-    def _make_job_key(url: str) -> str:
+    def _normalize_job_url(url: str) -> str:
         u = str(url or "").strip()
         if "://" not in u:
             u = "https://" + u
@@ -1067,10 +1092,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         reply = self._thumb_reply_by_key.pop(job_key, None)
         if reply is None:
             return
-        try:
-            reply.finished.disconnect()
-        except (AttributeError, RuntimeError, TypeError) as ex:
-            _LOG.debug("Thumbnail reply disconnect skipped. key=%s detail=%s", job_key, ex)
+        self._thumb_job_key_by_reply_id.pop(id(reply), None)
         try:
             reply.abort()
         except (AttributeError, RuntimeError, TypeError) as ex:
@@ -1372,8 +1394,14 @@ class DownloaderPanel(QtWidgets.QWidget):
         req.setRawHeader(b"User-Agent", AppMeta.NAME.encode("utf-8", errors="ignore"))
         reply = self._net.get(req)
         self._thumb_reply_by_key[job_key] = reply
-        finished_signal: QtCore.pyqtBoundSignal = reply.finished
-        finished_signal.connect(lambda _job_key=job_key, _reply=reply: self._on_thumbnail_reply(_job_key, _reply))
+        self._thumb_job_key_by_reply_id[id(reply)] = job_key
+
+    @QtCore.pyqtSlot(QtNetwork.QNetworkReply)
+    def _on_network_reply_finished(self, reply: QtNetwork.QNetworkReply) -> None:
+        job_key = self._thumb_job_key_by_reply_id.pop(id(reply), None)
+        if not job_key:
+            return
+        self._on_thumbnail_reply(job_key, reply)
 
     def _on_thumbnail_reply(self, job_key: str, reply: QtNetwork.QNetworkReply) -> None:
         self._thumb_reply_by_key.pop(job_key, None)
@@ -1500,23 +1528,32 @@ class DownloaderPanel(QtWidgets.QWidget):
         )
         self._refresh_meta_panel()
 
-    def on_cookie_intervention_required(self, job_key: str, params: dict[str, Any]) -> None:
+    def on_access_intervention_required(self, job_key: str, params: dict[str, Any]) -> None:
         coord = self.coordinator()
         if coord is None:
             return
         if self._closing:
-            coord.resolve_cookie_intervention(job_key, "cancel", "")
+            coord.resolve_access_intervention(job_key, "cancel", "")
             return
 
-        action, value = dialogs.ask_browser_cookies_intervention(
+        action, value = dialogs.ask_source_access_intervention(
             self,
-            browser=str((params or {}).get("browser") or "").strip(),
+            kind=str((params or {}).get("kind") or "cookies").strip(),
+            source_kind=str((params or {}).get("source_kind") or "browser").strip(),
+            source_label=str((params or {}).get("source_label") or "").strip(),
             detail=str((params or {}).get("detail") or "").strip(),
+            state=str((params or {}).get("state") or "").strip(),
+            provider_state=str((params or {}).get("provider_state") or "").strip(),
+            can_retry=bool((params or {}).get("can_retry", True)),
+            can_choose_cookie_file=bool((params or {}).get("can_choose_cookie_file", True)),
             can_continue_without_cookies=bool((params or {}).get("can_continue_without_cookies", True)),
+            can_retry_enhanced=bool((params or {}).get("can_retry_enhanced", False)),
+            can_continue_basic=bool((params or {}).get("can_continue_basic", False)),
+            can_continue_degraded=bool((params or {}).get("can_continue_degraded", False)),
         )
         if action == "cancel" and job_key != self._active_download_key() and self._row_for_key(job_key) >= 0:
             self._set_job_status(job_key, "queued")
-        coord.resolve_cookie_intervention(job_key, action, value)
+        coord.resolve_access_intervention(job_key, action, value)
 
     def _refresh_row_from_meta(self, job_key: str) -> None:
         meta = self._meta_by_key.get(job_key)

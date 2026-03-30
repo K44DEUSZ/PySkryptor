@@ -6,14 +6,16 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
-from app.controller.workers.task_worker import PendingDecision, TaskWorker
+from app.controller.workers.access_task_worker import AccessTaskWorker
+from app.controller.workers.task_worker import PendingDecision
 from app.model.core.domain.entities import TranscriptionSessionRequest
+from app.model.download.domain import SourceAccessInterventionRequest, SourceAccessInterventionRequired
 from app.model.transcription.service import TranscriptionService
 
 SourceEntry = str | dict[str, Any]
 
 
-class TranscriptionWorker(TaskWorker):
+class TranscriptionWorker(AccessTaskWorker):
     """Background worker that orchestrates a transcription session."""
 
     item_status = QtCore.pyqtSignal(str, str)
@@ -83,6 +85,23 @@ class TranscriptionWorker(TaskWorker):
         self.session_done.emit("", False, False, True)
         self._session_reported = True
 
+    def _access_intervention_resolver(
+        self,
+        source_key: str,
+        request: SourceAccessInterventionRequest,
+        browser_cookies_mode_override: str | None,
+        cookie_file_override: str | None,
+        access_mode_override: str | None,
+    ) -> tuple[str | None, str | None, str | None]:
+        return self._next_access_intervention_overrides(
+            SourceAccessInterventionRequired(request),
+            payload_key_name="source_key",
+            payload_key=source_key,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+        )
+
     def _execute(self) -> None:
         svc = TranscriptionService()
         res = svc.run_session(
@@ -97,6 +116,7 @@ class TranscriptionWorker(TaskWorker):
             item_error=lambda key, err_key, params: self.item_error.emit(str(key), str(err_key), dict(params or {})),
             item_output_dir=lambda key, d: self.item_output_dir.emit(str(key), str(d)),
             conflict_resolver=self._conflict_resolver,
+            access_intervention_resolver=self._access_intervention_resolver,
             cancel_check=self.cancel_check,
         )
 

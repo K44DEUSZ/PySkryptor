@@ -170,7 +170,7 @@
         "header": "Plik już istnieje"
       },
       "cookies": {
-        "title": "Ciasteczka przeglądarki są niedostępne",
+        "title": "Cookies są niedostępne",
         "header": "Nie udało się odczytać ciasteczek z przeglądarki {browser}",
         "text": "Zamknij przeglądarkę i spróbuj ponownie albo kontynuuj bez cookies tylko dla tej operacji.",
         "retry": "Ponów po zamknięciu przeglądarki",
@@ -178,7 +178,27 @@
         "browser_fallback": "wybrana przeglądarka",
         "use_file": "Użyj pliku cookies...",
         "file_title": "Wybierz plik cookies",
-        "file_filter": "Pliki cookies (*.txt *.sqlite *.db);;Wszystkie pliki (*.*)"
+        "file_filter": "Pliki cookies (*.txt *.sqlite *.db);;Wszystkie pliki (*.*)",
+        "header_browser": "Nie udało się odczytać cookies z przeglądarki {browser}",
+        "header_file": "Nie udało się użyć pliku cookies {file}",
+        "text_browser": "Zamknij przeglądarkę i spróbuj ponownie, wskaż plik cookies albo kontynuuj bez cookies tylko dla tej operacji.",
+        "text_file": "Wskaż inny plik cookies albo kontynuuj bez cookies tylko dla tej operacji.",
+        "source_browser_fallback": "wybrana przeglądarka",
+        "source_file_fallback": "wybrany plik cookies"
+      },
+      "access": {
+        "title": "Dostęp do źródła wymaga decyzji",
+        "header": "Źródło {source} wymaga rozszerzonego dostępu",
+        "text": "To źródło wymaga dodatkowej strategii dostępu. Wybierz następny krok dla bieżącej operacji.",
+        "text_enhanced_recommended": "To źródło może działać pełniej w trybie rozszerzonego dostępu. Możesz spróbować ponownie w trybie rozszerzonym albo kontynuować w trybie podstawowym.",
+        "text_enhanced_required": "To źródło wymaga rozszerzonego dostępu. Jeśli środowisko to wspiera, spróbuj ponownie w trybie rozszerzonym.",
+        "text_provider_missing": "Pełny dostęp do tego źródła wymaga dodatkowego wsparcia środowiska. Możesz kontynuować w trybie podstawowym tylko wtedy, gdy źródło nadal oferuje ograniczony dostęp.",
+        "text_unavailable": "Pełny dostęp do tego źródła jest obecnie niedostępny. Możesz kontynuować tylko w trybie ograniczonym, jeśli taka opcja jest dostępna.",
+        "retry_enhanced": "Spróbuj ponownie w trybie rozszerzonym",
+        "continue_basic": "Kontynuuj w trybie podstawowym",
+        "continue_degraded": "Kontynuuj w trybie ograniczonym",
+        "provider_state": "Stan rozszerzonego dostępu: {state}",
+        "source_fallback": "bieżące źródło"
       }
     },
     "confirm": {
@@ -278,7 +298,9 @@
       "browser_cookies_unavailable": "❌ Pliki cookies z przeglądarki są niedostępne. Szczegóły: {detail}",
       "authentication_required": "❌ To źródło wymaga uwierzytelnienia. Szczegóły: {detail}",
       "audio_track_probe_only": "❌ Wybrana ścieżka audio została wykryta tylko podczas analizy i nie może zostać stabilnie pobrana.",
-      "no_downloadable_formats": "❌ Brak dostępnych formatów multimediów do pobrania. Szczegóły: {detail}"
+      "no_downloadable_formats": "❌ Brak dostępnych formatów multimediów do pobrania. Szczegóły: {detail}",
+      "cookie_file_invalid": "❌ Plik cookies jest nieprawidłowy. Szczegóły: {detail}",
+      "extended_access_required": "❌ To źródło wymaga rozszerzonego dostępu extractora. Szczegóły: {detail}"
     },
     "external_tool_failed": "❌ Zewnętrzne narzędzie zakończyło się błędem. Polecenie: {cmd}",
     "external_tool_timeout": "❌ Zewnętrzne narzędzie przekroczyło limit czasu po {seconds} s.",
@@ -715,6 +737,9 @@
       "guarded_tip": "Najmocniej filtruje ciszę, słaby sygnał i podejrzane fragmenty. Najlepszy do nagrań z pauzami, szumem, muzyką tła albo ryzykiem halucynacji.",
       "custom": "Niestandardowy",
       "custom_tip": "Odblokowuje ręczną edycję parametrów profilu transkrypcji. Startuje od wartości aktualnie wybranego profilu wbudowanego."
+    },
+    "tooltip": {
+      "browser_cookies_file_path": "Ścieżka do wyeksportowanego pliku cookies używanego w zaawansowanym trybie uwierzytelnionych pobrań yt_dlp. Dla części serwisów jest to stabilniejsza opcja, gdy dostęp do cookies przeglądarki jest blokowany albo rotowany."
     }
   },
   "status": {
@@ -730,7 +755,10 @@
       "browser_cookies_unavailable": "Pliki cookies przeglądarki są niedostępne",
       "authentication_required": "Wymagane jest uwierzytelnienie",
       "audio_tracks_probe_only": "Część wykrytych ścieżek audio jest tylko do analizy",
-      "media_unavailable": "Brak dostępnych formatów multimediów do pobrania"
+      "media_unavailable": "Brak dostępnych formatów multimediów do pobrania",
+      "extended_access_required": "Źródło wymaga rozszerzonego dostępu extractora lub ma ograniczone formaty",
+      "extended_access_limited": "Źródło działa w trybie podstawowym, ale część formatów może być ograniczona",
+      "extended_access_unavailable": "Źródło wymaga rozszerzonego dostępu extractora, którego środowisko nie zapewnia"
     },
     "offline": "Offline",
     "paused": "⏸️ Wstrzymano",

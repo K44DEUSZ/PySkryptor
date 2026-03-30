@@ -25,7 +25,8 @@ from app.model.settings.resolution import (
     translation_runtime_available,
 )
 from app.model.sources.probe import is_url_source
-from app.model.sources.parser import build_entries, parse_source_input, try_add_source_key
+from app.model.sources.duplicates import SourceDuplicateRecord, evaluate_source_duplicate
+from app.model.sources.parser import build_entries, parse_source_input
 from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view.components.popup_combo import (
@@ -162,15 +163,102 @@ class FilesPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         return bool(coord is not None and coord.is_probe_running())
 
+    def _new_row_id(self) -> str:
+        self._row_seq += 1
+        return f"files-row-{self._row_seq}"
+
+    def _row_id_at(self, row: int) -> str:
+        return self.tbl_sources.internal_key_at(row, self.COL_PATH)
+
+    def _row_for_row_id(self, row_id: str) -> int:
+        return self.tbl_sources.row_for_internal_key(self.COL_PATH, str(row_id or "").strip())
+
+    def _source_key_for_row_id(self, row_id: str) -> str:
+        return str(self._source_key_by_row_id.get(str(row_id), "") or "").strip()
+
+    def _runtime_key_for_row_id(self, row_id: str) -> str:
+        row_key = str(row_id or "").strip()
+        runtime_key = str(self._runtime_key_by_row_id.get(row_key, "") or "").strip()
+        if runtime_key:
+            return runtime_key
+        return self._source_key_for_row_id(row_key)
+
+    def _runtime_row_ids(self, runtime_key: str) -> list[str]:
+        return list(self._row_ids_by_runtime_key.get(str(runtime_key or "").strip(), ()))
+
+    def _row_id_for_runtime_key(self, runtime_key: str) -> str:
+        candidates = self._runtime_row_ids(runtime_key)
+        for row_id in reversed(candidates):
+            if not self._is_row_terminal(row_id):
+                return row_id
+        return candidates[-1] if candidates else ""
+
+    def _bind_runtime_key(self, row_id: str, runtime_key: str) -> None:
+        row_key = str(row_id or "").strip()
+        bound_key = str(runtime_key or "").strip()
+        if not row_key or not bound_key:
+            return
+        bucket = self._row_ids_by_runtime_key.setdefault(bound_key, [])
+        if row_key not in bucket:
+            bucket.append(row_key)
+        self._runtime_key_by_row_id[row_key] = bound_key
+
+    def _unbind_runtime_key(self, row_id: str, runtime_key: str) -> None:
+        row_key = str(row_id or "").strip()
+        bound_key = str(runtime_key or "").strip()
+        if not row_key or not bound_key:
+            return
+        bucket = self._row_ids_by_runtime_key.get(bound_key)
+        if not bucket:
+            return
+        self._row_ids_by_runtime_key[bound_key] = [candidate for candidate in bucket if candidate != row_key]
+        if not self._row_ids_by_runtime_key[bound_key]:
+            self._row_ids_by_runtime_key.pop(bound_key, None)
+
+    def _replace_runtime_key(self, row_id: str, new_runtime_key: str) -> None:
+        row_key = str(row_id or "").strip()
+        if not row_key:
+            return
+        old_runtime_key = self._runtime_key_for_row_id(row_key)
+        self._unbind_runtime_key(row_key, old_runtime_key)
+        self._bind_runtime_key(row_key, new_runtime_key)
+
+    def _row_duplicate_records(self) -> list[SourceDuplicateRecord]:
+        records: list[SourceDuplicateRecord] = []
+        for row_id, source_key in self._source_key_by_row_id.items():
+            key = str(source_key or "").strip()
+            if not key:
+                continue
+            records.append(
+                SourceDuplicateRecord(
+                    source_key=key,
+                    is_terminal=self._is_row_terminal(row_id),
+                )
+            )
+        return records
+
+    def _can_add_source_key(self, source_key: str) -> tuple[bool, bool]:
+        decision = evaluate_source_duplicate(self._row_duplicate_records(), source_key)
+        return bool(decision.allow), bool(decision.duplicate)
+
+    def _is_row_terminal(self, row_id: str) -> bool:
+        status_key = str(self._status_base_by_row_id.get(str(row_id), "") or "").strip()
+        return bool(status_key and is_terminal_status(status_key))
+
+    def _transcription_row_ids(self) -> list[str]:
+        row_ids: list[str] = []
+        for row in range(self.tbl_sources.rowCount()):
+            row_id = self._row_id_at(row)
+            if not row_id or self._is_row_terminal(row_id):
+                continue
+            row_ids.append(row_id)
+        return row_ids
+
     def _init_state(self, parent: QtWidgets.QWidget | None) -> None:
         self._was_cancelled: bool = False
         self._cancel_notice_pending: bool = False
         self._conflict_apply_all_action: str | None = None
         self._conflict_apply_all_new_base: str | None = None
-        self._status_base_by_key: dict[str, str] = {}
-        self._pct_by_key: dict[str, int] = {}
-        self._error_by_key: dict[str, tuple[str, dict[str, Any]]] = {}
-        self._output_dir_by_key: dict[str, str] = {}
 
         self._transcription_ready: bool = False
         self._translation_ready: bool = False
@@ -178,12 +266,19 @@ class FilesPanel(QtWidgets.QWidget):
         self._transcription_error_params: dict[str, Any] = {}
         self._translation_error_key: str | None = None
         self._translation_error_params: dict[str, Any] = {}
-        self._keys: set[str] = set()
-        self._row_by_key: dict[str, int] = {}
-        self._transcript_by_key: dict[str, str] = {}
-        self._origin_src_by_key: dict[str, str] = {}
-        self._display_path_by_key: dict[str, str] = {}
-        self._audio_track_by_key: dict[str, str | None] = {}
+
+        self._row_seq = 0
+        self._source_key_by_row_id: dict[str, str] = {}
+        self._runtime_key_by_row_id: dict[str, str] = {}
+        self._row_ids_by_runtime_key: dict[str, list[str]] = {}
+        self._source_kind_by_row_id: dict[str, str] = {}
+        self._display_path_by_row_id: dict[str, str] = {}
+        self._audio_track_by_row_id: dict[str, str | None] = {}
+        self._transcript_by_row_id: dict[str, str] = {}
+        self._status_base_by_row_id: dict[str, str] = {}
+        self._pct_by_row_id: dict[str, int] = {}
+        self._error_by_row_id: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._output_dir_by_row_id: dict[str, str] = {}
 
         self._network_status = read_network_status(parent)
         self._session_target_language = LanguagePolicy.PREFERRED
@@ -617,21 +712,21 @@ class FilesPanel(QtWidgets.QWidget):
     def _network_available(self) -> bool:
         return self._network_status != 'offline'
 
-    def _pending_status_for_key(self, key: str) -> str:
-        src = str(self._origin_src_by_key.get(str(key), '') or '').strip().lower()
-        if src == 'url' and not self._network_available():
+    def _pending_status_for_row_id(self, row_id: str) -> str:
+        source_kind = str(self._source_kind_by_row_id.get(str(row_id), '') or '').strip().lower()
+        if source_kind == 'url' and not self._network_available():
             return 'status.offline'
         return 'status.queued'
 
     def _refresh_pending_row_statuses(self) -> None:
         for row in range(self.tbl_sources.rowCount()):
-            key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
-            if not key or key in self._transcript_by_key:
+            row_id = self._row_id_at(row)
+            if not row_id or row_id in self._transcript_by_row_id:
                 continue
-            active_base = str(self._status_base_by_key.get(str(key), '') or '').strip()
+            active_base = str(self._status_base_by_row_id.get(str(row_id), '') or '').strip()
             if active_base and is_active_work_status(active_base):
                 continue
-            self._set_pending_row_status(row, self._pending_status_for_key(key))
+            self._set_pending_row_status(row, self._pending_status_for_row_id(row_id))
 
     def _set_pending_row_status(self, row: int, status_key: str) -> None:
         item = self.tbl_sources.item(row, self.COL_STATUS)
@@ -915,9 +1010,9 @@ class FilesPanel(QtWidgets.QWidget):
             fallback_code=LanguagePolicy.PREFERRED,
         )
 
-    def _set_preview_enabled(self, key: str, enabled: bool) -> None:
-        row = self._row_by_key.get(str(key))
-        if row is None:
+    def _set_preview_enabled(self, row_id: str, enabled: bool) -> None:
+        row = self._row_for_row_id(row_id)
+        if row < 0:
             return
         w = self.tbl_sources.cellWidget(row, self.COL_PREVIEW)
         if not w:
@@ -926,16 +1021,14 @@ class FilesPanel(QtWidgets.QWidget):
         if btn:
             btn.setEnabled(bool(enabled))
 
-    def _reset_previews(self) -> None:
-        self._output_dir_by_key.clear()
-        self._transcript_by_key.clear()
-        for r in range(self.tbl_sources.rowCount()):
-            w = self.tbl_sources.cellWidget(r, self.COL_PREVIEW)
-            if not w:
-                continue
-            btn = w.findChild(QtWidgets.QAbstractButton)
-            if btn:
-                btn.setEnabled(False)
+    def _reset_previews(self, row_ids: list[str] | None = None) -> None:
+        targets = list(row_ids or [])
+        if not targets:
+            return
+        for row_id in targets:
+            self._output_dir_by_row_id.pop(row_id, None)
+            self._transcript_by_row_id.pop(row_id, None)
+            self._set_preview_enabled(row_id, False)
 
     def _translation_runtime_available(self) -> bool:
         return bool(self._translation_ready) and translation_runtime_available(
@@ -1148,7 +1241,7 @@ class FilesPanel(QtWidgets.QWidget):
         key = str(key or "").strip()
         if not key:
             return
-        out_dir = self._output_dir_by_key.get(key)
+        out_dir = self._output_dir_by_row_id.get(key)
         if not out_dir:
             return
         try:
@@ -1175,75 +1268,23 @@ class FilesPanel(QtWidgets.QWidget):
         except (IndexError, TypeError):
             track_id = None
 
-        self._audio_track_by_key[key] = str(track_id).strip() or None if track_id else None
+        self._audio_track_by_row_id[key] = str(track_id).strip() or None if track_id else None
 
     def _update_audio_tracks(self, row: int, meta: dict[str, Any]) -> None:
         default_text = tr("down.select.audio_track.default")
-        internal_key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
-        if internal_key:
-            self._audio_track_by_key.setdefault(internal_key, None)
+        row_id = self._row_id_at(row)
+        if row_id:
+            self._audio_track_by_row_id.setdefault(row_id, None)
         self.tbl_sources.update_audio_tracks(
             row=row,
             col=self.COL_LANG,
             meta=meta,
             default_text=default_text,
-            preferred_audio_track_id=self._audio_track_by_key.get(internal_key) if internal_key else None,
-            internal_key=internal_key or None,
+            preferred_audio_track_id=self._audio_track_by_row_id.get(row_id) if row_id else None,
+            internal_key=row_id or None,
         )
 
         self._update_buttons()
-
-    def _reset_url_rows_to_original_keys(self) -> None:
-        for r in range(self.tbl_sources.rowCount()):
-            if self.tbl_sources.text_at(r, self.COL_SRC) != tr("files.source.url"):
-                continue
-
-            it_path = self.tbl_sources.item(r, self.COL_PATH)
-            if not it_path:
-                continue
-
-            display_url = (it_path.text() or "").strip()
-            if not display_url:
-                continue
-
-            current_internal = self.tbl_sources.internal_key_at(r, self.COL_PATH)
-            if current_internal == display_url:
-                it_path.setData(QtCore.Qt.ItemDataRole.UserRole, display_url)
-                self._display_path_by_key[display_url] = display_url
-                self._origin_src_by_key[display_url] = "url"
-                self._row_by_key[display_url] = r
-                self.tbl_sources.set_cell_internal_key(r, self.COL_LANG, display_url)
-                self._audio_track_by_key.setdefault(display_url, None)
-                continue
-
-            old_key = current_internal
-            new_key = display_url
-
-            if old_key in self._keys:
-                self._keys.discard(old_key)
-            self._keys.add(new_key)
-
-            old_row = self._row_by_key.pop(old_key, None)
-            self._row_by_key[new_key] = old_row if old_row is not None else r
-
-            if old_key in self._origin_src_by_key:
-                self._origin_src_by_key.pop(old_key, None)
-            self._origin_src_by_key[new_key] = "url"
-
-            if old_key in self._display_path_by_key:
-                self._display_path_by_key.pop(old_key, None)
-            self._display_path_by_key[new_key] = new_key
-
-            if old_key in self._audio_track_by_key:
-                self._audio_track_by_key[new_key] = self._audio_track_by_key.pop(old_key)
-
-            self.tbl_sources.set_cell_internal_key(r, self.COL_LANG, new_key)
-
-            self._transcript_by_key.pop(old_key, None)
-
-            it_path.setData(QtCore.Qt.ItemDataRole.UserRole, new_key)
-            it_path.setToolTip(new_key)
-            it_path.setText(new_key)
 
     @QtCore.pyqtSlot(int, int)
     def _on_table_cell_clicked(self, row: int, col: int) -> None:
@@ -1279,27 +1320,26 @@ class FilesPanel(QtWidgets.QWidget):
         except (OSError, RuntimeError, ValueError) as ex:
             _LOG.debug("Files source reveal skipped. target=%s detail=%s", target, ex)
 
-    def _source_keys_in_table(self) -> list[str]:
-        keys: list[str] = []
-        for r in range(self.tbl_sources.rowCount()):
-            key = self.tbl_sources.internal_key_at(r, self.COL_PATH)
-            if key:
-                keys.append(key)
-        return keys
-
     def _insert_placeholder_row(
         self,
-        key: str,
+        source_key: str,
         *,
-        src_label: str,
+        source_kind: str,
         title: str = "",
         duration_s: int | None = None,
     ) -> None:
         if self.tbl_sources.rowCount() == 0:
             self._apply_populated_header_mode()
 
+        row_id = self._new_row_id()
         row = self.tbl_sources.rowCount()
         self.tbl_sources.insertRow(row)
+
+        self._source_key_by_row_id[row_id] = source_key
+        self._source_kind_by_row_id[row_id] = str(source_kind or "file").strip().lower() or "file"
+        self._display_path_by_row_id[row_id] = source_key
+        self._audio_track_by_row_id.setdefault(row_id, None)
+        self._bind_runtime_key(row_id, source_key)
 
         self.tbl_sources.setCellWidget(
             row,
@@ -1320,26 +1360,26 @@ class FilesPanel(QtWidgets.QWidget):
         it_dur.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl_sources.setItem(row, self.COL_DUR, it_dur)
 
+        src_label = self._source_label_for_kind(source_kind)
         it_src = QtWidgets.QTableWidgetItem(src_label)
         it_src.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl_sources.setItem(row, self.COL_SRC, it_src)
         it_src.setToolTip(src_label)
 
         track_cb = self.tbl_sources.make_audio_track_combo(
-            internal_key=key,
+            internal_key=row_id,
             default_text=tr("down.select.audio_track.default"),
             on_changed=self._on_lang_combo_changed,
             enabled=False,
         )
         self.tbl_sources.setCellWidget(row, self.COL_LANG, track_cb)
-        self._audio_track_by_key.setdefault(key, None)
 
-        it_path = QtWidgets.QTableWidgetItem(key)
-        it_path.setToolTip(key)
-        it_path.setData(QtCore.Qt.ItemDataRole.UserRole, key)
+        it_path = QtWidgets.QTableWidgetItem(source_key)
+        it_path.setToolTip(source_key)
+        it_path.setData(QtCore.Qt.ItemDataRole.UserRole, row_id)
         self.tbl_sources.setItem(row, self.COL_PATH, it_path)
 
-        pending_status = self._pending_status_for_key(key)
+        pending_status = self._pending_status_for_row_id(row_id)
         it_status = QtWidgets.QTableWidgetItem(tr(pending_status))
         it_status.setTextAlignment(int(QtCore.Qt.AlignmentFlag.AlignCenter))
         self.tbl_sources.setItem(row, self.COL_STATUS, it_status)
@@ -1348,15 +1388,11 @@ class FilesPanel(QtWidgets.QWidget):
             row,
             self.COL_PREVIEW,
             self.tbl_sources.make_preview_cell(
-                internal_key=key,
+                internal_key=row_id,
                 tooltip=tr("files.preview.open_folder"),
                 enabled=False,
             ),
         )
-
-        self._row_by_key[key] = row
-        self._origin_src_by_key[key] = src_label
-        self._display_path_by_key[key] = key
 
     def _update_row_from_meta(self, row: int, meta: dict[str, Any]) -> None:
         if row < 0 or row >= self.tbl_sources.rowCount():
@@ -1384,6 +1420,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _update_buttons(self) -> None:
         has_items = self.tbl_sources.rowCount() > 0
+        has_runnable_items = bool(self._transcription_row_ids())
         has_sel = bool(self.tbl_sources.rows_for_removal(self.COL_CHECK))
         model_ready = self._transcription_ready
         running = self._is_transcription_running()
@@ -1392,7 +1429,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.ed_source_input.setEnabled((not busy) and model_ready)
 
-        self.action_bar.set_primary_enabled(has_items and model_ready and not busy)
+        self.action_bar.set_primary_enabled(has_runnable_items and model_ready and not busy)
         self.action_bar.set_secondary_enabled(running)
 
         self.btn_clear_list.setEnabled(has_items and not busy and model_ready)
@@ -1430,31 +1467,36 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._sync_options_ui()
 
-    def _source_state_maps(self) -> tuple[dict[str, Any], ...]:
-        return (
-            self._row_by_key,
-            self._transcript_by_key,
-            self._origin_src_by_key,
-            self._display_path_by_key,
-            self._audio_track_by_key,
-            self._status_base_by_key,
-            self._pct_by_key,
-            self._error_by_key,
-            self._output_dir_by_key,
-        )
-
-    def _discard_source_state(self, key: str) -> None:
-        source_key = str(key or "").strip()
-        if not source_key:
+    def _discard_source_state(self, row_id: str) -> None:
+        target_row_id = str(row_id or "").strip()
+        if not target_row_id:
             return
-        self._keys.discard(source_key)
-        for mapping in self._source_state_maps():
-            mapping.pop(source_key, None)
+
+        runtime_key = self._runtime_key_for_row_id(target_row_id)
+        self._unbind_runtime_key(target_row_id, runtime_key)
+        self._runtime_key_by_row_id.pop(target_row_id, None)
+        self._source_key_by_row_id.pop(target_row_id, None)
+        self._source_kind_by_row_id.pop(target_row_id, None)
+        self._display_path_by_row_id.pop(target_row_id, None)
+        self._audio_track_by_row_id.pop(target_row_id, None)
+        self._transcript_by_row_id.pop(target_row_id, None)
+        self._status_base_by_row_id.pop(target_row_id, None)
+        self._pct_by_row_id.pop(target_row_id, None)
+        self._error_by_row_id.pop(target_row_id, None)
+        self._output_dir_by_row_id.pop(target_row_id, None)
 
     def _clear_source_collections(self) -> None:
-        self._keys.clear()
-        for mapping in self._source_state_maps():
-            mapping.clear()
+        self._source_key_by_row_id.clear()
+        self._runtime_key_by_row_id.clear()
+        self._row_ids_by_runtime_key.clear()
+        self._source_kind_by_row_id.clear()
+        self._display_path_by_row_id.clear()
+        self._audio_track_by_row_id.clear()
+        self._transcript_by_row_id.clear()
+        self._status_base_by_row_id.clear()
+        self._pct_by_row_id.clear()
+        self._error_by_row_id.clear()
+        self._output_dir_by_row_id.clear()
 
     def _finalize_source_rows_changed(self) -> None:
         self.tbl_sources.renumber_rows(self.COL_NO)
@@ -1501,34 +1543,35 @@ class FilesPanel(QtWidgets.QWidget):
         result: SourceExpansionResult,
         items: tuple[ExpandedSourceItem, ...] | None = None,
     ) -> tuple[int, int]:
-        added: list[str] = []
+        added_source_keys: list[str] = []
         duplicate_count = 0
         source_items = tuple(result.items) if items is None else tuple(items)
         for item in source_items:
-            key = str(getattr(item, "key", "") or "").strip()
-            if not key:
+            source_key = str(getattr(item, "key", "") or "").strip()
+            if not source_key:
                 continue
-            ok, key, dup = try_add_source_key(self._keys, key)
-            if not ok:
-                if dup:
+            allow, duplicate = self._can_add_source_key(source_key)
+            if not allow:
+                if duplicate:
                     duplicate_count += 1
                 continue
+            source_kind = str(getattr(item, "source_kind", "file") or "file").strip().lower() or "file"
             self._insert_placeholder_row(
-                key,
-                src_label=self._source_label_for_kind(getattr(item, "source_kind", "file")),
+                source_key,
+                source_kind=source_kind,
                 title=str(getattr(item, "title", "") or ""),
                 duration_s=getattr(item, "duration_s", None),
             )
-            added.append(key)
+            added_source_keys.append(source_key)
 
-        if added:
-            self._start_metadata_for(added[:30])
+        if added_source_keys:
+            self._start_metadata_for(added_source_keys[:30])
         self._finalize_source_rows_changed()
 
         if result.origin_kind in {"manual_input", "playlist"}:
             self.ed_source_input.clear()
 
-        return len(added), duplicate_count
+        return len(added_source_keys), duplicate_count
 
     def _show_expansion_summary(
         self,
@@ -1602,9 +1645,9 @@ class FilesPanel(QtWidgets.QWidget):
         if not rows:
             return
         for r in sorted(set(rows), reverse=True):
-            key = self.tbl_sources.internal_key_at(r, self.COL_PATH)
-            if key:
-                self._discard_source_state(key)
+            row_id = self._row_id_at(r)
+            if row_id:
+                self._discard_source_state(row_id)
             self.tbl_sources.removeRow(r)
 
         if self.tbl_sources.rowCount() == 0:
@@ -1613,10 +1656,10 @@ class FilesPanel(QtWidgets.QWidget):
         self._finalize_source_rows_changed()
 
     def _open_transcript_for_row(self, row: int) -> None:
-        key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
-        if not key:
+        row_id = self._row_id_at(row)
+        if not row_id:
             return
-        path = self._transcript_by_key.get(key)
+        path = self._transcript_by_row_id.get(row_id)
         if not path:
             return
         try:
@@ -1679,22 +1722,37 @@ class FilesPanel(QtWidgets.QWidget):
             return False
         return True
 
-    def _prepare_transcription_entries(self) -> list[dict[str, Any]]:
-        self._reset_url_rows_to_original_keys()
+    def _prepare_transcription_entries(self) -> tuple[list[dict[str, Any]], list[str]]:
+        row_ids = self._transcription_row_ids()
+        if not row_ids:
+            return [], []
+
         self._refresh_target_languages_if_ready()
-        self._reset_previews()
-        return build_entries(self._source_keys_in_table(), self._audio_track_by_key)
+        self._reset_previews(row_ids)
 
-    def _reset_transcription_run_state(self, run_keys: list[str]) -> None:
-        self._pct_by_key = {}
-        self._status_base_by_key = {}
-        self._error_by_key = {}
-        self._output_dir_by_key = {}
-        self._transcript_by_key = {}
+        source_keys: list[str] = []
+        audio_track_by_source_key: dict[str, str] = {}
+        for row_id in row_ids:
+            source_key = self._source_key_for_row_id(row_id)
+            if not source_key:
+                continue
+            self._replace_runtime_key(row_id, source_key)
+            source_keys.append(source_key)
+            audio_track_id = str(self._audio_track_by_row_id.get(row_id) or '').strip()
+            if audio_track_id:
+                audio_track_by_source_key[source_key] = audio_track_id
+        return build_entries(source_keys, audio_track_by_source_key), row_ids
 
-        for key in run_keys:
-            row = self._row_by_key.get(key)
-            if row is None:
+    def _reset_transcription_run_state(self, run_row_ids: list[str]) -> None:
+        for row_id in run_row_ids:
+            self._pct_by_row_id.pop(row_id, None)
+            self._status_base_by_row_id.pop(row_id, None)
+            self._error_by_row_id.pop(row_id, None)
+            self._output_dir_by_row_id.pop(row_id, None)
+            self._transcript_by_row_id.pop(row_id, None)
+
+            row = self._row_for_row_id(row_id)
+            if row < 0:
                 continue
             it = self.tbl_sources.item(row, self.COL_STATUS)
             if it:
@@ -1729,8 +1787,8 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _reset_non_finished_rows_after_cancel(self) -> None:
         for row in range(self.tbl_sources.rowCount()):
-            key = self.tbl_sources.internal_key_at(row, self.COL_PATH)
-            finished = bool(key and self._transcript_by_key.get(key))
+            row_id = self._row_id_at(row)
+            finished = bool(row_id and self._transcript_by_row_id.get(row_id))
             if finished:
                 continue
             it = self.tbl_sources.item(row, self.COL_STATUS)
@@ -1741,12 +1799,11 @@ class FilesPanel(QtWidgets.QWidget):
         if not self._can_start_transcription():
             return
 
-        entries = self._prepare_transcription_entries()
+        entries, run_row_ids = self._prepare_transcription_entries()
         if not entries:
             return
 
-        run_keys = [str(e.get("src")) for e in entries if isinstance(e, dict) and e.get("src")]
-        self._reset_transcription_run_state(run_keys)
+        self._reset_transcription_run_state(run_row_ids)
 
         session_request = self._build_transcription_session_request()
         coord = self.coordinator()
@@ -1774,20 +1831,24 @@ class FilesPanel(QtWidgets.QWidget):
     @QtCore.pyqtSlot(list)
     def on_meta_rows_ready(self, batch: list[dict[str, Any]]) -> None:
         for meta in batch:
-            key = str(meta.get("path") or "").strip()
-            if not key:
+            runtime_key = str(meta.get("path") or "").strip()
+            if not runtime_key:
                 continue
-            row = self._row_by_key.get(key)
-            if row is None:
+            row_id = self._row_id_for_runtime_key(runtime_key)
+            if not row_id:
+                continue
+            row = self._row_for_row_id(row_id)
+            if row < 0:
                 continue
             self._update_row_from_meta(row, meta)
 
     @QtCore.pyqtSlot(str, str, dict)
     def on_meta_item_error(self, key: str, err_key: str, params: dict[str, Any]) -> None:
-        k = str(key or "").strip()
-        row = self._row_by_key.get(k) if k else None
-        if row is not None:
-            self._remove_rows([int(row)])
+        runtime_key = str(key or "").strip()
+        row_id = self._row_id_for_runtime_key(runtime_key) if runtime_key else ""
+        row = self._row_for_row_id(row_id) if row_id else -1
+        if row >= 0:
+            self._remove_rows([row])
         dialogs.show_error(self, err_key, params or {})
 
     def on_meta_finished(self) -> None:
@@ -1851,7 +1912,6 @@ class FilesPanel(QtWidgets.QWidget):
         self.action_bar.reset()
         if self._was_cancelled:
             self._reset_non_finished_rows_after_cancel()
-            self._reset_url_rows_to_original_keys()
             if self._cancel_notice_pending:
                 dialogs.show_info(
                     self,
@@ -1881,64 +1941,71 @@ class FilesPanel(QtWidgets.QWidget):
     def _should_reset_progress_for_status_change(prev_base: str | None, new_base: str, status: str) -> bool:
         return bool(prev_base and prev_base != new_base and not is_terminal_status(status))
 
-    def _render_row_status_text(self, key: str, row: int, status: str, base_text: str) -> None:
+    def _render_row_status_text(self, row_id: str, row: int, status: str, base_text: str) -> None:
         it = self.tbl_sources.item(row, self.COL_STATUS)
         if it is None:
             return
 
-        pct = self._pct_by_key.get(key)
+        pct = self._pct_by_row_id.get(row_id)
         text = compose_status_text(status, pct, fallback=base_text or status)
         it.setText(text)
 
-    def _apply_terminal_status_state(self, key: str, status: str) -> None:
+    def _apply_terminal_status_state(self, row_id: str, status: str) -> None:
         if status in ("status.done", "status.saved"):
-            self._pct_by_key[key] = 100
-            if self._output_dir_by_key.get(key):
-                self._set_preview_enabled(key, True)
+            self._pct_by_row_id[row_id] = 100
+            if self._output_dir_by_row_id.get(row_id):
+                self._set_preview_enabled(row_id, True)
             return
 
         if status in ("status.skipped", "status.error"):
-            self._pct_by_key.pop(key, None)
-            self._output_dir_by_key.pop(key, None)
-            self._transcript_by_key.pop(key, None)
-            self._set_preview_enabled(key, False)
+            self._pct_by_row_id.pop(row_id, None)
+            self._output_dir_by_row_id.pop(row_id, None)
+            self._transcript_by_row_id.pop(row_id, None)
+            self._set_preview_enabled(row_id, False)
 
     @QtCore.pyqtSlot(str, str)
     def on_item_status(self, key: str, status: str) -> None:
         if self._was_cancelled:
             return
-        key = str(key)
+        runtime_key = str(key or "").strip()
         status = str(status or "").strip()
+        row_id = self._row_id_for_runtime_key(runtime_key)
+        if not row_id:
+            return
 
-        row = self._row_by_key.get(key)
-        if row is None:
+        row = self._row_for_row_id(row_id)
+        if row < 0:
             return
 
         base_key = normalize_status_base_key(status)
         base_text = status_display_text(base_key, status)
-        prev_base = self._status_base_by_key.get(key)
+        prev_base = self._status_base_by_row_id.get(row_id)
         if self._should_reset_progress_for_status_change(prev_base, base_key, status):
-            self._pct_by_key.pop(key, None)
+            self._pct_by_row_id.pop(row_id, None)
 
         if base_text:
-            self._status_base_by_key[key] = base_key
+            self._status_base_by_row_id[row_id] = base_key
 
-        self._apply_terminal_status_state(key, status)
-        self._render_row_status_text(key, row, status, base_text)
+        self._apply_terminal_status_state(row_id, status)
+        self._render_row_status_text(row_id, row, status, base_text)
 
     @QtCore.pyqtSlot(str, int)
     def on_item_progress(self, key: str, pct: int) -> None:
         if self._was_cancelled:
             return
-        key = str(key)
-        pct = max(0, min(100, int(pct)))
-        self._pct_by_key[key] = pct
-
-        row = self._row_by_key.get(key)
-        if row is None:
+        runtime_key = str(key or "").strip()
+        row_id = self._row_id_for_runtime_key(runtime_key)
+        if not row_id:
             return
 
-        base_key = self._status_base_by_key.get(key) or "status.processing"
+        pct = max(0, min(100, int(pct)))
+        self._pct_by_row_id[row_id] = pct
+
+        row = self._row_for_row_id(row_id)
+        if row < 0:
+            return
+
+        base_key = self._status_base_by_row_id.get(row_id) or "status.processing"
         text = compose_status_text(base_key, pct, fallback=base_key)
 
         it = self.tbl_sources.item(row, self.COL_STATUS)
@@ -1950,12 +2017,17 @@ class FilesPanel(QtWidgets.QWidget):
         if self._was_cancelled:
             return
 
+        runtime_key = str(key or "").strip()
+        row_id = self._row_id_for_runtime_key(runtime_key)
+        if not row_id:
+            return
+
         error_key = str(err_key or "error.generic").strip() or "error.generic"
         eparams = dict(params or {})
-        self._error_by_key[str(key)] = (error_key, eparams)
+        self._error_by_row_id[row_id] = (error_key, eparams)
 
-        row = self._row_by_key.get(str(key))
-        if row is None:
+        row = self._row_for_row_id(row_id)
+        if row < 0:
             return
 
         it = self.tbl_sources.item(row, self.COL_STATUS)
@@ -1965,71 +2037,65 @@ class FilesPanel(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot(str, str)
     def on_item_output_dir(self, key: str, out_dir: str) -> None:
-        self._output_dir_by_key[str(key)] = str(out_dir or "").strip()
-        row = self._row_by_key.get(str(key))
-        if row is None:
+        runtime_key = str(key or "").strip()
+        row_id = self._row_id_for_runtime_key(runtime_key)
+        if not row_id:
             return
-        self.tbl_sources.set_cell_internal_key(row, self.COL_PREVIEW, str(key))
-
-    def _migrate_source_runtime_maps(self, old_key: str, new_key: str, row: int) -> str:
-        display = self._display_path_by_key.get(old_key, old_key)
-        src_label = self._origin_src_by_key.get(old_key)
-
-        self._keys.discard(old_key)
-        self._keys.add(new_key)
-        self._row_by_key[new_key] = row
-
-        for mapping in (
-            self._transcript_by_key,
-            self._audio_track_by_key,
-            self._status_base_by_key,
-            self._pct_by_key,
-            self._error_by_key,
-            self._output_dir_by_key,
-        ):
-            if old_key in mapping:
-                mapping[new_key] = mapping.pop(old_key)
-
-        if src_label:
-            self._origin_src_by_key[new_key] = src_label
-        self._origin_src_by_key.pop(old_key, None)
-
-        self._display_path_by_key[new_key] = display
-        self._display_path_by_key.pop(old_key, None)
-        return display
-
-    def _retarget_source_row_widgets(self, row: int, new_key: str) -> None:
-        self.tbl_sources.set_cell_internal_key(row, self.COL_LANG, new_key)
-        self.tbl_sources.set_cell_internal_key(row, self.COL_PREVIEW, new_key)
-
-    def _apply_source_row_path_display(self, row: int, new_key: str, display: str) -> None:
-        it_path = self.tbl_sources.item(row, self.COL_PATH)
-        if it_path is None:
-            return
-        it_path.setData(QtCore.Qt.ItemDataRole.UserRole, new_key)
-        it_path.setText(display)
-        it_path.setToolTip(display)
+        self._output_dir_by_row_id[row_id] = str(out_dir or "").strip()
+        if self._status_base_by_row_id.get(row_id) in {"status.done", "status.saved"}:
+            self._set_preview_enabled(row_id, True)
 
     @QtCore.pyqtSlot(str, str)
     def on_item_path_update(self, old_key: str, new_key: str) -> None:
-        row = self._row_by_key.pop(old_key, None)
-        if row is None:
+        row_id = self._row_id_for_runtime_key(old_key)
+        if not row_id:
             return
 
-        display = self._migrate_source_runtime_maps(old_key, new_key, row)
-        self._retarget_source_row_widgets(row, new_key)
-        self._apply_source_row_path_display(row, new_key, display)
+        self._replace_runtime_key(row_id, new_key)
         self._start_metadata_for([new_key])
 
     @QtCore.pyqtSlot(str, str)
     def on_transcript_ready(self, key: str, transcript_path: str) -> None:
-        self._transcript_by_key[str(key)] = str(transcript_path)
+        runtime_key = str(key or "").strip()
+        row_id = self._row_id_for_runtime_key(runtime_key)
+        if not row_id:
+            return
+        self._transcript_by_row_id[row_id] = str(transcript_path or "")
 
     def _submit_conflict_resolution(self, action: str, new_stem: str = "") -> None:
         coord = self.coordinator()
         if coord is None:
             return
         coord.resolve_conflict(action, new_stem)
+
+    def _submit_access_intervention(self, source_key: str, action: str, value: str = "") -> None:
+        coord = self.coordinator()
+        if coord is None:
+            return
+        coord.resolve_access_intervention(source_key, action, value)
+
+    @QtCore.pyqtSlot(str, dict)
+    def on_access_intervention_required(self, source_key: str, params: dict[str, Any]) -> None:
+        if self._was_cancelled or self._cancel_notice_pending:
+            self._submit_access_intervention(source_key, "cancel", "")
+            return
+
+        action, value = dialogs.ask_source_access_intervention(
+            self,
+            kind=str((params or {}).get("kind") or "cookies").strip(),
+            source_kind=str((params or {}).get("source_kind") or "browser").strip(),
+            source_label=str((params or {}).get("source_label") or "").strip(),
+            detail=str((params or {}).get("detail") or "").strip(),
+            state=str((params or {}).get("state") or "").strip(),
+            provider_state=str((params or {}).get("provider_state") or "").strip(),
+            can_retry=bool((params or {}).get("can_retry", True)),
+            can_choose_cookie_file=bool((params or {}).get("can_choose_cookie_file", True)),
+            can_continue_without_cookies=bool((params or {}).get("can_continue_without_cookies", True)),
+            can_retry_enhanced=bool((params or {}).get("can_retry_enhanced", False)),
+            can_continue_basic=bool((params or {}).get("can_continue_basic", False)),
+            can_continue_degraded=bool((params or {}).get("can_continue_degraded", False)),
+        )
+        self._submit_access_intervention(source_key, action, value)
 
     @QtCore.pyqtSlot(str, str)
     def on_conflict_check(self, stem: str, _existing_dir: str) -> None:

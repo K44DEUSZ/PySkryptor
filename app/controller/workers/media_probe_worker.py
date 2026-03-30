@@ -15,8 +15,27 @@ from app.model.sources.probe import MediaProbeReader
 _LOG = logging.getLogger(__name__)
 
 
+def _probe_url(
+    url: str,
+    *,
+    browser_cookies_mode_override: str | None = None,
+    cookie_file_override: str | None = None,
+    access_mode_override: str | None = None,
+    interactive: bool = False,
+) -> dict[str, Any]:
+    """Probe a remote URL through the shared download service."""
+    return DownloadService.probe(
+        url,
+        browser_cookies_mode_override=browser_cookies_mode_override,
+        cookie_file_override=cookie_file_override,
+        access_mode_override=access_mode_override,
+        interactive=interactive,
+    )
+
+
 class MediaProbeWorker(TaskWorker):
     """Background worker that probes queued local or remote media entries."""
+
     table_ready = QtCore.pyqtSignal(list)
     item_error = QtCore.pyqtSignal(str, str, dict)
 
@@ -33,7 +52,7 @@ class MediaProbeWorker(TaskWorker):
         super().cancel()
 
     def _execute(self) -> None:
-        svc = MediaProbeReader(DownloadService())
+        svc = MediaProbeReader(_probe_url)
 
         out: list[dict[str, Any]] = []
         for ent in self._entries:
@@ -53,8 +72,15 @@ class MediaProbeWorker(TaskWorker):
                 if meta:
                     out.append(meta.as_files_row())
             except Exception as ex:
-                _LOG.exception("Media probe failed.", extra={"source": src, "value": val})
-                self.item_error.emit(val, "error.media_probe.failed", {"source": src, "value": val, "detail": str(ex)})
+                _LOG.exception(
+                    "Media probe failed.",
+                    extra={"source": src, "value": val},
+                )
+                self.item_error.emit(
+                    val,
+                    "error.media_probe.failed",
+                    {"source": src, "value": val, "detail": str(ex)},
+                )
 
         if out and not self._cancel.is_cancelled:
             self.table_ready.emit(out)

@@ -304,7 +304,6 @@ class TrackInventory:
         return [fmt for fmt in raw if isinstance(fmt, dict)]
 
     @staticmethod
-    @staticmethod
     def downloadable_media_counts(info: dict[str, Any] | None) -> dict[str, int]:
         counts = {
             "media_format_count": 0,
@@ -339,6 +338,7 @@ class TrackInventory:
         counts = TrackInventory.downloadable_media_counts(info)
         return bool(counts.get("media_format_count"))
 
+    @staticmethod
     def trusted_audio_track_identity(
         fmt: dict[str, Any],
         *,
@@ -887,7 +887,7 @@ class TrackInventory:
     def ordered_probe_clients_for_track(track: dict[str, Any] | None) -> list[str]:
         seen: set[str] = set()
         ordered: list[str] = []
-        for client in DownloadPolicy.youtube_advanced_probe_clients():
+        for client in DownloadPolicy.youtube_enhanced_probe_clients():
             if TrackInventory.track_for_probe_client(track, client) is None:
                 continue
             seen.add(client)
@@ -904,14 +904,7 @@ class TrackInventory:
     def ordered_download_clients_for_track(track: dict[str, Any] | None) -> list[str]:
         if not isinstance(track, dict):
             return []
-        ordered = TrackInventory.ordered_probe_clients_for_track(track)
-        youtube_clients = {
-            YtdlpGateway.normalize_probe_client(client)
-            for client in DownloadPolicy.youtube_advanced_probe_clients()
-        }
-        if not any(client in youtube_clients for client in ordered):
-            return ordered
-        return [client for client in ordered if DownloadPolicy.is_youtube_download_client(client)]
+        return TrackInventory.ordered_probe_clients_for_track(track)
 
     @staticmethod
     def make_probe_diagnostics(
@@ -927,7 +920,13 @@ class TrackInventory:
         authentication_detail: str,
         no_downloadable_formats: bool,
         no_downloadable_formats_detail: str,
-        advanced_mode: bool,
+        extended_access_required: bool,
+        extended_access_required_detail: str,
+        extractor_access_limited: bool,
+        extractor_access_limited_detail: str,
+        browser_cookie_requested: bool,
+        enhanced_mode: bool,
+        extractor_access_decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         warnings: list[str] = []
         errors: list[str] = []
@@ -949,7 +948,7 @@ class TrackInventory:
             if js_runtime_detail:
                 details["runtime_fallback_detail"] = js_runtime_detail
 
-        if advanced_mode and cookie_runtime_fallback:
+        if browser_cookie_requested and cookie_runtime_fallback:
             warnings.append("browser_cookies_unavailable")
             if cookie_runtime_failures:
                 details["cookie_browser_failures"] = list(cookie_runtime_failures)
@@ -961,16 +960,24 @@ class TrackInventory:
 
         media_counts = TrackInventory.downloadable_media_counts(info)
         no_public_formats = not bool(media_counts.get("media_format_count")) or no_downloadable_formats
+        if extended_access_required:
+            warnings.append("extended_access_required")
+            if extended_access_required_detail:
+                details["extended_access_required_detail"] = extended_access_required_detail
+        if extractor_access_limited:
+            warnings.append("extractor_access_limited")
+            if extractor_access_limited_detail:
+                details["extractor_access_limited_detail"] = extractor_access_limited_detail
         if no_public_formats:
             warnings.append("no_public_formats")
-        if advanced_mode and not bool(media_counts.get("media_format_count")):
+        if enhanced_mode and not bool(media_counts.get("media_format_count")):
             warnings.append("media_unavailable")
-        if advanced_mode and no_downloadable_formats:
+        if enhanced_mode and no_downloadable_formats:
             warnings.append("no_downloadable_formats")
         if no_downloadable_formats_detail:
             details["no_downloadable_formats_detail"] = no_downloadable_formats_detail
 
-        if advanced_mode:
+        if enhanced_mode:
             if info_is_youtube and partial_probe_clients:
                 warnings.append("audio_metadata_partial")
             elif info_is_youtube and untrusted_audio_format_count > 0:
@@ -987,7 +994,22 @@ class TrackInventory:
         ):
             warnings.append("partial_metadata")
 
-        if not warnings and not errors:
+        decision_payload = dict(extractor_access_decision or {})
+        decision_state = str(decision_payload.get("state") or "").strip()
+        notable_decision = (
+            DownloadPolicy.is_limited_extractor_access_decision(decision_state)
+            or DownloadPolicy.is_unavailable_extractor_access_state(decision_state)
+        )
+        if notable_decision:
+            details.setdefault("extractor_access_state", decision_state)
+            details.setdefault("extractor_access_action", str(decision_payload.get("action") or ""))
+            details.setdefault("extractor_access_scope", str(decision_payload.get("scope") or ""))
+            details.setdefault("extractor_access_mode", str(decision_payload.get("access_mode") or ""))
+            if str(decision_payload.get("detail") or "").strip():
+                details.setdefault("extractor_access_detail", str(decision_payload.get("detail") or "").strip())
+            details.setdefault("extractor_access_decision", decision_payload)
+
+        if not warnings and not errors and not notable_decision:
             return {}
 
         details.setdefault("audio_format_count", audio_format_count)
@@ -1001,13 +1023,13 @@ class TrackInventory:
         details.setdefault("video_only_format_count", int(media_counts.get("video_only_format_count") or 0))
         details.setdefault("combined_format_count", int(media_counts.get("combined_format_count") or 0))
         details.setdefault("image_only_format_count", int(media_counts.get("image_only_format_count") or 0))
-        if advanced_mode and attempted_probe_clients:
+        if enhanced_mode and attempted_probe_clients:
             details.setdefault("attempted_probe_clients", attempted_probe_clients)
-        if advanced_mode and successful_probe_clients:
+        if enhanced_mode and successful_probe_clients:
             details.setdefault("successful_probe_clients", successful_probe_clients)
-        if advanced_mode and client_track_coverage:
+        if enhanced_mode and client_track_coverage:
             details.setdefault("client_track_coverage", client_track_coverage)
-        if advanced_mode and partial_probe_clients:
+        if enhanced_mode and partial_probe_clients:
             details.setdefault("partial_probe_clients", partial_probe_clients)
         return {
             "warnings": warnings,

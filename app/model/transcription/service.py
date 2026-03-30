@@ -7,7 +7,7 @@ import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeAlias
+from typing import Any, Callable, TypeAlias, TypeVar
 
 from app.model.core.config.config import AppConfig
 from app.model.core.config.policy import LanguagePolicy
@@ -17,6 +17,7 @@ from app.model.core.domain.errors import AppError, OperationCancelled
 from app.model.core.domain.results import SessionResult
 from app.model.core.utils.path_utils import ensure_unique_path
 from app.model.core.utils.string_utils import sanitize_filename, sanitize_url_for_log
+from app.model.download.domain import SourceAccessInterventionRequest, DownloadError, SourceAccessInterventionRequired
 from app.model.download.policy import DownloadPolicy
 from app.model.download.service import DownloadService
 from app.model.sources.probe import is_url_source
@@ -40,9 +41,14 @@ TranscriptReadyFn = Callable[[str, str], None]
 ItemErrorFn = Callable[[str, str, dict[str, Any]], None]
 ItemOutputDirFn = Callable[[str, str], None]
 ConflictResolverFn = Callable[[str, str], tuple[str, str, bool]]
+AccessInterventionResolverFn = Callable[
+    [str, SourceAccessInterventionRequest, str | None, str | None, str | None],
+    tuple[str | None, str | None, str | None],
+]
 
 
 SourceEntry: TypeAlias = str | dict[str, Any]
+_DownloadResult = TypeVar("_DownloadResult")
 
 
 @dataclass(frozen=True)
@@ -249,6 +255,7 @@ class _SessionCallbacks:
     item_error: ItemErrorFn
     item_output_dir: ItemOutputDirFn
     conflict_resolver: ConflictResolverFn
+    access_intervention_resolver: AccessInterventionResolverFn | None
     cancel_check: CancelCheckFn
 
 
@@ -441,10 +448,8 @@ class TranscriptionService:
         key: str,
         error: Exception,
     ) -> None:
-        err_key = getattr(error, "key", None)
-        err_params = getattr(error, "params", None)
-        if err_key:
-            callbacks.item_error(key, str(err_key), dict(err_params or {}))
+        if isinstance(error, AppError):
+            callbacks.item_error(key, str(error.key), dict(error.params or {}))
             return
         callbacks.item_error(key, "error.generic", {"detail": str(error)})
 
@@ -683,6 +688,7 @@ class TranscriptionService:
         item_error: ItemErrorFn,
         item_output_dir: ItemOutputDirFn,
         conflict_resolver: ConflictResolverFn,
+        access_intervention_resolver: AccessInterventionResolverFn | None,
         cancel_check: CancelCheckFn,
     ) -> _SessionCallbacks:
         return _SessionCallbacks(
@@ -693,6 +699,7 @@ class TranscriptionService:
             item_error=item_error,
             item_output_dir=item_output_dir,
             conflict_resolver=conflict_resolver,
+            access_intervention_resolver=access_intervention_resolver,
             cancel_check=cancel_check,
         )
 
@@ -752,6 +759,7 @@ class TranscriptionService:
         item_error: ItemErrorFn,
         item_output_dir: ItemOutputDirFn,
         conflict_resolver: ConflictResolverFn,
+        access_intervention_resolver: AccessInterventionResolverFn | None,
         cancel_check: CancelCheckFn,
     ) -> SessionResult:
         entries = list(entries or [])
@@ -763,6 +771,7 @@ class TranscriptionService:
             item_error=item_error,
             item_output_dir=item_output_dir,
             conflict_resolver=conflict_resolver,
+            access_intervention_resolver=access_intervention_resolver,
             cancel_check=cancel_check,
         )
         runtime = self._prepare_session_runtime(
@@ -1022,8 +1031,8 @@ class TranscriptionService:
                 had_errors = True
                 callbacks.item_error(
                     key,
-                    str(getattr(ex, "key", "error.generic")),
-                    dict(getattr(ex, "params", {}) or {}),
+                    str(ex.key or "error.generic"),
+                    dict(ex.params or {}),
                 )
                 translated_text = ""
             else:
@@ -1040,8 +1049,8 @@ class TranscriptionService:
                         had_errors = True
                         callbacks.item_error(
                             key,
-                            str(getattr(ex, "key", "error.generic")),
-                            dict(getattr(ex, "params", {}) or {}),
+                            str(ex.key or "error.generic"),
+                            dict(ex.params or {}),
                         )
                         translated_text = ""
                         translated_segments = None
@@ -1090,6 +1099,54 @@ class TranscriptionService:
             except OSError as ex:
                 _LOG.debug("Downloaded source directory cleanup skipped. path=%s detail=%s", parent, ex)
 
+    @staticmethod
+    def _call_download_service_with_intervention(
+        *,
+        source_key: str,
+        source_url: str,
+        operation_name: str,
+        callbacks: _SessionCallbacks,
+        browser_cookies_mode_override: str | None,
+        cookie_file_override: str | None,
+        access_mode_override: str | None,
+        operation: Callable[[str | None, str | None, str | None], _DownloadResult],
+    ) -> tuple[_DownloadResult, str | None, str | None, str | None]:
+        resolver = callbacks.access_intervention_resolver
+        while True:
+            try:
+                result = operation(browser_cookies_mode_override, cookie_file_override, access_mode_override)
+                return result, browser_cookies_mode_override, cookie_file_override, access_mode_override
+            except SourceAccessInterventionRequired as ex:
+                if resolver is None:
+                    raise
+                browser_cookies_mode_override, cookie_file_override, access_mode_override = resolver(
+                    source_key,
+                    ex.request,
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    access_mode_override,
+                )
+            except DownloadError as ex:
+                if resolver is None:
+                    raise
+                intervention = DownloadService.intervention_request_from_error(
+                    ex,
+                    url=source_url,
+                    operation=operation_name,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                    access_mode_override=access_mode_override,
+                )
+                if intervention is None:
+                    raise
+                browser_cookies_mode_override, cookie_file_override, access_mode_override = resolver(
+                    source_key,
+                    intervention.request,
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    access_mode_override,
+                )
+
     def _materialize_entry(
         self,
         *,
@@ -1122,7 +1179,30 @@ class TranscriptionService:
         safe_url = sanitize_url_for_log(request.source_key)
         callbacks.item_status(old_key, "status.processing")
         download_started = time.perf_counter()
-        meta = self._download.probe(request.source_key)
+        browser_cookies_mode_override: str | None = None
+        cookie_file_override: str | None = None
+        access_mode_override: str | None = None
+        (
+            meta,
+            browser_cookies_mode_override,
+            cookie_file_override,
+            access_mode_override,
+        ) = self._call_download_service_with_intervention(
+            source_key=old_key,
+            source_url=request.source_key,
+            operation_name=DownloadPolicy.DOWNLOAD_OPERATION_PROBE,
+            callbacks=callbacks,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+            operation=lambda mode_override, file_override, access_override: self._download.probe(
+                request.source_key,
+                browser_cookies_mode_override=mode_override,
+                cookie_file_override=file_override,
+                access_mode_override=access_override,
+                interactive=True,
+            ),
+        )
         dur = meta.get("duration")
         if isinstance(dur, (int, float)) and dur > 0:
             runtime.tracker.set_weight(old_key, weight=max(15.0, min(3600.0, float(dur))))
@@ -1155,19 +1235,36 @@ class TranscriptionService:
 
         callbacks.item_status(old_key, "status.downloading")
         out_dir = workspace.downloads_dir() if keep else workspace.url_tmp_dir()
-        dst = self._download.download(
-            url=request.source_key,
-            kind=kind,
-            quality=quality,
-            ext=ext,
-            out_dir=out_dir,
-            progress_cb=on_dl,
-            audio_track_id=request.audio_track_id,
-            file_stem=stem,
-            cancel_check=callbacks.cancel_check,
-            purpose=DownloadPolicy.DOWNLOAD_PURPOSE_TRANSCRIPTION,
-            keep_output=keep,
-            meta=meta,
+        (
+            dst,
+            browser_cookies_mode_override,
+            cookie_file_override,
+            access_mode_override,
+        ) = self._call_download_service_with_intervention(
+            source_key=old_key,
+            source_url=request.source_key,
+            operation_name=DownloadPolicy.DOWNLOAD_OPERATION_DOWNLOAD,
+            callbacks=callbacks,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+            access_mode_override=access_mode_override,
+            operation=lambda mode_override, file_override, access_override: self._download.download(
+                url=request.source_key,
+                kind=kind,
+                quality=quality,
+                ext=ext,
+                out_dir=out_dir,
+                progress_cb=on_dl,
+                audio_track_id=request.audio_track_id,
+                file_stem=stem,
+                cancel_check=callbacks.cancel_check,
+                purpose=DownloadPolicy.DOWNLOAD_PURPOSE_TRANSCRIPTION,
+                keep_output=keep,
+                meta=meta,
+                browser_cookies_mode_override=mode_override,
+                cookie_file_override=file_override,
+                access_mode_override=access_override,
+            ),
         )
         if not dst:
             raise AppError(key="error.down.download_failed", params={"detail": "download returned no file path"})

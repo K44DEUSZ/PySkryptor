@@ -13,6 +13,10 @@ class DownloadPolicy:
     DOWNLOAD_PURPOSE_DOWNLOAD: str = "download"
     DOWNLOAD_PURPOSE_TRANSCRIPTION: str = "transcription"
 
+    DOWNLOAD_OPERATION_PLAYLIST: str = "playlist"
+    DOWNLOAD_OPERATION_PROBE: str = "probe"
+    DOWNLOAD_OPERATION_DOWNLOAD: str = "download"
+
     DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT: str = "strict_final_ext"
     DOWNLOAD_ARTIFACT_POLICY_WORK_INPUT: str = "work_input"
 
@@ -30,9 +34,45 @@ class DownloadPolicy:
     COOKIE_BROWSERS: tuple[str, ...] = ("chrome", "edge", "firefox", "brave")
     COOKIE_BROWSER_POLICIES: tuple[str, ...] = (COOKIE_BROWSER_AUTO, *COOKIE_BROWSERS)
 
-    YOUTUBE_GENERIC_PROBE_CLIENTS: tuple[str, ...] = ("default",)
-    YOUTUBE_ADVANCED_PROBE_CLIENTS: tuple[str, ...] = ("default", "ios", "tv_downgraded", "mweb")
-    YOUTUBE_DOWNLOAD_CLIENTS: tuple[str, ...] = ("default",)
+    EXTRACTOR_KEY_GENERIC: str = "generic"
+    EXTRACTOR_KEY_YOUTUBE: str = "youtube"
+    EXTRACTOR_PROVIDER_STATE_NONE: str = "none"
+    EXTRACTOR_PROVIDER_STATE_AVAILABLE: str = "available"
+    EXTRACTOR_PROVIDER_STATE_MISSING: str = "missing"
+    EXTRACTOR_PROVIDER_STATE_UNAVAILABLE: str = "unavailable"
+
+    EXTRACTOR_ACCESS_MODE_BASIC: str = "basic"
+    EXTRACTOR_ACCESS_MODE_ENHANCED: str = "enhanced"
+    EXTRACTOR_ACCESS_MODE_DEGRADED: str = "degraded"
+    EXTRACTOR_ACCESS_MODE_UNAVAILABLE: str = "unavailable"
+
+    EXTRACTOR_ACCESS_STATE_BASIC_OK: str = "basic_ok"
+    EXTRACTOR_ACCESS_STATE_BASIC_LIMITED: str = "basic_limited"
+    EXTRACTOR_ACCESS_STATE_ENHANCED_ACTIVE: str = "enhanced_active"
+    EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED: str = "enhanced_recommended"
+    EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED: str = "enhanced_required"
+    EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING: str = "provider_missing"
+    EXTRACTOR_ACCESS_STATE_DEGRADED: str = "degraded"
+    EXTRACTOR_ACCESS_STATE_UNAVAILABLE: str = "unavailable"
+
+    EXTRACTOR_ACCESS_ACTION_NONE: str = "none"
+    EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC: str = "continue_basic"
+    EXTRACTOR_ACCESS_ACTION_LIMITED_FORMATS: str = "limited_formats"
+    EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED: str = "retry_enhanced"
+    EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED: str = "continue_degraded"
+    EXTRACTOR_ACCESS_ACTION_INSTALL_PROVIDER: str = "install_provider"
+
+    EXTRACTOR_ACCESS_SCOPE_GENERIC: str = "generic"
+    EXTRACTOR_ACCESS_SCOPE_GVS: str = "gvs"
+    EXTRACTOR_ACCESS_SCOPE_PLAYER: str = "player"
+    EXTRACTOR_ACCESS_SCOPE_SUBS: str = "subs"
+    EXTRACTOR_ACCESS_SCOPE_VISITOR_DATA: str = "visitor_data"
+    EXTRACTOR_ACCESS_SCOPE_PO_TOKEN: str = "po_token"
+    EXTRACTOR_ACCESS_SCOPE_SABR: str = "sabr"
+
+    YOUTUBE_BASIC_PROBE_CLIENTS: tuple[str, ...] = ("default",)
+    YOUTUBE_ENHANCED_PROBE_CLIENTS: tuple[str, ...] = ("mweb", "default", "ios", "tv_downgraded")
+    YOUTUBE_ENHANCED_CLIENT: str = "mweb"
 
     DOWNLOAD_UI_DEFAULT_QUALITY: str = "auto"
 
@@ -181,37 +221,123 @@ class DownloadPolicy:
         return cls.normalize_cookie_browser_mode(value) in {"from_browser", "from_file"}
 
     @classmethod
-    def is_advanced_probe_mode_for_url(cls, *, url: str, browser_cookies_mode: Any) -> bool:
-        return is_youtube_url(url) and cls.is_authenticated_cookie_mode(browser_cookies_mode)
-
-    @classmethod
-    def probe_clients_for_url(cls, *, url: str, browser_cookies_mode: Any) -> tuple[str, ...]:
-        if not is_youtube_url(url):
-            return ("default",)
-        if cls.is_authenticated_cookie_mode(browser_cookies_mode):
-            return cls.youtube_advanced_probe_clients()
-        return cls.youtube_generic_probe_clients()
-
-    @classmethod
-    def should_collect_probe_variants_for_url(cls, *, url: str, browser_cookies_mode: Any) -> bool:
-        return cls.is_advanced_probe_mode_for_url(url=url, browser_cookies_mode=browser_cookies_mode)
-
-    @classmethod
-    def youtube_generic_probe_clients(cls) -> tuple[str, ...]:
-        return cls.YOUTUBE_GENERIC_PROBE_CLIENTS
-
-    @classmethod
-    def youtube_advanced_probe_clients(cls) -> tuple[str, ...]:
-        return cls.YOUTUBE_ADVANCED_PROBE_CLIENTS
-
-    @classmethod
-    def youtube_download_clients(cls) -> tuple[str, ...]:
-        return cls.YOUTUBE_DOWNLOAD_CLIENTS
-
-    @classmethod
-    def is_youtube_download_client(cls, value: Any) -> bool:
+    def normalize_download_operation(cls, value: Any) -> str:
         token = str(value or "").strip().lower()
-        return token in cls.YOUTUBE_DOWNLOAD_CLIENTS
+        if token in {
+            cls.DOWNLOAD_OPERATION_PLAYLIST,
+            cls.DOWNLOAD_OPERATION_PROBE,
+            cls.DOWNLOAD_OPERATION_DOWNLOAD,
+        }:
+            return token
+        return cls.DOWNLOAD_OPERATION_DOWNLOAD
+
+    @classmethod
+    def normalize_extractor_key(cls, value: Any) -> str:
+        token = str(value or "").strip().lower()
+        if not token:
+            return cls.EXTRACTOR_KEY_GENERIC
+        if token == cls.EXTRACTOR_KEY_YOUTUBE or "youtube" in token or token == "youtu" or token == "youtube_tab":
+            return cls.EXTRACTOR_KEY_YOUTUBE
+        return cls.EXTRACTOR_KEY_GENERIC
+
+    @classmethod
+    def normalize_extractor_access_mode(cls, value: Any) -> str:
+        token = str(value or "").strip().lower()
+        if token in {
+            cls.EXTRACTOR_ACCESS_MODE_BASIC,
+            cls.EXTRACTOR_ACCESS_MODE_ENHANCED,
+            cls.EXTRACTOR_ACCESS_MODE_DEGRADED,
+            cls.EXTRACTOR_ACCESS_MODE_UNAVAILABLE,
+        }:
+            return token
+        return cls.EXTRACTOR_ACCESS_MODE_BASIC
+
+    @classmethod
+    def extractor_key_for_url(cls, url: str | None) -> str:
+        return cls.EXTRACTOR_KEY_YOUTUBE if is_youtube_url(url) else cls.EXTRACTOR_KEY_GENERIC
+
+    @classmethod
+    def supports_extended_extractor_access(cls, extractor_key: Any) -> bool:
+        return cls.normalize_extractor_key(extractor_key) == cls.EXTRACTOR_KEY_YOUTUBE
+
+    @classmethod
+    def youtube_enhanced_client(cls) -> str:
+        return cls.YOUTUBE_ENHANCED_CLIENT
+
+    @classmethod
+    def youtube_basic_probe_clients(cls) -> tuple[str, ...]:
+        return cls.YOUTUBE_BASIC_PROBE_CLIENTS
+
+    @classmethod
+    def youtube_enhanced_probe_clients(cls) -> tuple[str, ...]:
+        return cls.YOUTUBE_ENHANCED_PROBE_CLIENTS
+
+    @classmethod
+    def normalize_provider_state(cls, value: Any) -> str:
+        token = str(value or "").strip().lower()
+        if token in {
+            cls.EXTRACTOR_PROVIDER_STATE_NONE,
+            cls.EXTRACTOR_PROVIDER_STATE_AVAILABLE,
+            cls.EXTRACTOR_PROVIDER_STATE_MISSING,
+            cls.EXTRACTOR_PROVIDER_STATE_UNAVAILABLE,
+        }:
+            return token
+        return cls.EXTRACTOR_PROVIDER_STATE_NONE
+
+    @classmethod
+    def normalize_extractor_access_scope(cls, value: Any) -> str:
+        token = str(value or "").strip().lower()
+        if token in {
+            cls.EXTRACTOR_ACCESS_SCOPE_GENERIC,
+            cls.EXTRACTOR_ACCESS_SCOPE_GVS,
+            cls.EXTRACTOR_ACCESS_SCOPE_PLAYER,
+            cls.EXTRACTOR_ACCESS_SCOPE_SUBS,
+            cls.EXTRACTOR_ACCESS_SCOPE_VISITOR_DATA,
+            cls.EXTRACTOR_ACCESS_SCOPE_PO_TOKEN,
+            cls.EXTRACTOR_ACCESS_SCOPE_SABR,
+        }:
+            return token
+        return cls.EXTRACTOR_ACCESS_SCOPE_GENERIC
+
+    @classmethod
+    def extractor_access_unavailable_states(cls) -> tuple[str, ...]:
+        return (
+            cls.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING,
+            cls.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED,
+            cls.EXTRACTOR_ACCESS_STATE_UNAVAILABLE,
+        )
+
+    @classmethod
+    def extractor_access_limited_states(cls) -> tuple[str, ...]:
+        return (
+            cls.EXTRACTOR_ACCESS_STATE_BASIC_LIMITED,
+            cls.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED,
+            cls.EXTRACTOR_ACCESS_STATE_DEGRADED,
+        )
+
+    @classmethod
+    def extractor_access_limited_actions(cls) -> tuple[str, ...]:
+        return (
+            cls.EXTRACTOR_ACCESS_ACTION_LIMITED_FORMATS,
+            cls.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
+            cls.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
+            cls.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED,
+        )
+
+
+    @classmethod
+    def is_limited_extractor_access_decision(cls, state: Any, action: Any = None) -> bool:
+        normalized_state = str(state or "").strip().lower()
+        normalized_action = str(action or "").strip().lower()
+        return (
+            normalized_state in cls.extractor_access_limited_states()
+            or normalized_action in cls.extractor_access_limited_actions()
+        )
+
+    @classmethod
+    def is_unavailable_extractor_access_state(cls, state: Any) -> bool:
+        normalized_state = str(state or "").strip().lower()
+        return normalized_state in cls.extractor_access_unavailable_states()
 
     @classmethod
     def is_supported_cookie_browser(cls, value: Any) -> bool:

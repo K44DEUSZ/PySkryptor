@@ -74,6 +74,7 @@ def rebind_files_panel_view(
     item_error: BoundSignalProtocol,
     item_output_dir: BoundSignalProtocol,
     conflict_check: BoundSignalProtocol,
+    access_intervention_required: BoundSignalProtocol,
     session_done: BoundSignalProtocol,
     transcription_finished: BoundSignalProtocol,
     quick_options_save_failed: BoundSignalProtocol,
@@ -153,6 +154,11 @@ def rebind_files_panel_view(
         signal=conflict_check,
         previous_slot=previous_view.on_conflict_check if previous_view is not None else None,
         new_slot=new_view.on_conflict_check,
+    )
+    _rebind_signal(
+        signal=access_intervention_required,
+        previous_slot=previous_view.on_access_intervention_required if previous_view is not None else None,
+        new_slot=new_view.on_access_intervention_required,
     )
     _rebind_signal(
         signal=session_done,
@@ -243,7 +249,7 @@ def rebind_downloader_panel_view(
     new_view: DownloaderPanelViewProtocol,
     probe_meta_ready: BoundSignalProtocol,
     probe_failed: BoundSignalProtocol,
-    cookie_intervention_required: BoundSignalProtocol,
+    access_intervention_required: BoundSignalProtocol,
     expansion_busy_changed: BoundSignalProtocol,
     expansion_status_changed: BoundSignalProtocol,
     expansion_ready: BoundSignalProtocol,
@@ -268,11 +274,11 @@ def rebind_downloader_panel_view(
         new_slot=new_view.on_probe_error,
     )
     _rebind_signal(
-        signal=cookie_intervention_required,
+        signal=access_intervention_required,
         previous_slot=(
-            previous_view.on_cookie_intervention_required if previous_view is not None else None
+            previous_view.on_access_intervention_required if previous_view is not None else None
         ),
-        new_slot=new_view.on_cookie_intervention_required,
+        new_slot=new_view.on_access_intervention_required,
     )
     _rebind_signal(
         signal=expansion_busy_changed,

@@ -4,11 +4,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, TypeAlias
 
 from app.model.core.config.config import AppConfig
 from app.model.core.domain.errors import AppError
 from app.model.download.domain import DownloadError
+from app.model.download.policy import DownloadPolicy
 from app.model.core.infrastructure.command_runner import CommandRunner
 from app.model.core.runtime.ffmpeg import resolve_ffmpeg_tool
 
@@ -51,37 +52,30 @@ class MediaProbe:
         }
 
 
+UrlProbeFn: TypeAlias = Callable[..., dict[str, Any]]
+
+
 class MediaProbeReader:
     """Central place for building MediaProbe from local files and URLs."""
 
-    class _UrlProbeClient(Protocol):
-        """Minimal URL probing contract required by MediaProbeReader."""
-
-        def probe(
-            self,
-            url: str,
-            *,
-            browser_cookies_mode_override: str | None = None,
-            interactive: bool = False,
-        ) -> dict[str, Any]: ...
-
-    def __init__(self, down: _UrlProbeClient) -> None:
-        self._down = down
+    def __init__(self, probe_url: UrlProbeFn) -> None:
+        self._probe_url = probe_url
 
     @staticmethod
     def _is_nonblocking_probe_error(ex: DownloadError) -> bool:
         """Return True for URL probe errors that should degrade into partial metadata."""
-        key = str(getattr(ex, "key", "") or "").strip()
+        key = str(ex.key or "").strip()
         return key in {
             "error.down.authentication_required",
             "error.down.browser_cookies_unavailable",
             "error.down.no_downloadable_formats",
+            "error.down.extended_access_required",
         }
 
     @staticmethod
     def _fallback_url_probe(url: str, ex: DownloadError) -> MediaProbe:
         """Build a partial URL probe result when remote metadata access is blocked."""
-        key = str(getattr(ex, "key", "") or "error.down.probe_failed")
+        key = str(ex.key or "error.down.probe_failed")
         warning = "partial_metadata"
         if key == "error.down.authentication_required":
             warning = "authentication_required"
@@ -89,6 +83,12 @@ class MediaProbeReader:
             warning = "browser_cookies_unavailable"
         elif key == "error.down.no_downloadable_formats":
             warning = "no_public_formats"
+        elif key == "error.down.extended_access_required":
+            warning = "extended_access_required"
+        details = {"detail": str(ex), "error_key": key}
+        if warning == "extended_access_required":
+            details["extractor_access_state"] = DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED
+            details["extractor_action"] = DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED
         return MediaProbe(
             source="URL",
             title=url,
@@ -100,14 +100,14 @@ class MediaProbeReader:
             audio_tracks=None,
             probe_diagnostics={
                 "warnings": [warning],
-                "details": {"detail": str(ex), "error_key": key},
+                "details": details,
             },
         )
 
     def from_url(self, url: str) -> MediaProbe:
         """Probe remote media and normalize it into MediaProbe."""
         try:
-            raw = self._down.probe(url, interactive=False)
+            raw = self._probe_url(url, interactive=False)
         except DownloadError as ex:
             if self._is_nonblocking_probe_error(ex):
                 return self._fallback_url_probe(url, ex)

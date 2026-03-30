@@ -13,12 +13,16 @@ from app.model.core.domain.errors import OperationCancelled
 from app.model.core.utils.string_utils import is_youtube_url, sanitize_url_for_log
 from app.model.download.domain import (
     CookieBrowserAttempt,
-    CookieInterventionRequest,
+    SourceAccessInterventionRequest,
+    DownloadCookieContext,
     DownloadError,
-    DownloadInterventionRequired,
+    SourceAccessInterventionRequired,
+    ExtractorAccessContext,
+    SourceAccessContext,
 )
 from app.model.download.policy import DownloadPolicy
 from app.model.download.runtime import resolve_cookie_browser_candidates
+from app.model.download.strategy import resolve_extractor_strategy
 
 _LOG = logging.getLogger(__name__)
 
@@ -26,9 +30,6 @@ _NOISE_PATTERNS: tuple[str, ...] = (
     "UNPLAYABLE formats",
     "developer option intended for debugging",
     "impersonation",
-    "SABR streaming",
-    "SABR-only",
-    "GVS PO Token",
     "[debug]",
 )
 
@@ -119,6 +120,30 @@ _COOKIE_BROWSER_DECRYPT_MARKERS: tuple[str, ...] = (
     "dpapi",
 )
 
+
+_EXTENDED_ACCESS_MARKERS: tuple[str, ...] = (
+    "po token",
+    "proof of origin",
+    "gvs po token",
+    "player po token",
+    "subs po token",
+    "unable to fetch po token",
+    "missing required visitor data",
+    "youtube is forcing sabr streaming",
+    "sabr streaming",
+    "sabr-only",
+)
+
+_EXTRACTOR_ACCESS_LIMITED_MARKERS: tuple[str, ...] = (
+    "formats have been skipped",
+    "they will be skipped",
+    "missing a url",
+    "may yield http error 403",
+    "only sabr formats available",
+    "sabr streaming",
+    "sabr-only",
+)
+
 _YTDLP_EXCEPTIONS = (yt_dlp.DownloadError, OSError, ValueError, RuntimeError)
 
 
@@ -190,6 +215,15 @@ class YtdlpLogger:
         if not _is_noisy(text, self._extra_noise):
             self._logger.error("yt_dlp raw error output. text=%s", text)
 
+    def with_event_sink(self, event_sink: Callable[[str, str], None] | None) -> "YtdlpLogger":
+        """Return a logger clone that shares the same runtime guards and noise filter."""
+        return YtdlpLogger(
+            self._logger,
+            extra_noise=self._extra_noise,
+            cancel_check=self._cancel_check,
+            event_sink=event_sink,
+        )
+
 
 class YtdlpGateway:
     """Build yt_dlp options and runtime-aware extractor calls."""
@@ -202,7 +236,7 @@ class YtdlpGateway:
     @staticmethod
     def probe_client_sort_key(probe_client: str | None) -> tuple[int, str]:
         normalized = YtdlpGateway.normalize_probe_client(probe_client)
-        order = DownloadPolicy.youtube_advanced_probe_clients()
+        order = DownloadPolicy.youtube_enhanced_probe_clients()
         try:
             idx = order.index(normalized)
         except ValueError:
@@ -286,16 +320,13 @@ class YtdlpGateway:
         clean["cookiefile"] = str(cookie_file_path or "").strip()
         return clean
 
+
     @staticmethod
-    def probe_clients_for_url(
-        url: str,
-        *,
-        browser_cookies_mode: str | None = None,
-    ) -> tuple[str, ...]:
-        return DownloadPolicy.probe_clients_for_url(
-            url=url,
-            browser_cookies_mode=browser_cookies_mode,
-        )
+    def probe_clients_for_access_context(source_access_context: SourceAccessContext) -> tuple[str, ...]:
+        """Return probe clients for the resolved source access context."""
+        extractor_context = source_access_context.extractor_context
+        strategy = resolve_extractor_strategy(extractor_context.extractor_key)
+        return strategy.probe_clients(extractor_context)
 
     @staticmethod
     def _cookie_browser_candidates(opts: dict[str, Any]) -> tuple[str, ...]:
@@ -315,35 +346,57 @@ class YtdlpGateway:
         return bool(str(opts.get("cookiefile") or "").strip())
 
     @staticmethod
-    def with_probe_client_opts(opts: dict[str, Any], *, probe_client: str) -> dict[str, Any]:
-        normalized_probe_client = YtdlpGateway.normalize_probe_client(probe_client)
-        if normalized_probe_client == "default":
-            clean_opts = dict(opts or {})
-            existing = clean_opts.get("extractor_args")
-            if isinstance(existing, dict) and "youtube" in existing:
-                updated_existing = dict(existing)
-                youtube_args = updated_existing.get("youtube")
-                if isinstance(youtube_args, dict):
-                    updated_youtube_args = dict(youtube_args)
-                    updated_youtube_args.pop("player_client", None)
-                    if updated_youtube_args:
-                        updated_existing["youtube"] = updated_youtube_args
-                    else:
-                        updated_existing.pop("youtube", None)
-                    clean_opts["extractor_args"] = updated_existing if updated_existing else None
-                    if not clean_opts.get("extractor_args"):
-                        clean_opts.pop("extractor_args", None)
-            return clean_opts
+    def _normalize_extractor_args(opts: dict[str, Any]) -> dict[str, Any]:
+        raw = (opts or {}).get("extractor_args")
+        return dict(raw) if isinstance(raw, dict) else {}
 
+    @staticmethod
+    def apply_extractor_access_opts(
+        opts: dict[str, Any],
+        *,
+        extractor_access_context: ExtractorAccessContext,
+    ) -> dict[str, Any]:
+        """Apply extractor-specific args using a resolved access context."""
         updated_opts = dict(opts or {})
-        extractor_args = updated_opts.get("extractor_args")
-        normalized_extractor_args = dict(extractor_args) if isinstance(extractor_args, dict) else {}
-        youtube_args = normalized_extractor_args.get("youtube")
-        normalized_youtube_args = dict(youtube_args) if isinstance(youtube_args, dict) else {}
-        normalized_youtube_args["player_client"] = [normalized_probe_client]
-        normalized_extractor_args["youtube"] = normalized_youtube_args
-        updated_opts["extractor_args"] = normalized_extractor_args
+        normalized_extractor_args = YtdlpGateway._normalize_extractor_args(updated_opts)
+        strategy = resolve_extractor_strategy(extractor_access_context.extractor_key)
+        strategy_args = strategy.build_extractor_args(extractor_access_context)
+
+        for extractor_name, extractor_args in strategy_args.items():
+            if not isinstance(extractor_args, dict):
+                continue
+            merged_args = dict(normalized_extractor_args.get(extractor_name) or {})
+            for key, value in extractor_args.items():
+                if value in (None, "", [], (), {}):
+                    merged_args.pop(str(key), None)
+                else:
+                    merged_args[str(key)] = value
+            if merged_args:
+                normalized_extractor_args[str(extractor_name)] = merged_args
+            else:
+                normalized_extractor_args.pop(str(extractor_name), None)
+
+        if normalized_extractor_args:
+            updated_opts["extractor_args"] = normalized_extractor_args
+        else:
+            updated_opts.pop("extractor_args", None)
         return updated_opts
+
+    @staticmethod
+    def with_probe_client_opts(
+        opts: dict[str, Any],
+        *,
+        probe_client: str,
+        extractor_access_context: ExtractorAccessContext | None = None,
+    ) -> dict[str, Any]:
+        context = extractor_access_context or ExtractorAccessContext(
+            extractor_key=DownloadPolicy.EXTRACTOR_KEY_YOUTUBE,
+            operation=DownloadPolicy.DOWNLOAD_OPERATION_PROBE,
+        )
+        return YtdlpGateway.apply_extractor_access_opts(
+            opts,
+            extractor_access_context=context.with_client(probe_client),
+        )
 
     @staticmethod
     def is_js_runtime_error(ex: Exception) -> bool:
@@ -371,6 +424,33 @@ class YtdlpGateway:
     def is_no_downloadable_formats_error(ex: Exception) -> bool:
         text = _normalize_ytdlp_detail(ex).lower()
         return any(marker in text for marker in _NO_DOWNLOADABLE_FORMAT_MARKERS)
+
+    @staticmethod
+    def is_extended_extractor_access_error(ex: Exception) -> bool:
+        text = _normalize_ytdlp_detail(ex).lower()
+        return any(marker in text for marker in _EXTENDED_ACCESS_MARKERS)
+
+    @staticmethod
+    def is_extractor_access_limited_message(detail: Any) -> bool:
+        text = _normalize_ytdlp_detail(detail).lower()
+        return any(marker in text for marker in _EXTRACTOR_ACCESS_LIMITED_MARKERS)
+
+    @staticmethod
+    def classify_extended_access_scope(detail: Any) -> str:
+        text = _normalize_ytdlp_detail(detail).lower()
+        if "visitor data" in text:
+            return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_VISITOR_DATA
+        if "gvs po token" in text or ".gvs" in text:
+            return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_GVS
+        if "player po token" in text or ".player" in text:
+            return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_PLAYER
+        if "subs po token" in text or ".subs" in text or "subtitle" in text:
+            return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_SUBS
+        if "sabr" in text:
+            return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_SABR
+        if "po token" in text:
+            return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_PO_TOKEN
+        return DownloadPolicy.EXTRACTOR_ACCESS_SCOPE_GENERIC
 
     @staticmethod
     def classify_cookie_browser_error_kind(detail: Any) -> str:
@@ -418,11 +498,8 @@ class YtdlpGateway:
         updated = dict(opts or {})
         existing_logger = updated.get("logger")
         if isinstance(existing_logger, YtdlpLogger):
-            logger = YtdlpLogger(
-                existing_logger._logger,
-                extra_noise=existing_logger._extra_noise,
-                cancel_check=existing_logger._cancel_check,
-                event_sink=lambda kind, text: YtdlpGateway._append_logger_event(diag, kind, text),
+            logger = existing_logger.with_event_sink(
+                lambda kind, text: YtdlpGateway._append_logger_event(diag, kind, text)
             )
         else:
             logger = YtdlpLogger(
@@ -468,6 +545,19 @@ class YtdlpGateway:
                 diag["authentication_required"] = True
                 diag["authentication_error"] = detail
 
+        if not diag.get("extended_access_required"):
+            detail = YtdlpGateway._first_matching_message(messages, YtdlpGateway.is_extended_extractor_access_error)
+            if detail:
+                diag["extended_access_required"] = True
+                diag["extended_access_required_detail"] = detail
+                diag["extended_access_scope"] = YtdlpGateway.classify_extended_access_scope(detail)
+
+        if not diag.get("extractor_access_limited"):
+            detail = YtdlpGateway._first_matching_message(messages, YtdlpGateway.is_extractor_access_limited_message)
+            if detail:
+                diag["extractor_access_limited"] = True
+                diag["extractor_access_limited_detail"] = detail
+
     @staticmethod
     def _extract_once(
         *,
@@ -485,6 +575,7 @@ class YtdlpGateway:
                 YtdlpGateway._update_diag_flags_from_logger_messages(diag)
                 return normalized_info
             except _YTDLP_EXCEPTIONS as ex:
+                YtdlpGateway._update_diag_flags_from_logger_messages(diag)
                 if "js_runtimes" in current_opts and YtdlpGateway.is_js_runtime_error(ex):
                     diag["js_runtime_fallback"] = True
                     diag["js_runtime_error"] = _normalize_ytdlp_detail(ex)
@@ -511,6 +602,7 @@ class YtdlpGateway:
         allow_cookie_intervention: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         diag: dict[str, Any] = {
+            "extractor_key": DownloadPolicy.extractor_key_for_url(url),
             "js_runtime_fallback": False,
             "js_runtime_error": "",
             "cookie_runtime_fallback": False,
@@ -518,11 +610,16 @@ class YtdlpGateway:
             "cookie_browser_used": "",
             "cookie_browser_attempts": [],
             "cookie_browser_failures": [],
-            "cookie_intervention_required": False,
+            "access_intervention_required": False,
             "cookie_intervention_browser": "",
             "cookie_intervention_detail": "",
             "authentication_required": False,
             "authentication_error": "",
+            "extended_access_required": False,
+            "extended_access_required_detail": "",
+            "extended_access_scope": "",
+            "extractor_access_limited": False,
+            "extractor_access_limited_detail": "",
             "no_downloadable_formats": False,
             "no_downloadable_formats_detail": "",
             "raw_warning_messages": [],
@@ -555,14 +652,18 @@ class YtdlpGateway:
                     diag["cookie_runtime_error"] = detail
                     YtdlpGateway._record_cookie_failure(diag, browser=browser, detail=detail)
                     if YtdlpGateway.is_cookie_browser_intervention_error(ex):
-                        diag["cookie_intervention_required"] = True
+                        diag["access_intervention_required"] = True
                         diag["cookie_intervention_browser"] = browser
                         diag["cookie_intervention_detail"] = detail
                         if allow_cookie_intervention:
-                            raise DownloadInterventionRequired(
-                                CookieInterventionRequest(
-                                    browser=browser,
+                            raise SourceAccessInterventionRequired(
+                                SourceAccessInterventionRequest(
+                                    kind="cookies",
+                                    source_kind="browser",
+                                    source_label=browser,
                                     detail=detail,
+                                    can_retry=True,
+                                    can_choose_cookie_file=True,
                                     can_continue_without_cookies=True,
                                 )
                             )
@@ -613,6 +714,14 @@ class YtdlpGateway:
                 if cookie_file_requested:
                     raise DownloadError("error.down.authentication_required", detail=detail)
                 raise DownloadError("error.down.authentication_required", detail=detail)
+            if YtdlpGateway.is_extended_extractor_access_error(ex):
+                diag["extended_access_required"] = True
+                diag["extended_access_required_detail"] = detail
+                diag["extended_access_scope"] = YtdlpGateway.classify_extended_access_scope(detail)
+                raise DownloadError("error.down.extended_access_required", detail=detail)
+            if YtdlpGateway.is_extractor_access_limited_message(ex):
+                diag["extractor_access_limited"] = True
+                diag["extractor_access_limited_detail"] = detail
             if (
                 (cookie_browsers or cookie_browser_requested)
                 and last_cookie_error is not None
@@ -631,8 +740,8 @@ class YtdlpGateway:
         quiet: bool,
         skip_download: bool,
         logger: YtdlpLogger | None = None,
-        browser_cookies_mode_override: str | None = None,
-        cookie_file_override: str | None = None,
+        cookie_context: DownloadCookieContext | None = None,
+        source_access_context: SourceAccessContext | None = None,
     ) -> dict[str, Any]:
         max_bandwidth_kbps = AppConfig.network_max_bandwidth_kbps()
         concurrent_fragments = AppConfig.network_concurrent_fragments()
@@ -653,16 +762,31 @@ class YtdlpGateway:
         if isinstance(ffmpeg_dir, Path) and ffmpeg_dir.exists():
             opts["ffmpeg_location"] = str(ffmpeg_dir)
 
-        cookies_mode = str(browser_cookies_mode_override or "").strip().lower()
-        if cookies_mode not in DownloadPolicy.COOKIE_BROWSER_MODES:
-            cookies_mode = AppConfig.browser_cookies_mode()
+        resolved_cookie_context = cookie_context or DownloadCookieContext(
+            mode=AppConfig.browser_cookies_mode(),
+            browser_policy=AppConfig.browser_cookie_browser_policy(),
+            cookie_file_path=AppConfig.browser_cookie_file_path(),
+            interactive=False,
+        )
+        resolved_source_access_context = source_access_context or SourceAccessContext(
+            cookie_context=resolved_cookie_context,
+            extractor_context=ExtractorAccessContext(
+                extractor_key=DownloadPolicy.extractor_key_for_url(url),
+                operation=DownloadPolicy.DOWNLOAD_OPERATION_DOWNLOAD,
+            ),
+        )
+        resolved_cookie_context = resolved_source_access_context.cookie_context
 
-        if cookies_mode == "from_browser":
-            opts["cookiesfrombrowser"] = (AppConfig.browser_cookie_browser_policy(),)
-        elif cookies_mode == "from_file":
-            cookie_file_path = str(cookie_file_override or AppConfig.browser_cookie_file_path()).strip()
-            if cookie_file_path:
-                opts["cookiefile"] = cookie_file_path
+        if resolved_cookie_context.mode == "from_browser":
+            browser_policy = DownloadPolicy.normalize_cookie_browser_policy(resolved_cookie_context.browser_policy)
+            opts["cookiesfrombrowser"] = (browser_policy,)
+        elif resolved_cookie_context.mode == "from_file" and resolved_cookie_context.cookie_file_path:
+            opts["cookiefile"] = str(resolved_cookie_context.cookie_file_path).strip()
+
+        opts = YtdlpGateway.apply_extractor_access_opts(
+            opts,
+            extractor_access_context=resolved_source_access_context.extractor_context,
+        )
 
         js_runtimes = YtdlpGateway.js_runtimes_for(url)
         if js_runtimes:

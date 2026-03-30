@@ -599,8 +599,8 @@ class SettingsPanel(QtWidgets.QWidget):
         value = data.get(key)
         return value if isinstance(value, dict) else {}
 
+    @staticmethod
     def _build_split_control_row(
-        self,
         cfg: Any,
         left: QtWidgets.QWidget,
         right: QtWidgets.QWidget,
@@ -619,7 +619,10 @@ class SettingsPanel(QtWidgets.QWidget):
         current_mode = str(
             selected_mode or self.cmb_browser_cookies_mode.currentData() or AppConfig.browser_cookies_mode()
         ).strip().lower() or "none"
-        show_advanced = bool(getattr(self, "chk_show_advanced", None) is not None and self.chk_show_advanced.isChecked())
+        show_advanced = bool(
+            getattr(self, "chk_show_advanced", None) is not None
+            and self.chk_show_advanced.isChecked()
+        )
         allow_file = show_advanced or current_mode == "from_file"
         self.cmb_browser_cookies_mode.blockSignals(True)
         try:
