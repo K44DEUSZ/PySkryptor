@@ -149,6 +149,7 @@ QLineEdit:disabled,
 QTextEdit:disabled,
 QPlainTextEdit:disabled,
 QTextBrowser:disabled,
+QLineEdit[chrome="field"]:disabled,
 QComboBox[chrome="field"]:disabled,
 QAbstractSpinBox[chrome="field"]:disabled {
     background: @CONTROL_BG_DISABLED@;

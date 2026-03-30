@@ -6,20 +6,20 @@ from typing import Any, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.controller.contracts import LiveCoordinatorProtocol
-from app.model.config.app_config import AppConfig as Config
-from app.model.config.transcription_output_policy import TranscriptionOutputPolicy
-from app.model.config.language_policy import LanguagePolicy
-from app.model.config.model_registry import ModelRegistry
-from app.model.config.runtime_profiles import RuntimeProfiles
-from app.model.io.transcript_writer import TranscriptWriter
-from app.model.runtime_resolver import (
+from app.controller.panel_protocols import LiveCoordinatorProtocol
+from app.model.core.config.config import AppConfig
+from app.model.core.config.policy import LanguagePolicy
+from app.model.core.config.profiles import RuntimeProfiles
+from app.model.core.runtime.localization import current_language, language_display_name, tr
+from app.model.engines.registry import ModelRegistry
+from app.model.engines.service import AIModelsService
+from app.model.settings.resolution import (
     build_live_quick_options_payload,
     compute_translation_runtime,
     translation_runtime_available,
 )
-from app.model.services.ai_models_service import AIModelsService
-from app.model.services.localization_service import current_language, language_display_name, tr
+from app.model.transcription.policy import TranscriptionOutputPolicy
+from app.model.transcription.writer import TranscriptWriter
 from app.view import dialogs
 from app.view.components.audio_spectrum import AudioSpectrumWidget
 from app.view.components.choice_toggle import ChoiceToggle
@@ -40,6 +40,7 @@ from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import (
     build_field_stack,
     build_layout_host,
+    set_passive_cursor,
     setup_button,
     setup_combo,
     setup_layout,
@@ -66,6 +67,7 @@ class LivePanel(QtWidgets.QWidget):
     _translation_ready: bool
     _translation_error_key: str | None
     _translation_error_params: dict[str, Any]
+    _first_shown: bool
 
     def __init__(
         self,
@@ -76,11 +78,11 @@ class LivePanel(QtWidgets.QWidget):
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
-        self._first_shown = False
+        set_passive_cursor(self)
         self._panel_coordinator: LiveCoordinatorProtocol | None = None
+        self._first_shown = False
 
-        self._init_runtime_state()
-        self._load_saved_options()
+        self._init_state()
         self._build_ui()
         self._wire_signals()
         self._restore_initial_state()
@@ -91,6 +93,10 @@ class LivePanel(QtWidgets.QWidget):
 
     def coordinator(self) -> LiveCoordinatorProtocol | None:
         return self._panel_coordinator
+
+    def has_audio_devices(self) -> bool:
+        """Return whether the panel currently sees any available input device."""
+        return bool(self._has_audio_devices)
 
     def on_runtime_state_changed(
         self,
@@ -110,11 +116,11 @@ class LivePanel(QtWidgets.QWidget):
         self._translation_error_params = dict(translation_error_params or {})
         self._sync_options_ui()
 
-    def _live_is_running(self) -> bool:
+    def _coordinator_is_running(self) -> bool:
         coord = self.coordinator()
         return bool(coord is not None and coord.is_running())
 
-    def _init_runtime_state(self) -> None:
+    def _init_state(self) -> None:
         self._status_key = ""
         self._status_text = ""
         self._base_status_key = ""
@@ -130,7 +136,7 @@ class LivePanel(QtWidgets.QWidget):
 
         self._state: str = self.STATE_STOPPED
         self._has_audio_devices: bool = False
-        self._first_shown: bool = False
+        self._first_shown = False
         self._warned_no_devices_for_tab: bool = False
 
         self._display_source: str = ""
@@ -151,17 +157,15 @@ class LivePanel(QtWidgets.QWidget):
             self,
             build_payload=self._build_quick_options_payload,
             commit=self._commit_quick_options_payload,
-            is_busy=self._live_is_running,
+            is_busy=self._coordinator_is_running,
             interval_ms=1200,
             pending_delay_ms=300,
         )
         self._opt_autosave.set_blocked(True)
-
-    def _load_saved_options(self) -> None:
-        self._saved_device_name = Config.live_ui_device_name()
-        self._saved_profile = Config.live_ui_profile()
-        self._saved_mode = Config.live_ui_mode()
-        self._saved_output_mode = Config.live_ui_output_mode()
+        self._saved_device_name = AppConfig.live_ui_device_name()
+        self._saved_profile = AppConfig.live_ui_profile()
+        self._saved_mode = AppConfig.live_ui_mode()
+        self._saved_output_mode = AppConfig.live_ui_output_mode()
 
         self._session_source_language = LanguagePolicy.PREFERRED
         self._session_target_language = LanguagePolicy.PREFERRED
@@ -434,7 +438,7 @@ class LivePanel(QtWidgets.QWidget):
     def _apply_saved_options_to_ui(self) -> None:
         self._refresh_language_combos()
 
-        want_profile = RuntimeProfiles.normalize_live_profile(self._saved_profile or Config.live_ui_profile())
+        want_profile = RuntimeProfiles.normalize_live_profile(self._saved_profile or AppConfig.live_ui_profile())
         if want_profile not in RuntimeProfiles.LIVE_PROFILE_IDS:
             want_profile = RuntimeProfiles.normalize_live_profile(None)
         for i in range(self.cmb_profile.count()):
@@ -549,7 +553,7 @@ class LivePanel(QtWidgets.QWidget):
             if self._is_translate_mode_checked()
             else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
         )
-        profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or Config.live_ui_profile())
+        profile = RuntimeProfiles.normalize_live_profile(self.cmb_profile.currentData() or AppConfig.live_ui_profile())
         output_mode = self._current_output_mode()
         device_name = str(self.cmb_device.currentData() or "").strip()
         return build_live_quick_options_payload(
@@ -630,7 +634,7 @@ class LivePanel(QtWidgets.QWidget):
                     self.cmb_device.setCurrentIndex(i)
                     break
 
-        if self._state == self.STATE_STOPPED and not self._live_is_running():
+        if self._state == self.STATE_STOPPED and not self._coordinator_is_running():
             self._set_status("status.idle")
 
         self._sync_options_ui()
@@ -693,7 +697,7 @@ class LivePanel(QtWidgets.QWidget):
             self._update_buttons()
             return
 
-        if self._live_is_running():
+        if self._coordinator_is_running():
             return
 
         self._clear_text()
@@ -877,7 +881,7 @@ class LivePanel(QtWidgets.QWidget):
             self._applied_target = target_text
 
     def _save_transcript(self) -> None:
-        if not (self._state == self.STATE_STOPPED and (not self._live_is_running())):
+        if not (self._state == self.STATE_STOPPED and (not self._coordinator_is_running())):
             return
 
         src_text, tgt_text = self._current_session_texts()
@@ -949,7 +953,7 @@ class LivePanel(QtWidgets.QWidget):
         self.cmb_target_language.setToolTip(tooltip)
 
     def _should_show_translation_runtime_feedback(self) -> bool:
-        if self._live_is_running() or self._state != self.STATE_STOPPED:
+        if self._coordinator_is_running() or self._state != self.STATE_STOPPED:
             return False
         return self._base_status_key in ("", "status.idle", "status.stopped")
 
@@ -996,7 +1000,7 @@ class LivePanel(QtWidgets.QWidget):
             self._update_buttons()
 
     def _current_output_mode(self) -> str:
-        if self._live_is_running():
+        if self._coordinator_is_running():
             return RuntimeProfiles.normalize_live_output_mode(self._session_output_mode)
         if bool(self.tg_output_mode.is_second_checked()):
             return self.OUTPUT_MODE_CUMULATIVE
@@ -1051,7 +1055,7 @@ class LivePanel(QtWidgets.QWidget):
             bool(self._transcription_ready),
             bool(self._has_audio_devices),
             self._state,
-            bool(self._live_is_running()),
+            bool(self._coordinator_is_running()),
             bool(self._translation_runtime_available()),
             bool(self._is_translate_mode_effective()),
         )
@@ -1068,7 +1072,7 @@ class LivePanel(QtWidgets.QWidget):
             bool(self._transcription_ready),
             bool(self._has_audio_devices),
             self._state,
-            bool(self._live_is_running()),
+            bool(self._coordinator_is_running()),
             bool(self._translation_runtime_available()),
             bool(self._is_translate_mode_effective()),
         )
@@ -1125,11 +1129,11 @@ class LivePanel(QtWidgets.QWidget):
         self._refresh_status_label()
 
     def _can_change_settings(self) -> bool:
-        return (not self._live_is_running()) and self._state == self.STATE_STOPPED
+        return (not self._coordinator_is_running()) and self._state == self.STATE_STOPPED
 
     def _update_save_clear_buttons(self, *, running: bool | None = None) -> None:
         if running is None:
-            running = self._live_is_running()
+            running = self._coordinator_is_running()
 
         has_archive = bool(str(self._archive_source or "").strip() or str(self._archive_target or "").strip())
         has_display = bool(str(self._display_source or "").strip() or str(self._display_target or "").strip())
@@ -1162,7 +1166,7 @@ class LivePanel(QtWidgets.QWidget):
         self.spectrum.set_visual_state(AudioSpectrumWidget.STATE_IDLE)
 
     def _update_buttons(self) -> None:
-        running = self._live_is_running()
+        running = self._coordinator_is_running()
 
         if not self._has_audio_devices:
             self.btn_refresh_devices.setEnabled(True)

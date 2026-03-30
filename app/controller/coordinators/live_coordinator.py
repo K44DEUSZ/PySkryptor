@@ -5,15 +5,18 @@ from typing import Any
 
 from PyQt5 import QtCore
 
-from app.controller.contracts import LivePanelViewProtocol
+from app.controller.panel_protocols import LivePanelViewProtocol
 from app.controller.platform.microphone import list_input_device_names
-from app.controller.workers.live_transcription_worker import LiveTranscriptionWorker
+from app.controller.support.panel_support import (
+    push_runtime_state_to_panel,
+    rebind_live_panel_view,
+    start_quick_options_save,
+)
+from app.controller.workers.live_worker import LiveWorker
 from app.controller.workers.settings_worker import SettingsWorker
-from app.controller.workers.task_thread_runner import TaskThreadRunner
-from app.controller.support.quick_settings import start_settings_save
-from app.controller.support.runtime_state import build_runtime_state_payload
-from app.model.config.runtime_profiles import RuntimeProfiles
-from app.model.domain.runtime_state import AppRuntimeState
+from app.controller.workers.worker_runner import WorkerRunner
+from app.model.core.config.profiles import RuntimeProfiles
+from app.model.core.domain.state import AppRuntimeState
 
 
 class LiveCoordinator(QtCore.QObject):
@@ -33,9 +36,9 @@ class LiveCoordinator(QtCore.QObject):
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self._runner = TaskThreadRunner(self)
-        self._worker: LiveTranscriptionWorker | None = None
-        self._settings_runner = TaskThreadRunner(self)
+        self._runner = WorkerRunner(self)
+        self._worker: LiveWorker | None = None
+        self._settings_runner = WorkerRunner(self)
         self._settings_worker: SettingsWorker | None = None
         self._view: LivePanelViewProtocol | None = None
         self._runtime_state = AppRuntimeState()
@@ -45,35 +48,21 @@ class LiveCoordinator(QtCore.QObject):
     def bind_view(self, panel: LivePanelViewProtocol) -> None:
         if self._view is panel:
             return
-        previous = self._view
-        if previous is not None:
-            for signal, slot in (
-                (self.status, previous.on_status),
-                (self.failed, previous.on_worker_failed),
-                (self.detected_language, previous.on_detected_language),
-                (self.source_text, previous.on_source_text),
-                (self.target_text, previous.on_target_text),
-                (self.archive_source_text, previous.on_archive_source_text),
-                (self.archive_target_text, previous.on_archive_target_text),
-                (self.spectrum, previous.on_spectrum),
-                (self.finished, previous.on_live_finished),
-                (self.quick_options_save_failed, previous.on_quick_options_save_error),
-            ):
-                try:
-                    signal.disconnect(slot)
-                except (TypeError, RuntimeError):
-                    pass
+        rebind_live_panel_view(
+            previous_view=self._view,
+            new_view=panel,
+            status=self.status,
+            failed=self.failed,
+            detected_language=self.detected_language,
+            source_text=self.source_text,
+            target_text=self.target_text,
+            archive_source_text=self.archive_source_text,
+            archive_target_text=self.archive_target_text,
+            spectrum=self.spectrum,
+            finished=self.finished,
+            quick_options_save_failed=self.quick_options_save_failed,
+        )
         self._view = panel
-        self.status.connect(panel.on_status)
-        self.failed.connect(panel.on_worker_failed)
-        self.detected_language.connect(panel.on_detected_language)
-        self.source_text.connect(panel.on_source_text)
-        self.target_text.connect(panel.on_target_text)
-        self.archive_source_text.connect(panel.on_archive_source_text)
-        self.archive_target_text.connect(panel.on_archive_target_text)
-        self.spectrum.connect(panel.on_spectrum)
-        self.finished.connect(panel.on_live_finished)
-        self.quick_options_save_failed.connect(panel.on_quick_options_save_error)
         self._push_runtime_state()
 
     def set_runtime_state(self, state: AppRuntimeState | None) -> None:
@@ -82,10 +71,7 @@ class LiveCoordinator(QtCore.QObject):
         self._push_runtime_state()
 
     def _push_runtime_state(self) -> None:
-        panel = self._view
-        if panel is None:
-            return
-        panel.on_runtime_state_changed(**build_runtime_state_payload(self._runtime_state, pipeline=self._pipe))
+        push_runtime_state_to_panel(panel=self._view, state=self._runtime_state, pipeline=self._pipe)
 
     def is_running(self) -> bool:
         return self._runner.is_running()
@@ -103,14 +89,14 @@ class LiveCoordinator(QtCore.QObject):
         profile: str = RuntimeProfiles.LIVE_DEFAULT_PROFILE,
         runtime_profile: dict[str, Any] | None = None,
         output_mode: str = RuntimeProfiles.LIVE_OUTPUT_MODE_CUMULATIVE,
-    ) -> LiveTranscriptionWorker | None:
+    ) -> LiveWorker | None:
         if self._runner.is_running():
             return self._worker
         if self._pipe is None:
             self.failed.emit("error.model.not_ready", {})
             return None
 
-        worker = LiveTranscriptionWorker(
+        worker = LiveWorker(
             pipe=self._pipe,
             device_name=device_name,
             source_language=source_language,
@@ -123,7 +109,7 @@ class LiveCoordinator(QtCore.QObject):
         self._worker = worker
         self.busy_changed.emit(True)
 
-        def _connect(wk: LiveTranscriptionWorker) -> None:
+        def _connect(wk: LiveWorker) -> None:
             wk.status.connect(self.status)
             wk.detected_language.connect(self.detected_language)
             wk.source_text.connect(self.source_text)
@@ -141,7 +127,7 @@ class LiveCoordinator(QtCore.QObject):
         return self._runner.start(worker, connect=_connect, on_finished=_done)
 
     def save_quick_options(self, payload: dict[str, Any]) -> SettingsWorker | None:
-        return start_settings_save(
+        return start_quick_options_save(
             runner=self._settings_runner,
             current_worker=self._settings_worker,
             payload=payload,

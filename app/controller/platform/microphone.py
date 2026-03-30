@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
+
 def _qt_multimedia() -> Any:
     from PyQt5 import QtMultimedia
     return QtMultimedia
+
 
 def list_input_devices() -> list[Any]:
     """Return a list of QtMultimedia.QAudioDeviceInfo for audio inputs."""
@@ -15,11 +17,13 @@ def list_input_devices() -> list[Any]:
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return []
 
+
 def _device_base_name(dev: Any) -> str:
     try:
         return str(dev.deviceName() or "").strip()
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return ""
+
 
 def _device_realm(dev: Any) -> str:
     try:
@@ -29,6 +33,7 @@ def _device_realm(dev: Any) -> str:
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return ""
     return ""
+
 
 def _format_signature(fmt: Any) -> tuple[int, int, int, str, int, int]:
     try:
@@ -63,6 +68,7 @@ def _format_signature(fmt: Any) -> tuple[int, int, int, str, int, int]:
 
     return sample_rate, channel_count, sample_size, codec, sample_type, byte_order
 
+
 def _device_signature(dev: Any) -> tuple[Any, ...]:
     try:
         preferred_fmt = dev.preferredFormat()
@@ -75,12 +81,14 @@ def _device_signature(dev: Any) -> tuple[Any, ...]:
         _format_signature(preferred_fmt) if preferred_fmt is not None else (0, 0, 0, "", -1, -1),
     )
 
+
 def _supported_value_count(dev: Any, method_name: str) -> int:
     try:
         values = list(getattr(dev, method_name)())
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return 0
     return len(values)
+
 
 def _device_score(dev: Any, default_dev: Any | None) -> tuple[int, int, int, int, int]:
     desired_fmt = make_pcm16_mono_format(sample_rate=16000)
@@ -95,7 +103,7 @@ def _device_score(dev: Any, default_dev: Any | None) -> tuple[int, int, int, int
     except (AttributeError, RuntimeError, TypeError, ValueError):
         preferred_fmt = None
 
-    preferred_exact = 1 if preferred_fmt is not None and format_is_pcm16_mono_16k(preferred_fmt) else 0
+    preferred_exact = 1 if preferred_fmt is not None and _format_is_pcm16_mono_16k(preferred_fmt) else 0
 
     is_default = 0
     if default_dev is not None:
@@ -109,6 +117,7 @@ def _device_score(dev: Any, default_dev: Any | None) -> tuple[int, int, int, int
 
     return is_default, exact_supported, preferred_exact, sample_rates, channels
 
+
 def _group_input_devices() -> dict[str, list[Any]]:
     groups: dict[str, list[Any]] = {}
     for dev in list_input_devices():
@@ -117,6 +126,7 @@ def _group_input_devices() -> dict[str, list[Any]]:
             continue
         groups.setdefault(base, []).append(dev)
     return groups
+
 
 def _pick_input_device(devices: list[Any]) -> Any | None:
     if not devices:
@@ -139,10 +149,12 @@ def _pick_input_device(devices: list[Any]) -> Any | None:
 
     return best_dev or devices[0]
 
+
 def list_input_device_names() -> list[str]:
     """Return grouped microphone input names suitable for UI selection."""
     groups = _group_input_devices()
     return list(groups.keys())
+
 
 def resolve_input_device(device_name: str = "") -> tuple[Any, Any | None]:
     """Resolve a QtMultimedia input device by name, or return default."""
@@ -164,6 +176,7 @@ def resolve_input_device(device_name: str = "") -> tuple[Any, Any | None]:
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return qt_multimedia, devices[0]
 
+
 def make_pcm16_mono_format(*, sample_rate: int = 16000) -> Any:
     """Build desired QAudioFormat: 16kHz, mono, signed 16-bit PCM little endian."""
     qt_multimedia = _qt_multimedia()
@@ -176,6 +189,7 @@ def make_pcm16_mono_format(*, sample_rate: int = 16000) -> Any:
     fmt.setSampleType(qt_multimedia.QAudioFormat.SignedInt)
     return fmt
 
+
 def ensure_supported_format(dev: Any, desired_fmt: Any) -> tuple[bool, Any]:
     """Ensure device supports desired format; if not, try nearestFormat."""
     try:
@@ -186,7 +200,8 @@ def ensure_supported_format(dev: Any, desired_fmt: Any) -> tuple[bool, Any]:
     except (AttributeError, RuntimeError, TypeError, ValueError):
         return False, desired_fmt
 
-def format_is_pcm16_mono_16k(fmt: Any, *, sample_rate: int = 16000) -> bool:
+
+def _format_is_pcm16_mono_16k(fmt: Any, *, sample_rate: int = 16000) -> bool:
     """Strict check: must be exactly 16kHz, mono, signed 16-bit PCM."""
     qt_multimedia = _qt_multimedia()
     try:

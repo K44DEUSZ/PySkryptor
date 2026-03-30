@@ -7,5 +7,5 @@ torch==2.6.0+cu124
 transformers>=4.40,<5
 sentencepiece>=0.2,<1
 safetensors>=0.4,<1
-yt-dlp>=2025.1.1
+yt-dlp>=2026.03.17
 Babel>=2.12,<3

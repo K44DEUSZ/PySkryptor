@@ -5,51 +5,58 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
+from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 
-from app.model.config.app_config import AppConfig as Config
-from app.view.ui_config import UIConfig, _DEFAULT_UI, _coerce_cfg
+from app.model.core.config.config import AppConfig
+from app.view.ui_config import _DEFAULT_UI, UIConfig, _coerce_cfg
+
 
 def _windows_dark_mode() -> bool:
-    if sys.platform != 'win32':
+    if sys.platform != "win32":
         return False
     try:
         settings = QtCore.QSettings(
-            'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize',
+            "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
             QtCore.QSettings.Format.NativeFormat,
         )
-        value = settings.value('AppsUseLightTheme', 1)
-        return str(value).strip() in {'0', 'false', 'False'}
+        value = settings.value("AppsUseLightTheme", 1)
+        return str(value).strip() in {"0", "false", "False"}
     except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
         return False
 
+
 def system_theme_key(app: QtWidgets.QApplication | None = None) -> str:
+    """Return the current system theme preference."""
     app = app or QtWidgets.QApplication.instance()
     if _windows_dark_mode():
-        return 'dark'
+        return "dark"
     try:
         pal = app.palette() if app is not None else QtWidgets.QApplication.palette()
-        return 'dark' if pal.color(QtGui.QPalette.Window).lightness() < 128 else 'light'
+        return "dark" if pal.color(QtGui.QPalette.Window).lightness() < 128 else "light"
     except (AttributeError, RuntimeError, TypeError, ValueError):
-        return 'light'
+        return "light"
+
 
 def active_theme_key(theme: str | None = None, *, app: QtWidgets.QApplication | None = None) -> str:
-    resolved = str(theme or '').strip().lower()
-    if resolved in {'light', 'dark'}:
+    """Resolve the effective theme key for the current application state."""
+    resolved = str(theme or "").strip().lower()
+    if resolved in {"light", "dark"}:
         return resolved
 
     app = app or QtWidgets.QApplication.instance()
-    app_theme = str(app.property('theme') if app is not None else '').strip().lower()
-    if app_theme in {'light', 'dark'}:
+    app_theme = str(app.property("theme") if app is not None else "").strip().lower()
+    if app_theme in {"light", "dark"}:
         return app_theme
 
     return system_theme_key(app)
 
+
 def apply_windows_dark_titlebar(w: QtWidgets.QWidget, theme: str | None = None) -> None:
-    if sys.platform != 'win32':
+    """Apply a dark native title bar on supported Windows builds."""
+    if sys.platform != "win32":
         return
     resolved = active_theme_key(theme)
-    if resolved != 'dark':
+    if resolved != "dark":
         return
     try:
         import ctypes
@@ -69,8 +76,10 @@ def apply_windows_dark_titlebar(w: QtWidgets.QWidget, theme: str | None = None) 
     except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
         return
 
+
 def _parse_hex_color(value: str) -> QtGui.QColor:
-    return QtGui.QColor(str(value or '').strip())
+    return QtGui.QColor(str(value or "").strip())
+
 
 def _color_with_alpha(color: QtGui.QColor, alpha: int | None = None) -> QtGui.QColor:
     out = QtGui.QColor(color)
@@ -86,18 +95,23 @@ class SpectrumPalette:
     track: QtGui.QColor
     bar: QtGui.QColor
 
+
 def app_palette_colors(theme: str) -> dict[str, QtGui.QColor]:
+    """Return palette colors used to seed the application palette."""
     resolved = active_theme_key(theme)
     return {
-        'highlight': theme_color(resolved, '@ACTIVE_BG_STRONG@'),
-        'link': theme_color(resolved, '@BORDER_ACTIVE@'),
-        'link_visited': theme_color(resolved, '@BORDER_PRESSED@'),
-        'highlighted_text': theme_color(resolved, '@TEXT_ON_ACTIVE@'),
+        "highlight": theme_color(resolved, "@ACTIVE_BG_STRONG@"),
+        "link": theme_color(resolved, "@BORDER_ACTIVE@"),
+        "link_visited": theme_color(resolved, "@BORDER_PRESSED@"),
+        "highlighted_text": theme_color(resolved, "@TEXT_ON_ACTIVE@"),
     }
 
+
 def floating_shadow_color(theme: str | None = None, *, app: QtWidgets.QApplication | None = None) -> QtGui.QColor:
+    """Return the shadow color used by floating surfaces."""
     resolved = active_theme_key(theme, app=app)
-    return theme_color(resolved, '@FLOATING_SHADOW@')
+    return theme_color(resolved, "@FLOATING_SHADOW@")
+
 
 def spectrum_palette(
     state: str,
@@ -105,140 +119,145 @@ def spectrum_palette(
     theme: str | None = None,
     app: QtWidgets.QApplication | None = None,
 ) -> SpectrumPalette:
+    """Return the live spectrum palette for the given runtime state."""
     resolved_theme = active_theme_key(theme, app=app)
-    state_key = str(state or '').strip().lower() or 'idle'
+    state_key = str(state or "").strip().lower() or "idle"
 
-    background = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG@'))
-    border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_DEFAULT@'))
-    track = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_HOVER@'))
-    bar = _color_with_alpha(theme_color(resolved_theme, '@ACTIVE_BG_HOVER@'))
+    background = _color_with_alpha(theme_color(resolved_theme, "@CONTROL_BG@"))
+    border = _color_with_alpha(theme_color(resolved_theme, "@BORDER_DEFAULT@"))
+    track = _color_with_alpha(theme_color(resolved_theme, "@CONTROL_BG_HOVER@"))
+    bar = _color_with_alpha(theme_color(resolved_theme, "@ACTIVE_BG_HOVER@"))
 
-    if state_key == 'active':
-        bar = _color_with_alpha(theme_color(resolved_theme, '@ACTIVE_BG_STRONG@'))
-    elif state_key == 'paused':
-        border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_SUBTLE@'))
-        track = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_DISABLED@'))
-        bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_DISABLED@'), 180)
-    elif state_key == 'disabled':
-        background = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_DISABLED@'))
-        border = _color_with_alpha(theme_color(resolved_theme, '@BORDER_SUBTLE@'))
-        track = _color_with_alpha(theme_color(resolved_theme, '@CONTROL_BG_DISABLED@'))
-        bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_DISABLED@'), 132)
-    elif state_key == 'error':
-        border = _color_with_alpha(theme_color(resolved_theme, '@TEXT_ERROR@'))
-        bar = _color_with_alpha(theme_color(resolved_theme, '@TEXT_ERROR@'))
+    if state_key == "active":
+        bar = _color_with_alpha(theme_color(resolved_theme, "@ACTIVE_BG_STRONG@"))
+    elif state_key == "paused":
+        border = _color_with_alpha(theme_color(resolved_theme, "@BORDER_SUBTLE@"))
+        track = _color_with_alpha(theme_color(resolved_theme, "@CONTROL_BG_DISABLED@"))
+        bar = _color_with_alpha(theme_color(resolved_theme, "@TEXT_DISABLED@"), 180)
+    elif state_key == "disabled":
+        background = _color_with_alpha(theme_color(resolved_theme, "@CONTROL_BG_DISABLED@"))
+        border = _color_with_alpha(theme_color(resolved_theme, "@BORDER_SUBTLE@"))
+        track = _color_with_alpha(theme_color(resolved_theme, "@CONTROL_BG_DISABLED@"))
+        bar = _color_with_alpha(theme_color(resolved_theme, "@TEXT_DISABLED@"), 132)
+    elif state_key == "error":
+        border = _color_with_alpha(theme_color(resolved_theme, "@TEXT_ERROR@"))
+        bar = _color_with_alpha(theme_color(resolved_theme, "@TEXT_ERROR@"))
 
     return SpectrumPalette(background=background, border=border, track=track, bar=bar)
 
+
 def _theme_tokens() -> dict[str, dict[str, str]]:
     return {
-        'light': {
-            '@APP_BG@': '#F4F7F4',
-            '@PANEL_BG@': '#FFFFFF',
-            '@POPUP_BG@': '#FBFCFB',
-            '@HEADER_BG@': '#EEF3EE',
-            '@CONTROL_BG@': '#FFFFFF',
-            '@CONTROL_BG_HOVER@': '#F2F6F2',
-            '@CONTROL_BG_DISABLED@': '#F2F5F2',
-            '@FIELD_BG@': '#EFF3EF',
-            '@FIELD_BG_HOVER@': '#F4F7F4',
-            '@FIELD_BG_ACTIVE@': '#EDF5E5',
-            '@CONTEXT_HOVER_BG@': '#14384038',
-            '@CONTEXT_SELECTED_BG@': '#2E70A82E',
-            '@ACTIVE_BG@': '#2470A82E',
-            '@ACTIVE_BG_HOVER@': '#3070A82E',
-            '@ACTIVE_BG_STRONG@': '#70A82E',
-            '@BORDER_DEFAULT@': '#D4DDD4',
-            '@BORDER_SUBTLE@': '#E1E6E1',
-            '@BORDER_MUTED@': '#CAD3CA',
-            '@BORDER_GRID@': '#D5DDD5',
-            '@BORDER_ACTIVE@': '#70A82E',
-            '@BORDER_PRESSED@': '#5E9326',
-            '@TEXT_PRIMARY@': '#3A3F3A',
-            '@TEXT_SECONDARY@': '#667066',
-            '@TEXT_DISABLED@': '#9AA39A',
-            '@TEXT_SUCCESS@': '#4E7821',
-            '@TEXT_ERROR@': '#B8473F',
-            '@TEXT_ON_ACTIVE@': '#FFFFFF',
-            '@TEXT_ON_SELECTION@': '#1F241F',
-            '@PROGRESS_FILL@': '#4E7821',
-            '@SCROLLBAR_TRACK@': '#0C3A3F3A',
-            '@SCROLLBAR_HANDLE@': '#2D3A3F3A',
-            '@SCROLLBAR_HANDLE_HOVER@': '#413A3F3A',
-            '@FLOATING_SHADOW@': '#24000000',
-            '@ICON_INFO@': '@ASSETS@/icons/info_light.svg',
-            '@ICON_ARROW_DOWN@': '@ASSETS@/icons/arrow_down_light.svg',
-            '@ICON_ARROW_UP@': '@ASSETS@/icons/arrow_up_light.svg',
-            '@ICON_CHECKBOX_UNCHECKED@': '@ASSETS@/icons/checkbox_unchecked_light.svg',
-            '@ICON_CHECKBOX_UNCHECKED_HOVER@': '@ASSETS@/icons/checkbox_unchecked_light_hover.svg',
-            '@ICON_CHECKBOX_CHECKED@': '@ASSETS@/icons/checkbox_checked_light.svg',
-            '@ICON_CHECKBOX_UNCHECKED_DISABLED@': '@ASSETS@/icons/checkbox_unchecked_light_disabled.svg',
-            '@ICON_CHECKBOX_CHECKED_DISABLED@': '@ASSETS@/icons/checkbox_checked_light_disabled.svg',
-            '@ICON_RADIO_UNCHECKED@': '@ASSETS@/icons/radio_unchecked_light.svg',
-            '@ICON_RADIO_UNCHECKED_HOVER@': '@ASSETS@/icons/radio_unchecked_light_hover.svg',
-            '@ICON_RADIO_CHECKED@': '@ASSETS@/icons/radio_checked_light.svg',
-            '@ICON_RADIO_UNCHECKED_DISABLED@': '@ASSETS@/icons/radio_unchecked_light_disabled.svg',
-            '@ICON_RADIO_CHECKED_DISABLED@': '@ASSETS@/icons/radio_checked_light_disabled.svg',
+        "light": {
+            "@APP_BG@": "#F4F7F4",
+            "@PANEL_BG@": "#FFFFFF",
+            "@POPUP_BG@": "#FBFCFB",
+            "@HEADER_BG@": "#EEF3EE",
+            "@CONTROL_BG@": "#FFFFFF",
+            "@CONTROL_BG_HOVER@": "#F2F6F2",
+            "@CONTROL_BG_DISABLED@": "#F2F5F2",
+            "@FIELD_BG@": "#EFF3EF",
+            "@FIELD_BG_HOVER@": "#F4F7F4",
+            "@FIELD_BG_ACTIVE@": "#EDF5E5",
+            "@CONTEXT_HOVER_BG@": "#14384038",
+            "@CONTEXT_SELECTED_BG@": "#2E70A82E",
+            "@ACTIVE_BG@": "#2470A82E",
+            "@ACTIVE_BG_HOVER@": "#3070A82E",
+            "@ACTIVE_BG_STRONG@": "#70A82E",
+            "@BORDER_DEFAULT@": "#D4DDD4",
+            "@BORDER_SUBTLE@": "#E1E6E1",
+            "@BORDER_MUTED@": "#CAD3CA",
+            "@BORDER_GRID@": "#D5DDD5",
+            "@BORDER_ACTIVE@": "#70A82E",
+            "@BORDER_PRESSED@": "#5E9326",
+            "@TEXT_PRIMARY@": "#3A3F3A",
+            "@TEXT_SECONDARY@": "#667066",
+            "@TEXT_DISABLED@": "#9AA39A",
+            "@TEXT_SUCCESS@": "#4E7821",
+            "@TEXT_ERROR@": "#B8473F",
+            "@TEXT_ON_ACTIVE@": "#FFFFFF",
+            "@TEXT_ON_SELECTION@": "#1F241F",
+            "@PROGRESS_FILL@": "#4E7821",
+            "@SCROLLBAR_TRACK@": "#0C3A3F3A",
+            "@SCROLLBAR_HANDLE@": "#2D3A3F3A",
+            "@SCROLLBAR_HANDLE_HOVER@": "#413A3F3A",
+            "@FLOATING_SHADOW@": "#24000000",
+            "@ICON_INFO@": "@ASSETS@/icons/info_light.svg",
+            "@ICON_ARROW_DOWN@": "@ASSETS@/icons/arrow_down_light.svg",
+            "@ICON_ARROW_UP@": "@ASSETS@/icons/arrow_up_light.svg",
+            "@ICON_CHECKBOX_UNCHECKED@": "@ASSETS@/icons/checkbox_unchecked_light.svg",
+            "@ICON_CHECKBOX_UNCHECKED_HOVER@": "@ASSETS@/icons/checkbox_unchecked_light_hover.svg",
+            "@ICON_CHECKBOX_CHECKED@": "@ASSETS@/icons/checkbox_checked_light.svg",
+            "@ICON_CHECKBOX_UNCHECKED_DISABLED@": "@ASSETS@/icons/checkbox_unchecked_light_disabled.svg",
+            "@ICON_CHECKBOX_CHECKED_DISABLED@": "@ASSETS@/icons/checkbox_checked_light_disabled.svg",
+            "@ICON_RADIO_UNCHECKED@": "@ASSETS@/icons/radio_unchecked_light.svg",
+            "@ICON_RADIO_UNCHECKED_HOVER@": "@ASSETS@/icons/radio_unchecked_light_hover.svg",
+            "@ICON_RADIO_CHECKED@": "@ASSETS@/icons/radio_checked_light.svg",
+            "@ICON_RADIO_UNCHECKED_DISABLED@": "@ASSETS@/icons/radio_unchecked_light_disabled.svg",
+            "@ICON_RADIO_CHECKED_DISABLED@": "@ASSETS@/icons/radio_checked_light_disabled.svg",
         },
-        'dark': {
-            '@APP_BG@': '#121513',
-            '@PANEL_BG@': '#171B18',
-            '@POPUP_BG@': '#1A201B',
-            '@HEADER_BG@': '#141816',
-            '@CONTROL_BG@': '#1A1F1B',
-            '@CONTROL_BG_HOVER@': '#202720',
-            '@CONTROL_BG_DISABLED@': '#141816',
-            '@FIELD_BG@': '#151A16',
-            '@FIELD_BG_HOVER@': '#1B211C',
-            '@FIELD_BG_ACTIVE@': '#1E271B',
-            '@CONTEXT_HOVER_BG@': '#16E6EFE0',
-            '@CONTEXT_SELECTED_BG@': '#3770A82E',
-            '@ACTIVE_BG@': '#2270A82E',
-            '@ACTIVE_BG_HOVER@': '#2E70A82E',
-            '@ACTIVE_BG_STRONG@': '#5E9326',
-            '@BORDER_DEFAULT@': '#2B332D',
-            '@BORDER_SUBTLE@': '#232B25',
-            '@BORDER_MUTED@': '#425045',
-            '@BORDER_GRID@': '#364037',
-            '@BORDER_ACTIVE@': '#70A82E',
-            '@BORDER_PRESSED@': '#5E9326',
-            '@TEXT_PRIMARY@': '#E6EFE0',
-            '@TEXT_SECONDARY@': '#AAB6A4',
-            '@TEXT_DISABLED@': '#707B72',
-            '@TEXT_SUCCESS@': '#8FCD48',
-            '@TEXT_ERROR@': '#F08F86',
-            '@TEXT_ON_ACTIVE@': '#F5FAEF',
-            '@TEXT_ON_SELECTION@': '#F5FAEF',
-            '@PROGRESS_FILL@': '#4E7821',
-            '@SCROLLBAR_TRACK@': '#0AE6EFE0',
-            '@SCROLLBAR_HANDLE@': '#1AE6EFE0',
-            '@SCROLLBAR_HANDLE_HOVER@': '#28E6EFE0',
-            '@FLOATING_SHADOW@': '#38000000',
-            '@ICON_INFO@': '@ASSETS@/icons/info_dark.svg',
-            '@ICON_ARROW_DOWN@': '@ASSETS@/icons/arrow_down_dark.svg',
-            '@ICON_ARROW_UP@': '@ASSETS@/icons/arrow_up_dark.svg',
-            '@ICON_CHECKBOX_UNCHECKED@': '@ASSETS@/icons/checkbox_unchecked_dark.svg',
-            '@ICON_CHECKBOX_UNCHECKED_HOVER@': '@ASSETS@/icons/checkbox_unchecked_dark_hover.svg',
-            '@ICON_CHECKBOX_CHECKED@': '@ASSETS@/icons/checkbox_checked_dark.svg',
-            '@ICON_CHECKBOX_UNCHECKED_DISABLED@': '@ASSETS@/icons/checkbox_unchecked_dark_disabled.svg',
-            '@ICON_CHECKBOX_CHECKED_DISABLED@': '@ASSETS@/icons/checkbox_checked_dark_disabled.svg',
-            '@ICON_RADIO_UNCHECKED@': '@ASSETS@/icons/radio_unchecked_dark.svg',
-            '@ICON_RADIO_UNCHECKED_HOVER@': '@ASSETS@/icons/radio_unchecked_dark_hover.svg',
-            '@ICON_RADIO_CHECKED@': '@ASSETS@/icons/radio_checked_dark.svg',
-            '@ICON_RADIO_UNCHECKED_DISABLED@': '@ASSETS@/icons/radio_unchecked_dark_disabled.svg',
-            '@ICON_RADIO_CHECKED_DISABLED@': '@ASSETS@/icons/radio_checked_dark_disabled.svg',
+        "dark": {
+            "@APP_BG@": "#121513",
+            "@PANEL_BG@": "#171B18",
+            "@POPUP_BG@": "#1A201B",
+            "@HEADER_BG@": "#141816",
+            "@CONTROL_BG@": "#1A1F1B",
+            "@CONTROL_BG_HOVER@": "#202720",
+            "@CONTROL_BG_DISABLED@": "#141816",
+            "@FIELD_BG@": "#151A16",
+            "@FIELD_BG_HOVER@": "#1B211C",
+            "@FIELD_BG_ACTIVE@": "#1E271B",
+            "@CONTEXT_HOVER_BG@": "#16E6EFE0",
+            "@CONTEXT_SELECTED_BG@": "#3770A82E",
+            "@ACTIVE_BG@": "#2270A82E",
+            "@ACTIVE_BG_HOVER@": "#2E70A82E",
+            "@ACTIVE_BG_STRONG@": "#5E9326",
+            "@BORDER_DEFAULT@": "#2B332D",
+            "@BORDER_SUBTLE@": "#232B25",
+            "@BORDER_MUTED@": "#425045",
+            "@BORDER_GRID@": "#364037",
+            "@BORDER_ACTIVE@": "#70A82E",
+            "@BORDER_PRESSED@": "#5E9326",
+            "@TEXT_PRIMARY@": "#E6EFE0",
+            "@TEXT_SECONDARY@": "#AAB6A4",
+            "@TEXT_DISABLED@": "#707B72",
+            "@TEXT_SUCCESS@": "#8FCD48",
+            "@TEXT_ERROR@": "#F08F86",
+            "@TEXT_ON_ACTIVE@": "#F5FAEF",
+            "@TEXT_ON_SELECTION@": "#F5FAEF",
+            "@PROGRESS_FILL@": "#4E7821",
+            "@SCROLLBAR_TRACK@": "#0AE6EFE0",
+            "@SCROLLBAR_HANDLE@": "#1AE6EFE0",
+            "@SCROLLBAR_HANDLE_HOVER@": "#28E6EFE0",
+            "@FLOATING_SHADOW@": "#38000000",
+            "@ICON_INFO@": "@ASSETS@/icons/info_dark.svg",
+            "@ICON_ARROW_DOWN@": "@ASSETS@/icons/arrow_down_dark.svg",
+            "@ICON_ARROW_UP@": "@ASSETS@/icons/arrow_up_dark.svg",
+            "@ICON_CHECKBOX_UNCHECKED@": "@ASSETS@/icons/checkbox_unchecked_dark.svg",
+            "@ICON_CHECKBOX_UNCHECKED_HOVER@": "@ASSETS@/icons/checkbox_unchecked_dark_hover.svg",
+            "@ICON_CHECKBOX_CHECKED@": "@ASSETS@/icons/checkbox_checked_dark.svg",
+            "@ICON_CHECKBOX_UNCHECKED_DISABLED@": "@ASSETS@/icons/checkbox_unchecked_dark_disabled.svg",
+            "@ICON_CHECKBOX_CHECKED_DISABLED@": "@ASSETS@/icons/checkbox_checked_dark_disabled.svg",
+            "@ICON_RADIO_UNCHECKED@": "@ASSETS@/icons/radio_unchecked_dark.svg",
+            "@ICON_RADIO_UNCHECKED_HOVER@": "@ASSETS@/icons/radio_unchecked_dark_hover.svg",
+            "@ICON_RADIO_CHECKED@": "@ASSETS@/icons/radio_checked_dark.svg",
+            "@ICON_RADIO_UNCHECKED_DISABLED@": "@ASSETS@/icons/radio_unchecked_dark_disabled.svg",
+            "@ICON_RADIO_CHECKED_DISABLED@": "@ASSETS@/icons/radio_checked_dark_disabled.svg",
         },
     }
 
 _THEME_STYLE_TOKENS = _theme_tokens()
 
+
 def theme_style_tokens(theme: str) -> dict[str, str]:
-    key = 'dark' if str(theme or '').strip().lower() == 'dark' else 'light'
-    assets = Config.PATHS.ASSETS_DIR.resolve().as_posix()
+    """Resolve stylesheet tokens for the selected theme."""
+    key = "dark" if str(theme or "").strip().lower() == "dark" else "light"
+    assets = AppConfig.PATHS.ASSETS_DIR.resolve().as_posix()
     out: dict[str, str] = {}
     for token, value in _THEME_STYLE_TOKENS[key].items():
-        out[token] = str(value).replace('@ASSETS@', assets)
+        out[token] = str(value).replace("@ASSETS@", assets)
     return out
+
 
 def _ui_style_tokens(cfg: UIConfig) -> dict[str, str]:
     radius_l = max(int(cfg.radius_l), 2)
@@ -252,32 +271,35 @@ def _ui_style_tokens(cfg: UIConfig) -> dict[str, str]:
     tab_min_h = max(int(cfg.control_min_h) - 2, 24)
     scroll_handle_min = max(int(cfg.option_row_min_h), 20)
     return {
-        '@RADIUS_L@': f'{radius_l}px',
-        '@RADIUS_M@': f'{radius_m}px',
-        '@RADIUS_S@': f'{radius_s}px',
-        '@SPACE_GROUPBOX_TOP@': f'{max(int(cfg.space_l) * 2 + 2, 0)}px',
-        '@GROUPBOX_PADDING@': f'{pad_y_l * 2}px {pad_x_m}px {pad_x_m}px {pad_x_m}px',
-        '@PAD_BUTTON@': f'{pad_y_s}px {pad_x_l}px',
-        '@PAD_FIELD@': f'{pad_y_s}px {pad_x_m}px',
-        '@PAD_FIELD_INLINE@': f'0px {pad_x_m}px',
-        '@PAD_FIELD_TOOL@': f'0px {max(pad_x_m + 24, 0)}px 0px {pad_x_m}px',
-        '@PAD_FIELD_CHROME@': f'0px {max(pad_x_m + 26, 0)}px 0px {pad_x_m}px',
-        '@PAD_BLOCK@': f'{pad_x_m}px',
-        '@PAD_POPUP@': f'{pad_y_m}px {pad_x_l}px',
-        '@PAD_SECTION@': f'{pad_y_l}px {pad_x_m}px',
-        '@PAD_TOOLTIP@': f'{pad_y_m}px {max(int(cfg.margin), 0)}px',
-        '@PAD_MENU@': f'{pad_y_m}px',
-        '@PAD_CHECK_ROW@': f'{pad_y_m}px 0px',
-        '@SPACE_TAB_TOP@': f'{max(int(cfg.margin), 0)}px',
-        '@TAB_MIN_HEIGHT@': f'{tab_min_h}px',
-        '@PAD_TAB@': f'{pad_x_m}px {max(pad_x_l + 2, 0)}px',
-        '@SCROLL_HANDLE_MIN@': f'{scroll_handle_min}px',
-        '@TABLE_CHECK_INDICATOR_SIZE@': f'{max(int(cfg.table_check_indicator_size), 14)}px',
+        "@RADIUS_L@": f"{radius_l}px",
+        "@RADIUS_M@": f"{radius_m}px",
+        "@RADIUS_S@": f"{radius_s}px",
+        "@SPACE_GROUPBOX_TOP@": f"{max(int(cfg.space_l) * 2 + 2, 0)}px",
+        "@GROUPBOX_PADDING@": f"{pad_y_l * 2}px {pad_x_m}px {pad_x_m}px {pad_x_m}px",
+        "@PAD_BUTTON@": f"{pad_y_s}px {pad_x_l}px",
+        "@PAD_FIELD@": f"{pad_y_s}px {pad_x_m}px",
+        "@PAD_FIELD_INLINE@": f"0px {pad_x_m}px",
+        "@PAD_FIELD_TOOL@": f"0px {max(pad_x_m + 24, 0)}px 0px {pad_x_m}px",
+        "@PAD_FIELD_CHROME@": f"0px {max(pad_x_m + 26, 0)}px 0px {pad_x_m}px",
+        "@PAD_BLOCK@": f"{pad_x_m}px",
+        "@PAD_POPUP@": f"{pad_y_m}px {pad_x_l}px",
+        "@PAD_SECTION@": f"{pad_y_l}px {pad_x_m}px",
+        "@PAD_TOOLTIP@": f"{pad_y_m}px {max(int(cfg.margin), 0)}px",
+        "@PAD_MENU@": f"{pad_y_m}px",
+        "@PAD_CHECK_ROW@": f"{pad_y_m}px 0px",
+        "@SPACE_TAB_TOP@": f"{max(int(cfg.margin), 0)}px",
+        "@TAB_MIN_HEIGHT@": f"{tab_min_h}px",
+        "@PAD_TAB@": f"{pad_x_m}px {max(pad_x_l + 2, 0)}px",
+        "@SCROLL_HANDLE_MIN@": f"{scroll_handle_min}px",
+        "@TABLE_CHECK_INDICATOR_SIZE@": f"{max(int(cfg.table_check_indicator_size), 14)}px",
     }
 
+
 def theme_color(theme: str, token: str) -> QtGui.QColor:
-    value = theme_style_tokens(theme).get(str(token or '').strip(), '#000000')
+    """Resolve a themed color token to a QColor."""
+    value = theme_style_tokens(theme).get(str(token or "").strip(), "#000000")
     return _parse_hex_color(value)
+
 
 def render_theme_stylesheet(
     styles_dir: Path,
@@ -285,35 +307,38 @@ def render_theme_stylesheet(
     *,
     app: QtWidgets.QApplication | None = None,
 ) -> tuple[str, str]:
-    pref = str(theme_pref or 'auto').strip().lower()
-    theme = pref if pref in {'light', 'dark'} else system_theme_key(app)
-    cfg = _coerce_cfg(app.property('ui_config') if app is not None else None)
+    """Render the application stylesheet for the effective theme."""
+    pref = str(theme_pref or "auto").strip().lower()
+    theme = pref if pref in {"light", "dark"} else system_theme_key(app)
+    cfg = _coerce_cfg(app.property("ui_config") if app is not None else None)
     ui_cfg = cfg if cfg is not None else _DEFAULT_UI
-    qss_path = Path(styles_dir) / 'style.qss'
+    qss_path = Path(styles_dir) / "style.qss"
     if not qss_path.exists():
-        return theme, ''
+        return theme, ""
     try:
-        qss = qss_path.read_text(encoding='utf-8')
+        qss = qss_path.read_text(encoding="utf-8")
     except OSError:
-        return theme, ''
+        return theme, ""
     for token, value in theme_style_tokens(theme).items():
         qss = qss.replace(token, value)
     for token, value in _ui_style_tokens(ui_cfg).items():
         qss = qss.replace(token, value)
-    qss = qss.replace('@ASSETS@', Config.PATHS.ASSETS_DIR.resolve().as_posix())
+    qss = qss.replace("@ASSETS@", AppConfig.PATHS.ASSETS_DIR.resolve().as_posix())
     return theme, qss
+
 
 def _resolve_app_icon_path(theme: str | None = None) -> Path | None:
     resolved = active_theme_key(theme)
     candidates = [
-        Config.PATHS.ICONS_DIR / f'app_icon_{resolved}.svg',
-        Config.PATHS.ICONS_DIR / 'app_icon_light.svg',
-        Config.PATHS.ICONS_DIR / 'app_icon_dark.svg',
+        AppConfig.PATHS.ICONS_DIR / f"app_icon_{resolved}.svg",
+        AppConfig.PATHS.ICONS_DIR / "app_icon_light.svg",
+        AppConfig.PATHS.ICONS_DIR / "app_icon_dark.svg",
     ]
     for path in candidates:
         if path.exists():
             return path
     return None
+
 
 def _render_svg_icon(path: Path, *, sizes: tuple[int, ...] = (16, 20, 24, 32, 48, 64, 128)) -> QtGui.QIcon:
     icon = QtGui.QIcon()
@@ -339,32 +364,39 @@ def _render_svg_icon(path: Path, *, sizes: tuple[int, ...] = (16, 20, 24, 32, 48
         icon.addPixmap(pm)
     return icon
 
+
 def app_icon(theme: str | None = None) -> QtGui.QIcon:
+    """Return the themed application icon."""
     path = _resolve_app_icon_path(theme)
     return _render_svg_icon(path) if path is not None else QtGui.QIcon()
 
+
 def status_icon(name: str, *, theme: str | None = None) -> QtGui.QIcon:
+    """Return a themed status icon by logical name."""
     resolved = active_theme_key(theme)
     candidates = [
-        Config.PATHS.ICONS_DIR / f'{name}_{resolved}.svg',
-        Config.PATHS.ICONS_DIR / f'{name}.svg',
+        AppConfig.PATHS.ICONS_DIR / f"{name}_{resolved}.svg",
+        AppConfig.PATHS.ICONS_DIR / f"{name}.svg",
     ]
     for path in candidates:
         if path.exists():
             return _render_svg_icon(path)
     return QtGui.QIcon()
 
+
 def logo_svg_path(theme: str | None = None) -> Path | None:
+    """Return the preferred themed logo path when available."""
     resolved = active_theme_key(theme)
     candidates = [
-        Config.PATHS.IMAGES_DIR / f'logo_{resolved}.svg',
-        Config.PATHS.IMAGES_DIR / 'logo_light.svg',
-        Config.PATHS.IMAGES_DIR / 'logo_dark.svg',
+        AppConfig.PATHS.IMAGES_DIR / f"logo_{resolved}.svg",
+        AppConfig.PATHS.IMAGES_DIR / "logo_light.svg",
+        AppConfig.PATHS.IMAGES_DIR / "logo_dark.svg",
     ]
     for path in candidates:
         if path.exists():
             return path
     return None
+
 
 class LogoSvgLabel(QtWidgets.QLabel):
     """Label that renders an SVG logo scaled to the available bounds."""
@@ -379,10 +411,11 @@ class LogoSvgLabel(QtWidgets.QLabel):
         self.update_for_bounds(360, 140)
 
     def update_for_bounds(self, max_w: int, max_h: int) -> None:
+        """Resize the rendered logo to fit the requested bounds."""
         width = max(1, int(max_w))
         height = max(1, int(max_h))
         if not self._renderer.isValid():
-            self.setText('')
+            self.setText("")
             self.setFixedSize(width, height)
             return
         view_box = self._renderer.viewBoxF()

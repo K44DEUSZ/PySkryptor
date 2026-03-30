@@ -1,8 +1,6 @@
 # app/view/support/widget_effects.py
 from __future__ import annotations
 
-import sys
-
 from PyQt5 import QtCore, QtWidgets
 
 from app.view.support.theme_runtime import floating_shadow_color
@@ -13,27 +11,32 @@ def _app_instance() -> QtWidgets.QApplication | None:
     app = QtWidgets.QApplication.instance()
     return app if isinstance(app, QtWidgets.QApplication) else None
 
-def is_windows_platform() -> bool:
-    return sys.platform.startswith("win")
 
 def enable_styled_background(w: QtWidgets.QWidget) -> None:
+    """Enable stylesheet-driven background painting for a widget."""
     w.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
 
+
 def overlay_edge_gap(cfg: UIConfig) -> int:
+    """Return the default gap used around overlay surfaces."""
     return max(4, int(cfg.space_s) + 1)
 
+
 def install_app_event_filter(owner: QtCore.QObject, *, installed: bool) -> bool:
+    """Install the owner as an application event filter once."""
     app = _app_instance()
     if app is None or installed:
         return bool(installed)
     app.installEventFilter(owner)
     return True
 
+
 def bind_tracked_window(
     owner: QtCore.QObject,
     tracked_window: QtWidgets.QWidget | None,
     widget: QtWidgets.QWidget | None,
 ) -> QtWidgets.QWidget | None:
+    """Retarget a window-level event filter to the widget's top-level window."""
     win = widget.window() if isinstance(widget, QtWidgets.QWidget) else None
     if win is tracked_window:
         return tracked_window if isinstance(tracked_window, QtWidgets.QWidget) else None
@@ -46,7 +49,9 @@ def bind_tracked_window(
         tracked.installEventFilter(owner)
     return tracked
 
+
 def contains_widget_chain(widget: QtWidgets.QWidget | None, *roots: QtWidgets.QWidget | None) -> bool:
+    """Return whether the widget belongs to any provided root chain."""
     valid_roots = [root for root in roots if isinstance(root, QtWidgets.QWidget)]
     current = widget
     while current is not None:
@@ -56,7 +61,9 @@ def contains_widget_chain(widget: QtWidgets.QWidget | None, *roots: QtWidgets.QW
         current = current.parentWidget()
     return False
 
+
 def repolish_widget(w: QtWidgets.QWidget | None) -> None:
+    """Refresh widget styling after dynamic property changes."""
     if w is None:
         return
     style = w.style()
@@ -65,7 +72,9 @@ def repolish_widget(w: QtWidgets.QWidget | None) -> None:
         style.polish(w)
     w.update()
 
+
 def sync_progress_text_role(progress_bar: QtWidgets.QProgressBar) -> None:
+    """Update the progress text role based on the filled percentage."""
     cfg = ui(progress_bar)
     role = "primary"
     maximum = int(progress_bar.maximum())
@@ -78,7 +87,9 @@ def sync_progress_text_role(progress_bar: QtWidgets.QProgressBar) -> None:
     progress_bar.setProperty("progressTextRole", role)
     repolish_widget(progress_bar)
 
+
 def apply_floating_shadow(w: QtWidgets.QWidget) -> QtWidgets.QGraphicsDropShadowEffect:
+    """Attach the standard floating shadow effect to a widget."""
     cfg = ui(w)
     effect = QtWidgets.QGraphicsDropShadowEffect(w)
     effect.setBlurRadius(float(cfg.floating_shadow_blur))
@@ -89,11 +100,13 @@ def apply_floating_shadow(w: QtWidgets.QWidget) -> QtWidgets.QGraphicsDropShadow
     w.setGraphicsEffect(effect)
     return effect
 
+
 def floating_shadow_margins(
     widget: QtWidgets.QWidget | None,
     *,
     extra: int = 0,
 ) -> tuple[int, int, int, int]:
+    """Return margins that keep floating shadows from being clipped."""
     cfg = ui(widget)
     base = max(0, int(cfg.floating_shadow_margin))
     bottom = base + max(0, int(cfg.floating_shadow_offset_y)) + max(0, int(extra))
@@ -101,10 +114,12 @@ def floating_shadow_margins(
 
 
 def popup_host_root_margins(widget: QtWidgets.QWidget | None) -> tuple[int, int, int, int]:
+    """Return root margins for a floating popup host."""
     return floating_shadow_margins(widget)
 
 
 def configure_floating_popup_surface(host: QtWidgets.QWidget, body: QtWidgets.QWidget) -> None:
+    """Apply the shared floating popup surface configuration."""
     host.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
     host.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
     host.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)

@@ -7,10 +7,11 @@ from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
 from app.controller.workers.task_worker import PendingDecision, TaskWorker
-from app.model.services.transcription_service import TranscriptionService
-from app.model.domain.entities import TranscriptionSessionRequest
+from app.model.core.domain.entities import TranscriptionSessionRequest
+from app.model.transcription.service import TranscriptionService
 
 SourceEntry = str | dict[str, Any]
+
 
 class TranscriptionWorker(TaskWorker):
     """Background worker that orchestrates a transcription session."""

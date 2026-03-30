@@ -1,21 +1,21 @@
 # app/controller/coordinators/app_coordinator.py
 from __future__ import annotations
 
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore
 
 from app.controller.coordinators.downloader_coordinator import DownloaderCoordinator
 from app.controller.coordinators.files_coordinator import FilesCoordinator
 from app.controller.coordinators.live_coordinator import LiveCoordinator
 from app.controller.coordinators.settings_coordinator import SettingsCoordinator
 from app.controller.coordinators.startup_coordinator import StartupCoordinator
-from app.controller.contracts import (
+from app.controller.panel_protocols import (
     DownloaderCoordinatorProtocol,
     FilesCoordinatorProtocol,
     LiveCoordinatorProtocol,
     MainWindowPanelsHostProtocol,
     SettingsCoordinatorProtocol,
 )
-from app.model.domain.runtime_state import AppRuntimeState
+from app.model.core.domain.state import AppRuntimeState
 
 
 class AppCoordinator(QtCore.QObject):
@@ -34,26 +34,7 @@ class AppCoordinator(QtCore.QObject):
         self._downloader: DownloaderCoordinator = DownloaderCoordinator(self)
         self._settings: SettingsCoordinator = SettingsCoordinator(self)
 
-        files_protocol = self._files
-        live_protocol = self._live
-        downloader_protocol = self._downloader
-        settings_protocol = self._settings
-
-        if not isinstance(files_protocol, FilesCoordinatorProtocol):
-            raise TypeError("FilesCoordinator does not satisfy FilesCoordinatorProtocol")
-        if not isinstance(live_protocol, LiveCoordinatorProtocol):
-            raise TypeError("LiveCoordinator does not satisfy LiveCoordinatorProtocol")
-        if not isinstance(downloader_protocol, DownloaderCoordinatorProtocol):
-            raise TypeError("DownloaderCoordinator does not satisfy DownloaderCoordinatorProtocol")
-        if not isinstance(settings_protocol, SettingsCoordinatorProtocol):
-            raise TypeError("SettingsCoordinator does not satisfy SettingsCoordinatorProtocol")
-
-        self.files: FilesCoordinatorProtocol = files_protocol
-        self.live: LiveCoordinatorProtocol = live_protocol
-        self.downloader: DownloaderCoordinatorProtocol = downloader_protocol
-        self.settings: SettingsCoordinatorProtocol = settings_protocol
-
-        self.main_window: QtWidgets.QMainWindow | None = None
+        self.main_window: MainWindowPanelsHostProtocol | None = None
         self._busy_sections: set[str] = set()
         self._runtime_state = AppRuntimeState()
 
@@ -63,6 +44,46 @@ class AppCoordinator(QtCore.QObject):
         self._downloader.busy_changed.connect(lambda busy: self._set_section_busy('downloader', busy))
         self._settings.busy_changed.connect(lambda busy: self._set_section_busy('settings', busy))
         self._settings.settings_applied.connect(self._on_settings_applied)
+
+    @property
+    def files(self) -> FilesCoordinator:
+        return self._files
+
+    @property
+    def live(self) -> LiveCoordinator:
+        return self._live
+
+    @property
+    def downloader(self) -> DownloaderCoordinator:
+        return self._downloader
+
+    @property
+    def settings(self) -> SettingsCoordinator:
+        return self._settings
+
+    def _files_panel_coordinator(self) -> FilesCoordinatorProtocol:
+        coordinator = self._files
+        if not isinstance(coordinator, FilesCoordinatorProtocol):
+            raise TypeError("FilesCoordinator must satisfy FilesCoordinatorProtocol.")
+        return coordinator
+
+    def _live_panel_coordinator(self) -> LiveCoordinatorProtocol:
+        coordinator = self._live
+        if not isinstance(coordinator, LiveCoordinatorProtocol):
+            raise TypeError("LiveCoordinator must satisfy LiveCoordinatorProtocol.")
+        return coordinator
+
+    def _downloader_panel_coordinator(self) -> DownloaderCoordinatorProtocol:
+        coordinator = self._downloader
+        if not isinstance(coordinator, DownloaderCoordinatorProtocol):
+            raise TypeError("DownloaderCoordinator must satisfy DownloaderCoordinatorProtocol.")
+        return coordinator
+
+    def _settings_panel_coordinator(self) -> SettingsCoordinatorProtocol:
+        coordinator = self._settings
+        if not isinstance(coordinator, SettingsCoordinatorProtocol):
+            raise TypeError("SettingsCoordinator must satisfy SettingsCoordinatorProtocol.")
+        return coordinator
 
     def set_runtime_state(self, state: AppRuntimeState | None) -> None:
         self._runtime_state = state if state is not None else AppRuntimeState()
@@ -93,30 +114,29 @@ class AppCoordinator(QtCore.QObject):
         window = self.main_window
         if window is None:
             return
-        files_panel = getattr(window, 'files_panel', None)
+        files_panel = window.files_panel
         if files_panel is not None:
             files_panel.refresh_defaults_from_settings()
-        live_panel = getattr(window, 'live_panel', None)
+        live_panel = window.live_panel
         if live_panel is not None:
             live_panel.refresh_defaults_from_settings()
 
     def bind_main_window(self, window: MainWindowPanelsHostProtocol) -> None:
-        if isinstance(window, QtWidgets.QMainWindow):
-            self.main_window = window
+        self.main_window = window
 
         if window.files_panel is not None:
-            window.files_panel.bind_coordinator(self.files)
+            window.files_panel.bind_coordinator(self._files_panel_coordinator())
             self._files.bind_view(window.files_panel)
 
         if window.live_panel is not None:
-            window.live_panel.bind_coordinator(self.live)
+            window.live_panel.bind_coordinator(self._live_panel_coordinator())
             self._live.bind_view(window.live_panel)
 
         if window.downloader_panel is not None:
-            window.downloader_panel.bind_coordinator(self.downloader)
+            window.downloader_panel.bind_coordinator(self._downloader_panel_coordinator())
             self._downloader.bind_view(window.downloader_panel)
 
         if window.settings_panel is not None:
-            window.settings_panel.bind_coordinator(self.settings)
+            window.settings_panel.bind_coordinator(self._settings_panel_coordinator())
             self._settings.bind_view(window.settings_panel)
-            self.settings.load()
+            self._settings.load()

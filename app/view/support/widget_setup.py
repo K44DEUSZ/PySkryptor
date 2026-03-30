@@ -3,12 +3,20 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal, cast, overload
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
-from app.view.ui_config import UIConfig, _DEFAULT_UI, ui
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
+from app.view.ui_config import _DEFAULT_UI, UIConfig, ui
+
+
+def connect_qt_signal(signal: Any, slot: Callable[..., Any]) -> None:
+    """Connect a Qt signal to a callable slot."""
+    signal.connect(slot)
+
 
 class _SpinboxFocusProxy(QtCore.QObject):
+    """Mirror focus state from the spinbox editor back to the styled host widget."""
+
     def __init__(self, spinbox: QtWidgets.QAbstractSpinBox) -> None:
         super().__init__(spinbox)
         self._spinbox = spinbox
@@ -33,7 +41,9 @@ class _SpinboxFocusProxy(QtCore.QObject):
             spinbox.setProperty('focusWithin', focus_within)
             repolish_widget(spinbox)
 
+
 def make_grid(columns: int, cfg: UIConfig | None = None) -> QtWidgets.QGridLayout:
+    """Build a grid layout with the shared spacing defaults."""
     cfg = cfg or _DEFAULT_UI
     layout = QtWidgets.QGridLayout()
     layout.setContentsMargins(0, 0, 0, 0)
@@ -43,24 +53,41 @@ def make_grid(columns: int, cfg: UIConfig | None = None) -> QtWidgets.QGridLayou
         layout.setColumnStretch(index, 1)
     return layout
 
+
 def set_widget_style_role(
     w: QtWidgets.QWidget,
     *,
     chrome: str | None = None,
     ui_role: str | None = None,
 ) -> None:
+    """Assign shared style-role properties to a widget."""
     enable_styled_background(w)
     if chrome is not None:
         w.setProperty('chrome', str(chrome))
     if ui_role is not None:
         w.setProperty('role', str(ui_role))
 
+
+def set_interactive_cursor(w: QtWidgets.QWidget) -> QtWidgets.QWidget:
+    """Apply the shared pointing-hand cursor to interactive widgets."""
+    w.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+    return w
+
+
+def set_passive_cursor(w: QtWidgets.QWidget) -> QtWidgets.QWidget:
+    """Apply the shared arrow cursor to non-interactive container surfaces."""
+    w.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+    return w
+
+
 def setup_control(w: QtWidgets.QWidget, *, min_h: int | None = None, min_w: int | None = None) -> None:
+    """Apply the shared minimum control sizing rules."""
     cfg = ui(w)
     height = int(min_h if min_h is not None else cfg.control_min_h)
     width = int(min_w if min_w is not None else cfg.control_min_w)
     w.setMinimumHeight(height)
     w.setMinimumWidth(width)
+
 
 def setup_button(
     btn: QtWidgets.QAbstractButton,
@@ -69,29 +96,37 @@ def setup_button(
     min_h: int | None = None,
     min_w: int | None = None,
 ) -> None:
+    """Configure a button with the shared visual defaults."""
     set_widget_style_role(btn, chrome=chrome)
-    btn.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
     btn.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+    set_interactive_cursor(btn)
     setup_control(btn, min_h=min_h, min_w=min_w)
 
+
 def setup_combo(cb: QtWidgets.QComboBox, *, min_h: int | None = None, min_w: int | None = None) -> None:
+    """Configure a combo box with the shared field styling."""
     set_widget_style_role(cb, chrome='field', ui_role='combo')
     cb.setProperty('focusWithin', False)
     cb.setProperty('popupOpen', False)
+    set_interactive_cursor(cb)
     setup_control(cb, min_h=min_h, min_w=min_w)
     line_edit = cb.lineEdit()
     if line_edit is not None:
         from app.view.components.text_context_menu import install_text_context_menu
 
+        line_edit.setCursor(QtCore.Qt.CursorShape.IBeamCursor)
         install_text_context_menu(line_edit)
     sync_visual_state = cast(Callable[[], None] | None, getattr(cb, 'sync_visual_state', None))
     if sync_visual_state is not None:
         QtCore.QTimer.singleShot(0, sync_visual_state)
 
+
 def setup_spinbox(sp: QtWidgets.QAbstractSpinBox, *, min_h: int | None = None, min_w: int | None = None) -> None:
+    """Configure a spin box with the shared field styling."""
     set_widget_style_role(sp, chrome='field', ui_role='spinbox')
     sp.setProperty('focusWithin', False)
     sp.setFrame(False)
+    set_interactive_cursor(sp)
 
     focus_proxy = getattr(sp, '_focus_proxy', None)
     if not isinstance(focus_proxy, _SpinboxFocusProxy):
@@ -102,13 +137,16 @@ def setup_spinbox(sp: QtWidgets.QAbstractSpinBox, *, min_h: int | None = None, m
         if line_edit is not None:
             line_edit.setFrame(False)
             line_edit.setAttribute(QtCore.Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+            line_edit.setCursor(QtCore.Qt.CursorShape.IBeamCursor)
             line_edit.installEventFilter(focus_proxy)
             from app.view.components.text_context_menu import install_text_context_menu
 
             install_text_context_menu(line_edit)
     setup_control(sp, min_h=min_h, min_w=min_w)
 
+
 def setup_input(edit: QtWidgets.QLineEdit, *, placeholder: str | None = None, min_h: int | None = None) -> None:
+    """Configure a line edit with the shared input styling."""
     set_widget_style_role(edit, chrome='field', ui_role='input')
     if placeholder is not None:
         edit.setPlaceholderText(placeholder)
@@ -117,11 +155,13 @@ def setup_input(edit: QtWidgets.QLineEdit, *, placeholder: str | None = None, mi
 
     install_text_context_menu(edit)
 
+
 def setup_text_editor(
     edit: QtWidgets.QTextEdit | QtWidgets.QPlainTextEdit,
     *,
     placeholder: str | None = None,
 ) -> None:
+    """Configure a text editor with the shared field styling."""
     set_widget_style_role(edit, chrome='field', ui_role='textEditor')
     if placeholder is not None:
         edit.setPlaceholderText(placeholder)
@@ -129,27 +169,45 @@ def setup_text_editor(
 
     install_text_context_menu(edit)
 
+
 def setup_label(
     label: QtWidgets.QLabel,
     *,
     role: str = 'fieldLabel',
     buddy: QtWidgets.QWidget | None = None,
 ) -> QtWidgets.QLabel:
+    """Apply the shared role and buddy wiring to a label."""
     label.setProperty('role', role)
     if buddy is not None:
         label.setBuddy(buddy)
     return label
+
 
 def setup_option_checkbox(
     cb: QtWidgets.QCheckBox,
     *,
     min_h: int | None = None,
 ) -> QtWidgets.QCheckBox:
+    """Configure an option checkbox row with shared sizing."""
     cfg = ui(cb)
     row_h = int(min_h if min_h is not None else cfg.option_row_min_h)
-    cb.setMinimumHeight(row_h)
+    setup_toggle_button(cb, min_h=row_h)
     cb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
     return cb
+
+
+def setup_toggle_button(
+    btn: QtWidgets.QAbstractButton,
+    *,
+    min_h: int | None = None,
+) -> QtWidgets.QAbstractButton:
+    """Configure a checkbox or radio button with shared interactive defaults."""
+    if min_h is not None:
+        btn.setMinimumHeight(int(min_h))
+    btn.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+    set_interactive_cursor(btn)
+    return btn
+
 
 def build_field_stack(
     parent: QtWidgets.QWidget,
@@ -158,6 +216,7 @@ def build_field_stack(
     *,
     buddy: QtWidgets.QWidget | None = None,
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
+    """Build a labeled vertical field stack."""
     cfg = ui(parent)
     host, lay = build_layout_host(
         parent=parent,
@@ -178,6 +237,7 @@ def build_field_stack(
 
     return host, label
 
+
 def build_setting_row(
     *,
     label_text: str,
@@ -190,6 +250,7 @@ def build_setting_row(
     label_role: str | None = "settingsRowLabel",
     label_min_width: int | None = None,
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
+    """Build the standard two-column settings row."""
     resolved_cfg = cfg or ui(parent or control)
     host, layout = build_layout_host(
         parent=parent,
@@ -230,6 +291,7 @@ def build_setting_row(
 
     return host, label
 
+
 def setup_layout(
     layout: QtWidgets.QLayout,
     *,
@@ -240,6 +302,7 @@ def setup_layout(
     vspacing: int | None = None,
     column_stretches: dict[int, int] | None = None,
 ) -> None:
+    """Apply shared spacing and margin defaults to a layout."""
     cfg = cfg or _DEFAULT_UI
     resolved_margins = tuple(int(v) for v in (margins or (cfg.margin, cfg.margin, cfg.margin, cfg.margin)))
     layout.setContentsMargins(*resolved_margins)
@@ -308,6 +371,7 @@ def build_layout_host(
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QFormLayout]:
     ...
 
+
 def build_layout_host(
     *,
     parent: QtWidgets.QWidget | None = None,
@@ -319,6 +383,7 @@ def build_layout_host(
     column_stretches: dict[int, int] | None = None,
     object_name: str | None = None,
 ) -> tuple[QtWidgets.QWidget, QtWidgets.QLayout]:
+    """Create a QWidget host with a configured child layout."""
     host = QtWidgets.QWidget(parent)
     if object_name:
         host.setObjectName(object_name)

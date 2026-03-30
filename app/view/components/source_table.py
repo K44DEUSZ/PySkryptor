@@ -6,32 +6,44 @@ from typing import Any, Callable, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.model.services.localization_service import tr
+from app.model.core.runtime.localization import tr
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
-from app.model.helpers.string_utils import normalize_lang_code
 from app.view.support.widget_effects import repolish_widget
-from app.view.support.widget_setup import build_layout_host, setup_button, setup_combo
+from app.view.support.widget_setup import (
+    build_layout_host,
+    connect_qt_signal,
+    set_passive_cursor,
+    setup_toggle_button,
+    setup_button,
+    setup_combo,
+)
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
 
+
 def _source_row_height(cfg) -> int:
     return max(int(cfg.control_min_h) + int(cfg.space_s) * 2, 40)
 
+
 def _source_base_col_width(cfg) -> int:
     return max(36, int(cfg.control_min_h) + 8)
+
 
 def _source_number_col_width(cfg, raw_width: int | None = None) -> int:
     width = int(_source_base_col_width(cfg) + 6 if raw_width is None else raw_width)
     return max(_source_base_col_width(cfg), width)
 
+
 def _source_header_check_width(cfg, *, indicator_size: int) -> int:
     return max(_source_base_col_width(cfg), int(indicator_size) + int(cfg.pad_x_l) + int(cfg.space_s) + 1)
+
 
 def _source_cell_margins(cfg) -> tuple[int, int, int, int]:
     margin_x = max(2, int(cfg.space_s) - 1)
     margin_y = max(1, int(cfg.space_s) // 2)
     return margin_x, margin_y, margin_x, margin_y
+
 
 class SourceTable(QtWidgets.QTableWidget):
     """Table widget with drag-and-drop support used by Files and Downloader panels."""
@@ -55,12 +67,13 @@ class SourceTable(QtWidgets.QTableWidget):
         self._header_checkbox_enabled = True
         self._header_checkbox_column: int | None = None
         self._width_mode = "fit"
+        self._item_value_tooltips_enabled = True
 
         header = self.horizontalHeader()
         header.setSectionsMovable(False)
-        header.sectionResized.connect(self._on_header_section_resized)
+        connect_qt_signal(header.sectionResized, self._on_header_section_resized)
         try:
-            header.geometriesChanged.connect(self._update_header_checkbox_geometry)
+            connect_qt_signal(header.geometriesChanged, self._update_header_checkbox_geometry)
         except (AttributeError, RuntimeError, TypeError) as ex:
             _LOG.debug("Header geometry signal hookup skipped. detail=%s", ex)
 
@@ -68,8 +81,7 @@ class SourceTable(QtWidgets.QTableWidget):
         self._header_checkbox.setObjectName("SourceTableHeaderCheckbox")
         self._header_checkbox.setText("")
         self._header_checkbox.setTristate(True)
-        self._header_checkbox.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self._header_checkbox.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
+        setup_toggle_button(self._header_checkbox)
         self._configure_table_checkbox(self._header_checkbox)
         self._header_checkbox.clicked.connect(self._on_header_checkbox_clicked)
         self._header_checkbox.hide()
@@ -79,6 +91,8 @@ class SourceTable(QtWidgets.QTableWidget):
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setShowGrid(True)
         self.setGridStyle(QtCore.Qt.PenStyle.SolidLine)
+        set_passive_cursor(self)
+        set_passive_cursor(self.viewport())
         vheader = self.verticalHeader()
         cfg = ui(self)
         row_h = _source_row_height(cfg)
@@ -100,14 +114,53 @@ class SourceTable(QtWidgets.QTableWidget):
         self._refresh_width_mode(self._header_layout_state)
 
     def removeRow(self, row: int) -> None:  # type: ignore[override]
+        self._dispose_row_widgets(row)
         super().removeRow(row)
         self._schedule_header_checkbox_sync()
         self._refresh_width_mode(self._header_layout_state)
 
+    def set_item_value_tooltips_enabled(self, enabled: bool) -> None:
+        self._item_value_tooltips_enabled = bool(enabled)
+
     def setRowCount(self, rows: int) -> None:  # type: ignore[override]
-        super().setRowCount(rows)
+        target_rows = max(0, int(rows))
+        current_rows = int(self.rowCount())
+        if target_rows < current_rows:
+            for row in range(current_rows - 1, target_rows - 1, -1):
+                self._dispose_row_widgets(row)
+        super().setRowCount(target_rows)
         self._schedule_header_checkbox_sync()
         self._refresh_width_mode(self._header_layout_state)
+
+    def _dispose_widget_tree(self, widget: QtWidgets.QWidget | None) -> None:
+        if widget is None:
+            return
+        popup_fields = [
+            child
+            for child in [widget, *widget.findChildren(QtWidgets.QWidget)]
+            if isinstance(child, (PopupComboBox, PopupMultiSelectField))
+        ]
+        for child in popup_fields:
+            dispose = getattr(child, '_dispose_popup_host', None)
+            if callable(dispose):
+                try:
+                    dispose()
+                except (AttributeError, RuntimeError, TypeError):
+                    continue
+        try:
+            widget.deleteLater()
+        except (AttributeError, RuntimeError, TypeError):
+            return
+
+    def _dispose_row_widgets(self, row: int) -> None:
+        if row < 0 or row >= self.rowCount():
+            return
+        for col in range(self.columnCount()):
+            widget = self.cellWidget(row, col)
+            if widget is None:
+                continue
+            self.removeCellWidget(row, col)
+            self._dispose_widget_tree(widget)
 
     def _install_row_select_filter(self, w: QtWidgets.QWidget) -> None:
         w.installEventFilter(self)
@@ -1092,15 +1145,15 @@ class SourceTable(QtWidgets.QTableWidget):
         w = self.control_at(row, col, PopupMultiSelectField)
         return w if isinstance(w, PopupMultiSelectField) else None
 
-    def audio_lang_code_at(self, row: int, col: int) -> str | None:
+    def audio_track_id_at(self, row: int, col: int) -> str | None:
         w = self.combo_at(row, col)
         if not isinstance(w, QtWidgets.QComboBox):
             return None
         idx = int(w.currentIndex())
-        lang_codes = list(w.property("lang_codes") or [None])
-        if 0 <= idx < len(lang_codes):
-            v = lang_codes[idx]
-            return normalize_lang_code(v, drop_region=False) if v else None
+        track_ids = list(w.property("audio_track_ids") or [None])
+        if 0 <= idx < len(track_ids):
+            v = track_ids[idx]
+            return str(v).strip() or None if v else None
         return None
 
     @staticmethod
@@ -1115,6 +1168,7 @@ class SourceTable(QtWidgets.QTableWidget):
             hspacing=0,
             vspacing=0,
         )
+        set_passive_cursor(host)
         lay.addWidget(control, 0, 0, QtCore.Qt.AlignmentFlag.AlignCenter)
         return host
 
@@ -1131,6 +1185,7 @@ class SourceTable(QtWidgets.QTableWidget):
             margins=resolved_margins,
             spacing=0,
         )
+        set_passive_cursor(host)
         host.setMinimumWidth(0)
         control.setMinimumWidth(0)
         host.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
@@ -1148,8 +1203,7 @@ class SourceTable(QtWidgets.QTableWidget):
         cb = QtWidgets.QCheckBox()
         cb.setTristate(False)
         cb.setText("")
-        cb.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        cb.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
+        setup_toggle_button(cb)
         cb.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         self._configure_table_checkbox(cb)
         cb.setContentsMargins(0, 0, 0, 0)
@@ -1234,7 +1288,7 @@ class SourceTable(QtWidgets.QTableWidget):
         cb = PopupComboBox()
         setup_combo(cb)
         cb.addItem(str(default_text or ""))
-        cb.setProperty("lang_codes", [None])
+        cb.setProperty("audio_track_ids", [None])
         cb.setProperty("has_choices", False)
         cb.setProperty("internal_key", str(internal_key))
         cb.setEnabled(bool(enabled))
@@ -1250,69 +1304,81 @@ class SourceTable(QtWidgets.QTableWidget):
         col: int,
         meta: dict[str, Any],
         default_text: str,
-        preferred_lang_code: str | None = None,
+        preferred_audio_track_id: str | None = None,
         internal_key: str | None = None,
     ) -> list[str | None]:
         w = self.combo_at(row, col)
         if not isinstance(w, QtWidgets.QComboBox):
             return [None]
 
-        raw = meta.get("audio_tracks") or meta.get("audio_langs") or []
-        codes: list[str] = []
+        raw = meta.get("audio_tracks") or []
+        options: list[tuple[str, str]] = []
+        seen_track_ids: set[str] = set()
         for t in raw or []:
             if not isinstance(t, dict):
                 continue
-            code = t.get("lang_code") or t.get("lang") or t.get("language")
-            norm = normalize_lang_code(code, drop_region=False) or ""
-            if norm and norm not in codes:
-                codes.append(norm)
+            track_id = str(t.get("track_id") or "").strip()
+            label = str(
+                t.get("label")
+                or t.get("lang_code")
+                or t.get("lang")
+                or t.get("language")
+                or ""
+            ).strip()
+            if not track_id or track_id in seen_track_ids:
+                continue
+            seen_track_ids.add(track_id)
+            options.append((track_id, label or track_id))
 
         prev_idx = int(w.currentIndex())
-        prev_codes = list(w.property("lang_codes") or [None])
+        prev_track_ids = list(w.property("audio_track_ids") or [None])
         try:
-            prev_lang = prev_codes[prev_idx] if 0 <= prev_idx < len(prev_codes) else None
+            prev_track_id = prev_track_ids[prev_idx] if 0 <= prev_idx < len(prev_track_ids) else None
         except (IndexError, TypeError):
-            prev_lang = None
-        prev_base = normalize_lang_code(prev_lang, drop_region=True) if prev_lang else ""
+            prev_track_id = None
         w.blockSignals(True)
         w.clear()
         w.addItem(str(default_text or ""))
-        lang_codes: list[str | None] = [None]
+        track_ids: list[str | None] = [None]
 
-        for c in codes:
-            w.addItem(c)
-            lang_codes.append(c)
+        for track_id, label in options:
+            w.addItem(label)
+            track_ids.append(track_id)
 
-        preferred = normalize_lang_code(preferred_lang_code, drop_region=False) if preferred_lang_code else ""
-        preferred_base = normalize_lang_code(preferred_lang_code, drop_region=True) if preferred_lang_code else ""
-        desired = preferred or prev_lang or prev_base
+        desired = str(preferred_audio_track_id or prev_track_id or "").strip()
 
         chosen = 0
         if desired:
             try:
-                idx = lang_codes.index(desired) if desired in lang_codes else -1
+                idx = track_ids.index(desired) if desired in track_ids else -1
             except ValueError:
                 idx = -1
-            base = preferred_base or prev_base
-            if idx < 0 and base:
-                for j, c in enumerate(lang_codes):
-                    if c and normalize_lang_code(c, drop_region=True) == base:
-                        idx = j
-                        break
             if idx >= 0:
                 chosen = int(idx)
+        elif len(track_ids) == 2:
+            chosen = 1
 
         w.setCurrentIndex(chosen)
         w.blockSignals(False)
 
-        w.setProperty("lang_codes", lang_codes)
-        w.setProperty("has_choices", len(lang_codes) > 2)
+        w.setProperty("audio_track_ids", track_ids)
+        w.setProperty("has_choices", len(track_ids) > 2)
         if internal_key is not None:
             w.setProperty("internal_key", str(internal_key))
-        w.setToolTip("")
-        return lang_codes
+        if len(track_ids) == 2 and options:
+            w.setToolTip(str(options[0][1] or ""))
+        else:
+            w.setToolTip("")
+        return track_ids
 
-    def apply_probe_diag_notice(self, *, row: int, col: int, status_col: int, meta: dict[str, Any]) -> None:
+    def apply_probe_diagnostics_notice(
+        self,
+        *,
+        row: int,
+        col: int,
+        status_col: int,
+        meta: dict[str, Any],
+    ) -> None:
         cb = self.combo_at(row, col)
         if not isinstance(cb, QtWidgets.QComboBox):
             return
@@ -1321,17 +1387,46 @@ class SourceTable(QtWidgets.QTableWidget):
         if it_status is None:
             return
 
-        notice = tr("status.notice.metadata_incomplete")
+        default_notice = tr("status.notice.metadata_incomplete")
         current_tooltip = str(it_status.toolTip() or "").strip()
         current_text = str(it_status.text() or "").strip()
-        has_custom_tooltip = bool(current_tooltip) and current_tooltip not in (current_text, notice)
+        has_custom_tooltip = bool(current_tooltip) and current_tooltip not in (current_text, default_notice)
         if has_custom_tooltip:
             return
 
-        diag = meta.get("probe_diag") or {}
-        has_diag = isinstance(diag, dict) and bool((diag.get("warnings") or []) or (diag.get("errors") or []))
+        diagnostics = meta.get("probe_diagnostics") or {}
+        warnings = set(diagnostics.get("warnings") or []) if isinstance(diagnostics, dict) else set()
+        has_diagnostics = (
+            bool(warnings or (diagnostics.get("errors") or []))
+            if isinstance(diagnostics, dict)
+            else False
+        )
         has_choices = bool(cb.property("has_choices"))
-        should_notice = has_diag and not has_choices
+
+        if "browser_cookies_unavailable" in warnings:
+            notice = tr("status.notice.browser_cookies_unavailable")
+        elif "authentication_required" in warnings:
+            notice = tr("status.notice.authentication_required")
+        elif (
+            "media_unavailable" in warnings
+            or "no_downloadable_formats" in warnings
+            or "no_public_formats" in warnings
+        ):
+            notice = tr("status.notice.media_unavailable")
+        elif "audio_tracks_probe_only" in warnings:
+            notice = tr("status.notice.audio_tracks_probe_only")
+        else:
+            notice = default_notice
+
+        should_notice = has_diagnostics and (
+            not has_choices
+            or "browser_cookies_unavailable" in warnings
+            or "authentication_required" in warnings
+            or "media_unavailable" in warnings
+            or "no_downloadable_formats" in warnings
+            or "no_public_formats" in warnings
+            or "audio_tracks_probe_only" in warnings
+        )
 
         it_status.setToolTip(notice if should_notice else "")
         cb.setToolTip(notice if should_notice else "")
@@ -1343,9 +1438,12 @@ class SourceTable(QtWidgets.QTableWidget):
             it.setFlags(it.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
             self.setItem(row, col, it)
         it.setText(text)
-        it.setToolTip(tooltip if tooltip is not None else text)
+        if tooltip is not None:
+            it.setToolTip(tooltip)
+        else:
+            it.setToolTip(text if self._item_value_tooltips_enabled else "")
 
     def clear_cell_tooltip(self, row: int, col: int) -> None:
         it = self.item(row, col)
         if it is not None:
-            it.setToolTip(it.text())
+            it.setToolTip(it.text() if self._item_value_tooltips_enabled else "")

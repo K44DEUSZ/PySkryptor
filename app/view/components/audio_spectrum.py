@@ -13,6 +13,7 @@ def _app_instance() -> QtWidgets.QApplication | None:
     app = QtWidgets.QApplication.instance()
     return app if isinstance(app, QtWidgets.QApplication) else None
 
+
 class AudioSpectrumWidget(QtWidgets.QWidget):
     """Lightweight input-audio spectrum meter."""
 

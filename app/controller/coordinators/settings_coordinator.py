@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt5 import QtCore
 
-from app.controller.contracts import SettingsPanelViewProtocol
+from app.controller.panel_protocols import SettingsPanelViewProtocol
+from app.controller.support.panel_support import rebind_settings_panel_view
 from app.controller.workers.settings_worker import SettingsWorker
-from app.controller.workers.task_thread_runner import TaskThreadRunner
+from app.controller.workers.worker_runner import WorkerRunner
 
 if TYPE_CHECKING:
-    from app.model.domain.entities import SettingsSnapshot
+    from app.model.core.domain.entities import SettingsSnapshot
 
 
 class SettingsCoordinator(QtCore.QObject):
@@ -24,28 +25,21 @@ class SettingsCoordinator(QtCore.QObject):
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self._runner = TaskThreadRunner(self)
+        self._runner = WorkerRunner(self)
         self._worker: SettingsWorker | None = None
         self._view: SettingsPanelViewProtocol | None = None
 
     def bind_view(self, panel: SettingsPanelViewProtocol) -> None:
         if self._view is panel:
             return
-        previous = self._view
-        if previous is not None:
-            for signal, slot in (
-                (self.failed, previous.on_error),
-                (self.settings_loaded, previous.on_settings_loaded),
-                (self.saved, previous.on_saved),
-            ):
-                try:
-                    signal.disconnect(slot)
-                except (TypeError, RuntimeError):
-                    pass
+        rebind_settings_panel_view(
+            previous_view=self._view,
+            new_view=panel,
+            failed=self.failed,
+            settings_loaded=self.settings_loaded,
+            saved=self.saved,
+        )
         self._view = panel
-        self.failed.connect(panel.on_error)
-        self.settings_loaded.connect(panel.on_settings_loaded)
-        self.saved.connect(panel.on_saved)
 
     def is_busy(self) -> bool:
         return self._runner.is_running()

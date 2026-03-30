@@ -46,7 +46,8 @@
     },
     "enable": "Aktivieren",
     "disable": "Deaktivieren",
-    "inherit": "Vom Profil übernehmen"
+    "inherit": "Vom Profil übernehmen",
+    "browse": "Durchsuchen..."
   },
   "ctrl": {
     "add": "Hinzufügen +",
@@ -167,6 +168,17 @@
         "text": "Die Datei „{title}“ existiert bereits im Download-Ordner.\nWas möchtest du tun?",
         "title": "Downloadkonflikt",
         "header": "Die Datei existiert bereits"
+      },
+      "cookies": {
+        "title": "Browser-Cookies sind nicht verfügbar",
+        "header": "Cookies aus {browser} konnten nicht gelesen werden",
+        "text": "Schließe den Browser und versuche es erneut oder fahre für diesen Vorgang ohne Cookies fort.",
+        "retry": "Nach dem Schließen erneut versuchen",
+        "without": "Ohne Cookies fortfahren",
+        "browser_fallback": "ausgewählter Browser",
+        "use_file": "Cookie-Datei verwenden...",
+        "file_title": "Cookie-Datei auswählen",
+        "file_filter": "Cookie-Dateien (*.txt *.sqlite *.db);;Alle Dateien (*.*)"
       }
     },
     "confirm": {
@@ -174,6 +186,24 @@
     },
     "settings": {
       "title": "Einstellungen"
+    },
+    "welcome": {
+      "title": "Willkommen",
+      "header": "PySkryptor",
+      "meta_version": "Version: {version}",
+      "meta_author": "Autor: {author}",
+      "meta_years": "Entwicklungsjahre: {years}",
+      "text": "{name} ist eine Anwendung für die Audio- und Videotranskription sowie für die Arbeit mit vom Benutzer angegebenen Quellen. Das Programm hilft dabei, Transkripte vorzubereiten und Materialien in einer gemeinsamen Arbeitsumgebung zu ordnen.",
+      "disclaimer": "Verwende nur solche Quellen, für deren Nutzung du die erforderlichen Rechte oder eine andere zulässige Grundlage hast. Der Benutzer ist dafür verantwortlich, dass die Nutzung des Programms mit dem Recht, Lizenzen und den Regeln externer Dienste vereinbar ist.",
+      "accept": "Verstanden",
+      "reject": "Programm beenden"
+    },
+    "source_rights_notice": {
+      "title": "Netzwerkquelle hinzufügen",
+      "header": "Prüfe die Rechte an der Quelle vor dem Hinzufügen",
+      "text": "Füge nur Netzwerkquellen hinzu, für deren Nutzung du Rechte oder eine andere zulässige Grundlage hast. Beachte Lizenzen, Nutzungsbedingungen und Zugriffsbeschränkungen.",
+      "disclaimer": "Umgehe keine technischen Schutzmaßnahmen. Wenn das Material personenbezogene Daten enthält, stelle sicher, dass du eine Grundlage für deren Verarbeitung hast.",
+      "dont_show_again": "Nicht erneut anzeigen"
     }
   },
   "down": {
@@ -244,7 +274,11 @@
       "network_offline": "❌ Keine Netzwerkverbindung.",
       "network_timeout": "❌ Zeitüberschreitung beim Verbinden mit der Quelle.",
       "network_unreachable": "❌ Das Netzwerk ist nicht erreichbar.",
-      "probe_failed": "❌ Die Medien konnten nicht analysiert werden. Details: {detail}"
+      "probe_failed": "❌ Die Medien konnten nicht analysiert werden. Details: {detail}",
+      "browser_cookies_unavailable": "❌ Browser-Cookies sind nicht verfügbar. Details: {detail}",
+      "authentication_required": "❌ Diese Quelle erfordert eine Anmeldung. Details: {detail}",
+      "audio_track_probe_only": "❌ Die ausgewählte Audiospur wurde nur beim Prüfen erkannt und kann nicht zuverlässig heruntergeladen werden.",
+      "no_downloadable_formats": "❌ Keine herunterladbaren Medienformate verfügbar. Details: {detail}"
     },
     "external_tool_failed": "❌ Externes Werkzeug fehlgeschlagen. Befehl: {cmd}",
     "external_tool_timeout": "❌ Externes Werkzeug hat nach {seconds} s das Zeitlimit überschritten.",
@@ -270,7 +304,8 @@
       "translation_missing": "⚠️ Das Übersetzungsmodell ist nicht installiert."
     },
     "runtime": {
-      "settings_not_initialized": "⚠️ Die Einstellungen sind nicht initialisiert."
+      "settings_not_initialized": "⚠️ Die Einstellungen sind nicht initialisiert.",
+      "unsupported_platform": "⚠️ PySkryptor unterstützt derzeit nur Windows. Erkannte Plattform: {platform}."
     },
     "settings": {
       "defaults_missing": "⚠️ Die Standarddatei fehlt: {path}",
@@ -508,6 +543,26 @@
       "max_video_height": "Maximale Videohöhe",
       "min_video_height": "Minimale Videohöhe"
     },
+    "browser_cookies": {
+      "mode": {
+        "label": "Download-Authentifizierung",
+        "none": "Deaktiviert",
+        "from_browser": "Aus dem Browser",
+        "from_file": "Aus Datei"
+      },
+      "browser": {
+        "label": "Quellbrowser",
+        "chrome": "Chrome",
+        "edge": "Edge",
+        "firefox": "Firefox",
+        "brave": "Brave"
+      },
+      "file_path": {
+        "label": "Cookie-Datei",
+        "dialog_title": "Cookie-Datei auswählen",
+        "dialog_filter": "Cookie-Dateien (*.txt *.sqlite *.db);;Alle Dateien (*.*)"
+      }
+    },
     "engine": {
       "device": {
         "auto": "Auto",
@@ -541,6 +596,8 @@
       "max_bandwidth_kbps": "Begrenzt die maximale Downloadgeschwindigkeit. Der Wert 0 deaktiviert die Begrenzung.",
       "max_video_height": "Beschränkt die Auswahl auf Videovarianten, die die gewählte Höhe nicht überschreiten.",
       "min_video_height": "Überspringt Videovarianten unterhalb der gewählten Höhe.",
+      "browser_cookies_mode": "Legt fest, ob unterstützte Download-Quellen ohne Cookies, mit Browser-Cookies oder — im erweiterten Modus — mit einer exportierten Cookie-Datei arbeiten. Für Dienste mit Authentifizierung ist eine exportierte Cookie-Datei oft stabiler als das Lesen eines laufenden Browser-Profils.",
+      "browser_cookies_browser": "Wählt den Browser als Cookie-Quelle. Auto verwendet den ersten unter Windows erkannten Browser mit einem konkreten Cookie-Speicher.",
       "precision_hint": "Die Genauigkeit bestimmt das Zahlenformat des Modells. Geringere Präzision erhöht meist die Geschwindigkeit und senkt den Speicherbedarf, kann aber numerische Abweichungen wahrscheinlicher machen. Auf der CPU ist Float32 die sicherste Wahl; auf kompatiblen GPUs wählt Auto oft BFloat16 oder Float16.",
       "retries": "Legt fest, wie oft fehlgeschlagene Netzwerkanfragen wiederholt werden, bevor die Operation als fehlgeschlagen gilt.",
       "stride_length": "Fügt benachbarten Audioabschnitten eine Überlappung hinzu. Das kann die Kontinuität an Segmentgrenzen verbessern, erhöht aber den Rechenaufwand.",
@@ -566,7 +623,8 @@
       "translation_num_beams": "Legt fest, wie viele Alternativen bei der Beam Search parallel geprüft werden. Höhere Werte verbessern meist die Übersetzungsqualität, erhöhen aber Laufzeit und Speicherbedarf.",
       "translation_no_repeat_ngram_size": "Blockiert wiederholte n-Gramme der angegebenen Größe innerhalb eines einzelnen Übersetzungsergebnisses. Hilft gegen Schleifen und Wiederholungen. Wert 0 deaktiviert die Sperre.",
       "transcription_profile": "Definiert das feste Arbeitsprofil der Transkription: Länge des Analysefensters, Kontextnutzung, Filterung von Stille und Stabilisierung der Spracherkennung. Eingebaute Profile haben feste Parameter. Das benutzerdefinierte Profil entsperrt deren manuelle Bearbeitung.",
-      "translation_profile": "Definiert das Dekodierprofil der Übersetzung: Zahl der geprüften Alternativen, Schutz vor Wiederholungen und Verhalten des Decoders. Eingebaute Profile haben feste Parameter. Das benutzerdefinierte Profil entsperrt deren manuelle Bearbeitung."
+      "translation_profile": "Definiert das Dekodierprofil der Übersetzung: Zahl der geprüften Alternativen, Schutz vor Wiederholungen und Verhalten des Decoders. Eingebaute Profile haben feste Parameter. Das benutzerdefinierte Profil entsperrt deren manuelle Bearbeitung.",
+      "browser_cookies_file_path": "Pfad zu einer exportierten Cookie-Datei, die im erweiterten Modus für authentifizierte yt_dlp-Downloads verwendet wird. Für YouTube ist das die stabilere Option, wenn Browser-Cookies blockiert werden oder rotieren."
     },
     "msg": {
       "saved": "✅ Einstellungen wurden gespeichert."
@@ -668,7 +726,11 @@
     "listening": "🎧 Hört zu…",
     "no_devices": "🎤❌ Kein Mikrofon",
     "notice": {
-      "metadata_incomplete": "Metadaten unvollständig"
+      "metadata_incomplete": "Metadaten unvollständig",
+      "browser_cookies_unavailable": "Browser-Cookies sind nicht verfügbar",
+      "authentication_required": "Anmeldung erforderlich",
+      "audio_tracks_probe_only": "Einige erkannte Audiospuren sind nur für die Analyse verfügbar",
+      "media_unavailable": "Keine herunterladbaren Medienformate verfügbar"
     },
     "offline": "Offline",
     "paused": "⏸️ Pausiert",

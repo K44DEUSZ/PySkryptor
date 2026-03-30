@@ -3,15 +3,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.model.config.app_config import AppConfig as Config
-from app.model.config.language_policy import LanguagePolicy
-from app.model.helpers.string_utils import normalize_lang_code
-from app.model.services.localization_service import build_language_options, language_display_name, tr
-from app.model.runtime_resolver import (
+from app.model.core.config.config import AppConfig
+from app.model.core.config.policy import LanguagePolicy
+from app.model.core.runtime.localization import build_language_options, language_display_name, tr
+from app.model.core.utils.string_utils import normalize_lang_code
+from app.model.settings.resolution import (
     resolve_source_language_for_run,
     resolve_target_language_for_run,
-    transcription_language_codes as resolve_source_language_codes,
-    translation_language_codes as resolve_target_language_codes,
+    transcription_language_codes,
+    translation_language_codes,
 )
 
 LanguageOption = tuple[str, str]
@@ -21,7 +21,7 @@ def supported_source_language_codes() -> list[str]:
     """Return normalized supported transcription source language codes."""
     try:
         return normalized_language_codes(
-            resolve_source_language_codes(),
+            transcription_language_codes(),
             drop_region=False,
         )
     except (RuntimeError, TypeError, ValueError):
@@ -32,7 +32,7 @@ def supported_target_language_codes() -> list[str]:
     """Return normalized supported translation target language codes."""
     try:
         return normalized_language_codes(
-            resolve_target_language_codes(),
+            translation_language_codes(),
             drop_region=True,
         )
     except (RuntimeError, TypeError, ValueError):
@@ -55,7 +55,7 @@ def normalized_language_codes(raw_codes: Iterable[str], *, drop_region: bool) ->
 def default_source_language_code(tab_name: str, *, supported: Iterable[str]) -> str:
     """Resolve the configured default source language for a given tab."""
     supported_codes = set(supported)
-    resolved = Config.resolve_default_source_language_for_tab(tab_name)
+    resolved = AppConfig.resolve_default_source_language_for_tab(tab_name)
     if LanguagePolicy.is_auto(resolved):
         return LanguagePolicy.AUTO
     return resolved if resolved in supported_codes else LanguagePolicy.AUTO

@@ -5,21 +5,23 @@ from typing import Any
 
 from PyQt5 import QtCore
 
-from app.controller.contracts import FilesPanelViewProtocol
+from app.controller.panel_protocols import FilesPanelViewProtocol
+from app.controller.support.panel_support import (
+    push_runtime_state_to_panel,
+    rebind_files_panel_view,
+    start_quick_options_save,
+)
+from app.controller.support.expansion_flow import (
+    start_local_paths_expansion,
+    start_manual_input_expansion,
+)
 from app.controller.workers.media_probe_worker import MediaProbeWorker
 from app.controller.workers.settings_worker import SettingsWorker
-from app.controller.support.source_expansion import (
-    build_local_paths_worker,
-    build_manual_input_worker,
-    start_expansion_worker,
-)
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
-from app.controller.workers.task_thread_runner import TaskThreadRunner
-from app.controller.support.quick_settings import start_settings_save
-from app.controller.support.runtime_state import build_runtime_state_payload
+from app.controller.workers.worker_runner import WorkerRunner
 from app.controller.workers.transcription_worker import TranscriptionWorker
-from app.model.domain.entities import TranscriptionSessionRequest
-from app.model.domain.runtime_state import AppRuntimeState
+from app.model.core.domain.entities import TranscriptionSessionRequest
+from app.model.core.domain.state import AppRuntimeState
 
 
 class FilesCoordinator(QtCore.QObject):
@@ -54,17 +56,17 @@ class FilesCoordinator(QtCore.QObject):
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self._probe_runner = TaskThreadRunner(self)
+        self._probe_runner = WorkerRunner(self)
         self._probe_worker: MediaProbeWorker | None = None
         self._pending_probe_entries: list[dict[str, Any]] | None = None
 
-        self._expansion_runner = TaskThreadRunner(self)
+        self._expansion_runner = WorkerRunner(self)
         self._expansion_worker: SourceExpansionWorker | None = None
 
-        self._transcription_runner = TaskThreadRunner(self)
+        self._transcription_runner = WorkerRunner(self)
         self._transcription_worker: TranscriptionWorker | None = None
 
-        self._settings_runner = TaskThreadRunner(self)
+        self._settings_runner = WorkerRunner(self)
         self._settings_worker: SettingsWorker | None = None
 
         self._view: FilesPanelViewProtocol | None = None
@@ -74,51 +76,29 @@ class FilesCoordinator(QtCore.QObject):
     def bind_view(self, panel: FilesPanelViewProtocol) -> None:
         if self._view is panel:
             return
-        previous = self._view
-        if previous is not None:
-            for signal, slot in (
-                (self.probe_table_ready, previous.on_meta_rows_ready),
-                (self.probe_item_error, previous.on_meta_item_error),
-                (self.probe_finished, previous.on_meta_finished),
-                (self.expansion_busy_changed, previous.on_expansion_busy_changed),
-                (self.expansion_status_changed, previous.on_expansion_status_changed),
-                (self.expansion_ready, previous.on_expansion_ready),
-                (self.expansion_failed, previous.on_expansion_error),
-                (self.progress, previous.on_global_progress),
-                (self.item_status, previous.on_item_status),
-                (self.item_progress, previous.on_item_progress),
-                (self.item_path_update, previous.on_item_path_update),
-                (self.transcript_ready, previous.on_transcript_ready),
-                (self.item_error, previous.on_item_error),
-                (self.item_output_dir, previous.on_item_output_dir),
-                (self.conflict_check, previous.on_conflict_check),
-                (self.session_done, previous.on_session_done),
-                (self.transcription_finished, previous.on_transcribe_finished),
-                (self.quick_options_save_failed, previous.on_quick_options_save_error),
-            ):
-                try:
-                    signal.disconnect(slot)
-                except (TypeError, RuntimeError):
-                    pass
+        rebind_files_panel_view(
+            previous_view=self._view,
+            new_view=panel,
+            probe_table_ready=self.probe_table_ready,
+            probe_item_error=self.probe_item_error,
+            probe_finished=self.probe_finished,
+            expansion_busy_changed=self.expansion_busy_changed,
+            expansion_status_changed=self.expansion_status_changed,
+            expansion_ready=self.expansion_ready,
+            expansion_failed=self.expansion_failed,
+            progress=self.progress,
+            item_status=self.item_status,
+            item_progress=self.item_progress,
+            item_path_update=self.item_path_update,
+            transcript_ready=self.transcript_ready,
+            item_error=self.item_error,
+            item_output_dir=self.item_output_dir,
+            conflict_check=self.conflict_check,
+            session_done=self.session_done,
+            transcription_finished=self.transcription_finished,
+            quick_options_save_failed=self.quick_options_save_failed,
+        )
         self._view = panel
-        self.probe_table_ready.connect(panel.on_meta_rows_ready)
-        self.probe_item_error.connect(panel.on_meta_item_error)
-        self.probe_finished.connect(panel.on_meta_finished)
-        self.expansion_busy_changed.connect(panel.on_expansion_busy_changed)
-        self.expansion_status_changed.connect(panel.on_expansion_status_changed)
-        self.expansion_ready.connect(panel.on_expansion_ready)
-        self.expansion_failed.connect(panel.on_expansion_error)
-        self.progress.connect(panel.on_global_progress)
-        self.item_status.connect(panel.on_item_status)
-        self.item_progress.connect(panel.on_item_progress)
-        self.item_path_update.connect(panel.on_item_path_update)
-        self.transcript_ready.connect(panel.on_transcript_ready)
-        self.item_error.connect(panel.on_item_error)
-        self.item_output_dir.connect(panel.on_item_output_dir)
-        self.conflict_check.connect(panel.on_conflict_check)
-        self.session_done.connect(panel.on_session_done)
-        self.transcription_finished.connect(panel.on_transcribe_finished)
-        self.quick_options_save_failed.connect(panel.on_quick_options_save_error)
         self._push_runtime_state()
 
     def set_runtime_state(self, state: AppRuntimeState | None) -> None:
@@ -127,10 +107,7 @@ class FilesCoordinator(QtCore.QObject):
         self._push_runtime_state()
 
     def _push_runtime_state(self) -> None:
-        panel = self._view
-        if panel is None:
-            return
-        panel.on_runtime_state_changed(**build_runtime_state_payload(self._runtime_state, pipeline=self._pipe))
+        push_runtime_state_to_panel(panel=self._view, state=self._runtime_state, pipeline=self._pipe)
 
     def is_probe_running(self) -> bool:
         return self._probe_runner.is_running()
@@ -145,22 +122,10 @@ class FilesCoordinator(QtCore.QObject):
         return self.is_probe_running() or self.is_transcribing() or self.is_expanding()
 
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
-        if self._expansion_runner.is_running():
-            return self._expansion_worker
-        return self._start_expansion_worker(build_manual_input_worker(raw))
-
-    def expand_local_paths(self, paths: list[str], origin_kind: str) -> SourceExpansionWorker | None:
-        if self._expansion_runner.is_running():
-            return self._expansion_worker
-        return self._start_expansion_worker(build_local_paths_worker(paths, origin_kind))
-
-    def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
-        self._expansion_worker = worker
-
-    def _start_expansion_worker(self, worker: SourceExpansionWorker) -> SourceExpansionWorker | None:
-        return start_expansion_worker(
+        return start_manual_input_expansion(
             runner=self._expansion_runner,
-            worker=worker,
+            current_worker=self._expansion_worker,
+            raw=raw,
             set_worker=self._set_expansion_worker,
             emit_expansion_busy=self.expansion_busy_changed.emit,
             emit_busy=self.busy_changed.emit,
@@ -169,6 +134,24 @@ class FilesCoordinator(QtCore.QObject):
             emit_failed=self.expansion_failed.emit,
             is_busy=self.is_busy,
         )
+
+    def expand_local_paths(self, paths: list[str], origin_kind: str) -> SourceExpansionWorker | None:
+        return start_local_paths_expansion(
+            runner=self._expansion_runner,
+            current_worker=self._expansion_worker,
+            paths=paths,
+            origin_kind=origin_kind,
+            set_worker=self._set_expansion_worker,
+            emit_expansion_busy=self.expansion_busy_changed.emit,
+            emit_busy=self.busy_changed.emit,
+            emit_status=self.expansion_status_changed.emit,
+            emit_ready=self.expansion_ready.emit,
+            emit_failed=self.expansion_failed.emit,
+            is_busy=self.is_busy,
+        )
+
+    def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
+        self._expansion_worker = worker
 
     def cancel_expansion(self) -> None:
         self._expansion_runner.cancel()
@@ -252,7 +235,7 @@ class FilesCoordinator(QtCore.QObject):
         self._transcription_runner.cancel()
 
     def save_quick_options(self, payload: dict[str, Any]) -> SettingsWorker | None:
-        return start_settings_save(
+        return start_quick_options_save(
             runner=self._settings_runner,
             current_worker=self._settings_worker,
             payload=payload,

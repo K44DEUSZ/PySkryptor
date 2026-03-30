@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from PyQt5 import QtCore
 
-from app.controller.contracts import DownloaderPanelViewProtocol
-from app.controller.support.source_expansion import build_manual_input_worker, start_expansion_worker
+from app.controller.panel_protocols import DownloaderPanelViewProtocol
+from app.controller.support.expansion_flow import start_manual_input_expansion
+from app.controller.support.panel_support import rebind_downloader_panel_view
 from app.controller.workers.download_worker import DownloadWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
-from app.controller.workers.task_thread_runner import TaskThreadRunner
+from app.controller.workers.worker_runner import WorkerRunner
 
 
 class DownloaderCoordinator(QtCore.QObject):
@@ -19,6 +20,7 @@ class DownloaderCoordinator(QtCore.QObject):
 
     probe_meta_ready = QtCore.pyqtSignal(str, dict)
     probe_failed = QtCore.pyqtSignal(str, str, dict)
+    cookie_intervention_required = QtCore.pyqtSignal(str, dict)
     expansion_busy_changed = QtCore.pyqtSignal(bool)
     expansion_status_changed = QtCore.pyqtSignal(str, dict)
     expansion_ready = QtCore.pyqtSignal(object)
@@ -34,53 +36,37 @@ class DownloaderCoordinator(QtCore.QObject):
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self._probe_runners: dict[str, TaskThreadRunner] = {}
+        self._probe_runners: dict[str, WorkerRunner] = {}
         self._probe_workers: dict[str, DownloadWorker] = {}
 
-        self._download_runner = TaskThreadRunner(self)
+        self._download_runner = WorkerRunner(self)
         self._download_worker: DownloadWorker | None = None
-        self._expansion_runner = TaskThreadRunner(self)
+        self._expansion_runner = WorkerRunner(self)
         self._expansion_worker: SourceExpansionWorker | None = None
         self._view: DownloaderPanelViewProtocol | None = None
 
     def bind_view(self, panel: DownloaderPanelViewProtocol) -> None:
         if self._view is panel:
             return
-        previous = self._view
-        if previous is not None:
-            for signal, slot in (
-                (self.probe_meta_ready, previous.on_probe_ready),
-                (self.probe_failed, previous.on_probe_error),
-                (self.expansion_busy_changed, previous.on_expansion_busy_changed),
-                (self.expansion_status_changed, previous.on_expansion_status_changed),
-                (self.expansion_ready, previous.on_expansion_ready),
-                (self.expansion_failed, previous.on_expansion_error),
-                (self.progress_pct, previous.on_progress_pct),
-                (self.stage_changed, previous.on_stage_changed),
-                (self.duplicate_check, previous.on_duplicate_check),
-                (self.download_finished, previous.on_download_finished),
-                (self.failed, previous.on_download_error),
-                (self.cancelled, previous.on_download_cancelled),
-                (self.finished, previous.on_download_cycle_finished),
-            ):
-                try:
-                    signal.disconnect(slot)
-                except (TypeError, RuntimeError):
-                    pass
+        rebind_downloader_panel_view(
+            previous_view=self._view,
+            new_view=panel,
+            probe_meta_ready=self.probe_meta_ready,
+            probe_failed=self.probe_failed,
+            cookie_intervention_required=self.cookie_intervention_required,
+            expansion_busy_changed=self.expansion_busy_changed,
+            expansion_status_changed=self.expansion_status_changed,
+            expansion_ready=self.expansion_ready,
+            expansion_failed=self.expansion_failed,
+            progress_pct=self.progress_pct,
+            stage_changed=self.stage_changed,
+            duplicate_check=self.duplicate_check,
+            download_finished=self.download_finished,
+            failed=self.failed,
+            cancelled=self.cancelled,
+            finished=self.finished,
+        )
         self._view = panel
-        self.probe_meta_ready.connect(panel.on_probe_ready)
-        self.probe_failed.connect(panel.on_probe_error)
-        self.expansion_busy_changed.connect(panel.on_expansion_busy_changed)
-        self.expansion_status_changed.connect(panel.on_expansion_status_changed)
-        self.expansion_ready.connect(panel.on_expansion_ready)
-        self.expansion_failed.connect(panel.on_expansion_error)
-        self.progress_pct.connect(panel.on_progress_pct)
-        self.stage_changed.connect(panel.on_stage_changed)
-        self.duplicate_check.connect(panel.on_duplicate_check)
-        self.download_finished.connect(panel.on_download_finished)
-        self.failed.connect(panel.on_download_error)
-        self.cancelled.connect(panel.on_download_cancelled)
-        self.finished.connect(panel.on_download_cycle_finished)
 
     def is_probe_running(self, job_key: str | None = None) -> bool:
         if job_key is None:
@@ -97,14 +83,25 @@ class DownloaderCoordinator(QtCore.QObject):
     def is_busy(self) -> bool:
         return self.is_probe_running() or self.is_downloading() or self.is_expanding()
 
-    def start_probe(self, *, job_key: str, url: str) -> DownloadWorker | None:
+    def start_probe(
+        self,
+        *,
+        job_key: str,
+        url: str,
+        browser_cookies_mode_override: str | None = None,
+    ) -> DownloadWorker | None:
         key = str(job_key or "probe").strip() or "probe"
         runner = self._probe_runners.get(key)
         if runner is not None and runner.is_running():
             return self._probe_workers.get(key)
 
-        runner = TaskThreadRunner(self)
-        worker = DownloadWorker(action="probe", url=url)
+        runner = WorkerRunner(self)
+        worker = DownloadWorker(
+            action="probe",
+            url=url,
+            job_key=key,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+        )
 
         self._probe_runners[key] = runner
         self._probe_workers[key] = worker
@@ -119,8 +116,12 @@ class DownloaderCoordinator(QtCore.QObject):
             def _emit_probe_failed(err_key: str, params: dict[str, object]) -> None:
                 self.probe_failed.emit(_job_key, str(err_key), dict(params or {}))
 
+            def _emit_cookie_intervention(params: dict[str, object]) -> None:
+                self.cookie_intervention_required.emit(_job_key, dict(params or {}))
+
             wk.meta_ready.connect(_emit_probe_ready)
             wk.download_error.connect(_emit_probe_failed)
+            wk.cookie_intervention_required.connect(_emit_cookie_intervention)
 
         def _done(*, _job_key: str = key) -> None:
             self._probe_runners.pop(_job_key, None)
@@ -140,17 +141,10 @@ class DownloaderCoordinator(QtCore.QObject):
             runner.cancel()
 
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
-        if self._expansion_runner.is_running():
-            return self._expansion_worker
-        return self._start_expansion_worker(build_manual_input_worker(raw))
-
-    def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
-        self._expansion_worker = worker
-
-    def _start_expansion_worker(self, worker: SourceExpansionWorker) -> SourceExpansionWorker | None:
-        return start_expansion_worker(
+        return start_manual_input_expansion(
             runner=self._expansion_runner,
-            worker=worker,
+            current_worker=self._expansion_worker,
+            raw=raw,
             set_worker=self._set_expansion_worker,
             emit_expansion_busy=self.expansion_busy_changed.emit,
             emit_busy=self.busy_changed.emit,
@@ -160,17 +154,22 @@ class DownloaderCoordinator(QtCore.QObject):
             is_busy=self.is_busy,
         )
 
+    def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
+        self._expansion_worker = worker
+
     def cancel_expansion(self) -> None:
         self._expansion_runner.cancel()
 
     def start_download(
         self,
         *,
+        job_key: str,
         url: str,
         kind: str,
         quality: str,
         ext: str,
-        audio_lang: str | None = None,
+        audio_track_id: str | None = None,
+        browser_cookies_mode_override: str | None = None,
     ) -> DownloadWorker | None:
         if self._download_runner.is_running():
             return self._download_worker
@@ -178,10 +177,12 @@ class DownloaderCoordinator(QtCore.QObject):
         worker = DownloadWorker(
             action="download",
             url=url,
+            job_key=job_key,
             kind=kind,
             quality=quality,
             ext=ext,
-            audio_lang=audio_lang,
+            audio_track_id=audio_track_id,
+            browser_cookies_mode_override=browser_cookies_mode_override,
         )
         self._download_worker = worker
 
@@ -189,12 +190,16 @@ class DownloaderCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: DownloadWorker) -> None:
+            def _emit_cookie_intervention(params: dict[str, object]) -> None:
+                self.cookie_intervention_required.emit(str(wk.job_key or job_key), dict(params or {}))
+
             wk.progress_pct.connect(self.progress_pct)
             wk.stage_changed.connect(self.stage_changed)
             wk.duplicate_check.connect(self.duplicate_check)
             wk.download_finished.connect(self.download_finished)
             wk.download_error.connect(self.failed)
             wk.cancelled.connect(self.cancelled)
+            wk.cookie_intervention_required.connect(_emit_cookie_intervention)
 
         def _done() -> None:
             self._download_worker = None
@@ -213,5 +218,19 @@ class DownloaderCoordinator(QtCore.QObject):
             return
         try:
             wk.on_duplicate_decided(action, new_name)
+        except (AttributeError, RuntimeError, TypeError):
+            return
+
+    def resolve_cookie_intervention(self, job_key: str, action: str, value: str = "") -> None:
+        key = str(job_key or "").strip()
+        worker = self._probe_workers.get(key)
+        if worker is None:
+            active_worker = self._download_worker
+            if active_worker is not None and active_worker.job_key == key:
+                worker = active_worker
+        if worker is None:
+            return
+        try:
+            worker.on_cookie_intervention_decided(action, value)
         except (AttributeError, RuntimeError, TypeError):
             return

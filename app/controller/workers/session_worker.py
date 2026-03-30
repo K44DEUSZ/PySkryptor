@@ -6,10 +6,11 @@ import threading
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
-from app.controller.workers.worker_base import WorkerBase, _WorkerMeta
-from app.model.domain.errors import OperationCancelled
+from app.controller.workers.base_worker import BaseWorker, _BaseWorkerMeta
+from app.model.core.domain.errors import OperationCancelled
 
-class SessionWorker(WorkerBase, metaclass=_WorkerMeta):
+
+class SessionWorker(BaseWorker, metaclass=_BaseWorkerMeta):
     """Worker whose lifecycle continues after run() returns."""
 
     def __init__(self, *, cancel_token: CancellationToken | None = None) -> None:

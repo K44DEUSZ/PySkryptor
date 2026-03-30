@@ -1,0 +1,96 @@
+{
+  "app": {
+    "language": "auto",
+    "theme": "auto",
+    "ui": {
+      "show_advanced_settings": false,
+      "welcome_dialog": {
+        "show_on_startup": true
+      },
+      "source_rights_notice": {
+        "show_on_add": true
+      },
+      "live": {
+        "mode": "transcribe",
+        "profile": "balanced",
+        "device_name": "",
+        "output_mode": "cumulative",
+        "last_used_source_language": "auto",
+        "last_used_target_language": "default_ui"
+      },
+      "bulk_add_confirmation": {
+        "enabled": true,
+        "threshold": 20
+      },
+      "files": {
+        "last_used_source_language": "auto",
+        "last_used_target_language": "default_ui"
+      }
+    },
+    "logging": {
+      "enabled": true,
+      "level": "warning"
+    }
+  },
+  "engine": {
+    "preferred_device": "auto",
+    "precision": "auto",
+    "low_cpu_mem_usage": true,
+    "fp32_math_mode": "ieee"
+  },
+  "model": {
+    "transcription_model": {
+      "engine_name": "whisper-large-v3-turbo",
+      "profile": "balanced",
+      "ignore_warning": false,
+      "advanced": {
+        "context_policy": null,
+        "silence_guard": null,
+        "language_stability": null,
+        "chunk_length_s": null,
+        "stride_length_s": null
+      }
+    },
+    "translation_model": {
+      "engine_name": "m2m100_418M",
+      "profile": "balanced",
+      "max_new_tokens": 256,
+      "chunk_max_chars": 1200,
+      "advanced": {
+        "style": null,
+        "num_beams": null,
+        "no_repeat_ngram_size": null
+      }
+    }
+  },
+  "transcription": {
+    "default_source_language": "auto",
+    "output_formats": [
+      "txt"
+    ],
+    "download_audio_only": true,
+    "url_keep_audio": false,
+    "url_audio_ext": "m4a",
+    "url_keep_video": false,
+    "url_video_ext": "mp4",
+    "translate_after_transcription": false
+  },
+  "translation": {
+    "default_target_language": "default_ui"
+  },
+  "downloader": {
+    "min_video_height": 144,
+    "max_video_height": 4320
+  },
+  "browser_cookies": {
+    "mode": "none",
+    "browser": "auto",
+    "file_path": ""
+  },
+  "network": {
+    "retries": 3,
+    "max_bandwidth_kbps": 0,
+    "concurrent_fragments": 2,
+    "http_timeout_s": 30
+  }
+}

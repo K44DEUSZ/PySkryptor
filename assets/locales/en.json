@@ -46,7 +46,8 @@
     },
     "enable": "Enable",
     "disable": "Disable",
-    "inherit": "Inherit from profile"
+    "inherit": "Inherit from profile",
+    "browse": "Browse..."
   },
   "ctrl": {
     "add": "Add +",
@@ -167,6 +168,17 @@
         "text": "File “{title}” already exists in downloads.\nWhat do you want to do?",
         "title": "Download conflict",
         "header": "The file already exists"
+      },
+      "cookies": {
+        "title": "Browser cookies unavailable",
+        "header": "Could not read cookies from {browser}",
+        "text": "Close the browser and try again, or continue without cookies for this operation.",
+        "retry": "Retry after closing browser",
+        "without": "Continue without cookies",
+        "browser_fallback": "selected browser",
+        "use_file": "Use cookies file...",
+        "file_title": "Select cookies file",
+        "file_filter": "Cookies files (*.txt *.sqlite *.db);;All files (*.*)"
       }
     },
     "confirm": {
@@ -174,6 +186,24 @@
     },
     "settings": {
       "title": "Settings"
+    },
+    "welcome": {
+      "title": "Welcome",
+      "header": "PySkryptor",
+      "meta_version": "Version: {version}",
+      "meta_author": "Author: {author}",
+      "meta_years": "Development years: {years}",
+      "text": "{name} is an application for audio and video transcription and for working with user-provided sources. It helps prepare transcripts and organize materials in one workspace.",
+      "disclaimer": "Only use sources that you are allowed to use under rights you hold or another valid basis. The user is responsible for keeping their use of the application compliant with the law, licenses, and external service rules.",
+      "accept": "I understand",
+      "reject": "Exit application"
+    },
+    "source_rights_notice": {
+      "title": "Adding a network source",
+      "header": "Check source rights before adding it",
+      "text": "Only add network sources that you are allowed to use under rights you hold or another valid basis. Respect licenses, service terms, and access restrictions.",
+      "disclaimer": "Do not bypass technical protections. If the material contains personal data, make sure you have a valid basis for processing it.",
+      "dont_show_again": "Do not show again"
     }
   },
   "down": {
@@ -244,7 +274,11 @@
       "network_offline": "❌ No network connection.",
       "network_timeout": "❌ Network timeout while contacting the source.",
       "network_unreachable": "❌ Network is unreachable.",
-      "probe_failed": "❌ Failed to analyze media. Details: {detail}"
+      "probe_failed": "❌ Failed to analyze media. Details: {detail}",
+      "browser_cookies_unavailable": "❌ Browser cookies are unavailable. Details: {detail}",
+      "authentication_required": "❌ This source requires authentication. Details: {detail}",
+      "audio_track_probe_only": "❌ The selected audio track was detected only during probing and cannot be downloaded reliably.",
+      "no_downloadable_formats": "❌ No downloadable media formats are available. Details: {detail}"
     },
     "external_tool_failed": "❌ External tool failed. Command: {cmd}",
     "external_tool_timeout": "❌ External tool timed out after {seconds} s.",
@@ -270,7 +304,8 @@
       "translation_missing": "⚠️ Translation model is not installed."
     },
     "runtime": {
-      "settings_not_initialized": "⚠️ Settings are not initialized."
+      "settings_not_initialized": "⚠️ Settings are not initialized.",
+      "unsupported_platform": "⚠️ PySkryptor currently supports Windows only. Detected platform: {platform}."
     },
     "settings": {
       "defaults_missing": "⚠️ Missing defaults file: {path}",
@@ -508,6 +543,26 @@
       "max_video_height": "Maximum video height",
       "min_video_height": "Minimum video height"
     },
+    "browser_cookies": {
+      "mode": {
+        "label": "Download authentication",
+        "none": "Disabled",
+        "from_browser": "From browser",
+        "from_file": "From file"
+      },
+      "browser": {
+        "label": "Source browser",
+        "chrome": "Chrome",
+        "edge": "Edge",
+        "firefox": "Firefox",
+        "brave": "Brave"
+      },
+      "file_path": {
+        "label": "Cookies file",
+        "dialog_title": "Select cookies file",
+        "dialog_filter": "Cookies files (*.txt *.sqlite *.db);;All files (*.*)"
+      }
+    },
     "engine": {
       "device": {
         "auto": "Auto",
@@ -541,6 +596,8 @@
       "max_bandwidth_kbps": "Limits the maximum download speed. A value of 0 disables the limit.",
       "max_video_height": "Limits selection to video variants that do not exceed the selected height.",
       "min_video_height": "Skips video variants below the selected height.",
+      "browser_cookies_mode": "Controls whether supported download sources use no cookies, browser cookies, or — in advanced mode — an exported cookies file. For services that require authentication, an exported cookies file is often more stable than reading a live browser profile.",
+      "browser_cookies_browser": "Selects which browser should be used as the cookie source. Auto uses the first Windows browser with a concrete cookie store detected by the runtime.",
       "precision_hint": "Precision controls the numeric format used by the model. Lower precision usually improves speed and reduces memory use, but can increase the chance of numerical differences. On CPU, Float32 is the safest choice; on compatible GPUs, Auto often selects BFloat16 or Float16.",
       "retries": "Defines how many times failed network requests are retried before the operation is considered failed.",
       "stride_length": "Adds overlap between adjacent audio chunks. This can improve continuity at segment boundaries, but increases compute cost.",
@@ -566,7 +623,8 @@
       "translation_num_beams": "Defines how many alternatives are explored in parallel during beam search. Higher values usually improve translation quality, but they increase generation time and memory use.",
       "translation_no_repeat_ngram_size": "Blocks repeated n-grams of the given size inside a single translation result. Helps reduce loops and repeated phrases. Set to 0 to disable the restriction.",
       "transcription_profile": "Defines the ready-made operating profile for transcription: analysis window length, context reuse, silence filtering, and language detection stabilization. Built-in profiles have fixed parameters. The custom profile unlocks manual editing.",
-      "translation_profile": "Defines the translation decoding profile: number of alternatives explored, repetition protection, and decoder behavior. Built-in profiles have fixed parameters. The custom profile unlocks manual editing."
+      "translation_profile": "Defines the translation decoding profile: number of alternatives explored, repetition protection, and decoder behavior. Built-in profiles have fixed parameters. The custom profile unlocks manual editing.",
+      "browser_cookies_file_path": "Path to an exported cookies file used in advanced mode for authenticated yt_dlp downloads. This is the more stable option for YouTube when browser-cookie access is blocked or rotated."
     },
     "msg": {
       "saved": "✅ Settings have been saved."
@@ -668,7 +726,11 @@
     "listening": "🎧 Listening…",
     "no_devices": "🎤❌ No microphone",
     "notice": {
-      "metadata_incomplete": "Metadata incomplete"
+      "metadata_incomplete": "Metadata incomplete",
+      "browser_cookies_unavailable": "Browser cookies unavailable",
+      "authentication_required": "Authentication required",
+      "audio_tracks_probe_only": "Some detected audio tracks are probe-only",
+      "media_unavailable": "No downloadable media formats available"
     },
     "offline": "Offline",
     "paused": "⏸️ Paused",

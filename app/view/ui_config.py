@@ -6,6 +6,7 @@ from typing import Any
 
 from PyQt5 import QtWidgets
 
+
 @dataclass(frozen=True)
 class UIConfig:
     """Immutable UI sizing and spacing tokens shared across the application."""
@@ -58,6 +59,7 @@ class UIConfig:
 
 _DEFAULT_UI = UIConfig()
 
+
 def _coerce_cfg(obj: Any) -> UIConfig | None:
     if obj is None:
         return None
@@ -84,6 +86,7 @@ def _coerce_cfg(obj: Any) -> UIConfig | None:
         return UIConfig(**merged)
     except (TypeError, ValueError):
         return None
+
 
 def ui(widget: QtWidgets.QWidget | None) -> UIConfig:
     """Resolve the nearest available UIConfig for a widget or the application."""

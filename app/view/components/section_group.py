@@ -8,6 +8,7 @@ from PyQt5 import QtWidgets
 from app.view.support.widget_setup import setup_layout
 from app.view.ui_config import ui
 
+
 class SectionGroup(QtWidgets.QGroupBox):
     """Titleless group box that provides a preconfigured section layout container."""
     root: QtWidgets.QVBoxLayout | QtWidgets.QHBoxLayout | QtWidgets.QGridLayout

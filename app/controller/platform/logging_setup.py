@@ -13,7 +13,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, TextIO
 
-from app.model.config.app_meta import AppMeta
+from app.model.core.config.meta import AppMeta
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
@@ -34,6 +34,7 @@ class LoggingContext:
     logs_dir: Path
     app_log_path: Path
     crash_log_path: Path
+
 
 class LoggingSetup:
     """File logging bootstrap + crash hooks."""

@@ -5,17 +5,21 @@ import hashlib
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
 from app.controller.workers.task_worker import PendingDecision, TaskWorker
-from app.model.config.app_config import AppConfig as Config
-from app.model.helpers.string_utils import sanitize_filename
-from app.model.io.file_manager import FileManager
-from app.model.services.download_service import DownloadError, DownloadService
+from app.model.core.config.config import AppConfig
+from app.model.core.domain.errors import OperationCancelled
+from app.model.core.utils.path_utils import ensure_unique_path
+from app.model.core.utils.string_utils import sanitize_filename
+from app.model.download.domain import CookieInterventionRequest, DownloadError, DownloadInterventionRequired
+from app.model.download.service import DownloadService
 
 _LOG = logging.getLogger(__name__)
+
 
 class DownloadWorker(TaskWorker):
     """Background worker that probes or downloads a single remote media source."""
@@ -25,6 +29,7 @@ class DownloadWorker(TaskWorker):
     progress_pct = QtCore.pyqtSignal(int)
     stage_changed = QtCore.pyqtSignal(str)
     duplicate_check = QtCore.pyqtSignal(str, str)
+    cookie_intervention_required = QtCore.pyqtSignal(dict)
 
     download_finished = QtCore.pyqtSignal(Path)
     download_error = QtCore.pyqtSignal(str, dict)
@@ -34,28 +39,41 @@ class DownloadWorker(TaskWorker):
         *,
         action: str,
         url: str,
+        job_key: str = "",
         kind: str | None = None,
         quality: str | None = None,
         ext: str | None = None,
-        audio_lang: str | None = None,
+        audio_track_id: str | None = None,
+        browser_cookies_mode_override: str | None = None,
         cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
         self._action = str(action or "").strip().lower()
         self._url = str(url or "").strip()
+        self._job_key = str(job_key or self._url).strip() or self._url
 
         self._kind = str(kind or "").strip().lower()
         self._quality = str(quality or "").strip().lower()
         self._ext = str(ext or "").strip().lower()
-        self._audio_lang = audio_lang
+        self._audio_track_id = str(audio_track_id or "").strip() or None
+        self._browser_cookies_mode_override = str(browser_cookies_mode_override or "").strip().lower() or None
+        self._cookie_file_override: str | None = None
 
         self._duplicate_decision = PendingDecision(default_action="skip")
+        self._cookie_intervention_decision = PendingDecision(default_action="cancel")
         self._duplicate_lock = threading.Lock()
+        self._cookie_intervention_lock = threading.Lock()
+
+    @property
+    def job_key(self) -> str:
+        return self._job_key
 
     def cancel(self) -> None:
         super().cancel()
         with self._duplicate_lock:
             self._cancel_pending_decision(self._duplicate_decision)
+        with self._cookie_intervention_lock:
+            self._cancel_pending_decision(self._cookie_intervention_decision)
 
     @QtCore.pyqtSlot(str, str)
     def on_duplicate_decided(self, action: str, new_name: str = "") -> None:
@@ -66,12 +84,192 @@ class DownloadWorker(TaskWorker):
                 value=str(new_name or "").strip(),
             )
 
+    @QtCore.pyqtSlot(str, str)
+    def on_cookie_intervention_decided(self, action: str, value: str = "") -> None:
+        with self._cookie_intervention_lock:
+            self._set_pending_decision(
+                self._cookie_intervention_decision,
+                action=str(action or "").strip().lower(),
+                value=str(value or "").strip(),
+            )
+
     def _emit_download_failure(self, key: str, params: dict[str, object] | None = None) -> None:
         self._emit_failure(str(key), dict(params or {}), self.download_error)
 
     def _handle_failure(self, ex: BaseException) -> None:
         key, params = self._exception_to_i18n(ex)
         self._emit_download_failure(str(key), dict(params or {}))
+
+    def _next_cookie_source_overrides(
+        self,
+        ex: DownloadInterventionRequired,
+        *,
+        browser_cookies_mode_override: str | None,
+        cookie_file_override: str | None,
+    ) -> tuple[str | None, str | None]:
+        request = ex.request
+        payload = dict(request.as_payload())
+        payload["job_key"] = self._job_key
+
+        with self._cookie_intervention_lock:
+            self._cookie_intervention_decision.reset()
+        self.cookie_intervention_required.emit(payload)
+        action, value = self._wait_for_pending_decision(self._cookie_intervention_decision)
+        action = str(action or "").strip().lower()
+        value = str(value or "").strip()
+
+        if self.cancel_check() or action == "cancel":
+            raise OperationCancelled()
+        if action == "without_cookies":
+            return "none", cookie_file_override
+        if action == "use_cookie_file" and value:
+            return "from_file", value
+        return browser_cookies_mode_override, cookie_file_override
+
+    def _should_offer_cookie_file_intervention(
+        self,
+        ex: DownloadError,
+        *,
+        browser_cookies_mode_override: str | None,
+    ) -> bool:
+        err_key = str(getattr(ex, "key", "") or "").strip()
+        if err_key not in {"error.down.authentication_required", "error.down.browser_cookies_unavailable"}:
+            return False
+        return str(browser_cookies_mode_override or "").strip().lower() == "from_browser"
+
+    @staticmethod
+    def _intervention_request_from_error(ex: DownloadError) -> DownloadInterventionRequired:
+        detail = str((getattr(ex, "params", {}) or {}).get("detail") or "").strip()
+        browser = AppConfig.browser_cookie_browser_policy()
+        return DownloadInterventionRequired(
+            CookieInterventionRequest(
+                browser=browser,
+                detail=detail,
+                can_continue_without_cookies=True,
+            )
+        )
+
+    def _probe(self, svc: DownloadService) -> dict[str, Any]:
+        browser_cookies_mode_override = self._browser_cookies_mode_override
+        cookie_file_override = self._cookie_file_override
+        while True:
+            try:
+                meta = svc.probe(
+                    self._url,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                    interactive=True,
+                )
+                self._browser_cookies_mode_override = browser_cookies_mode_override
+                self._cookie_file_override = cookie_file_override
+                return meta
+            except DownloadInterventionRequired as ex:
+                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
+                    ex,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                )
+                self._browser_cookies_mode_override = browser_cookies_mode_override
+                self._cookie_file_override = cookie_file_override
+                continue
+            except DownloadError as ex:
+                if not self._should_offer_cookie_file_intervention(
+                    ex,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                ):
+                    raise
+                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
+                    self._intervention_request_from_error(ex),
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                )
+
+    def _execute_download(self, svc: DownloadService) -> Path | None:
+        browser_cookies_mode_override = self._browser_cookies_mode_override
+        cookie_file_override = self._cookie_file_override
+
+        while True:
+            meta = self._probe(svc)
+            browser_cookies_mode_override = self._browser_cookies_mode_override
+            cookie_file_override = self._cookie_file_override
+            title = str(meta.get("title") or meta.get("id") or "download")
+            extractor = str(meta.get("extractor") or "").strip()
+            source_id = str(meta.get("id") or "").strip()
+
+            if extractor and source_id:
+                key = f"{extractor}-{source_id}"
+            else:
+                digest = hashlib.sha1(self._url.encode("utf-8", errors="ignore")).hexdigest()[:10]
+                key = f"url-{digest}"
+
+            title_stem = sanitize_filename(title) or "download"
+            key_stem = sanitize_filename(key) or key
+            file_stem = f"{title_stem} [{key_stem}]"
+
+            out_dir = AppConfig.PATHS.DOWNLOADS_DIR
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            expected = out_dir / f"{file_stem}.{self._ext}"
+            final_stem = self._resolve_duplicate(title, expected)
+            if not final_stem or self._cancel.is_cancelled:
+                return None
+
+            def _progress_cb(pct: int, status: str) -> None:
+                try:
+                    normalized_status = str(status or "").strip().lower()
+                    if normalized_status == "postprocessing":
+                        self.stage_changed.emit("postprocessing")
+                        return
+                    if normalized_status == "postprocessed":
+                        self.stage_changed.emit("postprocessed")
+                        return
+                    value = int(max(0, min(100, int(pct))))
+                    self.progress_pct.emit(value)
+                except (TypeError, ValueError, RuntimeError):
+                    return
+
+            try:
+                path = svc.download(
+                    url=self._url,
+                    kind=self._kind,
+                    quality=self._quality,
+                    ext=self._ext,
+                    out_dir=out_dir,
+                    audio_track_id=self._audio_track_id,
+                    file_stem=final_stem,
+                    progress_cb=_progress_cb,
+                    cancel_check=lambda: self._cancel.is_cancelled,
+                    meta=meta,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                )
+            except DownloadInterventionRequired as ex:
+                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
+                    ex,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                )
+                self._browser_cookies_mode_override = browser_cookies_mode_override
+                self._cookie_file_override = cookie_file_override
+                continue
+            except DownloadError as ex:
+                if not self._should_offer_cookie_file_intervention(
+                    ex,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                ):
+                    raise
+                browser_cookies_mode_override, cookie_file_override = self._next_cookie_source_overrides(
+                    self._intervention_request_from_error(ex),
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                )
+                self._browser_cookies_mode_override = browser_cookies_mode_override
+                self._cookie_file_override = cookie_file_override
+                continue
+
+            if self._cancel.is_cancelled:
+                return None
+            return path
 
     def _execute(self) -> None:
         if not self._url:
@@ -80,7 +278,7 @@ class DownloadWorker(TaskWorker):
         svc = DownloadService()
 
         if self._action == "probe":
-            meta = svc.probe(self._url)
+            meta = self._probe(svc)
             if isinstance(meta, dict):
                 self.meta_ready.emit(meta)
             return
@@ -91,57 +289,7 @@ class DownloadWorker(TaskWorker):
         if not self._kind or not self._quality or not self._ext:
             raise DownloadError("error.generic", detail="missing download options")
 
-        meta = svc.probe(self._url)
-        title = str(meta.get("title") or meta.get("id") or "download")
-        extractor = str(meta.get("extractor") or "").strip()
-        source_id = str(meta.get("id") or "").strip()
-
-        if extractor and source_id:
-            key = f"{extractor}-{source_id}"
-        else:
-            h = hashlib.sha1(self._url.encode("utf-8", errors="ignore")).hexdigest()[:10]
-            key = f"url-{h}"
-
-        title_stem = sanitize_filename(title) or "download"
-        key_stem = sanitize_filename(key) or key
-        file_stem = f"{title_stem} [{key_stem}]"
-
-        out_dir = Config.PATHS.DOWNLOADS_DIR
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        expected = out_dir / f"{file_stem}.{self._ext}"
-        final_stem = self._resolve_duplicate(title, expected)
-
-        if not final_stem or self._cancel.is_cancelled:
-            return
-
-        def _progress_cb(pct: int, status: str) -> None:
-            try:
-                st = str(status or "").strip().lower()
-                if st == "postprocessing":
-                    self.stage_changed.emit("postprocessing")
-                    return
-                if st == "postprocessed":
-                    self.stage_changed.emit("postprocessed")
-                    return
-                v = int(max(0, min(100, int(pct))))
-                self.progress_pct.emit(v)
-            except (TypeError, ValueError, RuntimeError):
-                return
-
-        path = svc.download(
-            url=self._url,
-            kind=self._kind,
-            quality=self._quality,
-            ext=self._ext,
-            out_dir=out_dir,
-            audio_lang=self._audio_lang,
-            file_stem=final_stem,
-            progress_cb=_progress_cb,
-            cancel_check=lambda: self._cancel.is_cancelled,
-            meta=meta,
-        )
-
+        path = self._execute_download(svc)
         if self._cancel.is_cancelled:
             return
 
@@ -181,9 +329,9 @@ class DownloadWorker(TaskWorker):
             return expected.stem
 
         if action == "rename":
-            cand = sanitize_filename(new_name) if new_name else ""
-            cand_path = expected.with_name(f"{cand or expected.stem}{expected.suffix}")
-            unique = FileManager.ensure_unique_path(cand_path)
+            candidate = sanitize_filename(new_name) if new_name else ""
+            candidate_path = expected.with_name(f"{candidate or expected.stem}{expected.suffix}")
+            unique = ensure_unique_path(candidate_path)
             return unique.stem
 
         return ""

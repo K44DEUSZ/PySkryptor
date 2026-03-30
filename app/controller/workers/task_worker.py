@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 
 from PyQt5 import QtCore
 
-from app.controller.workers.worker_base import WorkerBase, _WorkerMeta
-from app.model.domain.errors import OperationCancelled
+from app.controller.workers.base_worker import BaseWorker, _BaseWorkerMeta
+from app.model.core.domain.errors import OperationCancelled
+
 
 @dataclass
 class PendingDecision:
@@ -27,7 +28,8 @@ class PendingDecision:
         self.value = str(self.default_value or "")
         self.event.clear()
 
-class TaskWorker(WorkerBase, metaclass=_WorkerMeta):
+
+class TaskWorker(BaseWorker, metaclass=_BaseWorkerMeta):
     """One-shot worker that completes its lifecycle inside run()."""
 
     progress = QtCore.pyqtSignal(int)

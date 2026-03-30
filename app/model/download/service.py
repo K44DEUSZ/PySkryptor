@@ -1,0 +1,718 @@
+# app/model/download/service.py
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any, Callable
+
+from app.model.core.config.config import AppConfig
+from app.model.core.domain.entities import PlaylistEntry, PlaylistResolveResult
+from app.model.core.domain.errors import OperationCancelled
+from app.model.core.utils.string_utils import sanitize_filename, sanitize_url_for_log
+from app.model.download.artifacts import DownloadArtifactManager
+from app.model.download.plan import DownloadPlanBuilder
+from app.model.download.policy import DownloadPolicy
+from app.model.download.inventory import TrackInventory
+from app.model.download.domain import DownloadError, DownloadInterventionRequired
+from app.model.download.gateway import YtdlpGateway, YtdlpLogger
+
+_LOG = logging.getLogger(__name__)
+
+
+class DownloadService:
+    """Download orchestration for probing, planning and yt_dlp execution."""
+
+    @staticmethod
+    def available_video_heights(
+        info: dict[str, Any] | None,
+        *,
+        min_h: int | None = None,
+        max_h: int | None = None,
+    ) -> list[int]:
+        return TrackInventory.available_video_heights(info, min_h=min_h, max_h=max_h)
+
+    @staticmethod
+    def available_audio_bitrates(info: dict[str, Any] | None) -> list[int]:
+        return TrackInventory.available_audio_bitrates(info)
+
+    @staticmethod
+    def resolve_playlist(
+        url: str,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> PlaylistResolveResult:
+        safe_url = sanitize_url_for_log(url)
+        ydl_opts: dict[str, Any] = YtdlpGateway.base_ydl_opts(
+            url=url,
+            quiet=not _LOG.isEnabledFor(logging.DEBUG),
+            skip_download=True,
+            logger=YtdlpLogger(_LOG, cancel_check=cancel_check),
+        )
+        ydl_opts["noplaylist"] = False
+        ydl_opts["extract_flat"] = "in_playlist"
+
+        try:
+            info, _runtime = YtdlpGateway.extract_info_with_fallback(
+                url=url,
+                ydl_opts=ydl_opts,
+                download=False,
+            )
+        except OperationCancelled:
+            raise
+        except Exception as ex:
+            if isinstance(ex, (DownloadError, DownloadInterventionRequired)):
+                raise
+            network_key = YtdlpGateway.classify_network_error(ex)
+            if network_key:
+                YtdlpGateway.log_network_error(action="playlist", url=url, ex=ex)
+            _LOG.debug("Playlist resolve failed. url=%s detail=%s", safe_url, str(ex))
+            raise DownloadError("error.playlist.resolve_failed", detail=str(ex)) from ex
+
+        info_dict = info if isinstance(info, dict) else {}
+        raw_type = str(info_dict.get("_type") or "").strip().lower()
+        raw_entries = (
+            list(info_dict.get("entries") or [])
+            if isinstance(info_dict.get("entries"), (list, tuple))
+            else []
+        )
+        playlist_markers = (
+            str(info_dict.get("playlist") or "").strip(),
+            str(info_dict.get("playlist_id") or "").strip(),
+            str(info_dict.get("playlist_title") or "").strip(),
+        )
+        is_playlist = bool(raw_entries) and (
+            raw_type in {"playlist", "multi_video"}
+            or "playlist" in raw_type
+            or any(playlist_markers)
+            or len(raw_entries) > 1
+        )
+        if not is_playlist:
+            raise DownloadError("error.playlist.not_playlist", url=url)
+        if not raw_entries:
+            raise DownloadError("error.playlist.empty", url=url)
+
+        playlist_title = str(info_dict.get("title") or info_dict.get("playlist_title") or "").strip()
+        playlist_url = str(info_dict.get("webpage_url") or info_dict.get("original_url") or url).strip()
+
+        out: list[PlaylistEntry] = []
+        for idx, entry in enumerate(raw_entries, start=1):
+            if not isinstance(entry, dict):
+                continue
+            entry_url = str(entry.get("webpage_url") or entry.get("original_url") or "").strip()
+            raw_entry_url = str(entry.get("url") or "").strip()
+            if not entry_url and raw_entry_url.startswith(("http://", "https://")):
+                entry_url = raw_entry_url
+            if not entry_url:
+                entry_id = str(entry.get("id") or "").strip()
+                ie_key = (
+                    str(entry.get("ie_key") or entry.get("extractor_key") or entry.get("extractor") or "")
+                    .strip()
+                    .lower()
+                )
+                if entry_id and "youtube" in ie_key:
+                    entry_url = f"https://www.youtube.com/watch?v={entry_id}"
+            if not entry_url:
+                continue
+            try:
+                duration_s = int(entry.get("duration")) if entry.get("duration") is not None else None
+            except (TypeError, ValueError):
+                duration_s = None
+            out.append(
+                PlaylistEntry(
+                    entry_url=entry_url,
+                    title=str(entry.get("title") or "").strip(),
+                    duration_s=duration_s,
+                    uploader=str(entry.get("uploader") or entry.get("channel") or "").strip(),
+                    position=idx,
+                )
+            )
+
+        if not out:
+            raise DownloadError("error.playlist.empty", url=url)
+
+        _LOG.info(
+            "Playlist resolved (flat). url=%s title=%s count=%s",
+            safe_url,
+            playlist_title or playlist_url,
+            len(out),
+        )
+        return PlaylistResolveResult(
+            playlist_title=playlist_title or playlist_url,
+            playlist_url=playlist_url,
+            total_count=len(out),
+            entries=tuple(out),
+        )
+
+    @staticmethod
+    def probe(
+        url: str,
+        *,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        interactive: bool = False,
+    ) -> dict[str, Any]:
+        safe_url = sanitize_url_for_log(url)
+        cookies_mode = DownloadService._effective_browser_cookies_mode(browser_cookies_mode_override)
+        advanced_probe_mode = DownloadPolicy.is_advanced_probe_mode_for_url(
+            url=url,
+            browser_cookies_mode=cookies_mode,
+        )
+        collect_probe_variants = DownloadPolicy.should_collect_probe_variants_for_url(
+            url=url,
+            browser_cookies_mode=cookies_mode,
+        )
+        base_ydl_opts: dict[str, Any] = YtdlpGateway.base_ydl_opts(
+            url=url,
+            quiet=not _LOG.isEnabledFor(logging.DEBUG),
+            skip_download=True,
+            browser_cookies_mode_override=cookies_mode,
+            cookie_file_override=cookie_file_override,
+        )
+        _LOG.debug(
+            "Download probe started. url=%s quiet=%s cookies_mode=%s advanced=%s",
+            safe_url,
+            bool(base_ydl_opts.get("quiet", False)),
+            cookies_mode,
+            advanced_probe_mode,
+        )
+
+        try:
+            attempted_clients = YtdlpGateway.probe_clients_for_url(
+                url,
+                browser_cookies_mode=cookies_mode,
+            )
+            inventories_by_client: dict[str, dict[str, Any]] = {}
+            probe_variants: dict[str, dict[str, Any]] = {}
+            primary_runtime_by_client: dict[str, dict[str, Any]] = {}
+            primary_probe_client = ""
+            primary_info: dict[str, Any] | None = None
+            last_error: Exception | None = None
+
+            for probe_client in attempted_clients:
+                ydl_opts = YtdlpGateway.with_probe_client_opts(base_ydl_opts, probe_client=probe_client)
+                try:
+                    info, probe_runtime = YtdlpGateway.extract_info_with_fallback(
+                        url=url,
+                        ydl_opts=ydl_opts,
+                        download=False,
+                        allow_cookie_intervention=bool(interactive and advanced_probe_mode),
+                    )
+                except Exception as ex:
+                    last_error = ex
+                    _LOG.debug(
+                        "Download probe variant failed. url=%s probe_client=%s detail=%s",
+                        safe_url,
+                        probe_client,
+                        str(ex),
+                    )
+                    if isinstance(ex, DownloadInterventionRequired):
+                        raise
+                    if len(attempted_clients) == 1:
+                        raise
+                    if primary_info is not None:
+                        continue
+                    continue
+
+                normalized_probe_client = YtdlpGateway.normalize_probe_client(probe_client)
+                primary_runtime_by_client[normalized_probe_client] = dict(probe_runtime or {})
+                if primary_info is None or probe_client == "default":
+                    primary_info = info
+                    primary_probe_client = normalized_probe_client
+
+                inventory = TrackInventory.build_audio_track_inventory(info, probe_client=probe_client)
+                inventories_by_client[normalized_probe_client] = inventory
+                if collect_probe_variants:
+                    probe_variants[normalized_probe_client] = TrackInventory.build_probe_variant_payload(
+                        info,
+                        probe_client=normalized_probe_client,
+                        inventory=inventory,
+                    )
+
+
+            if primary_info is None:
+                if last_error is not None:
+                    raise last_error
+                raise DownloadError("error.down.probe_failed", detail="probe returned no metadata")
+
+            primary_runtime = dict(primary_runtime_by_client.get(primary_probe_client) or {})
+
+            inventory = TrackInventory.finalize_probe_inventory(
+                inventories_by_client=inventories_by_client,
+                attempted_clients=attempted_clients,
+            )
+            audio_tracks = list(inventory.get("tracks") or [])
+            probe_diagnostics = TrackInventory.make_probe_diagnostics(
+                info=primary_info,
+                audio_tracks=audio_tracks,
+                inventory=inventory,
+                js_runtime_fallback=bool(primary_runtime.get("js_runtime_fallback")),
+                js_runtime_detail=str(primary_runtime.get("js_runtime_error") or "").strip(),
+                cookie_runtime_fallback=bool(primary_runtime.get("cookie_runtime_fallback")),
+                cookie_runtime_failures=list(primary_runtime.get("cookie_browser_failures") or []),
+                authentication_required=bool(primary_runtime.get("authentication_required")),
+                authentication_detail=str(primary_runtime.get("authentication_error") or "").strip(),
+                no_downloadable_formats=bool(primary_runtime.get("no_downloadable_formats")),
+                no_downloadable_formats_detail=str(primary_runtime.get("no_downloadable_formats_detail") or "").strip(),
+                advanced_mode=advanced_probe_mode,
+            )
+            webpage_url = primary_info.get("webpage_url") or primary_info.get("original_url") or url
+            result = {
+                "id": primary_info.get("id") or primary_info.get("display_id") or "",
+                "title": primary_info.get("title"),
+                "duration": primary_info.get("duration"),
+                "filesize": primary_info.get("filesize") or primary_info.get("filesize_approx"),
+                "extractor": primary_info.get("extractor_key") or primary_info.get("extractor"),
+                "webpage_url": webpage_url,
+                "uploader": primary_info.get("uploader") or primary_info.get("channel") or "",
+                "uploader_id": primary_info.get("uploader_id") or primary_info.get("channel_id") or "",
+                "uploader_url": primary_info.get("uploader_url") or primary_info.get("channel_url") or "",
+                "upload_date": primary_info.get("upload_date") or "",
+                "view_count": primary_info.get("view_count"),
+                "like_count": primary_info.get("like_count"),
+                "tags": primary_info.get("tags") or [],
+                "categories": primary_info.get("categories") or [],
+                "description": primary_info.get("description") or "",
+                "thumbnail_url": YtdlpGateway.pick_thumbnail_url(primary_info),
+                "formats": primary_info.get("formats") or [],
+                "audio_tracks": audio_tracks,
+                "probe_diagnostics": probe_diagnostics,
+            }
+            if collect_probe_variants and probe_variants:
+                result["_probe_variants"] = probe_variants
+            if probe_diagnostics:
+                _LOG.info(
+                    "Download probe diagnostics. url=%s warnings=%s errors=%s details=%s",
+                    safe_url,
+                    probe_diagnostics.get("warnings") or [],
+                    probe_diagnostics.get("errors") or [],
+                    probe_diagnostics.get("details") or {},
+                )
+            _LOG.debug(
+                "Download probe finished. url=%s title=%s extractor=%s duration=%s audio_tracks=%s",
+                safe_url,
+                str(result.get("title") or result.get("id") or ""),
+                str(result.get("extractor") or ""),
+                result.get("duration"),
+                len(audio_tracks),
+            )
+            return result
+        except Exception as ex:
+            if isinstance(ex, (DownloadError, DownloadInterventionRequired)):
+                raise
+            network_key = YtdlpGateway.classify_network_error(ex)
+            if network_key:
+                YtdlpGateway.log_network_error(action="probe", url=url, ex=ex)
+                raise DownloadError(network_key)
+            _LOG.debug("Download probe failed. url=%s detail=%s", safe_url, str(ex))
+            raise DownloadError("error.down.probe_failed", detail=str(ex))
+
+    @staticmethod
+    def _effective_browser_cookies_mode(browser_cookies_mode_override: str | None) -> str:
+        token = str(browser_cookies_mode_override or "").strip().lower()
+        if token in DownloadPolicy.COOKIE_BROWSER_MODES:
+            return token
+        return AppConfig.browser_cookies_mode()
+
+    @staticmethod
+    def _probe_diagnostics(meta: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(meta, dict):
+            return {}
+        diagnostics = meta.get("probe_diagnostics")
+        return dict(diagnostics) if isinstance(diagnostics, dict) else {}
+
+    @staticmethod
+    def _raise_if_probe_blocks_download(
+        meta: dict[str, Any] | None,
+        *,
+        browser_cookies_mode_override: str | None,
+    ) -> None:
+        diagnostics = DownloadService._probe_diagnostics(meta)
+        warnings = {
+            str(item or "").strip()
+            for item in list(diagnostics.get("warnings") or [])
+            if str(item or "").strip()
+        }
+        if not warnings:
+            return
+
+        details = dict(diagnostics.get("details") or {})
+        if "authentication_required" in warnings:
+            detail = str(details.get("authentication_detail") or "").strip()
+            raise DownloadError("error.down.authentication_required", detail=detail)
+
+        if {"media_unavailable", "no_downloadable_formats", "no_public_formats"} & warnings:
+            detail = str(details.get("no_downloadable_formats_detail") or "").strip()
+            if not detail:
+                detail = "no downloadable media formats found during probe"
+            raise DownloadError("error.down.no_downloadable_formats", detail=detail)
+
+        cookies_mode = DownloadService._effective_browser_cookies_mode(browser_cookies_mode_override)
+        if cookies_mode != "from_browser" or "browser_cookies_unavailable" not in warnings:
+            return
+
+        failures = list(details.get("cookie_browser_failures") or [])
+        detail = ""
+        if failures and isinstance(failures[0], dict):
+            detail = str(failures[0].get("detail") or "").strip()
+        detail = detail or str(details.get("authentication_detail") or "").strip()
+        raise DownloadError("error.down.browser_cookies_unavailable", detail=detail)
+
+    @staticmethod
+    def _emit_download_progress(
+        progress_cb: Callable[[int, str], None] | None,
+        *,
+        pct: int,
+        status: str,
+    ) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(int(max(0, min(100, int(pct)))), str(status or ""))
+        except (RuntimeError, TypeError, ValueError):
+            return
+
+    @staticmethod
+    def _download_progress_pct(payload: dict[str, Any]) -> int:
+        raw_pct = str(payload.get("_percent_str") or "").strip().replace("%", "")
+        if raw_pct:
+            try:
+                return int(max(0.0, min(100.0, float(raw_pct))))
+            except (TypeError, ValueError, OverflowError):
+                return 0
+
+        downloaded = payload.get("downloaded_bytes") or 0
+        total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
+        try:
+            if total:
+                return int(max(0.0, min(100.0, (float(downloaded) / float(total)) * 100.0)))
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+            return 0
+        return 0
+
+    def _build_download_hooks(
+        self,
+        *,
+        progress_cb: Callable[[int, str], None] | None,
+        cancel_check: Callable[[], bool] | None,
+    ) -> tuple[Callable[[dict[str, Any]], None], Callable[[dict[str, Any]], None]]:
+        def _hook(payload: dict[str, Any]) -> None:
+            if cancel_check and cancel_check():
+                raise OperationCancelled()
+
+            status = str(payload.get("status") or "").strip().lower()
+            if status == "downloading":
+                self._emit_download_progress(
+                    progress_cb,
+                    pct=self._download_progress_pct(payload),
+                    status="downloading",
+                )
+                return
+            if status == "finished":
+                self._emit_download_progress(progress_cb, pct=100, status="downloaded")
+
+        def _post_hook(payload: dict[str, Any]) -> None:
+            if cancel_check and cancel_check():
+                raise OperationCancelled()
+
+            status = str(payload.get("status") or "").strip().lower()
+            if status == "started":
+                self._emit_download_progress(progress_cb, pct=100, status="postprocessing")
+                return
+            if status == "finished":
+                self._emit_download_progress(progress_cb, pct=100, status="postprocessed")
+
+        return _hook, _post_hook
+
+    def download(
+        self,
+        *,
+        url: str,
+        kind: str,
+        quality: str,
+        ext: str,
+        out_dir: Path,
+        progress_cb: Callable[[int, str], None] | None = None,
+        audio_track_id: str | None = None,
+        file_stem: str | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+        purpose: str = DownloadPolicy.DOWNLOAD_DEFAULT_PURPOSE,
+        keep_output: bool = True,
+        meta: dict[str, Any] | None = None,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+    ) -> Path | None:
+        min_h = AppConfig.downloader_min_video_height()
+        max_h = AppConfig.downloader_max_video_height()
+        ext_l = (ext or "").lower().strip().lstrip(".")
+        purpose_l = str(purpose or DownloadPolicy.DOWNLOAD_DEFAULT_PURPOSE).strip().lower()
+        contract = DownloadPolicy.resolve_download_contract(
+            kind=kind,
+            purpose=purpose_l,
+            keep_output=bool(keep_output),
+            ext=ext_l,
+        )
+        plan_ext = str(contract.get("plan_ext") or "").strip().lower()
+        final_ext = str(contract.get("final_ext") or "").strip().lower()
+        artifact_policy = str(
+            contract.get("artifact_policy") or DownloadPolicy.DOWNLOAD_ARTIFACT_POLICY_STRICT_FINAL_EXT
+        ).strip().lower()
+
+        audio_track_id_norm = str(audio_track_id or "").strip() or None
+        lang_base = ""
+        selected_probe_client = "default"
+
+        if meta is None:
+            try:
+                meta = self.probe(
+                    url,
+                    browser_cookies_mode_override=browser_cookies_mode_override,
+                    cookie_file_override=cookie_file_override,
+                    interactive=True,
+                )
+            except DownloadError as ex:
+                err_key = str(getattr(ex, "key", "") or "").strip()
+                if audio_track_id_norm or err_key in {
+                    "error.down.authentication_required",
+                    "error.down.browser_cookies_unavailable",
+                }:
+                    raise
+                meta = None
+
+        self._raise_if_probe_blocks_download(meta, browser_cookies_mode_override=browser_cookies_mode_override)
+
+        selected_audio_track = None
+        if audio_track_id_norm:
+            selected_audio_track = TrackInventory.find_audio_track(meta, audio_track_id_norm)
+            if selected_audio_track is None:
+                raise DownloadError(
+                    "error.down.download_failed",
+                    detail="selected audio track is no longer available",
+                )
+
+        if selected_audio_track is not None:
+            plan, selected_probe_client = DownloadPlanBuilder.build_explicit_plan(
+                kind=kind,
+                quality=quality,
+                plan_ext=plan_ext,
+                lang_base=lang_base,
+                selected_audio_track=selected_audio_track,
+                purpose=purpose_l,
+                keep_output=bool(keep_output),
+                meta=meta,
+                min_h=min_h,
+                max_h=max_h,
+            )
+        else:
+            if kind == "audio":
+                plan = DownloadPlanBuilder.build_audio_plan(
+                    info=meta,
+                    quality=quality,
+                    ext_l=plan_ext,
+                    lang_base=lang_base,
+                    selected_audio_track=None,
+                    purpose=purpose_l,
+                    keep_output=bool(keep_output),
+                )
+            else:
+                plan = DownloadPlanBuilder.build_video_plan(
+                    info=meta,
+                    quality=quality,
+                    ext_l=plan_ext,
+                    lang_base=lang_base,
+                    selected_audio_track=None,
+                    purpose=purpose_l,
+                    keep_output=bool(keep_output),
+                    min_h=min_h,
+                    max_h=max_h,
+                )
+
+        progress_hook, post_hook = self._build_download_hooks(progress_cb=progress_cb, cancel_check=cancel_check)
+        stem = sanitize_filename(file_stem or "%(title)s") or DownloadPolicy.DOWNLOAD_DEFAULT_STEM
+        stage_dir = DownloadArtifactManager.create_download_stage(stem=stem)
+        outtmpl = DownloadArtifactManager.build_stage_outtmpl(stage_dir=stage_dir, stem=stem)
+
+        ydl_opts: dict[str, Any] = YtdlpGateway.base_ydl_opts(
+            url=url,
+            quiet=not _LOG.isEnabledFor(logging.DEBUG),
+            skip_download=False,
+            browser_cookies_mode_override=browser_cookies_mode_override,
+            cookie_file_override=cookie_file_override,
+        )
+        if selected_audio_track is not None:
+            ydl_opts = YtdlpGateway.with_probe_client_opts(ydl_opts, probe_client=selected_probe_client)
+        ydl_opts.update(
+            {
+                "format": plan.get("format")
+                or (
+                    DownloadPolicy.DOWNLOAD_FALLBACK_AUDIO_SELECTOR
+                    if kind == "audio"
+                    else DownloadPolicy.DOWNLOAD_FALLBACK_VIDEO_SELECTOR
+                ),
+                "outtmpl": outtmpl,
+                "progress_hooks": [progress_hook],
+                "postprocessor_hooks": [post_hook],
+                "postprocessors": list(plan.get("postprocessors") or []),
+            }
+        )
+        format_sort = list(plan.get("format_sort") or [])
+        if format_sort:
+            ydl_opts["format_sort"] = format_sort
+        merge_output_format = str(plan.get("merge_output_format") or "").strip().lower()
+        if merge_output_format:
+            ydl_opts["merge_output_format"] = merge_output_format
+
+        _LOG.debug(
+            (
+                "Download started. url=%s kind=%s quality=%s ext=%s audio_track_id=%s purpose=%s "
+                "keep_output=%s probe_client=%s final_out_dir=%s stage_dir=%s stem=%s plan=%s"
+            ),
+            sanitize_url_for_log(url),
+            kind,
+            quality,
+            ext_l,
+            audio_track_id_norm or "",
+            purpose_l,
+            bool(keep_output),
+            selected_probe_client,
+            out_dir,
+            stage_dir,
+            stem,
+            {
+                "format": ydl_opts.get("format"),
+                "format_sort": format_sort,
+                "merge_output_format": merge_output_format,
+                "postprocessors": ydl_opts.get("postprocessors"),
+                "extractor_args": ydl_opts.get("extractor_args"),
+                "plan_ext": plan_ext,
+                "final_ext": final_ext,
+                "artifact_policy": artifact_policy,
+            },
+        )
+
+        info: dict[str, Any] | None = None
+        try:
+            info, download_runtime = YtdlpGateway.extract_info_with_fallback(
+                url=url,
+                ydl_opts=ydl_opts,
+                download=True,
+                allow_cookie_intervention=True,
+            )
+            if download_runtime.get("js_runtime_fallback"):
+                _LOG.info(
+                    "Download continued after JS runtime fallback. url=%s detail=%s",
+                    sanitize_url_for_log(url),
+                    str(download_runtime.get("js_runtime_error") or ""),
+                )
+
+            stage_files = DownloadArtifactManager.stage_files(stage_dir)
+            _LOG.debug(
+                (
+                    "Download postprocess state. url=%s requested_ext=%s info_ext=%s "
+                    "info_filepath=%s stage_dir=%s stage_files=%s"
+                ),
+                sanitize_url_for_log(url),
+                ext_l,
+                DownloadArtifactManager.normalize_ext((info or {}).get("ext")),
+                str((info or {}).get("filepath") or (info or {}).get("_filename") or ""),
+                str(stage_dir),
+                [path.name for path in stage_files],
+            )
+
+            artifact = DownloadArtifactManager.resolve_stage_artifact(
+                info=info,
+                stage_dir=stage_dir,
+                stem=stem,
+                requested_ext=final_ext,
+                artifact_policy=artifact_policy,
+            )
+            if artifact is None:
+                _LOG.warning(
+                    (
+                        "Download finished without stage artifact. url=%s requested_ext=%s final_ext=%s "
+                        "artifact_policy=%s info_ext=%s stage_dir=%s stage_files=%s"
+                    ),
+                    sanitize_url_for_log(url),
+                    ext_l,
+                    final_ext,
+                    artifact_policy,
+                    DownloadArtifactManager.normalize_ext((info or {}).get("ext")),
+                    str(stage_dir),
+                    [path.name for path in stage_files],
+                )
+                DownloadArtifactManager.cleanup_stage_dir(stage_dir)
+                raise DownloadError(
+                    "error.down.download_failed",
+                    detail="download finished without a final stage artifact",
+                )
+
+            should_promote = purpose_l == DownloadPolicy.DOWNLOAD_PURPOSE_DOWNLOAD or bool(keep_output)
+            if should_promote:
+                promoted = DownloadArtifactManager.promote_stage_artifact(
+                    artifact=artifact,
+                    final_dir=out_dir,
+                    stem=stem,
+                    requested_ext=final_ext,
+                )
+                DownloadArtifactManager.cleanup_stage_dir(stage_dir)
+                _LOG.info(
+                    (
+                        "Download finished. url=%s requested_ext=%s final_ext=%s artifact_policy=%s "
+                        "resolved_artifact=%s promoted=%s"
+                    ),
+                    sanitize_url_for_log(url),
+                    ext_l,
+                    final_ext,
+                    artifact_policy,
+                    artifact.name,
+                    promoted.name,
+                )
+                return promoted
+
+            _LOG.info(
+                "Download finished in staging. url=%s requested_ext=%s final_ext=%s artifact_policy=%s path=%s",
+                sanitize_url_for_log(url),
+                ext_l,
+                final_ext,
+                artifact_policy,
+                artifact.name,
+            )
+            return artifact
+        except OperationCancelled:
+            stage_files = DownloadArtifactManager.stage_files(stage_dir)
+            DownloadArtifactManager.cleanup_stage_dir(stage_dir)
+            _LOG.debug(
+                "Download cancelled. url=%s stage_dir=%s stage_files=%s",
+                sanitize_url_for_log(url),
+                str(stage_dir),
+                [path.name for path in stage_files],
+            )
+            raise
+        except DownloadError:
+            DownloadArtifactManager.cleanup_stage_dir(stage_dir)
+            raise
+        except DownloadInterventionRequired:
+            DownloadArtifactManager.cleanup_stage_dir(stage_dir)
+            raise
+        except Exception as ex:
+            stage_files = DownloadArtifactManager.stage_files(stage_dir)
+            DownloadArtifactManager.cleanup_stage_dir(stage_dir)
+            network_key = YtdlpGateway.classify_network_error(ex)
+            if network_key:
+                YtdlpGateway.log_network_error(action="download", url=url, ex=ex)
+                raise DownloadError(network_key)
+            _LOG.debug(
+                (
+                    "Download failed. url=%s requested_ext=%s final_ext=%s artifact_policy=%s info_ext=%s "
+                    "info_filepath=%s stage_dir=%s stage_files=%s detail=%s"
+                ),
+                sanitize_url_for_log(url),
+                ext_l,
+                final_ext,
+                artifact_policy,
+                DownloadArtifactManager.normalize_ext((info or {}).get("ext")),
+                str((info or {}).get("filepath") or (info or {}).get("_filename") or ""),
+                str(stage_dir),
+                [path.name for path in stage_files],
+                str(ex),
+            )
+            raise DownloadError("error.down.download_failed", detail=str(ex))

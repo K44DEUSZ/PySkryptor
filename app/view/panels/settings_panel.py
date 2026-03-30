@@ -9,39 +9,121 @@ from typing import Any, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.controller.contracts import SettingsCoordinatorProtocol
-from app.model.config.app_config import AppConfig as Config
-from app.model.config.language_policy import LanguagePolicy
-from app.model.config.runtime_profiles import RuntimeProfiles
-from app.model.domain.entities import SettingsSnapshot, snapshot_to_dict
-from app.model.runtime_resolver import transcription_language_codes, translation_language_codes
-from app.model.services.localization_service import list_locales, tr
-from app.model.services.model_resolution_service import ModelResolutionService
+from app.controller.panel_protocols import SettingsCoordinatorProtocol
+from app.model.core.config.config import AppConfig
+from app.model.core.config.policy import LanguagePolicy
+from app.model.core.config.profiles import RuntimeProfiles
+from app.model.core.domain.entities import SettingsSnapshot, snapshot_to_dict
+from app.model.core.runtime.localization import list_locales, tr
+from app.model.download.runtime import available_cookie_browsers, resolve_effective_cookie_browser
+from app.model.download.policy import DownloadPolicy
+from app.model.engines.resolution import EngineResolver
+from app.model.settings.resolution import transcription_language_codes, translation_language_codes
 from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view.components.popup_combo import LanguageCombo, PopupComboBox, set_combo_data
 from app.view.components.section_group import SectionGroup
 from app.view.support.options_autosave import OptionsAutosave
-from app.view.support.settings_mapping import (
-    collect_combo_fields,
-    collect_spin_fields,
-    collect_toggle_fields,
-    populate_combo_fields,
-    populate_spin_fields,
-    populate_toggle_fields,
-)
 from app.view.support.theme_runtime import system_theme_key
-from app.view.support.view_runtime import open_local_path
+from app.view.support.host_runtime import open_local_path
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
 from app.view.support.widget_setup import (
     build_layout_host,
     build_setting_row,
     setup_button,
     setup_combo,
+    setup_input,
     setup_layout,
     setup_spinbox,
+    setup_toggle_button,
+    set_passive_cursor,
 )
 from app.view.ui_config import ui
+
+
+def _resolve_field_default(default: Any) -> Any:
+    """Return a concrete field default for settings mapping helpers."""
+
+    return default() if callable(default) else default
+
+
+def _populate_combo_fields(
+    data: dict[str, Any],
+    specs: tuple[tuple[str, QtWidgets.QComboBox, Any], ...],
+) -> None:
+    """Populate combo boxes from a flat settings section."""
+
+    for key, combo, default in specs:
+        fallback = _resolve_field_default(default)
+        value = data.get(key, fallback)
+        if value is None:
+            value = fallback
+        set_combo_data(combo, str(value), fallback_data=fallback)
+
+
+def _populate_toggle_fields(
+    data: dict[str, Any],
+    specs: tuple[tuple[str, ChoiceToggle, bool], ...],
+) -> None:
+    """Populate two-state toggles from a flat settings section."""
+
+    for key, toggle, default in specs:
+        toggle.set_first_checked(bool(data.get(key, default)))
+
+
+def _populate_spin_fields(
+    data: dict[str, Any],
+    specs: tuple[tuple[str, QtWidgets.QSpinBox, int], ...],
+) -> None:
+    """Populate spin boxes from a flat settings section."""
+
+    for key, spin, default in specs:
+        raw = data.get(key, default)
+        try:
+            spin.setValue(int(raw))
+        except (TypeError, ValueError):
+            spin.setValue(int(default))
+
+
+def _collect_combo_fields(
+    specs: tuple[tuple[str, QtWidgets.QComboBox, Any], ...],
+) -> dict[str, Any]:
+    """Collect combo box values into a flat payload fragment."""
+
+    payload: dict[str, Any] = {}
+    for key, combo, default in specs:
+        fallback = _resolve_field_default(default)
+        value = combo.currentData()
+        payload[key] = fallback if value is None else str(value)
+    return payload
+
+
+def _collect_toggle_fields(
+    specs: tuple[tuple[str, ChoiceToggle], ...],
+) -> dict[str, bool]:
+    """Collect two-state toggles into a flat payload fragment."""
+
+    return {key: bool(toggle.is_first_checked()) for key, toggle in specs}
+
+
+def _collect_spin_fields(
+    specs: tuple[tuple[str, QtWidgets.QSpinBox], ...],
+    *,
+    none_if_non_positive: set[str] | None = None,
+    none_if_negative: set[str] | None = None,
+) -> dict[str, int | None]:
+    """Collect spin box values into a flat payload fragment."""
+
+    nullable_non_positive = set(none_if_non_positive or ())
+    nullable_negative = set(none_if_negative or ())
+    payload: dict[str, int | None] = {}
+    for key, spin in specs:
+        value = int(spin.value())
+        if key in nullable_negative and value < 0:
+            payload[key] = None
+            continue
+        payload[key] = None if key in nullable_non_positive and value <= 0 else value
+    return payload
 
 
 class _YesNoToggle(ChoiceToggle):
@@ -90,6 +172,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
+        set_passive_cursor(self)
         self._panel_coordinator: SettingsCoordinatorProtocol | None = None
 
         self._init_state()
@@ -103,7 +186,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def coordinator(self) -> SettingsCoordinatorProtocol | None:
         return self._panel_coordinator
 
-    def _coordinator_busy(self) -> bool:
+    def _coordinator_is_busy(self) -> bool:
         coord = self.coordinator()
         return bool(coord is not None and coord.is_busy())
 
@@ -117,6 +200,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._advanced_rows: list[QtWidgets.QWidget] = []
         self._dirty_row_specs: list[tuple[QtWidgets.QWidget, QtWidgets.QWidget, tuple[tuple[str, ...], ...]]] = []
+        self._cookie_browser_row: QtWidgets.QWidget | None = None
+        self._cookie_file_row: QtWidgets.QWidget | None = None
         self.btn_save: QtWidgets.QPushButton | None = None
         self.btn_undo: QtWidgets.QPushButton | None = None
 
@@ -176,13 +261,14 @@ class SettingsPanel(QtWidgets.QWidget):
         setup_layout(bottom, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.spacing)
 
         self.chk_show_advanced = QtWidgets.QCheckBox(tr("settings.advanced.toggle"))
+        setup_toggle_button(self.chk_show_advanced, min_h=base_h)
         self.chk_show_advanced.setChecked(False)
 
         self._adv_autosave = OptionsAutosave(
             self,
             build_payload=self._build_advanced_payload,
             commit=self._commit_advanced_payload,
-            is_busy=self._coordinator_busy,
+            is_busy=self._coordinator_is_busy,
             interval_ms=600,
             pending_delay_ms=250,
         )
@@ -362,38 +448,10 @@ class SettingsPanel(QtWidgets.QWidget):
                 if isinstance(bulk_cfg, dict):
                     try:
                         bulk_cfg["threshold"] = int(
-                            bulk_cfg.get("threshold", Config.ui_bulk_add_confirmation_threshold())
+                            bulk_cfg.get("threshold", AppConfig.ui_bulk_add_confirmation_threshold())
                         )
                     except (TypeError, ValueError):
-                        bulk_cfg["threshold"] = int(Config.ui_bulk_add_confirmation_threshold())
-
-        downloader = normalized.get("downloader")
-        if isinstance(downloader, dict):
-            for key, fallback in (
-                ("min_video_height", Config.downloader_min_video_height()),
-                ("max_video_height", Config.downloader_max_video_height()),
-            ):
-                try:
-                    downloader[key] = int(downloader.get(key, fallback))
-                except (TypeError, ValueError):
-                    downloader[key] = int(fallback)
-
-        network = normalized.get("network")
-        if isinstance(network, dict):
-            for key, fallback in (
-                ("retries", Config.network_retries()),
-                ("concurrent_fragments", Config.network_concurrent_fragments()),
-                ("http_timeout_s", Config.network_http_timeout_s()),
-            ):
-                try:
-                    network[key] = int(network.get(key, fallback))
-                except (TypeError, ValueError):
-                    network[key] = int(fallback)
-            try:
-                bandwidth = int(network.get("max_bandwidth_kbps", Config.network_max_bandwidth_kbps()) or 0)
-            except (TypeError, ValueError):
-                bandwidth = 0
-            network["max_bandwidth_kbps"] = None if bandwidth <= 0 else bandwidth
+                        bulk_cfg["threshold"] = int(AppConfig.ui_bulk_add_confirmation_threshold())
 
         return normalized
 
@@ -509,6 +567,12 @@ class SettingsPanel(QtWidgets.QWidget):
         return spin
 
     @staticmethod
+    def _new_line_edit(base_h: int) -> QtWidgets.QLineEdit:
+        edit = QtWidgets.QLineEdit()
+        setup_input(edit, min_h=base_h)
+        return edit
+
+    @staticmethod
     def _add_combo_option(
         combo: QtWidgets.QComboBox,
         label_key: str,
@@ -535,20 +599,57 @@ class SettingsPanel(QtWidgets.QWidget):
         value = data.get(key)
         return value if isinstance(value, dict) else {}
 
+    def _build_split_control_row(
+        self,
+        cfg: Any,
+        left: QtWidgets.QWidget,
+        right: QtWidgets.QWidget,
+    ) -> QtWidgets.QWidget:
+        row = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(row)
+        setup_layout(layout, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
+        layout.addWidget(left, 1)
+        layout.addWidget(right, 1)
+        return row
+
     def _build_logging_level_row(self, cfg: Any) -> QtWidgets.QWidget:
-        log_level_row = QtWidgets.QWidget()
-        log_level_lay = QtWidgets.QHBoxLayout(log_level_row)
-        setup_layout(log_level_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
-        log_level_lay.addWidget(self.cmb_log_level, 1)
-        log_level_lay.addWidget(self.btn_open_logs, 1)
-        return log_level_row
+        return self._build_split_control_row(cfg, self.cmb_log_level, self.btn_open_logs)
+
+    def _rebuild_browser_cookies_mode_combo(self, selected_mode: str | None = None) -> None:
+        current_mode = str(
+            selected_mode or self.cmb_browser_cookies_mode.currentData() or AppConfig.browser_cookies_mode()
+        ).strip().lower() or "none"
+        show_advanced = bool(getattr(self, "chk_show_advanced", None) is not None and self.chk_show_advanced.isChecked())
+        allow_file = show_advanced or current_mode == "from_file"
+        self.cmb_browser_cookies_mode.blockSignals(True)
+        try:
+            self.cmb_browser_cookies_mode.clear()
+            self._add_combo_option(self.cmb_browser_cookies_mode, "settings.browser_cookies.mode.none", "none")
+            self._add_combo_option(
+                self.cmb_browser_cookies_mode,
+                "settings.browser_cookies.mode.from_browser",
+                "from_browser",
+            )
+            if allow_file:
+                self._add_combo_option(
+                    self.cmb_browser_cookies_mode,
+                    "settings.browser_cookies.mode.from_file",
+                    "from_file",
+                )
+            set_combo_data(
+                self.cmb_browser_cookies_mode,
+                current_mode,
+                fallback_data=AppConfig.browser_cookies_mode(),
+            )
+        finally:
+            self.cmb_browser_cookies_mode.blockSignals(False)
 
     def _build_app_section(self, base_h: int) -> None:
         lay = self._prepare_section_layout(self.grp_app, title_key="settings.section.app")
 
         self.cmb_app_language = self._new_combo(base_h)
         self.cmb_app_language.addItem(tr("common.auto"), LanguagePolicy.AUTO)
-        for code, name in list_locales(Config.PATHS.LOCALES_DIR):
+        for code, name in list_locales(AppConfig.PATHS.LOCALES_DIR):
             self.cmb_app_language.addItem(name, code)
 
         self.cmb_app_theme = self._new_combo(base_h)
@@ -558,8 +659,8 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.sp_bulk_add_threshold = self._new_spinbox(
             base_h,
-            Config.BULK_ADD_CONFIRMATION_MIN_THRESHOLD,
-            Config.BULK_ADD_CONFIRMATION_MAX_THRESHOLD,
+            AppConfig.BULK_ADD_CONFIRMATION_MIN_THRESHOLD,
+            AppConfig.BULK_ADD_CONFIRMATION_MAX_THRESHOLD,
         )
         self.tg_bulk_add_warning_enabled = self._new_toggle(
             yes_text=tr("common.enable"),
@@ -1106,6 +1207,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self.sp_bandwidth = self._new_spinbox(base_h, 0, 10_000_000, step=100)
         self.sp_fragments = self._new_spinbox(base_h, 1, 64)
         self.sp_timeout = self._new_spinbox(base_h, 1, 600)
+        self.cmb_browser_cookies_mode = self._new_combo(base_h)
+        self._rebuild_browser_cookies_mode_combo()
+        self.cmb_cookie_browser = self._new_combo(base_h)
+        self._rebuild_cookie_browser_combo()
+        self.ed_cookie_file_path = self._new_line_edit(base_h)
+        self.btn_cookie_file_browse = QtWidgets.QPushButton(tr("common.browse"))
+        setup_button(self.btn_cookie_file_browse, min_h=base_h)
 
         self._add_tracked_row(
             left,
@@ -1127,8 +1235,12 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self._add_tracked_row(
             left,
-            self._row(tr("settings.network.retries"), self.sp_retries, tr("settings.help.retries")),
-            ("network", "retries"),
+            self._row(
+                tr("settings.browser_cookies.mode.label"),
+                self.cmb_browser_cookies_mode,
+                tr("settings.help.browser_cookies_mode"),
+            ),
+            ("browser_cookies", "mode"),
         )
 
         self._add_tracked_row(
@@ -1157,10 +1269,43 @@ class SettingsPanel(QtWidgets.QWidget):
                 tr("settings.network.http_timeout_s"),
                 self.sp_timeout,
                 tr("settings.help.http_timeout_s"),
-                advanced=True,
             ),
             ("network", "http_timeout_s"),
         )
+        self._cookie_browser_row = self._add_tracked_row(
+            left,
+            self._row(
+                tr("settings.browser_cookies.browser.label"),
+                self.cmb_cookie_browser,
+                tr("settings.help.browser_cookies_browser"),
+            ),
+            ("browser_cookies", "browser"),
+        )
+        cookie_file_host = self._build_split_control_row(
+            cfg,
+            self.ed_cookie_file_path,
+            self.btn_cookie_file_browse,
+        )
+        self._cookie_file_row = self._add_tracked_row(
+            left,
+            self._build_labeled_row(
+                label=tr("settings.browser_cookies.file_path.label"),
+                control=self.ed_cookie_file_path,
+                control_host=cookie_file_host,
+                tooltip=tr("settings.help.browser_cookies_file_path"),
+                advanced=True,
+            ),
+            ("browser_cookies", "file_path"),
+            value_widget=self.ed_cookie_file_path,
+        )
+        self._add_tracked_row(
+            right,
+            self._row(tr("settings.network.retries"), self.sp_retries, tr("settings.help.retries")),
+            ("network", "retries"),
+        )
+
+        left.addStretch(1)
+        right.addStretch(1)
 
         lay.addStretch(1)
 
@@ -1172,6 +1317,13 @@ class SettingsPanel(QtWidgets.QWidget):
             self.sp_fragments,
             self.sp_timeout,
         )
+        self._connect_mark_dirty(self.cmb_browser_cookies_mode.currentIndexChanged)
+        self._connect_mark_dirty(self.ed_cookie_file_path.textChanged)
+        self.cmb_cookie_browser.currentIndexChanged.connect(self._on_cookie_browser_changed)
+        self.cmb_browser_cookies_mode.currentIndexChanged.connect(self._on_browser_cookies_mode_changed)
+        self.ed_cookie_file_path.textChanged.connect(self._on_cookie_file_path_changed)
+        self.btn_cookie_file_browse.clicked.connect(self._browse_cookie_file)
+        self._sync_browser_cookies_controls()
 
     def on_settings_loaded(self, snap: SettingsSnapshot) -> None:
         data = snapshot_to_dict(snap)
@@ -1310,8 +1462,10 @@ class SettingsPanel(QtWidgets.QWidget):
             w.setVisible(bool(show))
         self._rebuild_transcription_profile_combo()
         self._rebuild_translation_profile_combo()
+        self._rebuild_browser_cookies_mode_combo()
         self._sync_transcription_profile_controls()
         self._sync_translation_profile_controls()
+        self._sync_browser_cookies_controls()
 
 
     def _rebuild_transcription_profile_combo(self, selected: str | None = None) -> None:
@@ -1617,7 +1771,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _open_logs_folder() -> None:
-        path = Config.PATHS.LOGS_DIR
+        path = AppConfig.PATHS.LOGS_DIR
         if isinstance(path, Path):
             open_local_path(path)
 
@@ -1638,6 +1792,7 @@ class SettingsPanel(QtWidgets.QWidget):
         transcription = self._section_dict(d, "transcription")
         translation = self._section_dict(d, "translation")
         downloader = self._section_dict(d, "downloader")
+        browser_cookies = self._section_dict(d, "browser_cookies")
         network = self._section_dict(d, "network")
 
         self._populate_app_settings(app)
@@ -1645,13 +1800,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self._populate_model_settings(model)
         self._populate_transcription_settings(transcription)
         self._populate_translation_settings(translation)
-        self._populate_download_settings(downloader, network)
+        self._populate_download_settings(downloader, browser_cookies, network)
 
         self._refresh_auto_option_labels()
         self._refresh_dirty_markers()
 
     def _populate_app_settings(self, app: dict[str, Any]) -> None:
-        populate_combo_fields(
+        _populate_combo_fields(
             app,
             (
                 ("language", self.cmb_app_language, LanguagePolicy.AUTO),
@@ -1667,23 +1822,23 @@ class SettingsPanel(QtWidgets.QWidget):
         self._apply_advanced_visibility(show_adv)
 
         bulk_cfg = self._section_dict(ui_cfg, "bulk_add_confirmation")
-        populate_toggle_fields(
+        _populate_toggle_fields(
             bulk_cfg,
-            (("enabled", self.tg_bulk_add_warning_enabled, Config.ui_bulk_add_confirmation_enabled()),),
+            (("enabled", self.tg_bulk_add_warning_enabled, AppConfig.ui_bulk_add_confirmation_enabled()),),
         )
-        populate_spin_fields(
+        _populate_spin_fields(
             bulk_cfg,
-            (("threshold", self.sp_bulk_add_threshold, Config.ui_bulk_add_confirmation_threshold()),),
+            (("threshold", self.sp_bulk_add_threshold, AppConfig.ui_bulk_add_confirmation_threshold()),),
         )
         self._on_bulk_add_warning_toggle()
 
         log_cfg = self._section_dict(app, "logging")
-        populate_toggle_fields(log_cfg, (("enabled", self.tg_log_enabled, True),))
-        populate_combo_fields(log_cfg, (("level", self.cmb_log_level, "warning"),))
+        _populate_toggle_fields(log_cfg, (("enabled", self.tg_log_enabled, True),))
+        _populate_combo_fields(log_cfg, (("level", self.cmb_log_level, "warning"),))
         self._on_logging_toggle()
 
     def _populate_engine_settings(self, eng: dict[str, Any]) -> None:
-        populate_combo_fields(
+        _populate_combo_fields(
             eng,
             (
                 ("preferred_device", self.cmb_engine_device, LanguagePolicy.AUTO),
@@ -1693,7 +1848,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.tg_fp32_math_mode.set_first_checked(
             bool(str(eng.get("fp32_math_mode", "ieee") or "ieee").strip().lower() == "tf32")
         )
-        populate_toggle_fields(
+        _populate_toggle_fields(
             eng,
             (
                 ("low_cpu_mem_usage", self.tg_low_cpu_mem, True),
@@ -1706,11 +1861,11 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._populate_model_engines()
 
-        trans_engine_name = ModelResolutionService.resolve_transcription_engine_name(model)
-        if trans_engine_name == Config.MISSING_VALUE:
+        trans_engine_name = EngineResolver.resolve_transcription_engine_name(model)
+        if trans_engine_name == AppConfig.MISSING_VALUE:
             trans_engine_name = str(t_model.get("engine_name", "none"))
         set_combo_data(self.cmb_trans_engine, trans_engine_name, fallback_data="none")
-        populate_combo_fields(
+        _populate_combo_fields(
             t_model,
             (("profile", self.cmb_transcription_profile, RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE),),
         )
@@ -1721,16 +1876,16 @@ class SettingsPanel(QtWidgets.QWidget):
             )
         )
         self._sync_transcription_profile_controls()
-        populate_toggle_fields(
+        _populate_toggle_fields(
             t_model,
             (("ignore_warning", self.tg_ignore_warning, False),),
         )
 
-        tr_engine_name = ModelResolutionService.resolve_translation_engine_name(model)
-        if tr_engine_name == Config.MISSING_VALUE:
+        tr_engine_name = EngineResolver.resolve_translation_engine_name(model)
+        if tr_engine_name == AppConfig.MISSING_VALUE:
             tr_engine_name = str(x_model.get("engine_name", "none"))
         set_combo_data(self.cmb_tr_engine, tr_engine_name, fallback_data="none")
-        populate_combo_fields(
+        _populate_combo_fields(
             x_model,
             (("profile", self.cmb_translation_profile, RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),),
         )
@@ -1741,7 +1896,7 @@ class SettingsPanel(QtWidgets.QWidget):
             )
         )
         self._sync_translation_profile_controls()
-        populate_spin_fields(
+        _populate_spin_fields(
             x_model,
             (
                 ("max_new_tokens", self.sp_tr_max_tokens, 256),
@@ -1750,36 +1905,56 @@ class SettingsPanel(QtWidgets.QWidget):
         )
 
     def _populate_transcription_settings(self, transcription: dict[str, Any]) -> None:
-        populate_combo_fields(
+        _populate_combo_fields(
             transcription,
             (("default_source_language", self.cmb_default_language, LanguagePolicy.AUTO),),
         )
 
     def _populate_translation_settings(self, translation: dict[str, Any]) -> None:
-        populate_combo_fields(
+        _populate_combo_fields(
             translation,
             (("default_target_language", self.cmb_default_target_language, LanguagePolicy.DEFAULT_UI),),
         )
 
-    def _populate_download_settings(self, downloader: dict[str, Any], network: dict[str, Any]) -> None:
-        populate_spin_fields(
+    def _populate_download_settings(
+        self,
+        downloader: dict[str, Any],
+        browser_cookies: dict[str, Any],
+        network: dict[str, Any],
+    ) -> None:
+        _populate_spin_fields(
             downloader,
             (
-                ("min_video_height", self.sp_min_height, Config.downloader_min_video_height()),
-                ("max_video_height", self.sp_max_height, Config.downloader_max_video_height()),
+                ("min_video_height", self.sp_min_height, AppConfig.downloader_min_video_height()),
+                ("max_video_height", self.sp_max_height, AppConfig.downloader_max_video_height()),
             ),
         )
 
-        populate_spin_fields(
+        _populate_spin_fields(
             network,
             (
-                ("retries", self.sp_retries, Config.network_retries()),
-                ("concurrent_fragments", self.sp_fragments, Config.network_concurrent_fragments()),
-                ("http_timeout_s", self.sp_timeout, Config.network_http_timeout_s()),
+                ("retries", self.sp_retries, AppConfig.network_retries()),
+                ("concurrent_fragments", self.sp_fragments, AppConfig.network_concurrent_fragments()),
+                ("http_timeout_s", self.sp_timeout, AppConfig.network_http_timeout_s()),
             ),
         )
-        bw = network.get("max_bandwidth_kbps", Config.network_max_bandwidth_kbps())
+        bw = network.get("max_bandwidth_kbps", AppConfig.network_max_bandwidth_kbps())
         self.sp_bandwidth.setValue(int(bw or 0))
+        selected_mode = str(browser_cookies.get("mode", AppConfig.browser_cookies_mode()) or "none").strip().lower()
+        selected_browser = str(
+            browser_cookies.get("browser", AppConfig.browser_cookie_browser_policy()) or LanguagePolicy.AUTO
+        ).strip().lower()
+        self._rebuild_browser_cookies_mode_combo(selected_mode)
+        self._rebuild_cookie_browser_combo(selected_browser)
+        _populate_combo_fields(
+            browser_cookies,
+            (
+                ("mode", self.cmb_browser_cookies_mode, AppConfig.browser_cookies_mode()),
+                ("browser", self.cmb_cookie_browser, AppConfig.browser_cookie_browser_policy()),
+            ),
+        )
+        self.ed_cookie_file_path.setText(str(browser_cookies.get("file_path") or AppConfig.browser_cookie_file_path()))
+        self._sync_browser_cookies_controls()
 
     def _collect_payload(self) -> dict[str, Any]:
         return {
@@ -1789,11 +1964,12 @@ class SettingsPanel(QtWidgets.QWidget):
             "transcription": self._collect_transcription_payload(),
             "translation": self._collect_translation_payload(),
             "downloader": self._collect_downloader_payload(),
+            "browser_cookies": self._collect_browser_cookies_payload(),
             "network": self._collect_network_payload(),
         }
 
     def _collect_app_payload(self) -> dict[str, Any]:
-        payload = collect_combo_fields(
+        payload = _collect_combo_fields(
             (
                 ("language", self.cmb_app_language, LanguagePolicy.AUTO),
                 ("theme", self.cmb_app_theme, LanguagePolicy.AUTO),
@@ -1809,13 +1985,13 @@ class SettingsPanel(QtWidgets.QWidget):
             },
         })
         payload["logging"] = {
-            **collect_toggle_fields((("enabled", self.tg_log_enabled),)),
-            **collect_combo_fields((("level", self.cmb_log_level, "warning"),)),
+            **_collect_toggle_fields((("enabled", self.tg_log_enabled),)),
+            **_collect_combo_fields((("level", self.cmb_log_level, "warning"),)),
         }
         return payload
 
     def _collect_engine_payload(self) -> dict[str, Any]:
-        payload = collect_combo_fields(
+        payload = _collect_combo_fields(
             (
                 ("preferred_device", self.cmb_engine_device, LanguagePolicy.AUTO),
                 ("precision", self.cmb_engine_precision, LanguagePolicy.AUTO),
@@ -1823,7 +1999,7 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         payload["fp32_math_mode"] = "tf32" if self.tg_fp32_math_mode.is_first_checked() else "ieee"
         payload.update(
-            collect_toggle_fields(
+            _collect_toggle_fields(
                 (
                     ("low_cpu_mem_usage", self.tg_low_cpu_mem),
                 ),
@@ -1849,13 +2025,13 @@ class SettingsPanel(QtWidgets.QWidget):
             else self._translation_custom_cfg()
         )
         transcription_model = {
-            **collect_combo_fields(
+            **_collect_combo_fields(
                 (
                     ("engine_name", self.cmb_trans_engine, "none"),
                     ("profile", self.cmb_transcription_profile, RuntimeProfiles.TRANSCRIPTION_DEFAULT_PROFILE),
                 ),
             ),
-            **collect_toggle_fields(
+            **_collect_toggle_fields(
                 (("ignore_warning", self.tg_ignore_warning),),
             ),
             "advanced": transcription_advanced,
@@ -1863,7 +2039,7 @@ class SettingsPanel(QtWidgets.QWidget):
         return {
             "transcription_model": transcription_model,
             "translation_model": {
-                **collect_combo_fields(
+                **_collect_combo_fields(
                     (
                         ("engine_name", self.cmb_tr_engine, "none"),
                         ("profile", self.cmb_translation_profile, RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),
@@ -1871,7 +2047,7 @@ class SettingsPanel(QtWidgets.QWidget):
                 ),
                 **cast(
                     dict[str, Any],
-                    collect_spin_fields(
+                    _collect_spin_fields(
                         (
                             ("max_new_tokens", self.sp_tr_max_tokens),
                             ("chunk_max_chars", self.sp_tr_chunk_chars),
@@ -1897,7 +2073,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _collect_downloader_payload(self) -> dict[str, Any]:
         return cast(
             dict[str, Any],
-            collect_spin_fields(
+            _collect_spin_fields(
                 (
                     ("min_video_height", self.sp_min_height),
                     ("max_video_height", self.sp_max_height),
@@ -1905,10 +2081,20 @@ class SettingsPanel(QtWidgets.QWidget):
             ),
         )
 
+    def _collect_browser_cookies_payload(self) -> dict[str, Any]:
+        payload = _collect_combo_fields(
+            (
+                ("mode", self.cmb_browser_cookies_mode, AppConfig.browser_cookies_mode()),
+                ("browser", self.cmb_cookie_browser, AppConfig.browser_cookie_browser_policy()),
+            ),
+        )
+        payload["file_path"] = str(self.ed_cookie_file_path.text() or "").strip()
+        return payload
+
     def _collect_network_payload(self) -> dict[str, Any]:
         return cast(
             dict[str, Any],
-            collect_spin_fields(
+            _collect_spin_fields(
                 (
                     ("retries", self.sp_retries),
                     ("max_bandwidth_kbps", self.sp_bandwidth),
@@ -1927,6 +2113,67 @@ class SettingsPanel(QtWidgets.QWidget):
             if self._get_nested(current, path) != self._get_nested(updated, path):
                 return True
         return False
+
+    def _sync_browser_cookies_controls(self) -> None:
+        mode = str(self.cmb_browser_cookies_mode.currentData() or "none").strip().lower()
+        browser_enabled = bool(mode == "from_browser")
+        file_enabled = bool(mode == "from_file")
+        if self._cookie_browser_row is not None:
+            self._set_row_control_enabled(self._cookie_browser_row, browser_enabled, control=self.cmb_cookie_browser)
+        if self._cookie_file_row is not None:
+            self._set_row_control_enabled(self._cookie_file_row, file_enabled, control=self.ed_cookie_file_path)
+        self.btn_cookie_file_browse.setEnabled(file_enabled)
+
+    def _on_browser_cookies_mode_changed(self) -> None:
+        self._sync_browser_cookies_controls()
+        self._mark_dirty()
+
+    def _on_cookie_browser_changed(self) -> None:
+        self._sync_browser_cookies_controls()
+        self._mark_dirty()
+
+    def _on_cookie_file_path_changed(self) -> None:
+        self._sync_browser_cookies_controls()
+        self._mark_dirty()
+
+    def _browse_cookie_file(self) -> None:
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            tr("settings.browser_cookies.file_path.dialog_title"),
+            str(Path(self.ed_cookie_file_path.text()).parent) if self.ed_cookie_file_path.text().strip() else "",
+            tr("settings.browser_cookies.file_path.dialog_filter"),
+        )
+        selected_path = str(file_path or "").strip()
+        if not selected_path:
+            return
+        self.ed_cookie_file_path.setText(selected_path)
+
+    def _rebuild_cookie_browser_combo(self, selected_browser: str | None = None) -> None:
+        current_browser = str(
+            selected_browser or self.cmb_cookie_browser.currentData() or LanguagePolicy.AUTO
+        ).strip().lower() or LanguagePolicy.AUTO
+        detected_browsers = {str(browser or "").strip().lower() for browser in available_cookie_browsers()}
+        browsers: list[str] = []
+        for browser in DownloadPolicy.COOKIE_BROWSERS:
+            if browser in detected_browsers:
+                browsers.append(browser)
+                continue
+            if browser == current_browser and DownloadPolicy.is_supported_cookie_browser(current_browser):
+                browsers.append(browser)
+
+        self.cmb_cookie_browser.blockSignals(True)
+        try:
+            self.cmb_cookie_browser.clear()
+            self._add_combo_option(self.cmb_cookie_browser, "common.auto", LanguagePolicy.AUTO)
+            for browser in browsers:
+                self._add_combo_option(
+                    self.cmb_cookie_browser,
+                    f"settings.browser_cookies.browser.{browser}",
+                    browser,
+                )
+            set_combo_data(self.cmb_cookie_browser, current_browser, fallback_data=LanguagePolicy.AUTO)
+        finally:
+            self.cmb_cookie_browser.blockSignals(False)
 
     @staticmethod
     def _get_nested(d: dict[str, Any], path: tuple[str, ...]) -> Any:
@@ -1964,14 +2211,31 @@ class SettingsPanel(QtWidgets.QWidget):
         if idx_auto >= 0:
             self.cmb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
 
-        auto_dev = Config.auto_device_key()
+        auto_dev = AppConfig.auto_device_key()
         resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
         idx_auto = self.cmb_engine_device.findData(LanguagePolicy.AUTO)
         if idx_auto >= 0:
             self.cmb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
 
+        resolved_browser = resolve_effective_cookie_browser(DownloadPolicy.COOKIE_BROWSER_AUTO)
+        resolved_browser_label = ""
+        if resolved_browser:
+            resolved_browser_key = f"settings.browser_cookies.browser.{resolved_browser}"
+            resolved_browser_label = tr(resolved_browser_key)
+            if resolved_browser_label == resolved_browser_key:
+                resolved_browser_label = str(resolved_browser or "").strip().title()
+        auto_label = tr("common.auto")
+        if auto_label == "common.auto":
+            auto_label = "Auto"
+        idx_auto = self.cmb_cookie_browser.findData(LanguagePolicy.AUTO)
+        if idx_auto >= 0:
+            label = auto_label
+            if resolved_browser_label:
+                label = f"{auto_label} ({resolved_browser_label})"
+            self.cmb_cookie_browser.setItemText(idx_auto, label)
+
         try:
-            auto_precision = Config.auto_precision_key()
+            auto_precision = AppConfig.auto_precision_key()
             if auto_precision == "bfloat16":
                 resolved_precision_text = tr("settings.engine.precision.bfloat16")
             elif auto_precision == "float16":
@@ -1986,8 +2250,8 @@ class SettingsPanel(QtWidgets.QWidget):
             return
 
     def _populate_model_engines(self) -> None:
-        trans_names = ModelResolutionService.local_model_names_for_task("transcription")
-        tr_names = ModelResolutionService.local_model_names_for_task("translation")
+        trans_names = EngineResolver.local_model_names_for_task("transcription")
+        tr_names = EngineResolver.local_model_names_for_task("translation")
 
         self.cmb_trans_engine.blockSignals(True)
         try:
@@ -2016,7 +2280,7 @@ class SettingsPanel(QtWidgets.QWidget):
             self.cmb_tr_engine.blockSignals(False)
 
     def _refresh_runtime_capabilities(self) -> None:
-        caps = Config.runtime_capabilities()
+        caps = AppConfig.runtime_capabilities()
         has_cuda = bool(caps.get("has_cuda", False))
         bf16_supported = bool(caps.get("bf16_supported", False))
 
@@ -2052,7 +2316,7 @@ class SettingsPanel(QtWidgets.QWidget):
             set_combo_data(self.cmb_engine_precision, LanguagePolicy.AUTO, fallback_data=LanguagePolicy.AUTO)
 
         cur_dev = str(self.cmb_engine_device.currentData() or LanguagePolicy.AUTO)
-        fp32_mode_allowed = Config.is_fp32_math_mode_applicable(cur_dev, cur_prec)
+        fp32_mode_allowed = AppConfig.is_fp32_math_mode_applicable(cur_dev, cur_prec)
         self._set_row_control_enabled(
             getattr(self, "_row_fp32_math_mode", None),
             fp32_mode_allowed,

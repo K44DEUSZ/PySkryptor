@@ -1,11 +1,12 @@
 # app/view/components/choice_toggle.py
 from __future__ import annotations
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
 from app.view.support.widget_effects import repolish_widget
-from app.view.support.widget_setup import set_widget_style_role
+from app.view.support.widget_setup import set_interactive_cursor, set_widget_style_role
 from app.view.ui_config import ui
+
 
 class ChoiceToggle(QtWidgets.QWidget):
     """Two-option segmented toggle."""
@@ -34,7 +35,7 @@ class ChoiceToggle(QtWidgets.QWidget):
 
         for b in (self._btn_first, self._btn_second):
             b.setCheckable(True)
-            b.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
+            set_interactive_cursor(b)
             b.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
             b.setFixedHeight(h)
             b.setMinimumWidth(cfg.control_min_w)

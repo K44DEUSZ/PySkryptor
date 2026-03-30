@@ -9,9 +9,11 @@ from PyQt5 import QtCore
 
 from app.controller.support.cancellation import CancellationToken
 from app.controller.workers.task_worker import TaskWorker
-from app.model.io.media_probe import MediaProbeService
+from app.model.download.service import DownloadService
+from app.model.sources.probe import MediaProbeReader
 
 _LOG = logging.getLogger(__name__)
+
 
 class MediaProbeWorker(TaskWorker):
     """Background worker that probes queued local or remote media entries."""
@@ -31,7 +33,7 @@ class MediaProbeWorker(TaskWorker):
         super().cancel()
 
     def _execute(self) -> None:
-        svc = MediaProbeService()
+        svc = MediaProbeReader(DownloadService())
 
         out: list[dict[str, Any]] = []
         for ent in self._entries:

@@ -7,10 +7,10 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.workers.task_worker import TaskWorker
-from app.model.config.app_config import AppConfig as Config
-from app.model.domain.entities import SettingsSnapshot
-from app.model.domain.errors import AppError
-from app.model.services.settings_service import SettingsService
+from app.model.core.config.config import AppConfig
+from app.model.core.domain.entities import SettingsSnapshot
+from app.model.core.domain.errors import AppError
+from app.model.settings.service import SettingsService
 
 _LOG = logging.getLogger(__name__)
 
@@ -60,6 +60,6 @@ class SettingsWorker(TaskWorker):
     @staticmethod
     def _apply_runtime_snapshot(snap: SettingsSnapshot) -> None:
         try:
-            Config.initialize_from_snapshot(snap)
+            AppConfig.initialize_from_snapshot(snap)
         except (AttributeError, RuntimeError, TypeError, ValueError):
             _LOG.debug("Settings runtime snapshot apply skipped.", exc_info=True)

@@ -6,8 +6,8 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.workers.task_worker import TaskWorker
-from app.model.domain.results import SourceExpansionResult
-from app.model.services.source_expansion_service import SourceExpansionService
+from app.model.core.domain.results import SourceExpansionResult
+from app.model.sources.service import SourceExpansionService
 
 
 class SourceExpansionWorker(TaskWorker):

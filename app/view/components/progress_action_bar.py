@@ -7,6 +7,7 @@ from app.view.support.widget_effects import sync_progress_text_role
 from app.view.support.widget_setup import build_layout_host, setup_button, setup_layout
 from app.view.ui_config import ui
 
+
 class ProgressActionBar(QtWidgets.QWidget):
     """Reusable row: progress bar + two action buttons."""
 

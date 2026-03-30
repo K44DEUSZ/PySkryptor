@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from app.model.core.config.meta import AppMeta
+from app.model.core.runtime.localization import tr
 from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
 from app.view.support.widget_effects import (
     apply_floating_shadow,
@@ -12,11 +14,9 @@ from app.view.support.widget_effects import (
 )
 from app.view.ui_config import ui
 
-from app.model.services.localization_service import tr
-from app.model.config.app_meta import AppMeta
-
 _LOADING_LOGO_WIDTH_RATIO = 0.74
 _LOADING_LOGO_HEIGHT_RATIO = 0.34
+
 
 class LoadingScreenWidget(QtWidgets.QWidget):
     """Splash-like loading screen shown during app startup."""

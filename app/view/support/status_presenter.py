@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from app.model.services.localization_service import tr
+from app.model.core.runtime.localization import tr
 
 _DISPLAY_STATUS_ALIASES = {
     "status.probing": "status.processing",
@@ -61,6 +61,7 @@ class RuntimePresentation:
 
 
 def normalize_status_base_key(status: str) -> str:
+    """Strip transient progress suffixes from a status key."""
     try:
         return re.sub(r"\s*\(\d+%\)\s*$", "", str(status or "")).strip()
     except (TypeError, ValueError):
@@ -68,23 +69,28 @@ def normalize_status_base_key(status: str) -> str:
 
 
 def present_status_key(status_key: str) -> str:
+    """Map a raw status key to its display-facing alias."""
     key = normalize_status_base_key(status_key)
     return _DISPLAY_STATUS_ALIASES.get(key, key)
 
 
 def is_terminal_status(status_key: str) -> bool:
+    """Return whether the status represents terminal work."""
     return present_status_key(status_key) in _TERMINAL_STATUS_KEYS
 
 
 def is_progress_status(status_key: str) -> bool:
+    """Return whether the status should surface percentage progress."""
     return present_status_key(status_key) in _PROGRESS_STATUS_KEYS
 
 
 def is_active_work_status(status_key: str) -> bool:
+    """Return whether the status represents ongoing work."""
     return present_status_key(status_key) in _ACTIVE_WORK_STATUS_KEYS
 
 
 def status_display_text(status_key: str, fallback: str = "") -> str:
+    """Resolve display text for a status key or fallback value."""
     key = present_status_key(status_key)
     if str(key or "").startswith("status."):
         return tr(key)
@@ -92,6 +98,7 @@ def status_display_text(status_key: str, fallback: str = "") -> str:
 
 
 def compose_status_text(status_key: str, pct: int | None = None, *, fallback: str = "") -> str:
+    """Compose localized status text with an optional percentage suffix."""
     text = status_display_text(status_key, fallback)
     if text and pct is not None and 0 <= int(pct) < 100 and is_progress_status(status_key):
         return f"{text} ({int(pct)}%)"
@@ -99,6 +106,7 @@ def compose_status_text(status_key: str, pct: int | None = None, *, fallback: st
 
 
 def display_texts_for_statuses(keys: Iterable[str]) -> list[str]:
+    """Resolve display labels for a sequence of status keys."""
     out: list[str] = []
     for key in keys:
         text = status_display_text(key, key)
@@ -115,6 +123,7 @@ def build_static_runtime_presentation(
     status_key: str = "",
     icon_name: str = "",
 ) -> RuntimePresentation:
+    """Build a normalized runtime presentation from fixed values."""
     value = str(text or "")
     tip = str(tooltip or value or "")
     return RuntimePresentation(
@@ -132,6 +141,7 @@ def runtime_error_text(
     *,
     fallback: str = "",
 ) -> str:
+    """Resolve localized runtime error text with a fallback."""
     key = str(error_key or "").strip()
     if not key:
         return str(fallback or "")
@@ -158,6 +168,7 @@ def build_runtime_presentation(
     error_status_key: str = "status.error",
     icon_names: dict[str, str] | None = None,
 ) -> RuntimePresentation:
+    """Resolve a runtime presentation from readiness, disabled, and error state."""
     names = dict(_DEFAULT_RUNTIME_ICON_NAMES)
     if isinstance(icon_names, dict):
         names.update({str(k): str(v) for k, v in icon_names.items() if str(k).strip() and str(v).strip()})

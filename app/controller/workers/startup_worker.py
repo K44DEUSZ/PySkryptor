@@ -9,21 +9,25 @@ from typing import Any, Callable
 from PyQt5 import QtCore
 
 from app.controller.workers.task_worker import TaskWorker
-from app.model.domain.errors import AppError
-from app.model.domain.runtime_state import AppRuntimeState
-from app.model.io.file_manager import FileManager
-from app.model.services.ai_models_service import AIModelsService, ModelNotInstalledError
-from app.model.services.settings_service import RuntimeConfigService
+from app.model.core.domain.errors import AppError
+from app.model.core.domain.state import AppRuntimeState
+from app.model.core.runtime.ffmpeg import setup_ffmpeg_runtime
+from app.model.core.utils.path_utils import clear_temp_dir
+from app.model.engines.service import AIModelsService, ModelNotInstalledError
 
 _LOG = logging.getLogger(__name__)
 
 ProgressCb = Callable[[int], None]
 TaskFn = Callable[["_StartupRuntime", ProgressCb, AppRuntimeState], AppRuntimeState]
 
+
 @dataclass(frozen=True)
 class _StartupRuntime:
+    """Shared immutable startup inputs reused across all startup tasks."""
+
     config_cls: Any
     snap: Any
+
 
 @dataclass(frozen=True)
 class StartupTask:
@@ -37,6 +41,7 @@ class StartupTask:
 
     def run(self, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
         return self.fn(self.runtime, progress, state)
+
 
 def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     config_cls = runtime.config_cls
@@ -66,12 +71,13 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: Ap
     progress(100)
     return replace(state, settings_snapshot=snap)
 
+
 def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     config_cls = runtime.config_cls
     config_cls.ensure_dirs()
     try:
-        FileManager.clear_temp_dir(config_cls.PATHS.DOWNLOADS_TMP_DIR)
-        FileManager.clear_temp_dir(config_cls.PATHS.TRANSCRIPTIONS_TMP_DIR)
+        clear_temp_dir(config_cls.PATHS.DOWNLOADS_TMP_DIR)
+        clear_temp_dir(config_cls.PATHS.TRANSCRIPTIONS_TMP_DIR)
         config_cls.PATHS.DOWNLOADS_TMP_DIR.mkdir(parents=True, exist_ok=True)
         config_cls.PATHS.TRANSCRIPTIONS_TMP_DIR.mkdir(parents=True, exist_ok=True)
         _LOG.debug(
@@ -84,11 +90,13 @@ def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, state: App
     progress(100)
     return state
 
+
 def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
-    RuntimeConfigService.setup_ffmpeg_on_path(runtime.config_cls)
+    setup_ffmpeg_runtime(runtime.config_cls)
     _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", getattr(runtime.config_cls.PATHS, "FFMPEG_BIN_DIR", ""))
     progress(100)
     return state
+
 
 def _warmup_model_runtime(
     state: AppRuntimeState,
@@ -158,6 +166,7 @@ def _warmup_model_runtime(
         )
         return next_state
 
+
 def _task_load_transcription_model(
     _runtime: _StartupRuntime,
     progress: ProgressCb,
@@ -178,6 +187,7 @@ def _task_load_transcription_model(
     progress(100)
     return next_state
 
+
 def _task_warmup_translation_model(
     _runtime: _StartupRuntime,
     progress: ProgressCb,
@@ -197,6 +207,7 @@ def _task_warmup_translation_model(
     progress(100)
     return next_state
 
+
 def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> list[StartupTask]:
     """Build the ordered startup task plan for the splash workflow."""
     runtime = _StartupRuntime(config_cls=config_cls, snap=snap)
@@ -213,6 +224,7 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> l
         ),
         StartupTask(label=labels["tr"], weight=3, min_display_ms=0, fn=_task_warmup_translation_model, runtime=runtime),
     ]
+
 
 class StartupWorker(TaskWorker):
     """Background worker that executes startup tasks and emits a ready runtime state."""

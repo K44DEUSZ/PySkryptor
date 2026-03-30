@@ -6,12 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-try:
-    from typing import TypeAlias
-except ImportError:  # pragma: no cover
-    TypeAlias = type
-
-LoggerLike: TypeAlias = Any
+LoggerLike = Any
 
 if __package__ in (None, ''):
     root_dir = Path(__file__).resolve().parents[1]
@@ -22,13 +17,18 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.coordinators.app_coordinator import AppCoordinator
 from app.controller.platform.logging_setup import LoggingSetup
-from app.model.config.app_config import AppConfig as Config
-from app.model.config.app_meta import AppMeta
-from app.model.domain.runtime_state import AppRuntimeState
-from app.model.services.localization_service import current_language, load, load_best, tr
-from app.model.services.settings_service import SettingsError, SettingsService
+from app.model.core.config.config import AppConfig
+from app.model.core.config.meta import AppMeta
+from app.model.core.domain.errors import AppError
+from app.model.core.domain.state import AppRuntimeState
+from app.model.core.runtime.localization import current_language, load, load_best, tr
+from app.model.core.runtime.platform import ensure_windows_platform
+from app.model.settings.resolution import build_welcome_dialog_payload
+from app.model.settings.service import SettingsService
+from app.model.settings.validation import SettingsError
 from app.view.components.loading_screen import LoadingScreenWidget
 from app.view.dialogs import (
+    ask_welcome_dialog,
     critical_config_load_failed_choice,
     critical_defaults_missing_and_exit,
     critical_locales_missing_and_exit,
@@ -106,7 +106,7 @@ def _create_application(argv: list[str] | None = None) -> QtWidgets.QApplication
 
 def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
     project_root = Path(__file__).resolve().parent.parent
-    Config.set_root_dir(project_root)
+    AppConfig.set_root_dir(project_root)
 
     try:
         app.setApplicationName(AppMeta.NAME)
@@ -120,18 +120,18 @@ def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
     except (RuntimeError, TypeError) as ex:
         _LOG.debug("Application ui_config property update skipped. detail=%s", ex)
 
-    _load_fonts(app, Config.PATHS.ASSETS_DIR / 'fonts')
+    _load_fonts(app, AppConfig.PATHS.ASSETS_DIR / 'fonts')
     return ui_cfg
 
 
 def _setup_logging() -> Any:
     bootstrap_file_enabled, bootstrap_level = LoggingSetup.read_bootstrap_settings(
-        Config.PATHS.DEFAULTS_FILE,
-        Config.PATHS.SETTINGS_FILE,
+        AppConfig.PATHS.DEFAULTS_FILE,
+        AppConfig.PATHS.SETTINGS_FILE,
     )
     log_ctx = LoggingSetup.setup(
-        Config.PATHS.APP_LOG_PATH,
-        Config.PATHS.CRASH_LOG_PATH,
+        AppConfig.PATHS.APP_LOG_PATH,
+        AppConfig.PATHS.CRASH_LOG_PATH,
         file_enabled=bootstrap_file_enabled,
         bootstrap_level=bootstrap_level,
     )
@@ -140,8 +140,8 @@ def _setup_logging() -> Any:
         'Startup logging settings resolved. level=%s file_enabled=%s settings_file=%s defaults_file=%s',
         bootstrap_level,
         bool(bootstrap_file_enabled),
-        Config.PATHS.SETTINGS_FILE,
-        Config.PATHS.DEFAULTS_FILE,
+        AppConfig.PATHS.SETTINGS_FILE,
+        AppConfig.PATHS.DEFAULTS_FILE,
     )
 
     try:
@@ -157,11 +157,25 @@ def _setup_logging() -> Any:
 
 def _load_startup_localization(logger: LoggerLike) -> bool:
     try:
-        load_best(Config.PATHS.LOCALES_DIR, system_first=False, fallback='en')
-        logger.debug('Startup localization loaded. locales_dir=%s', Config.PATHS.LOCALES_DIR)
+        load_best(AppConfig.PATHS.LOCALES_DIR, system_first=False, fallback='en')
+        logger.debug('Startup localization loaded. locales_dir=%s', AppConfig.PATHS.LOCALES_DIR)
         return True
     except (OSError, RuntimeError, TypeError, ValueError):
         critical_locales_missing_and_exit(None)
+        return False
+
+
+def _ensure_supported_platform(logger: LoggerLike) -> bool:
+    try:
+        ensure_windows_platform()
+        return True
+    except AppError as ex:
+        try:
+            detail = tr(ex.key, **(ex.params or {}))
+        except (RuntimeError, TypeError, ValueError, KeyError):
+            detail = str(ex.key)
+        logger.error("Unsupported runtime platform. detail=%s", detail)
+        critical_startup_error_and_exit(None, detail)
         return False
 
 
@@ -169,13 +183,13 @@ def _load_settings(service: SettingsService, logger: LoggerLike) -> Any | None:
     try:
         return service.load()
     except SettingsError as settings_ex:
-        settings_error_key = getattr(settings_ex, 'key', str(settings_ex))
+        settings_error_key = settings_ex.key
         if settings_error_key == 'error.settings.defaults_missing':
             critical_defaults_missing_and_exit(None)
             return None
 
         try:
-            detail = tr(settings_error_key, **(getattr(settings_ex, 'params', {}) or {}))
+            detail = tr(settings_error_key, **(settings_ex.params or {}))
         except (RuntimeError, TypeError, ValueError, KeyError):
             detail = str(settings_error_key)
 
@@ -212,14 +226,14 @@ def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
     lang_pref = str(snap.app.get('language', 'auto') or 'auto')
     try:
         if lang_pref.lower() == 'auto':
-            load_best(Config.PATHS.LOCALES_DIR, system_first=True, fallback='en')
+            load_best(AppConfig.PATHS.LOCALES_DIR, system_first=True, fallback='en')
         else:
-            load(Config.PATHS.LOCALES_DIR, lang_pref)
+            load(AppConfig.PATHS.LOCALES_DIR, lang_pref)
 
         logger.debug(
             'Application localization activated. language=%s locales_dir=%s',
             current_language(),
-            Config.PATHS.LOCALES_DIR,
+            AppConfig.PATHS.LOCALES_DIR,
         )
         return True
     except (OSError, RuntimeError, TypeError, ValueError):
@@ -230,9 +244,9 @@ def _activate_application_localization(snap: Any, logger: LoggerLike) -> bool:
 def _apply_theme(app: QtWidgets.QApplication, snap: Any, logger: Any) -> str:
     theme = system_theme_key(app)
     try:
-        theme = _apply_stylesheet(app, Config.PATHS.STYLES_DIR, str(snap.app.get('theme', 'auto') or 'auto'))
+        theme = _apply_stylesheet(app, AppConfig.PATHS.STYLES_DIR, str(snap.app.get('theme', 'auto') or 'auto'))
         _apply_palette(app, theme)
-        logger.debug('Application theme applied. theme=%s styles_dir=%s', theme, Config.PATHS.STYLES_DIR)
+        logger.debug('Application theme applied. theme=%s styles_dir=%s', theme, AppConfig.PATHS.STYLES_DIR)
     except (OSError, RuntimeError, TypeError, ValueError) as stylesheet_ex:
         logger.exception('Entrypoint stylesheet failed. detail=%s', stylesheet_ex)
     return theme
@@ -275,12 +289,42 @@ def _start_loading_screen(app: QtWidgets.QApplication) -> LoadingScreenWidget:
     return loading
 
 
+def _show_runtime_welcome_dialog(
+    app: QtWidgets.QApplication,
+    win: MainWindow,
+    settings_service: SettingsService,
+    logger: Any,
+) -> None:
+    if not AppConfig.ui_welcome_dialog_enabled():
+        return
+
+    accepted = ask_welcome_dialog(win)
+    if not accepted:
+        logger.debug("Startup welcome dialog rejected by user.")
+        try:
+            win.close()
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        app.quit()
+        return
+
+    try:
+        snap = settings_service.save(build_welcome_dialog_payload(show_on_startup=False))
+    except (OSError, RuntimeError, TypeError, ValueError, SettingsError) as ex:
+        logger.debug("Startup welcome preference save skipped. detail=%s", ex)
+        return
+
+    AppConfig.initialize_from_snapshot(snap)
+    logger.debug("Startup welcome dialog dismissed permanently.")
+
+
 def _start_startup(
     app: QtWidgets.QApplication,
     *,
     ui_cfg: UIConfig,
     snap: Any,
     logger: Any,
+    settings_service: SettingsService,
 ) -> int:
     loading = _start_loading_screen(app)
     logger.debug('Loading screen shown.')
@@ -311,12 +355,13 @@ def _start_startup(
             win = MainWindow(ui_cfg=ui_cfg)
             controller.bind_main_window(win)
             win.show()
-            live_has_audio = bool(getattr(getattr(win, 'live_panel', None), '_has_audio_devices', False))
+            live_panel = win.live_panel
+            live_has_audio = bool(live_panel.has_audio_devices()) if live_panel is not None else False
             logger.debug(
                 'Startup context ready. asr_ready=%s translation_ready=%s network_status=%s microphones_detected=%s',
                 bool(runtime_state.transcription_ready),
                 bool(runtime_state.translation_ready),
-                getattr(win, 'network_status', lambda: 'checking')(),
+                win.network_status(),
                 live_has_audio,
             )
         except (OSError, RuntimeError, TypeError, ValueError, AttributeError) as ready_ex:
@@ -327,6 +372,7 @@ def _start_startup(
 
         loading.finish()
         loading.deleteLater()
+        QtCore.QTimer.singleShot(0, lambda: _show_runtime_welcome_dialog(app, win, settings_service, logger))
 
     def _connect_worker(startup_worker: Any) -> None:
         startup_worker.status.connect(_on_status)
@@ -334,7 +380,7 @@ def _start_startup(
         startup_worker.failed.connect(_on_failed)
         startup_worker.ready.connect(_on_ready)
 
-    worker = startup.build_and_start(Config, snap, labels, connect=_connect_worker)
+    worker = startup.build_and_start(AppConfig, snap, labels, connect=_connect_worker)
     if worker is None:
         logger.error('Entrypoint startup worker could not be scheduled. reason=busy')
         loading.finish()
@@ -352,12 +398,15 @@ def run(argv: list[str] | None = None) -> int:
     log_ctx = _setup_logging()
     if not _load_startup_localization(_LOG):
         return 1
+    if not _ensure_supported_platform(_LOG):
+        return 1
 
     settings_service = SettingsService()
     snap = _load_settings(settings_service, _LOG)
     if snap is None:
         return 1
 
+    AppConfig.initialize_from_snapshot(snap)
     _apply_logging_settings(log_ctx, snap)
 
     _LOG.debug(
@@ -373,7 +422,8 @@ def run(argv: list[str] | None = None) -> int:
     _apply_window_icon(app, theme)
     _clamp_third_party_logging(_LOG)
 
-    return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=_LOG)
+    snap = AppConfig.SETTINGS or snap
+    return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=_LOG, settings_service=settings_service)
 
 
 if __name__ == '__main__':

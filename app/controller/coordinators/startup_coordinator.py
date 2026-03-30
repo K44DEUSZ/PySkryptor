@@ -6,7 +6,8 @@ from typing import Any, Callable
 from PyQt5 import QtCore
 
 from app.controller.workers.startup_worker import StartupWorker, build_startup_tasks
-from app.controller.workers.task_thread_runner import TaskThreadRunner
+from app.controller.workers.worker_runner import WorkerRunner
+
 
 class StartupCoordinator(QtCore.QObject):
     """Owns startup worker wiring for bootstrap and loading-screen flows."""
@@ -15,7 +16,7 @@ class StartupCoordinator(QtCore.QObject):
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self._runner = TaskThreadRunner(self)
+        self._runner = WorkerRunner(self)
         self._worker: StartupWorker | None = None
 
     def is_busy(self) -> bool:

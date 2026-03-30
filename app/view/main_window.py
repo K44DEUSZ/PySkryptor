@@ -2,23 +2,59 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from typing import Protocol
 
-from PyQt5 import QtCore, QtGui, QtWidgets, QtNetwork
+from PyQt5 import QtCore, QtGui, QtNetwork, QtWidgets
 
-from app.controller.contracts import (
+from app.controller.panel_protocols import (
     DownloaderPanelViewProtocol,
     FilesPanelViewProtocol,
     LivePanelViewProtocol,
     SettingsPanelViewProtocol,
 )
-from app.model.config.app_meta import AppMeta
-from app.view.panels.tab_specs import PanelTabSpec, build_main_tab_specs
+from app.model.core.config.meta import AppMeta
+from app.model.core.runtime.localization import tr
+from app.view.panels.about_panel import AboutPanel
+from app.view.panels.downloader_panel import DownloaderPanel
+from app.view.panels.files_panel import FilesPanel
+from app.view.panels.live_panel import LivePanel
+from app.view.panels.settings_panel import SettingsPanel
 from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
-from app.view.support.view_runtime import normalize_network_status
+from app.view.support.host_runtime import normalize_network_status
 from app.view.support.widget_effects import enable_styled_background
+from app.view.support.widget_setup import set_passive_cursor
 from app.view.ui_config import UIConfig, ui
 
 _LOG = logging.getLogger(__name__)
+
+
+class _PanelFactory(Protocol):
+    """Callable factory used by MainWindow to build one panel instance."""
+
+    def __call__(self, parent: QtWidgets.QWidget | None) -> QtWidgets.QWidget: ...
+
+@dataclass(frozen=True)
+class _PanelTabSpec:
+    """Immutable tab descriptor used to build the main window panels."""
+
+    key: str
+    title_key: str
+    factory: _PanelFactory
+
+    def title(self) -> str:
+        return tr(self.title_key)
+
+def _build_main_tab_specs() -> tuple[_PanelTabSpec, ...]:
+    """Return the ordered tab specifications for the main window."""
+
+    return (
+        _PanelTabSpec(key='files', title_key='tabs.files', factory=FilesPanel),
+        _PanelTabSpec(key='live', title_key='tabs.live', factory=LivePanel),
+        _PanelTabSpec(key='downloader', title_key='tabs.downloader', factory=DownloaderPanel),
+        _PanelTabSpec(key='settings', title_key='tabs.settings', factory=SettingsPanel),
+        _PanelTabSpec(key='about', title_key='tabs.about', factory=AboutPanel),
+    )
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window hosting the primary panels."""
@@ -60,6 +96,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setObjectName('MainTabs')
         enable_styled_background(self.tabs)
+        set_passive_cursor(central)
+        set_passive_cursor(self.tabs)
         root.addWidget(self.tabs)
 
         self.files_panel: FilesPanelViewProtocol | None = None
@@ -85,13 +123,13 @@ class MainWindow(QtWidgets.QMainWindow):
         return str(self._network_status or 'checking')
 
     def _build_tabs(self) -> None:
-        for spec in build_main_tab_specs():
+        for spec in _build_main_tab_specs():
             panel = self._create_panel(spec)
             self._panels[spec.key] = panel
             setattr(self, f'{spec.key}_panel', panel)
             self.tabs.addTab(panel, spec.title())
 
-    def _create_panel(self, spec: PanelTabSpec) -> QtWidgets.QWidget:
+    def _create_panel(self, spec: _PanelTabSpec) -> QtWidgets.QWidget:
         return spec.factory(self)
 
     def _apply_window_icon(self) -> None:

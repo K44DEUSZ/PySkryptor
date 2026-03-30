@@ -3,22 +3,21 @@ from __future__ import annotations
 
 import html
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.view.components.section_group import SectionGroup
-from app.model.config.app_config import AppConfig as Config
-from app.model.config.app_meta import AppMeta
-from app.model.services.localization_service import tr
+from app.model.core.config.config import AppConfig
+from app.model.core.config.meta import AppMeta
+from app.model.core.runtime.localization import tr
 from app.view import dialogs
+from app.view.components.section_group import SectionGroup
 from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
-from app.view.support.view_runtime import open_local_path
+from app.view.support.host_runtime import open_local_path
 from app.view.support.widget_effects import enable_styled_background
-from app.view.support.widget_setup import setup_layout
+from app.view.support.widget_setup import set_passive_cursor, setup_layout
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
@@ -26,6 +25,7 @@ _LOG = logging.getLogger(__name__)
 _ABOUT_LOGO_WIDTH_RATIO = 0.42
 _ABOUT_LOGO_HEIGHT_RATIO = 0.55
 _ABOUT_LEFT_PANEL_MAX_RATIO = 0.45
+
 
 class AboutPanel(QtWidgets.QWidget):
     """About view with app metadata, scalable logo and local license link."""
@@ -36,6 +36,7 @@ class AboutPanel(QtWidgets.QWidget):
         self.setProperty("uiRole", "page")
         enable_styled_background(self)
         self._ui = ui(self)
+        set_passive_cursor(self)
         self._license_browser: QtWidgets.QTextBrowser | None = None
         self._logo: LogoSvgLabel | None = None
         self._left: QtWidgets.QWidget | None = None
@@ -203,7 +204,7 @@ class AboutPanel(QtWidgets.QWidget):
 
     @staticmethod
     def _resolve_license_path() -> Path | None:
-        path = Path(Config.PATHS.LICENSE_FILE)
+        path = Path(AppConfig.PATHS.LICENSE_FILE)
         if path.exists():
             return path
         return None
@@ -239,7 +240,7 @@ class AboutPanel(QtWidgets.QWidget):
             return False
 
         target = Path(path).resolve()
-        if os.name != "nt" or target.suffix:
+        if target.suffix:
             return open_local_path(target)
         return open_local_path(target) or AboutPanel._open_extensionless_text_file(target)
 

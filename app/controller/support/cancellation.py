@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PyQt5 import QtCore
 
+
 class CancellationToken(QtCore.QObject):
     """Tiny cancellation flag that also emits a Qt signal when cancelled."""
     cancelled = QtCore.pyqtSignal()

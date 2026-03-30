@@ -46,7 +46,8 @@
     },
     "enable": "Włącz",
     "disable": "Wyłącz",
-    "inherit": "Dziedzicz z profilu"
+    "inherit": "Dziedzicz z profilu",
+    "browse": "Przeglądaj..."
   },
   "ctrl": {
     "add": "Dodaj +",
@@ -167,6 +168,17 @@
         "text": "Plik „{title}” już istnieje w pobraniach.\nCo chcesz zrobić?",
         "title": "Konflikt pobierania",
         "header": "Plik już istnieje"
+      },
+      "cookies": {
+        "title": "Ciasteczka przeglądarki są niedostępne",
+        "header": "Nie udało się odczytać ciasteczek z przeglądarki {browser}",
+        "text": "Zamknij przeglądarkę i spróbuj ponownie albo kontynuuj bez cookies tylko dla tej operacji.",
+        "retry": "Ponów po zamknięciu przeglądarki",
+        "without": "Kontynuuj bez cookies",
+        "browser_fallback": "wybrana przeglądarka",
+        "use_file": "Użyj pliku cookies...",
+        "file_title": "Wybierz plik cookies",
+        "file_filter": "Pliki cookies (*.txt *.sqlite *.db);;Wszystkie pliki (*.*)"
       }
     },
     "confirm": {
@@ -174,6 +186,24 @@
     },
     "settings": {
       "title": "Ustawienia"
+    },
+    "welcome": {
+      "title": "Witamy",
+      "header": "PySkryptor",
+      "meta_version": "Wersja: {version}",
+      "meta_author": "Autor: {author}",
+      "meta_years": "Lata rozwoju: {years}",
+      "text": "{name} to aplikacja do transkrypcji audio i wideo oraz pracy na źródłach wskazanych przez użytkownika. Program pomaga przygotowywać transkrypcje i porządkować materiały w jednym środowisku pracy.",
+      "disclaimer": "Korzystaj wyłącznie z takich źródeł, do których masz odpowiednie prawa albo inną podstawę korzystania. Użytkownik odpowiada za zgodność sposobu użycia programu z prawem, licencjami oraz zasadami usług zewnętrznych.",
+      "accept": "Rozumiem",
+      "reject": "Wyjdź z programu"
+    },
+    "source_rights_notice": {
+      "title": "Dodawanie źródła sieciowego",
+      "header": "Sprawdź prawa do źródła przed dodaniem",
+      "text": "Dodawaj tylko takie źródła sieciowe, do których masz prawa albo inną podstawę korzystania. Szanuj licencje, regulaminy usług i ograniczenia dostępu.",
+      "disclaimer": "Nie obchodź zabezpieczeń technicznych. Jeśli materiał zawiera dane osobowe, upewnij się, że masz podstawę do ich przetwarzania.",
+      "dont_show_again": "Nie pokazuj ponownie"
     }
   },
   "down": {
@@ -244,7 +274,11 @@
       "network_offline": "❌ Brak połączenia z siecią.",
       "network_timeout": "❌ Upłynął limit czasu połączenia ze źródłem.",
       "network_unreachable": "❌ Sieć jest nieosiągalna.",
-      "probe_failed": "❌ Nie udało się przeanalizować multimediów. Szczegóły: {detail}"
+      "probe_failed": "❌ Nie udało się przeanalizować multimediów. Szczegóły: {detail}",
+      "browser_cookies_unavailable": "❌ Pliki cookies z przeglądarki są niedostępne. Szczegóły: {detail}",
+      "authentication_required": "❌ To źródło wymaga uwierzytelnienia. Szczegóły: {detail}",
+      "audio_track_probe_only": "❌ Wybrana ścieżka audio została wykryta tylko podczas analizy i nie może zostać stabilnie pobrana.",
+      "no_downloadable_formats": "❌ Brak dostępnych formatów multimediów do pobrania. Szczegóły: {detail}"
     },
     "external_tool_failed": "❌ Zewnętrzne narzędzie zakończyło się błędem. Polecenie: {cmd}",
     "external_tool_timeout": "❌ Zewnętrzne narzędzie przekroczyło limit czasu po {seconds} s.",
@@ -270,7 +304,8 @@
       "translation_missing": "⚠️ Model tłumaczenia nie jest zainstalowany."
     },
     "runtime": {
-      "settings_not_initialized": "⚠️ Ustawienia nie zostały zainicjalizowane."
+      "settings_not_initialized": "⚠️ Ustawienia nie zostały zainicjalizowane.",
+      "unsupported_platform": "⚠️ PySkryptor obsługuje obecnie wyłącznie system Windows. Wykryta platforma: {platform}."
     },
     "settings": {
       "defaults_missing": "⚠️ Brak pliku domyślnego: {path}",
@@ -508,6 +543,26 @@
       "max_video_height": "Maksymalna wysokość wideo",
       "min_video_height": "Minimalna wysokość wideo"
     },
+    "browser_cookies": {
+      "mode": {
+        "label": "Uwierzytelnienie pobierania",
+        "none": "Wyłączone",
+        "from_browser": "Z przeglądarki",
+        "from_file": "Z pliku"
+      },
+      "browser": {
+        "label": "Przeglądarka źródłowa",
+        "chrome": "Chrome",
+        "edge": "Edge",
+        "firefox": "Firefox",
+        "brave": "Brave"
+      },
+      "file_path": {
+        "label": "Plik cookies",
+        "dialog_title": "Wybierz plik cookies",
+        "dialog_filter": "Pliki cookies (*.txt *.sqlite *.db);;Wszystkie pliki (*.*)"
+      }
+    },
     "engine": {
       "device": {
         "auto": "Auto",
@@ -541,6 +596,8 @@
       "max_bandwidth_kbps": "Ogranicza maksymalną prędkość pobierania. Wartość 0 wyłącza limit.",
       "max_video_height": "Ogranicza wybór do wariantów nieprzekraczających wskazanej wysokości.",
       "min_video_height": "Pomija warianty wideo niższe od wskazanej wysokości.",
+      "browser_cookies_mode": "Określa, czy wspierane źródła pobierania mają działać bez cookies, z cookies przeglądarki lub — w trybie zaawansowanym — z wyeksportowanym plikiem cookies. Dla serwisów wymagających logowania wyeksportowany plik cookies bywa stabilniejszy niż odczyt żywego profilu przeglądarki.",
+      "browser_cookies_browser": "Wybiera przeglądarkę używaną jako źródło ciasteczek. Auto korzysta z pierwszej windowsowej przeglądarki z wykrytym, konkretnym magazynem cookies.",
       "precision_hint": "Precyzja określa format liczb używany przez model. Niższa precyzja zwykle przyspiesza działanie i zmniejsza zużycie pamięci, ale może zwiększyć ryzyko różnic numerycznych. Na CPU najbezpieczniejszym wyborem jest Float32, a na zgodnych GPU tryb Auto często wybiera BFloat16 lub Float16.",
       "retries": "Określa, ile razy ponawiać nieudane żądania sieciowe przed uznaniem operacji za nieudaną.",
       "stride_length": "Dodaje wspólny obszar między sąsiednimi fragmentami audio. Może poprawić ciągłość na granicach segmentów, ale zwiększa koszt obliczeń.",
@@ -566,7 +623,8 @@
       "translation_num_beams": "Określa liczbę wariantów równolegle rozważanych podczas beam search. Wyższa wartość zwykle poprawia jakość tłumaczenia, ale zwiększa czas generacji i zużycie pamięci.",
       "translation_no_repeat_ngram_size": "Blokuje ponowne użycie n-gramów o podanym rozmiarze w jednym wyniku tłumaczenia. Pomaga ograniczać zapętlenia i powtórzenia. Wartość 0 wyłącza to ograniczenie.",
       "transcription_profile": "Określa gotowy zestaw parametrów pracy modelu transkrypcji: długość okna analizy, wykorzystanie kontekstu, filtrowanie ciszy oraz sposób stabilizacji wykrywania języka. Profile wbudowane mają stałe parametry. Profil niestandardowy odblokowuje ich ręczną edycję.",
-      "translation_profile": "Określa zestaw parametrów dekodowania tłumaczenia: liczbę rozważanych wariantów, ochronę przed powtórzeniami oraz zachowanie dekodera. Profile wbudowane mają stałe parametry. Profil niestandardowy odblokowuje ich ręczną edycję."
+      "translation_profile": "Określa zestaw parametrów dekodowania tłumaczenia: liczbę rozważanych wariantów, ochronę przed powtórzeniami oraz zachowanie dekodera. Profile wbudowane mają stałe parametry. Profil niestandardowy odblokowuje ich ręczną edycję.",
+      "browser_cookies_file_path": "Ścieżka do wyeksportowanego pliku cookies używanego w zaawansowanym trybie uwierzytelnionych pobrań yt_dlp. Dla YouTube jest to stabilniejsza opcja, gdy dostęp do cookies przeglądarki jest blokowany albo rotowany."
     },
     "msg": {
       "saved": "✅ Ustawienia zostały zapisane."
@@ -668,7 +726,11 @@
     "listening": "🎧 Nasłuchiwanie…",
     "no_devices": "🎤❌ Brak mikrofonu",
     "notice": {
-      "metadata_incomplete": "Metadane niekompletne"
+      "metadata_incomplete": "Metadane niekompletne",
+      "browser_cookies_unavailable": "Pliki cookies przeglądarki są niedostępne",
+      "authentication_required": "Wymagane jest uwierzytelnienie",
+      "audio_tracks_probe_only": "Część wykrytych ścieżek audio jest tylko do analizy",
+      "media_unavailable": "Brak dostępnych formatów multimediów do pobrania"
     },
     "offline": "Offline",
     "paused": "⏸️ Wstrzymano",
