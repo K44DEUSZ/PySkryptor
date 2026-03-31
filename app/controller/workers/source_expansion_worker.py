@@ -25,6 +25,7 @@ class SourceExpansionWorker(AccessTaskWorker):
         self._origin_kind = str(origin_kind or "").strip().lower()
         self._browser_cookies_mode_override: str | None = None
         self._cookie_file_override: str | None = None
+        self._browser_policy_override: str | None = None
         self._access_mode_override: str | None = None
 
     def _emit_status(self, key: str, params: dict | None = None) -> None:
@@ -33,6 +34,7 @@ class SourceExpansionWorker(AccessTaskWorker):
     def _execute_manual_input(self, svc: SourceExpansionService) -> SourceExpansionResult:
         browser_cookies_mode_override = self._browser_cookies_mode_override
         cookie_file_override = self._cookie_file_override
+        browser_policy_override = self._browser_policy_override
         access_mode_override = self._access_mode_override
         while True:
             try:
@@ -40,26 +42,30 @@ class SourceExpansionWorker(AccessTaskWorker):
                     self._raw,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                     interactive=True,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 return result
             except SourceAccessInterventionRequired as ex:
-                browser_cookies_mode_override, cookie_file_override, access_mode_override = (
+                browser_cookies_mode_override, cookie_file_override, browser_policy_override, access_mode_override = (
                     self._next_access_intervention_overrides(
                         ex,
                         payload_key_name="source_key",
                         payload_key=self._raw,
                         browser_cookies_mode_override=browser_cookies_mode_override,
                         cookie_file_override=cookie_file_override,
+                        browser_policy_override=browser_policy_override,
                         access_mode_override=access_mode_override,
                     )
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 continue
             except DownloadError as ex:
@@ -69,22 +75,25 @@ class SourceExpansionWorker(AccessTaskWorker):
                     operation=DownloadPolicy.DOWNLOAD_OPERATION_PLAYLIST,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 if intervention is None:
                     raise
-                browser_cookies_mode_override, cookie_file_override, access_mode_override = (
+                browser_cookies_mode_override, cookie_file_override, browser_policy_override, access_mode_override = (
                     self._next_access_intervention_overrides(
                         intervention,
                         payload_key_name="source_key",
                         payload_key=self._raw,
                         browser_cookies_mode_override=browser_cookies_mode_override,
                         cookie_file_override=cookie_file_override,
+                        browser_policy_override=browser_policy_override,
                         access_mode_override=access_mode_override,
                     )
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 continue
 

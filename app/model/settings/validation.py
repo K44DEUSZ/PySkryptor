@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from app.model.core.config.config import AppConfig
@@ -467,18 +468,35 @@ def _validate_network(src: dict[str, Any], schema: dict[str, Any]) -> dict[str, 
 
 def _validate_browser_cookies(src: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     src = _merge(src, schema)
+    mode = _enum_str(
+        _schema_value(src, schema, "mode", DownloadPolicy.COOKIE_BROWSER_MODES[0]),
+        DownloadPolicy.COOKIE_BROWSER_MODES,
+        "browser_cookies.mode",
+    )
+    browser = _enum_str(
+        _schema_value(src, schema, "browser", DownloadPolicy.COOKIE_BROWSER_POLICIES[0]),
+        DownloadPolicy.COOKIE_BROWSER_POLICIES,
+        "browser_cookies.browser",
+    )
     file_path = str(_schema_value(src, schema, "file_path", "") or "").strip()
+    if mode == "from_file":
+        cookie_path = Path(file_path)
+        if not file_path:
+            raise SettingsError("error.settings.cookie_file_path_missing")
+        if not cookie_path.exists():
+            raise SettingsError("error.settings.cookie_file_missing", path=str(cookie_path))
+        if not cookie_path.is_file():
+            raise SettingsError("error.settings.cookie_file_not_file", path=str(cookie_path))
+        try:
+            with cookie_path.open("rb") as handle:
+                probe = handle.read(32)
+        except OSError as ex:
+            raise SettingsError("error.settings.cookie_file_unreadable", path=str(cookie_path), detail=str(ex)) from ex
+        if not probe:
+            raise SettingsError("error.settings.cookie_file_empty", path=str(cookie_path))
     return {
-        "mode": _enum_str(
-            _schema_value(src, schema, "mode", DownloadPolicy.COOKIE_BROWSER_MODES[0]),
-            DownloadPolicy.COOKIE_BROWSER_MODES,
-            "browser_cookies.mode",
-        ),
-        "browser": _enum_str(
-            _schema_value(src, schema, "browser", DownloadPolicy.COOKIE_BROWSER_POLICIES[0]),
-            DownloadPolicy.COOKIE_BROWSER_POLICIES,
-            "browser_cookies.browser",
-        ),
+        "mode": mode,
+        "browser": browser,
         "file_path": file_path,
     }
 

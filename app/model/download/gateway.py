@@ -662,6 +662,10 @@ class YtdlpGateway:
                                     source_kind="browser",
                                     source_label=browser,
                                     detail=detail,
+                                    browser_policy=str(browser or "").strip().lower(),
+                                    available_browser_policies=tuple(
+                                        str(item or "").strip().lower() for item in (cookie_browsers or ()) if item
+                                    ),
                                     can_retry=True,
                                     can_choose_cookie_file=True,
                                     can_continue_without_cookies=True,

@@ -15,6 +15,7 @@ from app.view.support.widget_effects import (
 from app.view.ui_config import ui
 
 _SHARED_HINT_POPUP: HintPopup | None = None
+_APP_TOOLTIP_FILTER: _ApplicationTooltipFilter | None = None
 _HINT_MAX_TEXT_W = 360
 
 
@@ -39,6 +40,60 @@ def hint_popup() -> "HintPopup":
     if _SHARED_HINT_POPUP is None:
         _SHARED_HINT_POPUP = HintPopup()
     return _SHARED_HINT_POPUP
+
+
+def hide_hint_popup() -> None:
+    hide_popup_widget(hint_popup())
+
+
+def install_application_tooltip_filter(app: QtWidgets.QApplication | None = None) -> None:
+    """Route widget tooltips through the shared hint popup instead of native Qt tooltips."""
+    global _APP_TOOLTIP_FILTER
+    qt_app = app or QtWidgets.QApplication.instance()
+    if not isinstance(qt_app, QtWidgets.QApplication):
+        return
+    if _APP_TOOLTIP_FILTER is not None:
+        return
+    _APP_TOOLTIP_FILTER = _ApplicationTooltipFilter(qt_app)
+    qt_app.installEventFilter(_APP_TOOLTIP_FILTER)
+
+
+class _ApplicationTooltipFilter(QtCore.QObject):
+    """Show the shared hint popup for standard QWidget tooltip requests."""
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+        widget = obj if isinstance(obj, QtWidgets.QWidget) else None
+        if widget is None:
+            return False
+
+        event_type = event.type()
+        if event_type == QtCore.QEvent.Type.ToolTip:
+            if bool(widget.property("customHintDisabled")):
+                hide_hint_popup()
+                return False
+
+            text = str(widget.toolTip() or "").strip()
+            if not text:
+                hide_hint_popup()
+                return False
+
+            hint_popup().show_for(widget, text)
+            event.accept()
+            return True
+
+        if event_type in {
+            QtCore.QEvent.Type.Leave,
+            QtCore.QEvent.Type.Hide,
+            QtCore.QEvent.Type.Close,
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QEvent.Type.Wheel,
+            QtCore.QEvent.Type.WindowDeactivate,
+            QtCore.QEvent.Type.ApplicationDeactivate,
+            QtCore.QEvent.Type.DeferredDelete,
+        }:
+            hide_hint_popup()
+
+        return False
 
 
 class HintPopup(QtWidgets.QWidget):

@@ -23,7 +23,12 @@ from app.model.download.domain import (
     SourceAccessContext,
 )
 from app.model.download.gateway import YtdlpGateway, YtdlpLogger
-from app.model.download.runtime import detect_extractor_capabilities, resolve_effective_cookie_browser
+from app.model.download.runtime import (
+    available_cookie_browsers,
+    detect_extractor_capabilities,
+    resolve_cookie_browser_candidates,
+    resolve_effective_cookie_browser,
+)
 from app.model.download.strategy import resolve_extractor_strategy, resolve_extractor_strategy_for_url
 
 _LOG = logging.getLogger(__name__)
@@ -52,6 +57,7 @@ class DownloadService:
         cancel_check: Callable[[], bool] | None = None,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
         interactive: bool = False,
     ) -> PlaylistResolveResult:
@@ -61,6 +67,7 @@ class DownloadService:
             operation=DownloadPolicy.DOWNLOAD_OPERATION_PLAYLIST,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
             interactive=interactive,
         )
@@ -197,6 +204,7 @@ class DownloadService:
         *,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
         interactive: bool = False,
     ) -> dict[str, Any]:
@@ -206,6 +214,7 @@ class DownloadService:
             operation=DownloadPolicy.DOWNLOAD_OPERATION_PROBE,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
             interactive=interactive,
         )
@@ -401,11 +410,19 @@ class DownloadService:
         *,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         interactive: bool = False,
     ) -> DownloadCookieContext:
         token = str(browser_cookies_mode_override or "").strip().lower()
         mode = token if token in DownloadPolicy.COOKIE_BROWSER_MODES else AppConfig.browser_cookies_mode()
-        browser_policy = AppConfig.browser_cookie_browser_policy() if mode == "from_browser" else ""
+        browser_policy = ""
+        if mode == "from_browser":
+            preferred_policy = str(browser_policy_override or "").strip().lower()
+            browser_policy = (
+                DownloadPolicy.normalize_cookie_browser_policy(preferred_policy)
+                if preferred_policy
+                else AppConfig.browser_cookie_browser_policy()
+            )
         cookie_file_path = ""
         if mode == "from_file":
             cookie_file_path = str(cookie_file_override or AppConfig.browser_cookie_file_path()).strip()
@@ -450,6 +467,7 @@ class DownloadService:
         operation: str,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
         interactive: bool = False,
     ) -> SourceAccessContext:
@@ -457,6 +475,7 @@ class DownloadService:
         cookie_context = DownloadService.resolve_cookie_context(
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             interactive=interactive,
         )
         extractor_context = DownloadService.resolve_extractor_access_context(
@@ -467,6 +486,53 @@ class DownloadService:
         return SourceAccessContext(
             cookie_context=cookie_context,
             extractor_context=extractor_context,
+        )
+
+    @staticmethod
+    def _available_cookie_browser_policies(context: DownloadCookieContext) -> tuple[str, ...]:
+        if context.mode != "from_browser":
+            return tuple()
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+
+        preferred = resolve_effective_cookie_browser(context.browser_policy)
+        if preferred and preferred not in seen:
+            ordered.append(preferred)
+            seen.add(preferred)
+
+        for browser in resolve_cookie_browser_candidates(context.browser_policy):
+            if browser and browser not in seen:
+                ordered.append(browser)
+                seen.add(browser)
+
+        for browser in available_cookie_browsers():
+            if browser and browser not in seen:
+                ordered.append(browser)
+                seen.add(browser)
+        return tuple(ordered)
+
+    @staticmethod
+    def _cookie_intervention_request(
+        context: DownloadCookieContext,
+        *,
+        detail: str,
+        can_retry: bool,
+        can_choose_cookie_file: bool = True,
+        can_continue_without_cookies: bool = True,
+    ) -> SourceAccessInterventionRequest:
+        return SourceAccessInterventionRequest(
+            kind="cookies",
+            source_kind="file" if context.mode == "from_file" else "browser",
+            source_label=DownloadService._cookie_source_label(context),
+            detail=str(detail or "").strip(),
+            browser_policy=(
+                resolve_effective_cookie_browser(context.browser_policy) if context.mode == "from_browser" else ""
+            ),
+            available_browser_policies=DownloadService._available_cookie_browser_policies(context),
+            can_retry=bool(can_retry),
+            can_choose_cookie_file=bool(can_choose_cookie_file),
+            can_continue_without_cookies=bool(can_continue_without_cookies),
         )
 
     @staticmethod
@@ -509,14 +575,10 @@ class DownloadService:
             return
         if context.interactive:
             raise SourceAccessInterventionRequired(
-                SourceAccessInterventionRequest(
-                    kind="cookies",
-                    source_kind="file",
-                    source_label=DownloadService._cookie_source_label(context),
+                DownloadService._cookie_intervention_request(
+                    context,
                     detail=detail,
                     can_retry=False,
-                    can_choose_cookie_file=True,
-                    can_continue_without_cookies=True,
                 )
             )
         raise DownloadError("error.down.cookie_file_invalid", detail=detail)
@@ -775,6 +837,7 @@ class DownloadService:
         operation: str,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
     ) -> bool:
         """Return True when a download error can be resolved through an access intervention."""
@@ -787,6 +850,7 @@ class DownloadService:
             context = DownloadService.resolve_cookie_context(
                 browser_cookies_mode_override=browser_cookies_mode_override,
                 cookie_file_override=cookie_file_override,
+                browser_policy_override=browser_policy_override,
                 interactive=True,
             )
             if err_key in {"error.down.authentication_required", "error.down.browser_cookies_unavailable"}:
@@ -798,6 +862,7 @@ class DownloadService:
                 operation=operation,
                 browser_cookies_mode_override=browser_cookies_mode_override,
                 cookie_file_override=cookie_file_override,
+                browser_policy_override=browser_policy_override,
                 access_mode_override=access_mode_override,
                 interactive=True,
             )
@@ -822,6 +887,7 @@ class DownloadService:
         operation: str,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
     ) -> SourceAccessInterventionRequired | None:
         """Build a source-access intervention from a recoverable download error."""
@@ -831,6 +897,7 @@ class DownloadService:
             operation=operation,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
         ):
             return None
@@ -845,17 +912,14 @@ class DownloadService:
             context = DownloadService.resolve_cookie_context(
                 browser_cookies_mode_override=browser_cookies_mode_override,
                 cookie_file_override=cookie_file_override,
+                browser_policy_override=browser_policy_override,
                 interactive=True,
             )
             return SourceAccessInterventionRequired(
-                SourceAccessInterventionRequest(
-                    kind="cookies",
-                    source_kind="file" if context.mode == "from_file" else "browser",
-                    source_label=DownloadService._cookie_source_label(context),
+                DownloadService._cookie_intervention_request(
+                    context,
                     detail=detail,
                     can_retry=context.mode == "from_browser",
-                    can_choose_cookie_file=True,
-                    can_continue_without_cookies=True,
                 )
             )
 
@@ -864,6 +928,7 @@ class DownloadService:
             operation=operation,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
             interactive=True,
         )
@@ -1014,6 +1079,7 @@ class DownloadService:
         meta: dict[str, Any] | None = None,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
     ) -> Path | None:
         min_h = AppConfig.downloader_min_video_height()
@@ -1041,6 +1107,7 @@ class DownloadService:
                     url,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                     interactive=True,
                 )
@@ -1060,6 +1127,7 @@ class DownloadService:
             operation=DownloadPolicy.DOWNLOAD_OPERATION_DOWNLOAD,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
             interactive=True,
         )

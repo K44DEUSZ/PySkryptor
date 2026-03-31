@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 
@@ -12,21 +13,22 @@ from app.model.core.config.config import AppConfig
 from app.model.core.config.meta import AppMeta
 from app.model.core.runtime.localization import tr
 from app.model.core.utils.string_utils import sanitize_filename
+from app.model.download.domain import SourceAccessInterventionResolution
 from app.model.download.policy import DownloadPolicy
 from app.view.support.theme_runtime import active_theme_key, apply_windows_dark_titlebar
 from app.view.support.widget_setup import (
-    build_layout_host,
     connect_qt_signal,
     set_passive_cursor,
     setup_button,
-    setup_option_checkbox,
+    setup_combo,
     setup_input,
     setup_label,
+    setup_option_checkbox,
     setup_spinbox,
     setup_text_editor,
     setup_toggle_button,
 )
-from app.view.ui_config import ui
+from app.view.ui_config import UIConfig, ui
 
 
 @dataclass(frozen=True)
@@ -37,16 +39,83 @@ class NoticeDecision:
     dont_show_again: bool
 
 
+class _DialogWidthClass(Enum):
+    """Named width families shared by all standard dialogs."""
+
+    COMPACT = "compact"
+    STANDARD = "standard"
+    WIDE = "wide"
+
+
+class _DialogClosePolicy(Enum):
+    """Dialog close behavior shared across all dialog families."""
+
+    ALLOW_CLOSE = "allow_close"
+    REQUIRE_EXPLICIT_ACTION = "require_explicit_action"
+
+
+@dataclass(frozen=True)
+class _DialogFrameSpec:
+    """Shared frame description for standard dialog families."""
+
+    title: str
+    header: str = ""
+    body_lines: tuple[str, ...] = ()
+    detail_lines: tuple[str, ...] = ()
+    width_class: _DialogWidthClass = _DialogWidthClass.STANDARD
+    close_policy: _DialogClosePolicy = _DialogClosePolicy.ALLOW_CLOSE
+
+
+@dataclass(frozen=True)
+class _DialogActionSpec:
+    """Single bottom action shown by a standard dialog."""
+
+    key: str
+    text: str
+    role: QtWidgets.QDialogButtonBox.ButtonRole
+    is_default: bool = False
+
+
+@dataclass(frozen=True)
+class _ChoiceOptionSpec:
+    """Single selectable option rendered by a choice decision dialog."""
+
+    key: str
+    label: str
+    description: str = ""
+    editor_kind: str = ""
+    editor_text: str = ""
+    editor_placeholder: str = ""
+    editor_suffix: str = ""
+    editor_min: int = 0
+    editor_max: int = 0
+    editor_value: int = 0
+    disable_apply_all: bool = False
+    default: bool = False
+
+
+@dataclass(frozen=True)
+class _DecisionDialogResult:
+    """Normalized internal result returned by decision dialog helpers."""
+
+    action: str = "cancel"
+    text_value: str = ""
+    int_value: int = 0
+    apply_all: bool = False
+    browser_policy: str = ""
+    cookie_file_path: str = ""
+
+
 class _NoCloseFilter(QtCore.QObject):
     """Event filter that blocks closing the dialog via window controls or ESC."""
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         try:
-            et = event.type()
-            if et == QtCore.QEvent.Type.Close:
+            event_type = event.type()
+            if event_type == QtCore.QEvent.Type.Close:
                 event.ignore()
                 return True
-            if et == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
+            if event_type == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
                 if event.key() == QtCore.Qt.Key.Key_Escape:
                     event.ignore()
                     return True
@@ -75,17 +144,17 @@ def _lock_close(dlg: QtWidgets.QDialog) -> None:
     setattr(dlg, "_no_close_filter", flt)
 
 
-def _tune_dialog_layout(layout: QtWidgets.QLayout, cfg) -> None:
+def _tune_dialog_layout(layout: QtWidgets.QLayout, cfg: UIConfig) -> None:
     layout.setContentsMargins(cfg.margin, cfg.margin, cfg.margin, cfg.margin)
     layout.setSpacing(cfg.spacing)
 
 
-def _tune_buttons(cfg, *buttons: QtWidgets.QAbstractButton) -> None:
-    for b in buttons:
-        setup_button(b, min_h=cfg.control_min_h, min_w=cfg.button_min_w)
+def _tune_buttons(cfg: UIConfig, *buttons: QtWidgets.QAbstractButton) -> None:
+    for button in buttons:
+        setup_button(button, min_h=cfg.control_min_h, min_w=cfg.button_min_w)
 
 
-def _tune_dialog_window(dlg: QtWidgets.QDialog, cfg) -> None:
+def _tune_dialog_window(dlg: QtWidgets.QDialog) -> None:
     _sanitize_window_flags(dlg)
     dlg.setModal(True)
     set_passive_cursor(dlg)
@@ -94,9 +163,61 @@ def _tune_dialog_window(dlg: QtWidgets.QDialog, cfg) -> None:
         dlg.setWindowIcon(QtWidgets.QApplication.windowIcon())
     except (AttributeError, RuntimeError, TypeError):
         return
-    dlg.setMinimumWidth(cfg.dialog_min_w)
-    dlg.setMaximumWidth(cfg.dialog_max_w)
     apply_windows_dark_titlebar(dlg)
+
+
+def _dialog_width_limits(cfg: UIConfig, width_class: _DialogWidthClass) -> tuple[int, int]:
+    """Return the lower and upper width bound for a dialog family."""
+    dialog_min = int(cfg.dialog_min_w)
+    dialog_max = int(cfg.dialog_max_w)
+    control_min = int(cfg.control_min_w)
+
+    if width_class is _DialogWidthClass.COMPACT:
+        lower = max(440, dialog_min - 80, int(control_min * 3.5))
+        upper = max(lower, dialog_max)
+        return lower, upper
+
+    if width_class is _DialogWidthClass.WIDE:
+        lower = max(dialog_min, 640, int(control_min * 5.2))
+        upper = max(lower, dialog_max, 860)
+        return lower, upper
+
+    lower = max(dialog_min, int(control_min * 4.4))
+    upper = max(lower, dialog_max)
+    return lower, upper
+
+
+def _dialog_option_min_h(cfg: UIConfig) -> int:
+    return max(int(cfg.option_row_min_h), int(cfg.control_min_h) - int(cfg.space_s) - 1)
+
+
+def _dialog_option_spacing(cfg: UIConfig) -> int:
+    return max(4, int(cfg.space_s))
+
+
+def _setup_dialog_toggle(btn: QtWidgets.QAbstractButton, cfg: UIConfig) -> QtWidgets.QAbstractButton:
+    return setup_toggle_button(btn, min_h=_dialog_option_min_h(cfg))
+
+
+def _setup_dialog_option_checkbox(btn: QtWidgets.QCheckBox, cfg: UIConfig) -> QtWidgets.QCheckBox:
+    return setup_option_checkbox(btn, min_h=_dialog_option_min_h(cfg))
+
+
+def _finalize_dialog_window(dlg: QtWidgets.QDialog, cfg: UIConfig, *, width_class: _DialogWidthClass) -> None:
+    """Finalize the dialog size from its shared width class and size hint."""
+    dlg.layout().activate()
+    dlg.adjustSize()
+
+    lower, upper = _dialog_width_limits(cfg, width_class)
+    hint = dlg.sizeHint()
+    minimum_hint = dlg.minimumSizeHint()
+
+    start_w = max(lower, min(max(int(hint.width()), int(minimum_hint.width())), upper))
+    start_h = max(int(hint.height()), int(minimum_hint.height()))
+
+    dlg.setMinimumWidth(lower)
+    dlg.setMaximumWidth(upper)
+    dlg.resize(start_w, start_h)
 
 
 def _wrap_label(text: str) -> QtWidgets.QLabel:
@@ -116,6 +237,452 @@ def _caption_label(text: str) -> QtWidgets.QLabel:
     lbl = _wrap_label(text)
     setup_label(lbl, role="caption")
     return lbl
+
+
+def _build_dialog_frame(
+    parent: QtWidgets.QWidget | None,
+    frame: _DialogFrameSpec,
+) -> tuple[QtWidgets.QDialog, UIConfig, QtWidgets.QVBoxLayout]:
+    """Create a standard dialog shell shared by message and decision dialogs."""
+    cfg = ui(parent)
+    dlg = QtWidgets.QDialog(parent)
+    _tune_dialog_window(dlg)
+    if frame.close_policy is _DialogClosePolicy.REQUIRE_EXPLICIT_ACTION:
+        _lock_close(dlg)
+    dlg.setWindowTitle(str(frame.title or AppMeta.NAME))
+
+    layout = QtWidgets.QVBoxLayout(dlg)
+    _tune_dialog_layout(layout, cfg)
+
+    if frame.header:
+        layout.addWidget(_section_label(frame.header))
+
+    for detail in frame.detail_lines:
+        text = str(detail or "").strip()
+        if text:
+            layout.addWidget(_caption_label(text))
+
+    for body in frame.body_lines:
+        text = str(body or "").strip()
+        if text:
+            layout.addWidget(_wrap_label(text))
+
+    return dlg, cfg, layout
+
+
+def _build_dialog_button_box(
+    parent: QtWidgets.QWidget,
+    cfg: UIConfig,
+    actions: tuple[_DialogActionSpec, ...],
+    on_action: Callable[[str], None],
+) -> tuple[QtWidgets.QDialogButtonBox, dict[str, QtWidgets.QAbstractButton]]:
+    """Create a standard button box for message and decision dialogs."""
+    box = QtWidgets.QDialogButtonBox(parent)
+    buttons: dict[str, QtWidgets.QAbstractButton] = {}
+    default_button: QtWidgets.QAbstractButton | None = None
+
+    for spec in actions:
+        button = box.addButton(spec.text, spec.role)
+        buttons[spec.key] = button
+        if spec.is_default and default_button is None:
+            default_button = button
+        connect_qt_signal(button.clicked, lambda checked=False, action_key=spec.key: on_action(action_key))
+
+    if buttons:
+        _tune_buttons(cfg, *buttons.values())
+    if default_button is not None:
+        default_button.setDefault(True)
+    return box, buttons
+
+
+def _run_message_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    message: str,
+    header: str | None = None,
+    ok_text: str | None = None,
+    no_close: bool = False,
+    width_class: _DialogWidthClass = _DialogWidthClass.STANDARD,
+) -> None:
+    """Show a standard informational message dialog."""
+    frame = _DialogFrameSpec(
+        title=str(title or AppMeta.NAME),
+        header=str(header or "").strip(),
+        body_lines=(str(message or ""),),
+        width_class=width_class,
+        close_policy=(
+            _DialogClosePolicy.REQUIRE_EXPLICIT_ACTION if no_close else _DialogClosePolicy.ALLOW_CLOSE
+        ),
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
+
+    selected_action = {"name": "ok"}
+
+    def finish(action_name: str) -> None:
+        selected_action["name"] = str(action_name or "ok")
+        dlg.accept()
+
+    box, _ = _build_dialog_button_box(
+        dlg,
+        cfg,
+        (
+            _DialogActionSpec(
+                key="ok",
+                text=str(ok_text or tr("ctrl.ok")),
+                role=QtWidgets.QDialogButtonBox.AcceptRole,
+                is_default=True,
+            ),
+        ),
+        finish,
+    )
+    layout.addWidget(box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
+
+
+def _run_simple_decision_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    header: str = "",
+    body_lines: tuple[str, ...],
+    accept_text: str,
+    reject_text: str,
+    default_action: str = "reject",
+    width_class: _DialogWidthClass = _DialogWidthClass.STANDARD,
+) -> bool:
+    """Show a simple explicit-decision dialog and return True for accept."""
+    frame = _DialogFrameSpec(
+        title=str(title or AppMeta.NAME),
+        header=str(header or "").strip(),
+        body_lines=tuple(body_lines or ()),
+        width_class=width_class,
+        close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
+    selected_action = {"name": "reject"}
+
+    def finish(action_name: str) -> None:
+        selected_action["name"] = str(action_name or "reject")
+        if selected_action["name"] == "accept":
+            dlg.accept()
+        else:
+            dlg.reject()
+
+    actions = (
+        _DialogActionSpec(
+            key="accept",
+            text=accept_text,
+            role=QtWidgets.QDialogButtonBox.AcceptRole,
+            is_default=(default_action == "accept"),
+        ),
+        _DialogActionSpec(
+            key="reject",
+            text=reject_text,
+            role=QtWidgets.QDialogButtonBox.RejectRole,
+            is_default=(default_action != "accept"),
+        ),
+    )
+    box, _ = _build_dialog_button_box(dlg, cfg, actions, finish)
+    layout.addWidget(box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
+    return str(selected_action.get("name") or "reject") == "accept"
+
+
+def _run_notice_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    header: str,
+    paragraphs: tuple[str, ...],
+    checkbox_text: str,
+    accept_text: str,
+    reject_text: str,
+    detail_lines: tuple[str, ...] = (),
+) -> NoticeDecision:
+    """Show the shared explicit-decision notice dialog."""
+    frame = _DialogFrameSpec(
+        title=str(title or AppMeta.NAME),
+        header=str(header or "").strip(),
+        body_lines=tuple(paragraphs or ()),
+        detail_lines=tuple(detail_lines or ()),
+        width_class=_DialogWidthClass.STANDARD,
+        close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
+
+    chk_dont_show = QtWidgets.QCheckBox(checkbox_text, dlg)
+    _setup_dialog_option_checkbox(chk_dont_show, cfg)
+    layout.addWidget(chk_dont_show)
+
+    selected_action = {"name": "reject"}
+
+    def finish(action_name: str) -> None:
+        selected_action["name"] = str(action_name or "reject")
+        if selected_action["name"] == "accept":
+            dlg.accept()
+        else:
+            dlg.reject()
+
+    box, _ = _build_dialog_button_box(
+        dlg,
+        cfg,
+        (
+            _DialogActionSpec(
+                key="accept",
+                text=accept_text,
+                role=QtWidgets.QDialogButtonBox.AcceptRole,
+                is_default=True,
+            ),
+            _DialogActionSpec(
+                key="reject",
+                text=reject_text,
+                role=QtWidgets.QDialogButtonBox.RejectRole,
+            ),
+        ),
+        finish,
+    )
+    layout.addWidget(box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
+
+    accepted = str(selected_action.get("name") or "reject") == "accept"
+    return NoticeDecision(accepted=accepted, dont_show_again=accepted and chk_dont_show.isChecked())
+
+
+def _build_preview_block(
+    parent: QtWidgets.QWidget,
+    layout: QtWidgets.QVBoxLayout,
+    cfg,
+    *,
+    title: str,
+    lines: tuple[str, ...],
+) -> None:
+    """Add a shared read-only preview block used by wide decision dialogs."""
+    normalized_lines = tuple(str(item or "").strip() for item in lines if str(item or "").strip())
+    if not normalized_lines:
+        return
+
+    layout.addWidget(_section_label(title))
+
+    preview_box = QtWidgets.QPlainTextEdit(parent)
+    preview_box.setReadOnly(True)
+    preview_box.setPlainText("\n".join(f"• {item}" for item in normalized_lines))
+    preview_box.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    preview_box.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    preview_box.setLineWrapMode(QtWidgets.QPlainTextEdit.WidgetWidth)
+    setup_text_editor(preview_box)
+
+    visible_rows = max(1, min(5, len(normalized_lines)))
+    line_height = preview_box.fontMetrics().lineSpacing()
+    frame_height = preview_box.frameWidth() * 2
+    document_margin = int(preview_box.document().documentMargin() * 2)
+    preview_height = (line_height * visible_rows) + frame_height + document_margin + int(cfg.space_s)
+    preview_box.setFixedHeight(max(cfg.control_min_h * 2, preview_height))
+    layout.addWidget(preview_box)
+
+
+def _build_choice_option_editor(
+    parent: QtWidgets.QWidget,
+    cfg,
+    spec: _ChoiceOptionSpec,
+) -> QtWidgets.QWidget | None:
+    """Create the optional editor displayed below a choice option."""
+    kind = str(spec.editor_kind or "").strip().lower()
+    if not kind:
+        return None
+
+    host = QtWidgets.QWidget(parent)
+    row = QtWidgets.QHBoxLayout(host)
+    row.setContentsMargins(int(cfg.margin), 0, 0, 0)
+    row.setSpacing(_dialog_option_spacing(cfg))
+
+    if kind == "line_edit":
+        editor = QtWidgets.QLineEdit(host)
+        editor.setText(str(spec.editor_text or ""))
+        if spec.editor_placeholder:
+            editor.setPlaceholderText(spec.editor_placeholder)
+        setup_input(editor, min_h=cfg.control_min_h)
+        row.addWidget(editor, 1)
+        setattr(host, "_editor_widget", editor)
+        return host
+
+    if kind == "spinbox":
+        editor = QtWidgets.QSpinBox(host)
+        editor.setMinimum(max(1, int(spec.editor_min or 1)))
+        editor.setMaximum(max(int(spec.editor_max or editor.minimum()), editor.minimum()))
+        editor.setValue(max(editor.minimum(), min(int(spec.editor_value or editor.minimum()), editor.maximum())))
+        editor.setButtonSymbols(QtWidgets.QAbstractSpinBox.UpDownArrows)
+        setup_spinbox(editor, min_h=cfg.control_min_h)
+        row.addWidget(editor)
+        if spec.editor_suffix:
+            row.addWidget(QtWidgets.QLabel(spec.editor_suffix, host))
+        row.addStretch(1)
+        setattr(host, "_editor_widget", editor)
+        return host
+
+    return None
+
+
+def _run_choice_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    header: str,
+    body_lines: tuple[str, ...],
+    options: tuple[_ChoiceOptionSpec, ...],
+    accept_text: str,
+    reject_text: str | None = None,
+    detail_lines: tuple[str, ...] = (),
+    preview_title: str = "",
+    preview_lines: tuple[str, ...] = (),
+    apply_all_text: str = "",
+    width_class: _DialogWidthClass = _DialogWidthClass.STANDARD,
+) -> _DecisionDialogResult:
+    """Run the shared decision dialog used by all choice-style prompts."""
+    frame = _DialogFrameSpec(
+        title=str(title or AppMeta.NAME),
+        header=str(header or "").strip(),
+        body_lines=tuple(body_lines or ()),
+        detail_lines=tuple(detail_lines or ()),
+        width_class=width_class,
+        close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
+
+    if preview_lines:
+        _build_preview_block(
+            dlg,
+            layout,
+            cfg,
+            title=str(preview_title or tr("dialog.bulk_add.preview_header")),
+            lines=tuple(preview_lines or ()),
+        )
+
+    options_host = QtWidgets.QWidget(dlg)
+    options_layout = QtWidgets.QVBoxLayout(options_host)
+    options_layout.setContentsMargins(0, 0, 0, 0)
+    options_layout.setSpacing(_dialog_option_spacing(cfg))
+    layout.addWidget(options_host)
+
+    radios_by_key: dict[str, QtWidgets.QRadioButton] = {}
+    editors_by_key: dict[str, QtWidgets.QWidget] = {}
+    apply_all_checkbox: QtWidgets.QCheckBox | None = None
+
+    default_key = next((spec.key for spec in options if spec.default), options[0].key if options else "")
+
+    for spec in options:
+        radio = QtWidgets.QRadioButton(spec.label, options_host)
+        _setup_dialog_toggle(radio, cfg)
+        radios_by_key[spec.key] = radio
+        options_layout.addWidget(radio)
+
+        if spec.description:
+            description_label = _caption_label(spec.description)
+            description_label.setContentsMargins(int(cfg.margin), 0, 0, 0)
+            options_layout.addWidget(description_label)
+
+        editor_host = _build_choice_option_editor(options_host, cfg, spec)
+        if editor_host is not None:
+            editor_host.setEnabled(False)
+            editors_by_key[spec.key] = editor_host
+            options_layout.addWidget(editor_host)
+
+        if spec.key == default_key:
+            radio.setChecked(True)
+
+    if apply_all_text:
+        apply_all_checkbox = QtWidgets.QCheckBox(apply_all_text, dlg)
+        _setup_dialog_option_checkbox(apply_all_checkbox, cfg)
+        layout.addWidget(apply_all_checkbox)
+
+    def sync_choice_state() -> None:
+        active_key = next((option_key for option_key, option_radio in radios_by_key.items() if option_radio.isChecked()), "")
+        for option_key, option_editor_host in editors_by_key.items():
+            option_editor_host.setEnabled(option_key == active_key)
+        if apply_all_checkbox is None:
+            return
+        selected_spec = next((option_spec for option_spec in options if option_spec.key == active_key), None)
+        disable_apply_all = bool(selected_spec.disable_apply_all) if selected_spec is not None else False
+        if disable_apply_all:
+            apply_all_checkbox.setChecked(False)
+            apply_all_checkbox.setEnabled(False)
+        else:
+            apply_all_checkbox.setEnabled(True)
+
+    for radio in radios_by_key.values():
+        connect_qt_signal(radio.toggled, sync_choice_state)
+    sync_choice_state()
+
+    selected_action = {"name": "cancel"}
+
+    def finish(action_name: str) -> None:
+        selected_action["name"] = str(action_name or "cancel")
+        if selected_action["name"] == "accept":
+            dlg.accept()
+        else:
+            dlg.reject()
+
+    actions: list[_DialogActionSpec] = [
+        _DialogActionSpec(
+            key="accept",
+            text=accept_text,
+            role=QtWidgets.QDialogButtonBox.AcceptRole,
+            is_default=True,
+        )
+    ]
+    if reject_text is not None:
+        actions.append(
+            _DialogActionSpec(
+                key="reject",
+                text=reject_text,
+                role=QtWidgets.QDialogButtonBox.RejectRole,
+            )
+        )
+
+    button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
+    layout.addWidget(button_box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
+
+    if str(selected_action.get("name") or "cancel") != "accept":
+        return _DecisionDialogResult(action="cancel")
+
+    selected_key = next((key for key, radio in radios_by_key.items() if radio.isChecked()), "")
+    text_value = ""
+    int_value = 0
+    editor_host = editors_by_key.get(selected_key)
+    if editor_host is not None:
+        editor = getattr(editor_host, "_editor_widget", None)
+        if isinstance(editor, QtWidgets.QLineEdit):
+            text_value = str(editor.text() or "").strip()
+        elif isinstance(editor, QtWidgets.QSpinBox):
+            int_value = int(editor.value())
+
+    return _DecisionDialogResult(
+        action=selected_key,
+        text_value=text_value,
+        int_value=int_value,
+        apply_all=bool(apply_all_checkbox.isChecked()) if apply_all_checkbox is not None else False,
+    )
+
+
+def _terminate_application() -> None:
+    app = cast(QtWidgets.QApplication | None, QtWidgets.QApplication.instance())
+    if app is None:
+        return
+
+    try:
+        app.closeAllWindows()
+    except (AttributeError, RuntimeError, TypeError):
+        return
+
+    try:
+        app.quit()
+    except (AttributeError, RuntimeError, TypeError):
+        return
 
 
 def _welcome_icon_svg_path() -> Path | None:
@@ -160,210 +727,13 @@ def _render_welcome_icon(size: int) -> QtGui.QPixmap:
     pm.fill(QtCore.Qt.GlobalColor.transparent)
 
     painter = QtGui.QPainter(pm)
-    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-    painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+    painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform, True)
     x = (float(side) - draw_w) / 2.0
     y = (float(side) - draw_h) / 2.0
     renderer.render(painter, QtCore.QRectF(x, y, draw_w, draw_h))
     painter.end()
     return pm
-
-
-def _ask_notice_dialog(
-    parent: QtWidgets.QWidget | None,
-    *,
-    title: str,
-    header: str,
-    paragraphs: list[str],
-    checkbox_text: str,
-    accept_text: str,
-    reject_text: str,
-    detail_lines: list[str] | None = None,
-) -> NoticeDecision:
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    _lock_close(dlg)
-    dlg.setWindowTitle(str(title or AppMeta.NAME))
-
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
-
-    lay.addWidget(_section_label(header))
-
-    for text in list(detail_lines or []):
-        detail = str(text or "").strip()
-        if detail:
-            lay.addWidget(_caption_label(detail))
-
-    for text in list(paragraphs or []):
-        paragraph = str(text or "").strip()
-        if paragraph:
-            lay.addWidget(_wrap_label(paragraph))
-
-    bottom = QtWidgets.QHBoxLayout()
-    bottom.setContentsMargins(0, cfg.space_s, 0, 0)
-    bottom.setSpacing(cfg.spacing)
-
-    chk_dont_show = QtWidgets.QCheckBox(checkbox_text, dlg)
-    setup_option_checkbox(chk_dont_show)
-    bottom.addWidget(chk_dont_show, 0, QtCore.Qt.AlignmentFlag.AlignVCenter)
-    bottom.addStretch(1)
-
-    button_box = QtWidgets.QDialogButtonBox()
-    btn_accept = button_box.addButton(accept_text, QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_reject = button_box.addButton(reject_text, QtWidgets.QDialogButtonBox.RejectRole)
-    _tune_buttons(cfg, btn_accept, btn_reject)
-    btn_accept.setDefault(True)
-
-    button_box.accepted.connect(dlg.accept)
-    button_box.rejected.connect(dlg.reject)
-    bottom.addWidget(button_box, 0, QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
-    lay.addLayout(bottom)
-
-    accepted = dlg.exec_() == QtWidgets.QDialog.Accepted
-    return NoticeDecision(accepted=accepted, dont_show_again=accepted and chk_dont_show.isChecked())
-
-
-def _message_dialog(
-    parent: QtWidgets.QWidget | None,
-    *,
-    title: str,
-    message: str,
-    header: str | None = None,
-    ok_text: str | None = None,
-    no_close: bool = False,
-) -> None:
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    dlg.setWindowTitle(str(title or AppMeta.NAME))
-    if no_close:
-        _lock_close(dlg)
-
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
-
-    if header:
-        header_label = QtWidgets.QLabel(header)
-        setup_label(header_label, role="sectionTitle")
-        header_label.setWordWrap(True)
-        lay.addWidget(header_label)
-
-    lay.addWidget(_wrap_label(message))
-    lay.addStretch(1)
-
-    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
-    if ok_btn:
-        ok_btn.setText(ok_text or tr("ctrl.ok"))
-        _tune_buttons(cfg, ok_btn)
-        ok_btn.setDefault(True)
-    button_box.accepted.connect(dlg.accept)
-
-    lay.addWidget(button_box)
-    dlg.exec_()
-
-
-def _confirm_dialog(
-    parent: QtWidgets.QWidget | None,
-    *,
-    title: str,
-    message: str,
-    accept_text: str,
-    reject_text: str,
-    header: str | None = None,
-    default_accept: bool = False,
-    no_close: bool = True,
-) -> bool:
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    dlg.setWindowTitle(str(title or AppMeta.NAME))
-    if no_close:
-        _lock_close(dlg)
-
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
-
-    if header:
-        header_label = QtWidgets.QLabel(header)
-        setup_label(header_label, role="sectionTitle")
-        header_label.setWordWrap(True)
-        lay.addWidget(header_label)
-
-    lay.addWidget(_wrap_label(message))
-    lay.addStretch(1)
-
-    button_box = QtWidgets.QDialogButtonBox()
-    btn_accept = button_box.addButton(accept_text, QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_reject = button_box.addButton(reject_text, QtWidgets.QDialogButtonBox.RejectRole)
-    _tune_buttons(cfg, btn_accept, btn_reject)
-
-    button_box.accepted.connect(dlg.accept)
-    button_box.rejected.connect(dlg.reject)
-    lay.addWidget(button_box)
-
-    if default_accept:
-        btn_accept.setDefault(True)
-    else:
-        btn_reject.setDefault(True)
-
-    return dlg.exec_() == QtWidgets.QDialog.Accepted
-
-
-def _terminate_application() -> None:
-    app = cast(QtWidgets.QApplication | None, QtWidgets.QApplication.instance())
-    if app is None:
-        return
-
-    try:
-        app.closeAllWindows()
-    except (AttributeError, RuntimeError, TypeError):
-        return
-
-    try:
-        app.quit()
-    except (AttributeError, RuntimeError, TypeError):
-        return
-
-
-def critical_defaults_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
-    title = tr("dialog.critical.application_error.title")
-    text = tr("dialog.critical.defaults_missing.text")
-    _message_dialog(parent, title=title, message=text, header=title, no_close=True)
-    _terminate_application()
-
-
-def critical_locales_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
-    title = tr("dialog.critical.localization_error.title")
-    text = tr("dialog.critical.locales_missing.text")
-    _message_dialog(parent, title=title, message=text, header=title, no_close=True)
-    _terminate_application()
-
-
-def critical_startup_error_and_exit(parent: QtWidgets.QWidget | None, details: str = "") -> None:
-    title = tr("dialog.critical.pyskryptor_error.title")
-    msg = tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
-    _message_dialog(parent, title=title, message=msg, header=title, no_close=True)
-    _terminate_application()
-
-
-def critical_config_load_failed_choice(parent: QtWidgets.QWidget | None, details: str = "") -> str:
-    """Returns: 'exit' | 'restore_defaults'."""
-    title = tr("dialog.critical.pyskryptor_error.title")
-    msg = tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
-    ok_restore = _confirm_dialog(
-        parent,
-        title=title,
-        message=msg,
-        accept_text=tr("settings.buttons.restore_defaults"),
-        reject_text=tr("ctrl.exit"),
-        header=title,
-        default_accept=False,
-        no_close=True,
-    )
-    return "restore_defaults" if ok_restore else "exit"
 
 
 class _WelcomeDialog(QtWidgets.QDialog):
@@ -376,10 +746,9 @@ class _WelcomeDialog(QtWidgets.QDialog):
 
     def _build_ui(self) -> None:
         cfg = self._ui
-        _tune_dialog_window(self, cfg)
+        _tune_dialog_window(self)
         _lock_close(self)
         self.setWindowTitle(tr("dialog.welcome.title"))
-        self.setMinimumWidth(max(int(cfg.dialog_min_w), int(cfg.control_min_w * 6)))
 
         root = QtWidgets.QVBoxLayout(self)
         _tune_dialog_layout(root, cfg)
@@ -429,14 +798,35 @@ class _WelcomeDialog(QtWidgets.QDialog):
         text_col.addWidget(_wrap_label(tr("dialog.welcome.text", name=AppMeta.NAME)))
         text_col.addWidget(_wrap_label(tr("dialog.welcome.disclaimer")))
 
-        button_box = QtWidgets.QDialogButtonBox()
-        btn_accept = button_box.addButton(tr("dialog.welcome.accept"), QtWidgets.QDialogButtonBox.AcceptRole)
-        btn_reject = button_box.addButton(tr("dialog.welcome.reject"), QtWidgets.QDialogButtonBox.RejectRole)
-        _tune_buttons(cfg, btn_accept, btn_reject)
-        btn_accept.setDefault(True)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
+        selected_action = {"name": "accept"}
+
+        def finish(action_name: str) -> None:
+            selected_action["name"] = str(action_name or "reject")
+            if selected_action["name"] == "accept":
+                self.accept()
+            else:
+                self.reject()
+
+        button_box, _ = _build_dialog_button_box(
+            self,
+            cfg,
+            (
+                _DialogActionSpec(
+                    key="accept",
+                    text=tr("dialog.welcome.accept"),
+                    role=QtWidgets.QDialogButtonBox.AcceptRole,
+                    is_default=True,
+                ),
+                _DialogActionSpec(
+                    key="reject",
+                    text=tr("dialog.welcome.reject"),
+                    role=QtWidgets.QDialogButtonBox.RejectRole,
+                ),
+            ),
+            finish,
+        )
         root.addWidget(button_box)
+        _finalize_dialog_window(self, cfg, width_class=_DialogWidthClass.WIDE)
 
 
 def ask_welcome_dialog(parent: QtWidgets.QWidget | None) -> bool:
@@ -447,42 +837,222 @@ def ask_welcome_dialog(parent: QtWidgets.QWidget | None) -> bool:
 
 def ask_source_rights_notice(parent: QtWidgets.QWidget | None) -> NoticeDecision:
     """Show the one-off notice displayed before adding network sources."""
-    return _ask_notice_dialog(
+    return _run_notice_dialog(
         parent,
         title=tr("dialog.source_rights_notice.title"),
         header=tr("dialog.source_rights_notice.header"),
-        paragraphs=[
+        paragraphs=(
             tr("dialog.source_rights_notice.text"),
             tr("dialog.source_rights_notice.disclaimer"),
-        ],
+        ),
         checkbox_text=tr("dialog.source_rights_notice.dont_show_again"),
         accept_text=tr("ctrl.add"),
         reject_text=tr("ctrl.cancel"),
     )
 
 
+def critical_defaults_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
+    title = tr("dialog.critical.application_error.title")
+    text = tr("dialog.critical.defaults_missing.text")
+    _run_message_dialog(parent, title=title, message=text, header=title, no_close=True)
+    _terminate_application()
+
+
+def critical_locales_missing_and_exit(parent: QtWidgets.QWidget | None = None) -> None:
+    title = tr("dialog.critical.localization_error.title")
+    text = tr("dialog.critical.locales_missing.text")
+    _run_message_dialog(parent, title=title, message=text, header=title, no_close=True)
+    _terminate_application()
+
+
+def critical_startup_error_and_exit(parent: QtWidgets.QWidget | None, details: str = "") -> None:
+    title = tr("dialog.critical.pyskryptor_error.title")
+    msg = tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
+    _run_message_dialog(parent, title=title, message=msg, header=title, no_close=True)
+    _terminate_application()
+
+
+def critical_config_load_failed_choice(parent: QtWidgets.QWidget | None, details: str = "") -> str:
+    """Returns: 'exit' | 'restore_defaults'."""
+    title = tr("dialog.critical.pyskryptor_error.title")
+    msg = tr("dialog.critical.config_load_failed.text", detail=str(details or "").strip())
+    restore = _run_simple_decision_dialog(
+        parent,
+        title=title,
+        header=title,
+        body_lines=(msg,),
+        accept_text=tr("settings.buttons.restore_defaults"),
+        reject_text=tr("ctrl.exit"),
+        default_action="reject",
+    )
+    return "restore_defaults" if restore else "exit"
+
+
 def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    dlg.setWindowTitle(tr("dialog.live.no_devices.title"))
+    _run_message_dialog(
+        parent,
+        title=tr("dialog.live.no_devices.title"),
+        header=tr("dialog.live.no_devices.header"),
+        message=tr("dialog.live.no_devices.text"),
+        ok_text=tr("ctrl.ok"),
+    )
 
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
 
-    lay.addWidget(_section_label(tr("dialog.live.no_devices.header")))
-    lay.addWidget(_wrap_label(tr("dialog.live.no_devices.text")))
-    lay.addStretch(1)
+def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> None:
+    _run_message_dialog(
+        parent,
+        title=tr("dialog.availability.network_offline.title"),
+        header=tr("dialog.availability.network_offline.header"),
+        message=tr(text_key),
+        ok_text=tr("ctrl.ok"),
+    )
 
-    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
-    if ok_btn:
-        ok_btn.setText(tr("ctrl.ok"))
-        _tune_buttons(cfg, ok_btn)
-    button_box.accepted.connect(dlg.accept)
-    lay.addWidget(button_box)
 
-    dlg.exec_()
+def show_downloader_offline_dialog(parent: QtWidgets.QWidget | None = None) -> None:
+    _availability_dialog(parent, text_key="dialog.availability.downloader_offline.text")
+
+
+def ask_cancel(parent: QtWidgets.QWidget) -> bool:
+    return _run_simple_decision_dialog(
+        parent,
+        title=tr("dialog.confirm.title"),
+        body_lines=(tr("dialog.cancel_confirm"),),
+        accept_text=tr("action.cancel_now"),
+        reject_text=tr("action.keep_working"),
+        default_action="reject",
+    )
+
+
+def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
+    return _run_simple_decision_dialog(
+        parent,
+        title=tr("dialog.settings.title"),
+        body_lines=(tr("dialog.settings_save_confirm"),),
+        accept_text=tr("settings.buttons.save"),
+        reject_text=tr("ctrl.cancel"),
+        default_action="reject",
+    )
+
+
+def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
+    return _run_simple_decision_dialog(
+        parent,
+        title=tr("dialog.settings.title"),
+        body_lines=(tr("dialog.settings_restore_confirm"),),
+        accept_text=tr("settings.buttons.restore_defaults"),
+        reject_text=tr("ctrl.cancel"),
+        default_action="reject",
+    )
+
+
+def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
+    """Restart decision dialog."""
+    return _run_simple_decision_dialog(
+        parent,
+        title=tr("dialog.restart_required.title"),
+        header=tr("dialog.restart_required.header"),
+        body_lines=(tr("dialog.restart_required.text"),),
+        accept_text=tr("dialog.restart_required.restart"),
+        reject_text=tr("dialog.restart_required.later"),
+        default_action="accept",
+    )
+
+
+def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> bool:
+    """Return True if the user wants to open the session folder."""
+    return _run_simple_decision_dialog(
+        parent,
+        title=tr("dialog.info.title"),
+        header=tr("dialog.info.done_header"),
+        body_lines=(str(session_dir or ""),),
+        accept_text=tr("files.open_output"),
+        reject_text=tr("ctrl.ok"),
+        default_action="reject",
+    )
+
+
+def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -> bool:
+    """Return True if the user wants to open the downloads folder."""
+    try:
+        file_name = Path(downloaded_path).name
+    except (TypeError, ValueError):
+        file_name = str(downloaded_path or "")
+
+    message = tr("dialog.info.downloaded_prefix")
+    if file_name:
+        message = f"{message} {file_name}"
+
+    return _run_simple_decision_dialog(
+        parent,
+        title=tr("dialog.info.title"),
+        header=tr("dialog.info.done_header"),
+        body_lines=(message,),
+        accept_text=tr("down.open_folder"),
+        reject_text=tr("ctrl.ok"),
+        default_action="reject",
+    )
+
+
+def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
+    """Transcript conflict dialog."""
+    result = _run_choice_dialog(
+        parent,
+        title=tr("dialog.conflict.title"),
+        header=tr("dialog.conflict.header"),
+        body_lines=(tr("dialog.conflict.text", name=stem),),
+        options=(
+            _ChoiceOptionSpec(key="skip", label=tr("dialog.conflict.skip"), default=True),
+            _ChoiceOptionSpec(key="overwrite", label=tr("dialog.conflict.overwrite")),
+            _ChoiceOptionSpec(
+                key="new",
+                label=tr("dialog.conflict.new_name"),
+                editor_kind="line_edit",
+                disable_apply_all=True,
+            ),
+        ),
+        accept_text=tr("ctrl.ok"),
+        apply_all_text=tr("dialog.conflict.apply_all"),
+        width_class=_DialogWidthClass.STANDARD,
+    )
+    if result.action == "overwrite":
+        return "overwrite", "", result.apply_all
+    if result.action == "new":
+        return "new", sanitize_filename(result.text_value), False
+    return "skip", "", result.apply_all
+
+
+def ask_download_duplicate(
+    parent: QtWidgets.QWidget,
+    *,
+    title: str,
+    suggested_name: str,
+) -> tuple[str, str, bool]:
+    """Download duplicate dialog."""
+    result = _run_choice_dialog(
+        parent,
+        title=tr("dialog.down.exists.title"),
+        header=tr("dialog.down.exists.header"),
+        body_lines=(tr("dialog.down.exists.text", title=title),),
+        options=(
+            _ChoiceOptionSpec(key="skip", label=tr("dialog.down.exists.skip"), default=True),
+            _ChoiceOptionSpec(key="overwrite", label=tr("dialog.down.exists.overwrite")),
+            _ChoiceOptionSpec(
+                key="rename",
+                label=tr("dialog.down.exists.rename"),
+                editor_kind="line_edit",
+                editor_text=str(suggested_name or ""),
+                disable_apply_all=True,
+            ),
+        ),
+        accept_text=tr("ctrl.ok"),
+        apply_all_text=tr("dialog.down.exists.apply_all"),
+        width_class=_DialogWidthClass.STANDARD,
+    )
+    if result.action == "overwrite":
+        return "overwrite", "", result.apply_all
+    if result.action == "rename":
+        return "rename", sanitize_filename(result.text_value), False
+    return "skip", "", result.apply_all
 
 
 def ask_bulk_add_plan(
@@ -495,6 +1065,10 @@ def ask_bulk_add_plan(
     default_limit: int = 0,
     target_label: str = "",
 ) -> tuple[str, int]:
+    total = int(max(0, int(count or 0)))
+    default_n = int(max(1, int(default_limit or 1)))
+    default_n = min(default_n, max(1, total))
+
     kind = str(origin_kind or "selection").strip().lower()
     key_map = {
         "playlist": "dialog.bulk_add.playlist",
@@ -503,100 +1077,51 @@ def ask_bulk_add_plan(
         "drop": "dialog.bulk_add.drop",
         "manual_input": "dialog.bulk_add.selection",
     }
-    total = int(max(0, int(count or 0)))
-    default_n = int(max(1, int(default_limit or 1)))
-    default_n = min(default_n, max(1, total))
+    body_lines = (tr(key_map.get(kind, "dialog.bulk_add.selection"), count=total),)
 
-    details: list[str] = [tr(key_map.get(kind, "dialog.bulk_add.selection"), count=total)]
+    detail_lines: list[str] = []
     label = str(origin_label or "").strip()
     if label:
-        details.append(tr("dialog.bulk_add.origin", origin=label))
+        detail_lines.append(tr("dialog.bulk_add.origin", origin=label))
     target = str(target_label or "").strip()
     if target:
-        details.append(tr("dialog.bulk_add.target", target=target))
-    preview = [str(item or "").strip() for item in list(sample_titles or []) if str(item or "").strip()]
-    preview = preview[:5]
+        detail_lines.append(tr("dialog.bulk_add.target", target=target))
 
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    dlg.setWindowTitle(tr("dialog.bulk_add.title"))
-    dlg.setMinimumWidth(max(cfg.dialog_min_w, 640))
-    dlg.setMaximumWidth(max(cfg.dialog_max_w, 860))
+    preview_lines = tuple(
+        str(item or "").strip()
+        for item in list(sample_titles or [])
+        if str(item or "").strip()
+    )[:5]
 
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
-    lay.addWidget(_section_label(tr("dialog.bulk_add.header")))
-    lay.addWidget(_wrap_label("\n".join(details)))
-
-    if preview:
-        preview_label = QtWidgets.QLabel(tr("dialog.bulk_add.preview_header"), dlg)
-        preview_label.setProperty("role", "fieldLabel")
-        lay.addWidget(preview_label)
-
-        preview_box = QtWidgets.QPlainTextEdit(dlg)
-        preview_box.setReadOnly(True)
-        preview_box.setPlainText("\n".join(f"• {item}" for item in preview))
-        preview_box.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        preview_box.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        preview_box.setLineWrapMode(QtWidgets.QPlainTextEdit.WidgetWidth)
-        setup_text_editor(preview_box)
-        visible_rows = max(1, len(preview))
-        line_h = preview_box.fontMetrics().lineSpacing()
-        frame_h = preview_box.frameWidth() * 2
-        doc_margin = int(preview_box.document().documentMargin() * 2)
-        preview_h = (line_h * visible_rows) + frame_h + doc_margin + int(cfg.space_s)
-        preview_box.setFixedHeight(max(cfg.control_min_h * 2, preview_h))
-        lay.addWidget(preview_box)
-
-    rb_all = QtWidgets.QRadioButton(tr("dialog.bulk_add.option_all"))
-    rb_first = QtWidgets.QRadioButton(tr("dialog.bulk_add.option_first_n"))
-    setup_toggle_button(rb_all, min_h=cfg.control_min_h)
-    setup_toggle_button(rb_first, min_h=cfg.control_min_h)
-
-    rb_first.setChecked(total > default_n)
-    if not rb_first.isChecked():
-        rb_all.setChecked(True)
-
-    lay.addWidget(rb_all)
-
-    first_row_host, first_row = build_layout_host(layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
-    first_row.addWidget(rb_first)
-    sp_count = QtWidgets.QSpinBox(dlg)
-    sp_count.setMinimum(1)
-    sp_count.setMaximum(max(1, total))
-    sp_count.setValue(default_n)
-    sp_count.setButtonSymbols(QtWidgets.QAbstractSpinBox.UpDownArrows)
-    setup_spinbox(sp_count, min_h=cfg.control_min_h)
-    first_row.addWidget(sp_count)
-    first_row.addWidget(QtWidgets.QLabel(tr("dialog.bulk_add.option_first_suffix", total=total)))
-    first_row.addStretch(1)
-    lay.addWidget(first_row_host)
-    lay.addStretch(1)
-
-    def _sync_spinbox() -> None:
-        sp_count.setEnabled(rb_first.isChecked())
-
-    rb_all.toggled.connect(_sync_spinbox)
-    rb_first.toggled.connect(_sync_spinbox)
-    _sync_spinbox()
-
-    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
-    cancel_btn = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
-    if ok_btn and cancel_btn:
-        ok_btn.setText(tr("ctrl.add"))
-        cancel_btn.setText(tr("ctrl.cancel"))
-        _tune_buttons(cfg, ok_btn, cancel_btn)
-        ok_btn.setDefault(True)
-    button_box.accepted.connect(dlg.accept)
-    button_box.rejected.connect(dlg.reject)
-    lay.addWidget(button_box)
-
-    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+    result = _run_choice_dialog(
+        parent,
+        title=tr("dialog.bulk_add.title"),
+        header=tr("dialog.bulk_add.header"),
+        body_lines=body_lines,
+        detail_lines=tuple(detail_lines),
+        preview_title=tr("dialog.bulk_add.preview_header"),
+        preview_lines=preview_lines,
+        options=(
+            _ChoiceOptionSpec(key="all", label=tr("dialog.bulk_add.option_all"), default=(total <= default_n)),
+            _ChoiceOptionSpec(
+                key="first_n",
+                label=tr("dialog.bulk_add.option_first_n"),
+                editor_kind="spinbox",
+                editor_min=1,
+                editor_max=max(1, total),
+                editor_value=default_n,
+                editor_suffix=tr("dialog.bulk_add.option_first_suffix", total=total),
+                default=(total > default_n),
+            ),
+        ),
+        accept_text=tr("ctrl.add"),
+        reject_text=tr("ctrl.cancel"),
+        width_class=_DialogWidthClass.WIDE,
+    )
+    if result.action == "cancel":
         return "cancel", 0
-    if rb_first.isChecked():
-        return "first_n", int(sp_count.value())
+    if result.action == "first_n":
+        return "first_n", int(result.int_value)
     return "all", total
 
 
@@ -608,236 +1133,49 @@ class ExpansionProgressDialog(QtWidgets.QDialog):
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         cfg = ui(parent)
-        _tune_dialog_window(self, cfg)
+        _tune_dialog_window(self)
         self.setWindowTitle(tr("dialog.expansion_progress.title"))
         self.setModal(False)
         self.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         _lock_close(self)
 
-        lay = QtWidgets.QVBoxLayout(self)
-        _tune_dialog_layout(lay, cfg)
-        lay.addWidget(_section_label(tr("dialog.expansion_progress.header")))
+        layout = QtWidgets.QVBoxLayout(self)
+        _tune_dialog_layout(layout, cfg)
+        layout.addWidget(_section_label(tr("dialog.expansion_progress.header")))
 
         self._message_label = _wrap_label(tr("dialog.expansion_progress.generic"))
-        lay.addWidget(self._message_label)
+        layout.addWidget(self._message_label)
 
         self._bar = QtWidgets.QProgressBar(self)
         self._bar.setRange(0, 0)
         self._bar.setTextVisible(False)
         self._bar.setMinimumHeight(cfg.control_min_h)
-        lay.addWidget(self._bar)
-        lay.addStretch(1)
+        layout.addWidget(self._bar)
 
-        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        cancel_btn = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
-        if cancel_btn:
-            cancel_btn.setText(tr("ctrl.cancel"))
-            _tune_buttons(cfg, cancel_btn)
-            cancel_btn.setDefault(True)
-        button_box.rejected.connect(self.cancel_requested.emit)
-        lay.addWidget(button_box)
+        selected_action = {"name": "cancel"}
+
+        def finish(action_name: str) -> None:
+            selected_action["name"] = str(action_name or "cancel")
+            self.cancel_requested.emit()
+
+        button_box, _ = _build_dialog_button_box(
+            self,
+            cfg,
+            (
+                _DialogActionSpec(
+                    key="cancel",
+                    text=tr("ctrl.cancel"),
+                    role=QtWidgets.QDialogButtonBox.RejectRole,
+                    is_default=True,
+                ),
+            ),
+            finish,
+        )
+        layout.addWidget(button_box)
+        _finalize_dialog_window(self, cfg, width_class=_DialogWidthClass.STANDARD)
 
     def set_message(self, text: str) -> None:
         self._message_label.setText(str(text or tr("dialog.expansion_progress.generic")))
-
-
-def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> None:
-    _message_dialog(
-        parent,
-        title=tr("dialog.availability.network_offline.title"),
-        message=tr(text_key),
-        header=tr("dialog.availability.network_offline.header"),
-        ok_text=tr("ctrl.ok"),
-    )
-
-
-def show_downloader_offline_dialog(parent: QtWidgets.QWidget | None = None) -> None:
-    _availability_dialog(parent, text_key="dialog.availability.downloader_offline.text")
-
-
-def ask_cancel(parent: QtWidgets.QWidget) -> bool:
-    text = tr("dialog.cancel_confirm")
-    return _confirm_dialog(
-        parent,
-        title=tr("dialog.confirm.title"),
-        message=text,
-        accept_text=tr("action.cancel_now"),
-        reject_text=tr("action.keep_working"),
-        header=None,
-        default_accept=False,
-    )
-
-
-def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
-    text = tr("dialog.settings_save_confirm")
-    return _confirm_dialog(
-        parent,
-        title=tr("dialog.settings.title"),
-        message=text,
-        accept_text=tr("settings.buttons.save"),
-        reject_text=tr("ctrl.cancel"),
-        header=None,
-        default_accept=False,
-    )
-
-
-def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
-    text = tr("dialog.settings_restore_confirm")
-    return _confirm_dialog(
-        parent,
-        title=tr("dialog.settings.title"),
-        message=text,
-        accept_text=tr("settings.buttons.restore_defaults"),
-        reject_text=tr("ctrl.cancel"),
-        header=None,
-        default_accept=False,
-    )
-
-
-def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
-    """Transcript conflict dialog."""
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    _lock_close(dlg)
-
-    layout = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(layout, cfg)
-
-    dlg.setWindowTitle(tr("dialog.conflict.title"))
-    layout.addWidget(_section_label(tr("dialog.conflict.header")))
-    layout.addWidget(_wrap_label(tr("dialog.conflict.text", name=stem)))
-
-    rb_skip = QtWidgets.QRadioButton(tr("dialog.conflict.skip"))
-    rb_over = QtWidgets.QRadioButton(tr("dialog.conflict.overwrite"))
-    rb_new = QtWidgets.QRadioButton(tr("dialog.conflict.new_name"))
-    setup_toggle_button(rb_skip, min_h=cfg.control_min_h)
-    setup_toggle_button(rb_over, min_h=cfg.control_min_h)
-    setup_toggle_button(rb_new, min_h=cfg.control_min_h)
-    rb_skip.setChecked(True)
-
-    layout.addWidget(rb_skip)
-    layout.addWidget(rb_over)
-    layout.addWidget(rb_new)
-
-    name_edit = QtWidgets.QLineEdit()
-    setup_input(name_edit, min_h=cfg.control_min_h)
-    name_edit.setEnabled(False)
-    layout.addWidget(name_edit)
-
-    cb_all = QtWidgets.QCheckBox(tr("dialog.conflict.apply_all"))
-    setup_toggle_button(cb_all, min_h=cfg.control_min_h)
-    layout.addWidget(cb_all)
-
-    def sync_ui() -> None:
-        is_new = rb_new.isChecked()
-        name_edit.setEnabled(is_new)
-        if is_new:
-            cb_all.setChecked(False)
-            cb_all.setEnabled(False)
-        else:
-            cb_all.setEnabled(True)
-
-    rb_new.toggled.connect(sync_ui)
-    rb_skip.toggled.connect(sync_ui)
-    rb_over.toggled.connect(sync_ui)
-    sync_ui()
-
-    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    layout.addWidget(button_box)
-
-    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
-    if ok_btn:
-        ok_btn.setText(tr("ctrl.ok"))
-        _tune_buttons(cfg, ok_btn)
-        ok_btn.setDefault(True)
-
-    button_box.accepted.connect(dlg.accept)
-
-    dlg.exec_()
-
-    if rb_over.isChecked():
-        return "overwrite", "", cb_all.isChecked()
-    if rb_new.isChecked():
-        return "new", sanitize_filename(name_edit.text().strip()), False
-    return "skip", "", cb_all.isChecked()
-
-
-def ask_download_duplicate(
-    parent: QtWidgets.QWidget,
-    *,
-    title: str,
-    suggested_name: str,
-) -> tuple[str, str, bool]:
-    """Download duplicate dialog."""
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    _lock_close(dlg)
-
-    layout = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(layout, cfg)
-
-    dlg.setWindowTitle(tr("dialog.down.exists.title"))
-    layout.addWidget(_section_label(tr("dialog.down.exists.header")))
-    layout.addWidget(_wrap_label(tr("dialog.down.exists.text", title=title)))
-
-    rb_skip = QtWidgets.QRadioButton(tr("dialog.down.exists.skip"))
-    rb_over = QtWidgets.QRadioButton(tr("dialog.down.exists.overwrite"))
-    rb_ren = QtWidgets.QRadioButton(tr("dialog.down.exists.rename"))
-    setup_toggle_button(rb_skip, min_h=cfg.control_min_h)
-    setup_toggle_button(rb_over, min_h=cfg.control_min_h)
-    setup_toggle_button(rb_ren, min_h=cfg.control_min_h)
-    rb_skip.setChecked(True)
-
-    row = QtWidgets.QHBoxLayout()
-    row.setSpacing(cfg.spacing)
-    row.addWidget(rb_skip)
-    row.addWidget(rb_over)
-    row.addWidget(rb_ren)
-    layout.addLayout(row)
-
-    name_edit = QtWidgets.QLineEdit(suggested_name)
-    setup_input(name_edit, min_h=cfg.control_min_h)
-    name_edit.setEnabled(False)
-    layout.addWidget(name_edit)
-
-    cb_all = QtWidgets.QCheckBox(tr("dialog.down.exists.apply_all"))
-    setup_toggle_button(cb_all, min_h=cfg.control_min_h)
-    layout.addWidget(cb_all)
-
-    def sync_ui() -> None:
-        is_ren = rb_ren.isChecked()
-        name_edit.setEnabled(is_ren)
-        if is_ren:
-            cb_all.setChecked(False)
-            cb_all.setEnabled(False)
-        else:
-            cb_all.setEnabled(True)
-
-    rb_ren.toggled.connect(sync_ui)
-    rb_skip.toggled.connect(sync_ui)
-    rb_over.toggled.connect(sync_ui)
-    sync_ui()
-
-    button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
-    layout.addWidget(button_box)
-
-    ok_btn = button_box.button(QtWidgets.QDialogButtonBox.Ok)
-    if ok_btn:
-        ok_btn.setText(tr("ctrl.ok"))
-        _tune_buttons(cfg, ok_btn)
-        ok_btn.setDefault(True)
-
-    button_box.accepted.connect(dlg.accept)
-
-    dlg.exec_()
-
-    if rb_over.isChecked():
-        return "overwrite", "", cb_all.isChecked()
-    if rb_ren.isChecked():
-        return "rename", sanitize_filename(name_edit.text().strip()), False
-    return "skip", "", cb_all.isChecked()
 
 
 def _choose_cookie_file(parent: QtWidgets.QWidget | None) -> str:
@@ -849,6 +1187,39 @@ def _choose_cookie_file(parent: QtWidgets.QWidget | None) -> str:
         tr("dialog.down.cookies.file_filter"),
     )
     return str(file_path or "").strip()
+
+
+def _cookie_browser_label(browser_policy: str) -> str:
+    """Return the localized label used for a cookie-browser policy."""
+    normalized = DownloadPolicy.normalize_cookie_browser_policy(browser_policy)
+    if normalized == DownloadPolicy.COOKIE_BROWSER_AUTO:
+        return tr("common.auto")
+    if DownloadPolicy.is_supported_cookie_browser(normalized):
+        return tr(f"settings.browser_cookies.browser.{normalized}")
+    fallback = str(browser_policy or "").strip()
+    return fallback[:1].upper() + fallback[1:] if fallback else tr("common.auto")
+
+
+def _ordered_cookie_browser_policies(
+    browser_policy: str,
+    available_browser_policies: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return ordered, unique browser policies shown by the cookies dialog."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    preferred = str(browser_policy or "").strip().lower()
+    if DownloadPolicy.is_supported_cookie_browser(preferred) and preferred not in seen:
+        ordered.append(preferred)
+        seen.add(preferred)
+
+    for item in available_browser_policies or ():
+        normalized = DownloadPolicy.normalize_cookie_browser_policy(item)
+        if not DownloadPolicy.is_supported_cookie_browser(normalized) or normalized in seen:
+            continue
+        ordered.append(normalized)
+        seen.add(normalized)
+    return tuple(ordered)
 
 
 def ask_source_access_intervention(
@@ -866,24 +1237,15 @@ def ask_source_access_intervention(
     can_retry_enhanced: bool = False,
     can_continue_basic: bool = False,
     can_continue_degraded: bool = False,
-) -> tuple[str, str]:
+    browser_policy: str = "",
+    available_browser_policies: tuple[str, ...] = (),
+) -> SourceAccessInterventionResolution:
     """Return the next action for a user-actionable source-access failure."""
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    _lock_close(dlg)
-
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
-
     normalized_kind = str(kind or "cookies").strip().lower() or "cookies"
-    selected_action = {"name": "cancel"}
 
     if normalized_kind == "enhanced_access":
-        dlg.setWindowTitle(tr("dialog.down.access.title"))
         label = str(source_label or source_kind or tr("dialog.down.access.source_fallback")).strip()
         state_key = str(state or "").strip().lower()
-        header_key = "dialog.down.access.header"
         text_key = "dialog.down.access.text"
         if state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED:
             text_key = "dialog.down.access.text_enhanced_recommended"
@@ -893,226 +1255,192 @@ def ask_source_access_intervention(
             text_key = "dialog.down.access.text_provider_missing"
         elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE:
             text_key = "dialog.down.access.text_unavailable"
-        lay.addWidget(_section_label(tr(header_key, source=label)))
-        lay.addWidget(_wrap_label(tr(text_key, source=label)))
+
+        access_detail_lines: list[str] = []
         detail_text = str(detail or "").strip()
         if detail_text:
-            lbl_detail = _wrap_label(detail_text)
-            setup_label(lbl_detail, role="caption")
-            lay.addWidget(lbl_detail)
+            access_detail_lines.append(detail_text)
         provider_text = str(provider_state or "").strip()
         if provider_text and provider_text not in {"none", "available"}:
-            lbl_provider = _wrap_label(tr("dialog.down.access.provider_state", state=provider_text))
-            setup_label(lbl_provider, role="caption")
-            lay.addWidget(lbl_provider)
+            access_detail_lines.append(tr("dialog.down.access.provider_state", state=provider_text))
 
-        lay.addStretch(1)
-        button_box = QtWidgets.QDialogButtonBox()
-        btn_retry_enhanced = None
-        if can_retry_enhanced:
-            btn_retry_enhanced = button_box.addButton(
-                tr("dialog.down.access.retry_enhanced"),
-                QtWidgets.QDialogButtonBox.AcceptRole,
-            )
-        btn_continue_basic = None
-        if can_continue_basic:
-            btn_continue_basic = button_box.addButton(
-                tr("dialog.down.access.continue_basic"),
-                QtWidgets.QDialogButtonBox.ActionRole,
-            )
-        btn_continue_degraded = None
-        if can_continue_degraded:
-            btn_continue_degraded = button_box.addButton(
-                tr("dialog.down.access.continue_degraded"),
-                QtWidgets.QDialogButtonBox.ActionRole,
-            )
-        btn_cancel = button_box.addButton(tr("ctrl.cancel"), QtWidgets.QDialogButtonBox.RejectRole)
-        buttons = [
-            button
-            for button in (
-                btn_retry_enhanced,
-                btn_continue_basic,
-                btn_continue_degraded,
-                btn_cancel,
-            )
-            if button is not None
-        ]
-        _tune_buttons(cfg, *buttons)
-        if btn_retry_enhanced is not None:
-            btn_retry_enhanced.setDefault(True)
-        elif btn_continue_basic is not None:
-            btn_continue_basic.setDefault(True)
+        frame = _DialogFrameSpec(
+            title=tr("dialog.down.access.title"),
+            header=tr("dialog.down.access.header", source=label),
+            body_lines=(tr(text_key, source=label),),
+            detail_lines=tuple(access_detail_lines),
+            width_class=_DialogWidthClass.WIDE,
+            close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
+        )
+        dlg, cfg, layout = _build_dialog_frame(parent, frame)
+        selected_action = {"name": "cancel"}
 
         def finish(action_name: str) -> None:
             selected_action["name"] = str(action_name or "cancel")
-            if action_name == "cancel":
+            if selected_action["name"] == "cancel":
                 dlg.reject()
             else:
                 dlg.accept()
 
-        if btn_retry_enhanced is not None:
-            connect_qt_signal(
-                btn_retry_enhanced.clicked,
-                lambda: finish(DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED),
+        actions: list[_DialogActionSpec] = []
+        if can_retry_enhanced:
+            actions.append(
+                _DialogActionSpec(
+                    key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
+                    text=tr("dialog.down.access.retry_enhanced"),
+                    role=QtWidgets.QDialogButtonBox.AcceptRole,
+                    is_default=True,
+                )
             )
-        if btn_continue_basic is not None:
-            connect_qt_signal(
-                btn_continue_basic.clicked,
-                lambda: finish(DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC),
+        if can_continue_basic:
+            actions.append(
+                _DialogActionSpec(
+                    key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
+                    text=tr("dialog.down.access.continue_basic"),
+                    role=QtWidgets.QDialogButtonBox.ActionRole,
+                    is_default=not actions,
+                )
             )
-        if btn_continue_degraded is not None:
-            connect_qt_signal(
-                btn_continue_degraded.clicked,
-                lambda: finish(DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED),
+        if can_continue_degraded:
+            actions.append(
+                _DialogActionSpec(
+                    key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED,
+                    text=tr("dialog.down.access.continue_degraded"),
+                    role=QtWidgets.QDialogButtonBox.ActionRole,
+                )
             )
-        connect_qt_signal(btn_cancel.clicked, lambda: finish("cancel"))
-        lay.addWidget(button_box)
+        actions.append(
+            _DialogActionSpec(
+                key="cancel",
+                text=tr("ctrl.cancel"),
+                role=QtWidgets.QDialogButtonBox.RejectRole,
+            )
+        )
 
-        if dlg.exec_() != QtWidgets.QDialog.Accepted:
-            return "cancel", ""
-        return str(selected_action.get("name") or "cancel"), ""
+        button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
+        layout.addWidget(button_box)
+        _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+        dlg.exec_()
+        return SourceAccessInterventionResolution(action=str(selected_action.get("name") or "cancel"))
 
-    dlg.setWindowTitle(tr("dialog.down.cookies.title"))
-    source_kind = str(source_kind or "browser").strip().lower()
-    if source_kind == "file":
+    source_mode = str(source_kind or "browser").strip().lower()
+    if source_mode == "file":
         label = str(source_label or "").strip() or tr("dialog.down.cookies.source_file_fallback")
-        lay.addWidget(_section_label(tr("dialog.down.cookies.header_file", file=label)))
-        lay.addWidget(_wrap_label(tr("dialog.down.cookies.text_file", file=label)))
+        header = tr("dialog.down.cookies.header_file", file=label)
+        body = tr("dialog.down.cookies.text_file", file=label)
     else:
         label = str(source_label or "").strip() or tr("dialog.down.cookies.source_browser_fallback")
-        lay.addWidget(_section_label(tr("dialog.down.cookies.header_browser", browser=label)))
-        lay.addWidget(_wrap_label(tr("dialog.down.cookies.text_browser", browser=label)))
+        header = tr("dialog.down.cookies.header_browser", browser=label)
+        body = tr("dialog.down.cookies.text_browser", browser=label)
 
-    detail_text = str(detail or "").strip()
-    if detail_text:
-        lbl_detail = _wrap_label(detail_text)
-        setup_label(lbl_detail, role="caption")
-        lay.addWidget(lbl_detail)
+    cookie_detail_lines: tuple[str, ...] = tuple(filter(None, (str(detail or "").strip(),)))
+    frame = _DialogFrameSpec(
+        title=tr("dialog.down.cookies.title"),
+        header=header,
+        body_lines=(body,),
+        detail_lines=cookie_detail_lines,
+        width_class=_DialogWidthClass.WIDE,
+        close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
 
-    lay.addStretch(1)
+    ordered_browser_policies = _ordered_cookie_browser_policies(browser_policy, available_browser_policies)
+    selected_browser_policy = str(browser_policy or "").strip().lower()
+    if selected_browser_policy not in ordered_browser_policies and ordered_browser_policies:
+        selected_browser_policy = ordered_browser_policies[0]
 
-    button_box = QtWidgets.QDialogButtonBox()
-    btn_retry = None
-    if can_retry:
-        btn_retry = button_box.addButton(tr("dialog.down.cookies.retry"), QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_use_file = None
-    if can_choose_cookie_file:
-        btn_use_file = button_box.addButton(
-            tr("dialog.down.cookies.use_file"),
-            QtWidgets.QDialogButtonBox.ActionRole,
-        )
-    btn_without = None
-    if can_continue_without_cookies:
-        btn_without = button_box.addButton(
-            tr("dialog.down.cookies.without"),
-            QtWidgets.QDialogButtonBox.ActionRole,
-        )
-    btn_cancel = button_box.addButton(tr("ctrl.cancel"), QtWidgets.QDialogButtonBox.RejectRole)
+    browser_combo: QtWidgets.QComboBox | None = None
+    if source_mode == "browser" and can_retry and len(ordered_browser_policies) > 1:
+        layout.addWidget(_caption_label(tr("dialog.down.cookies.browser_picker_hint")))
 
-    buttons = [button for button in (btn_retry, btn_use_file, btn_without, btn_cancel) if button is not None]
-    _tune_buttons(cfg, *buttons)
-    if btn_retry is not None:
-        btn_retry.setDefault(True)
-    elif btn_use_file is not None:
-        btn_use_file.setDefault(True)
+        browser_host = QtWidgets.QWidget(dlg)
+        browser_row = QtWidgets.QHBoxLayout(browser_host)
+        browser_row.setContentsMargins(0, 0, 0, 0)
+        browser_row.setSpacing(_dialog_option_spacing(cfg))
+
+        lbl_browser = QtWidgets.QLabel(tr("dialog.down.cookies.browser_picker_label"), browser_host)
+        setup_label(lbl_browser, role="label")
+        browser_row.addWidget(lbl_browser)
+
+        browser_combo = QtWidgets.QComboBox(browser_host)
+        setup_combo(browser_combo, min_h=_dialog_option_min_h(cfg))
+        browser_combo.setMinimumWidth(max(int(cfg.control_min_w), 180))
+        for policy in ordered_browser_policies:
+            browser_combo.addItem(_cookie_browser_label(policy), policy)
+        current_index = browser_combo.findData(selected_browser_policy)
+        if current_index < 0:
+            current_index = 0
+        browser_combo.setCurrentIndex(current_index)
+        lbl_browser.setBuddy(browser_combo)
+        browser_row.addWidget(browser_combo, 1)
+        layout.addWidget(browser_host)
+
+    selected_action = {"name": "cancel"}
 
     def finish(action_name: str) -> None:
         selected_action["name"] = str(action_name or "cancel")
-        if action_name == "cancel":
+        if selected_action["name"] == "cancel":
             dlg.reject()
         else:
             dlg.accept()
 
-    if btn_retry is not None:
-        connect_qt_signal(btn_retry.clicked, lambda: finish("retry"))
-    if btn_use_file is not None:
-        connect_qt_signal(btn_use_file.clicked, lambda: finish("use_cookie_file"))
-    if btn_without is not None:
-        connect_qt_signal(btn_without.clicked, lambda: finish("without_cookies"))
-    connect_qt_signal(btn_cancel.clicked, lambda: finish("cancel"))
-    lay.addWidget(button_box)
+    actions: list[_DialogActionSpec] = []
+    if can_retry:
+        actions.append(
+            _DialogActionSpec(
+                key="retry",
+                text=tr("dialog.down.cookies.retry"),
+                role=QtWidgets.QDialogButtonBox.AcceptRole,
+                is_default=True,
+            )
+        )
+    if can_choose_cookie_file:
+        actions.append(
+            _DialogActionSpec(
+                key="use_cookie_file",
+                text=tr("dialog.down.cookies.use_file"),
+                role=QtWidgets.QDialogButtonBox.ActionRole,
+                is_default=not actions,
+            )
+        )
+    if can_continue_without_cookies:
+        actions.append(
+            _DialogActionSpec(
+                key="without_cookies",
+                text=tr("dialog.down.cookies.without"),
+                role=QtWidgets.QDialogButtonBox.ActionRole,
+            )
+        )
+    actions.append(
+        _DialogActionSpec(
+            key="cancel",
+            text=tr("ctrl.cancel"),
+            role=QtWidgets.QDialogButtonBox.RejectRole,
+        )
+    )
 
-    if dlg.exec_() != QtWidgets.QDialog.Accepted:
-        return "cancel", ""
+    button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
+    layout.addWidget(button_box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
 
     selected_name = str(selected_action.get("name") or "cancel")
     if selected_name == "retry":
-        return "retry", ""
+        chosen_browser_policy = ""
+        if browser_combo is not None:
+            chosen_browser_policy = str(browser_combo.currentData() or "").strip().lower()
+        return SourceAccessInterventionResolution(action="retry", browser_policy=chosen_browser_policy)
     if selected_name == "without_cookies":
-        return "without_cookies", ""
+        return SourceAccessInterventionResolution(action="without_cookies")
     if selected_name == "use_cookie_file":
         selected_path = _choose_cookie_file(parent)
         if selected_path:
-            return "use_cookie_file", selected_path
-    return "cancel", ""
-
-
-def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
-    """Restart decision dialog."""
-    cfg = ui(parent)
-    dlg = QtWidgets.QDialog(parent)
-    _tune_dialog_window(dlg, cfg)
-    _lock_close(dlg)
-
-    lay = QtWidgets.QVBoxLayout(dlg)
-    _tune_dialog_layout(lay, cfg)
-
-    dlg.setWindowTitle(tr("dialog.restart_required.title"))
-    lay.addWidget(_section_label(tr("dialog.restart_required.header")))
-    lay.addWidget(_wrap_label(tr("dialog.restart_required.text")))
-    lay.addStretch(1)
-
-    button_box = QtWidgets.QDialogButtonBox()
-    btn_restart = button_box.addButton(tr("dialog.restart_required.restart"), QtWidgets.QDialogButtonBox.AcceptRole)
-    btn_later = button_box.addButton(tr("dialog.restart_required.later"), QtWidgets.QDialogButtonBox.RejectRole)
-    _tune_buttons(cfg, btn_restart, btn_later)
-
-    connect_qt_signal(btn_restart.clicked, dlg.accept)
-    connect_qt_signal(btn_later.clicked, dlg.reject)
-
-    lay.addWidget(button_box)
-
-    return dlg.exec_() == QtWidgets.QDialog.Accepted
-
-
-def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> bool:
-    """Returns True if user wants to open the session folder."""
-    msg = str(session_dir or "")
-    return _confirm_dialog(
-        parent,
-        title=tr("dialog.info.title"),
-        message=msg,
-        accept_text=tr("files.open_output"),
-        reject_text=tr("ctrl.ok"),
-        header=tr("dialog.info.done_header"),
-        default_accept=False,
-    )
-
-
-def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -> bool:
-    """Returns True if user wants to open downloads folder."""
-    try:
-        file_name = Path(downloaded_path).name
-    except (TypeError, ValueError):
-        file_name = str(downloaded_path or "")
-
-    msg = tr("dialog.info.downloaded_prefix")
-    if file_name:
-        msg = f"{msg} {file_name}"
-
-    return _confirm_dialog(
-        parent,
-        title=tr("dialog.info.title"),
-        message=msg,
-        accept_text=tr("down.open_folder"),
-        reject_text=tr("ctrl.ok"),
-        header=tr("dialog.info.done_header"),
-        default_accept=False,
-    )
+            return SourceAccessInterventionResolution(action="use_cookie_file", cookie_file_path=selected_path)
+    return SourceAccessInterventionResolution()
 
 
 def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
-    _message_dialog(parent, title=title, message=message, header=header, ok_text=tr("ctrl.ok"))
+    _run_message_dialog(parent, title=title, message=message, header=header, ok_text=tr("ctrl.ok"))
 
 
 def show_error(
@@ -1127,17 +1455,17 @@ def show_error(
     """Show a runtime error through the standard dialog path."""
 
     def _should_hide_detail(text: str) -> bool:
-        s = str(text or "")
-        if not s:
+        normalized = str(text or "")
+        if not normalized:
             return False
-        low = s.lower()
-        if "traceback" in low:
+        lowered = normalized.lower()
+        if "traceback" in lowered:
             return True
-        if ".py" in low and ("line " in low or "file \"" in low or "file '" in low):
+        if ".py" in lowered and ("line " in lowered or "file \"" in lowered or "file '" in lowered):
             return True
-        if re.search(r"\.py\s*:\s*\d+", s):
+        if re.search(r"\.py\s*:\s*\d+", normalized):
             return True
-        if re.search(r"file\s+\".*?\.py\"\s*,\s*line\s*\d+", low):
+        if re.search(r"file\s+\".*?\.py\"\s*,\s*line\s*\d+", lowered):
             return True
         return False
 
@@ -1147,7 +1475,7 @@ def show_error(
         return text
 
     if title is not None or message is not None or header is not None:
-        _message_dialog(
+        _run_message_dialog(
             parent,
             title=title or tr("dialog.error.title"),
             message=_sanitize_message(message or ""),
@@ -1157,7 +1485,7 @@ def show_error(
         return
 
     msg = _sanitize_message(tr(str(key or ""), **(params or {})))
-    _message_dialog(
+    _run_message_dialog(
         parent,
         title=tr("dialog.error.title"),
         message=msg,

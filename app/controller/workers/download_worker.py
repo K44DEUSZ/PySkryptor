@@ -57,6 +57,7 @@ class DownloadWorker(AccessTaskWorker):
         self._audio_track_id = str(audio_track_id or "").strip() or None
         self._browser_cookies_mode_override = str(browser_cookies_mode_override or "").strip().lower() or None
         self._cookie_file_override: str | None = None
+        self._browser_policy_override: str | None = None
         self._access_mode_override: str | None = None
 
         self._duplicate_decision = PendingDecision(default_action="skip")
@@ -90,6 +91,7 @@ class DownloadWorker(AccessTaskWorker):
     def _probe(self, svc: DownloadService) -> dict[str, Any]:
         browser_cookies_mode_override = self._browser_cookies_mode_override
         cookie_file_override = self._cookie_file_override
+        browser_policy_override = self._browser_policy_override
         access_mode_override = self._access_mode_override
         while True:
             try:
@@ -97,17 +99,20 @@ class DownloadWorker(AccessTaskWorker):
                     self._url,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                     interactive=True,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 return meta
             except SourceAccessInterventionRequired as ex:
                 (
                     browser_cookies_mode_override,
                     cookie_file_override,
+                    browser_policy_override,
                     access_mode_override,
                 ) = self._next_access_intervention_overrides(
                     ex,
@@ -115,10 +120,12 @@ class DownloadWorker(AccessTaskWorker):
                     payload_key=self._job_key,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 continue
             except DownloadError as ex:
@@ -128,6 +135,7 @@ class DownloadWorker(AccessTaskWorker):
                     operation="probe",
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 if intervention is None:
@@ -135,6 +143,7 @@ class DownloadWorker(AccessTaskWorker):
                 (
                     browser_cookies_mode_override,
                     cookie_file_override,
+                    browser_policy_override,
                     access_mode_override,
                 ) = self._next_access_intervention_overrides(
                     intervention,
@@ -142,10 +151,12 @@ class DownloadWorker(AccessTaskWorker):
                     payload_key=self._job_key,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 continue
 
@@ -156,6 +167,7 @@ class DownloadWorker(AccessTaskWorker):
             meta = self._probe(svc)
             browser_cookies_mode_override = self._browser_cookies_mode_override
             cookie_file_override = self._cookie_file_override
+            browser_policy_override = self._browser_policy_override
             access_mode_override = self._access_mode_override
             title = str(meta.get("title") or meta.get("id") or "download")
             extractor = str(meta.get("extractor") or "").strip()
@@ -207,12 +219,14 @@ class DownloadWorker(AccessTaskWorker):
                     meta=meta,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
             except SourceAccessInterventionRequired as ex:
                 (
                     browser_cookies_mode_override,
                     cookie_file_override,
+                    browser_policy_override,
                     access_mode_override,
                 ) = self._next_access_intervention_overrides(
                     ex,
@@ -220,10 +234,12 @@ class DownloadWorker(AccessTaskWorker):
                     payload_key=self._job_key,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 continue
             except DownloadError as ex:
@@ -233,6 +249,7 @@ class DownloadWorker(AccessTaskWorker):
                     operation="download",
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 if intervention is None:
@@ -240,6 +257,7 @@ class DownloadWorker(AccessTaskWorker):
                 (
                     browser_cookies_mode_override,
                     cookie_file_override,
+                    browser_policy_override,
                     access_mode_override,
                 ) = self._next_access_intervention_overrides(
                     intervention,
@@ -247,10 +265,12 @@ class DownloadWorker(AccessTaskWorker):
                     payload_key=self._job_key,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 self._browser_cookies_mode_override = browser_cookies_mode_override
                 self._cookie_file_override = cookie_file_override
+                self._browser_policy_override = browser_policy_override
                 self._access_mode_override = access_mode_override
                 continue
 

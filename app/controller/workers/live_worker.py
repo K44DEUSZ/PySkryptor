@@ -122,10 +122,8 @@ class LiveWorker(SessionWorker):
     def _handle_failure(self, ex: BaseException) -> None:
         self._set_status("status.error")
 
-        err_key = getattr(ex, "key", None)
-        err_params = getattr(ex, "params", None)
-        if err_key:
-            self._emit_failure(str(err_key), dict(err_params or {}))
+        if isinstance(ex, AppError):
+            self._emit_failure(str(ex.key), dict(ex.params or {}))
             return
 
         self._emit_failure("error.live.failed", {"detail": str(ex)})

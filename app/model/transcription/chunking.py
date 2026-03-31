@@ -1,6 +1,4 @@
 # app/model/transcription/chunking.py
-"""Audio windowing helpers for offline and live transcription."""
-
 from __future__ import annotations
 
 import wave

@@ -184,7 +184,9 @@
         "text_browser": "Close the browser and try again, choose a cookies file, or continue without cookies for this operation.",
         "text_file": "Choose a different cookies file or continue without cookies for this operation.",
         "source_browser_fallback": "selected browser",
-        "source_file_fallback": "selected cookies file"
+        "source_file_fallback": "selected cookies file",
+        "browser_picker_hint": "Pick a different browser for the next retry, or keep the current one.",
+        "browser_picker_label": "Retry with browser"
       },
       "access": {
         "title": "Source access requires a decision",
@@ -336,7 +338,12 @@
       "settings_invalid": "⚠️ Settings file “{path}” is invalid. Details: {detail}",
       "settings_missing": "⚠️ Missing settings file: {path}",
       "invalid_video_height_range": "The minimum video height ({min_height}) cannot exceed the maximum ({max_height}).",
-      "unknown_action": "⚠️ Unknown action “{action}”."
+      "unknown_action": "⚠️ Unknown action “{action}”.",
+      "cookie_file_path_missing": "⚠️ A cookies file must be selected when cookie-file mode is enabled.",
+      "cookie_file_missing": "⚠️ Cookies file was not found: {path}",
+      "cookie_file_not_file": "⚠️ Cookies path is not a file: {path}",
+      "cookie_file_unreadable": "⚠️ Cookies file could not be read: {path}. Details: {detail}",
+      "cookie_file_empty": "⚠️ Cookies file is empty: {path}"
     },
     "startup": {
       "failed": "❌ Application startup failed. Details: {detail}"

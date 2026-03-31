@@ -91,14 +91,16 @@ class TranscriptionWorker(AccessTaskWorker):
         request: SourceAccessInterventionRequest,
         browser_cookies_mode_override: str | None,
         cookie_file_override: str | None,
+        browser_policy_override: str | None,
         access_mode_override: str | None,
-    ) -> tuple[str | None, str | None, str | None]:
+    ) -> tuple[str | None, str | None, str | None, str | None]:
         return self._next_access_intervention_overrides(
             SourceAccessInterventionRequired(request),
             payload_key_name="source_key",
             payload_key=source_key,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
         )
 

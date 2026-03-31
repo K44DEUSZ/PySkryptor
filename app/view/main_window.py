@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from PyQt5 import QtCore, QtGui, QtNetwork, QtWidgets
 
@@ -20,8 +20,8 @@ from app.view.panels.downloader_panel import DownloaderPanel
 from app.view.panels.files_panel import FilesPanel
 from app.view.panels.live_panel import LivePanel
 from app.view.panels.settings_panel import SettingsPanel
-from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
 from app.view.support.host_runtime import normalize_network_status
+from app.view.support.theme_runtime import app_icon, apply_windows_dark_titlebar
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import set_passive_cursor
 from app.view.ui_config import UIConfig, ui
@@ -29,10 +29,18 @@ from app.view.ui_config import UIConfig, ui
 _LOG = logging.getLogger(__name__)
 
 
-class _PanelFactory(Protocol):
+class _PanelFactoryProtocol(Protocol):
     """Callable factory used by MainWindow to build one panel instance."""
 
     def __call__(self, parent: QtWidgets.QWidget | None) -> QtWidgets.QWidget: ...
+
+
+@runtime_checkable
+class _ParentCloseAwareProtocol(Protocol):
+    """Panel contract for optional parent-close cleanup hooks."""
+
+    def on_parent_close(self) -> None: ...
+
 
 @dataclass(frozen=True)
 class _PanelTabSpec:
@@ -40,10 +48,11 @@ class _PanelTabSpec:
 
     key: str
     title_key: str
-    factory: _PanelFactory
+    factory: _PanelFactoryProtocol
 
     def title(self) -> str:
         return tr(self.title_key)
+
 
 def _build_main_tab_specs() -> tuple[_PanelTabSpec, ...]:
     """Return the ordered tab specifications for the main window."""
@@ -55,6 +64,7 @@ def _build_main_tab_specs() -> tuple[_PanelTabSpec, ...]:
         _PanelTabSpec(key='settings', title_key='tabs.settings', factory=SettingsPanel),
         _PanelTabSpec(key='about', title_key='tabs.about', factory=AboutPanel),
     )
+
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window hosting the primary panels."""
@@ -126,8 +136,26 @@ class MainWindow(QtWidgets.QMainWindow):
         for spec in _build_main_tab_specs():
             panel = self._create_panel(spec)
             self._panels[spec.key] = panel
-            setattr(self, f'{spec.key}_panel', panel)
+            self._bind_panel(spec.key, panel)
             self.tabs.addTab(panel, spec.title())
+
+    def _bind_panel(self, key: str, panel: QtWidgets.QWidget) -> None:
+        if key == 'files':
+            self.files_panel = panel
+            return
+        if key == 'live':
+            self.live_panel = panel
+            return
+        if key == 'downloader':
+            self.downloader_panel = panel
+            return
+        if key == 'settings':
+            self.settings_panel = panel
+            return
+        if key == 'about':
+            self.about_panel = panel
+            return
+        raise ValueError(f'Unsupported panel key: {key}')
 
     def _create_panel(self, spec: _PanelTabSpec) -> QtWidgets.QWidget:
         return spec.factory(self)
@@ -281,11 +309,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         for panel in self._panels.values():
-            on_parent_close = getattr(panel, 'on_parent_close', None)
-            if not callable(on_parent_close):
+            if not isinstance(panel, _ParentCloseAwareProtocol):
                 continue
             try:
-                on_parent_close()
+                panel.on_parent_close()
             except (AttributeError, RuntimeError, TypeError) as ex:
                 _LOG.debug('Panel close hook skipped. panel=%s detail=%s', type(panel).__name__, ex)
         super().closeEvent(event)

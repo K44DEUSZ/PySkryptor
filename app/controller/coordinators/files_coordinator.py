@@ -22,6 +22,7 @@ from app.controller.workers.worker_runner import WorkerRunner
 from app.controller.workers.transcription_worker import TranscriptionWorker
 from app.model.core.domain.entities import TranscriptionSessionRequest
 from app.model.core.domain.state import AppRuntimeState
+from app.model.download.domain import SourceAccessInterventionResolution
 
 
 class FilesCoordinator(QtCore.QObject):
@@ -268,13 +269,17 @@ class FilesCoordinator(QtCore.QObject):
         except (AttributeError, RuntimeError, TypeError):
             return
 
-    def resolve_access_intervention(self, _source_key: str, action: str, value: str = "") -> None:
+    def resolve_access_intervention(
+        self,
+        _source_key: str,
+        resolution: SourceAccessInterventionResolution,
+    ) -> None:
         worker = self._expansion_worker if self._expansion_runner.is_running() else self._transcription_worker
         if worker is None:
             worker = self._transcription_worker if self._transcription_runner.is_running() else self._expansion_worker
         if worker is None:
             return
         try:
-            worker.on_access_intervention_decided(action, value)
+            worker.on_access_intervention_decided(resolution)
         except (AttributeError, RuntimeError, TypeError):
             return

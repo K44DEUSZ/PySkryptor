@@ -50,9 +50,9 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: Ap
     config_cls.initialize_from_snapshot(snap)
     AIModelsService.apply_engine_runtime(snap.engine)
 
-    dev_str = str(getattr(config_cls, "DEVICE_ID", "cpu"))
-    dtype_str = str(getattr(config_cls, "DTYPE_ID", "float32"))
-    friendly = str(getattr(config_cls, "DEVICE_FRIENDLY_NAME", dev_str))
+    dev_str = str(config_cls.DEVICE_ID)
+    dtype_str = str(config_cls.DTYPE_ID)
+    friendly = str(config_cls.DEVICE_FRIENDLY_NAME or dev_str)
     _LOG.info("Runtime device resolved. device=%s friendly=%s dtype=%s", dev_str, friendly, dtype_str)
     _LOG.debug(
         (
@@ -65,7 +65,7 @@ def _task_init_runtime(runtime: _StartupRuntime, progress: ProgressCb, state: Ap
         bool((snap.engine or {}).get("low_cpu_mem_usage", False)),
         dev_str,
         dtype_str,
-        bool(getattr(config_cls, "TF32_ENABLED", False)),
+        bool(config_cls.TF32_ENABLED),
     )
 
     progress(100)
@@ -93,7 +93,7 @@ def _task_ensure_dirs(runtime: _StartupRuntime, progress: ProgressCb, state: App
 
 def _task_setup_ffmpeg(runtime: _StartupRuntime, progress: ProgressCb, state: AppRuntimeState) -> AppRuntimeState:
     setup_ffmpeg_runtime(runtime.config_cls)
-    _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", getattr(runtime.config_cls.PATHS, "FFMPEG_BIN_DIR", ""))
+    _LOG.debug("FFmpeg runtime configured. ffmpeg_dir=%s", runtime.config_cls.PATHS.FFMPEG_BIN_DIR)
     progress(100)
     return state
 
@@ -131,14 +131,13 @@ def _warmup_model_runtime(
         if result_key is not None:
             changes[result_key] = result
         next_state = replace(state, **changes)
-        _LOG.debug("Startup %s model ready. %s=%s", name, ready_log_key, bool(getattr(next_state, ready_key)))
+        _LOG.debug("Startup %s model ready. %s=%s", name, ready_log_key, bool(changes[ready_key]))
         return next_state
     except ModelNotInstalledError as ex:
-        params = dict(getattr(ex, "params", {}) or {})
-        path = str(getattr(ex, "path", params.get("path", "")) or "")
+        path = str(ex.path or "")
         changes = {
             ready_key: False,
-            error_key_key: getattr(ex, "key", "error.model.not_installed"),
+            error_key_key: ex.key,
             error_params_key: {"path": path},
         }
         if result_key is not None:
@@ -153,8 +152,8 @@ def _warmup_model_runtime(
     except AppError as ex:
         changes = {
             ready_key: False,
-            error_key_key: getattr(ex, "key", "error.generic"),
-            error_params_key: dict(getattr(ex, "params", {}) or {}),
+            error_key_key: ex.key,
+            error_params_key: dict(ex.params or {}),
         }
         if result_key is not None:
             changes[result_key] = None
@@ -162,7 +161,7 @@ def _warmup_model_runtime(
         _LOG.debug(
             "Startup %s warmup failed. error_key=%s",
             name,
-            getattr(next_state, error_key_key),
+            changes[error_key_key],
         )
         return next_state
 

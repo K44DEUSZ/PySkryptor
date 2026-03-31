@@ -30,6 +30,7 @@ from app.view.support.widget_effects import enable_styled_background, repolish_w
 from app.view.support.widget_setup import (
     build_layout_host,
     build_setting_row,
+    connect_qt_signal,
     setup_button,
     setup_combo,
     setup_input,
@@ -200,10 +201,18 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self._advanced_rows: list[QtWidgets.QWidget] = []
         self._dirty_row_specs: list[tuple[QtWidgets.QWidget, QtWidgets.QWidget, tuple[tuple[str, ...], ...]]] = []
+        self._setting_labels_by_row_id: dict[int, QtWidgets.QWidget] = {}
+        self._setting_controls_by_row_id: dict[int, QtWidgets.QWidget] = {}
         self._cookie_browser_row: QtWidgets.QWidget | None = None
         self._cookie_file_row: QtWidgets.QWidget | None = None
+        self._bulk_add_threshold_row: QtWidgets.QWidget | None = None
+        self._log_level_row: QtWidgets.QWidget | None = None
+        self._row_fp32_math_mode: QtWidgets.QWidget | None = None
+        self._left_col_host: QtWidgets.QWidget | None = None
+        self._right_col_host: QtWidgets.QWidget | None = None
         self.btn_save: QtWidgets.QPushButton | None = None
         self.btn_undo: QtWidgets.QPushButton | None = None
+        self.chk_show_advanced: QtWidgets.QCheckBox | None = None
 
     def _build_ui(self) -> None:
         cfg = self._ui
@@ -295,7 +304,10 @@ class SettingsPanel(QtWidgets.QWidget):
         btn_save = self.btn_save
         if btn_restore is None or btn_undo is None or btn_save is None:
             raise RuntimeError("Settings panel controls are not initialized.")
-        self.chk_show_advanced.stateChanged.connect(self._on_toggle_advanced)
+        chk_show_advanced = self.chk_show_advanced
+        if chk_show_advanced is None:
+            raise RuntimeError("Advanced-settings toggle is not initialized.")
+        connect_qt_signal(chk_show_advanced.stateChanged, self._on_toggle_advanced)
         btn_restore.clicked.connect(self._on_restore_clicked)
         btn_undo.clicked.connect(self._on_undo_clicked)
         btn_save.clicked.connect(self._on_save_clicked)
@@ -320,7 +332,7 @@ class SettingsPanel(QtWidgets.QWidget):
             a.setMinimumWidth(w)
             b.setMinimumWidth(w)
 
-        if hasattr(self, "_left_col_host") and hasattr(self, "_right_col_host"):
+        if self._left_col_host is not None and self._right_col_host is not None:
             left_w = int(self._left_col_host.minimumSizeHint().width())
             right_w = int(self._right_col_host.minimumSizeHint().width())
             w = max(left_w, right_w, 0)
@@ -337,6 +349,29 @@ class SettingsPanel(QtWidgets.QWidget):
         lbl.setProperty("role", "sectionTitle")
         lbl.setWordWrap(True)
         return lbl
+
+    def _bind_setting_row(
+        self,
+        row: QtWidgets.QWidget,
+        *,
+        label: QtWidgets.QWidget | None = None,
+        control: QtWidgets.QWidget | None = None,
+    ) -> None:
+        row_id = id(row)
+        if isinstance(label, QtWidgets.QWidget):
+            self._setting_labels_by_row_id[row_id] = label
+        if isinstance(control, QtWidgets.QWidget):
+            self._setting_controls_by_row_id[row_id] = control
+
+    def _row_label(self, row: QtWidgets.QWidget | None) -> QtWidgets.QWidget | None:
+        if not isinstance(row, QtWidgets.QWidget):
+            return None
+        return self._setting_labels_by_row_id.get(id(row))
+
+    def _row_control(self, row: QtWidgets.QWidget | None) -> QtWidgets.QWidget | None:
+        if not isinstance(row, QtWidgets.QWidget):
+            return None
+        return self._setting_controls_by_row_id.get(id(row))
 
     def _build_labeled_row(
         self,
@@ -358,6 +393,7 @@ class SettingsPanel(QtWidgets.QWidget):
             include_info=include_info,
             label_role="settingsRowLabel" if track_dirty_label else None,
         )
+        self._bind_setting_row(row, label=label_widget, control=control)
         if advanced:
             self._advanced_rows.append(row)
         return row
@@ -378,11 +414,7 @@ class SettingsPanel(QtWidgets.QWidget):
         *paths: tuple[str, ...],
         value_widget: QtWidgets.QWidget | None = None,
     ) -> QtWidgets.QWidget:
-        control = (
-            value_widget
-            if isinstance(value_widget, QtWidgets.QWidget)
-            else getattr(row, "_setting_control", None)
-        )
+        control = value_widget if isinstance(value_widget, QtWidgets.QWidget) else self._row_control(row)
         if isinstance(control, QtWidgets.QWidget) and paths:
             spec = tuple(tuple(path) for path in paths if path)
             if spec:
@@ -619,10 +651,8 @@ class SettingsPanel(QtWidgets.QWidget):
         current_mode = str(
             selected_mode or self.cmb_browser_cookies_mode.currentData() or AppConfig.browser_cookies_mode()
         ).strip().lower() or "none"
-        show_advanced = bool(
-            getattr(self, "chk_show_advanced", None) is not None
-            and self.chk_show_advanced.isChecked()
-        )
+        checkbox = self.chk_show_advanced
+        show_advanced = bool(checkbox is not None and checkbox.isChecked())
         allow_file = show_advanced or current_mode == "from_file"
         self.cmb_browser_cookies_mode.blockSignals(True)
         try:
@@ -1423,8 +1453,8 @@ class SettingsPanel(QtWidgets.QWidget):
             return
         self._adv_autosave.trigger()
 
-    @staticmethod
     def _set_row_control_enabled(
+        self,
         row: QtWidgets.QWidget | None,
         enabled: bool,
         *,
@@ -1433,19 +1463,19 @@ class SettingsPanel(QtWidgets.QWidget):
         if row is None:
             return
 
-        target = control if isinstance(control, QtWidgets.QWidget) else getattr(row, "_setting_control", None)
+        target = control if isinstance(control, QtWidgets.QWidget) else self._row_control(row)
         if isinstance(target, QtWidgets.QWidget):
             target.setEnabled(bool(enabled))
 
-        label = getattr(row, "_setting_label", None)
+        label = self._row_label(row)
         if isinstance(label, QtWidgets.QWidget):
             label.setEnabled(bool(enabled))
 
-    @staticmethod
-    def _find_setting_row(control: QtWidgets.QWidget | None) -> QtWidgets.QWidget | None:
+    def _find_setting_row(self, control: QtWidgets.QWidget | None) -> QtWidgets.QWidget | None:
         current = control
         while isinstance(current, QtWidgets.QWidget):
-            if getattr(current, "_setting_control", None) is control:
+            mapped_control = self._row_control(current)
+            if mapped_control is control:
                 return current
             current = current.parentWidget()
         return None
@@ -2321,7 +2351,7 @@ class SettingsPanel(QtWidgets.QWidget):
         cur_dev = str(self.cmb_engine_device.currentData() or LanguagePolicy.AUTO)
         fp32_mode_allowed = AppConfig.is_fp32_math_mode_applicable(cur_dev, cur_prec)
         self._set_row_control_enabled(
-            getattr(self, "_row_fp32_math_mode", None),
+            self._row_fp32_math_mode,
             fp32_mode_allowed,
             control=self.tg_fp32_math_mode,
         )

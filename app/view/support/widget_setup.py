@@ -275,9 +275,6 @@ def build_setting_row(
     if label_role is not None:
         label.setProperty("role", str(label_role))
 
-    setattr(host, "_setting_label", label)
-    setattr(host, "_setting_control", control)
-
     grid.addWidget(label, 0, 0)
     grid.addWidget(control_host or control, 0, 1)
 

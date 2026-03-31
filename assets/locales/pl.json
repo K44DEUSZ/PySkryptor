@@ -184,7 +184,9 @@
         "text_browser": "Zamknij przeglądarkę i spróbuj ponownie, wskaż plik cookies albo kontynuuj bez cookies tylko dla tej operacji.",
         "text_file": "Wskaż inny plik cookies albo kontynuuj bez cookies tylko dla tej operacji.",
         "source_browser_fallback": "wybrana przeglądarka",
-        "source_file_fallback": "wybrany plik cookies"
+        "source_file_fallback": "wybrany plik cookies",
+        "browser_picker_hint": "Wybierz inną przeglądarkę dla kolejnej próby albo pozostaw obecną.",
+        "browser_picker_label": "Ponów z przeglądarką"
       },
       "access": {
         "title": "Dostęp do źródła wymaga decyzji",
@@ -336,7 +338,12 @@
       "settings_invalid": "⚠️ Plik ustawień „{path}” jest nieprawidłowy. Szczegóły: {detail}",
       "settings_missing": "⚠️ Brak pliku ustawień: {path}",
       "invalid_video_height_range": "Minimalna wysokość wideo ({min_height}) nie może być większa niż maksymalna ({max_height}).",
-      "unknown_action": "⚠️ Nieznana akcja „{action}”."
+      "unknown_action": "⚠️ Nieznana akcja „{action}”.",
+      "cookie_file_path_missing": "⚠️ Gdy włączony jest tryb pliku cookies, trzeba wskazać plik cookies.",
+      "cookie_file_missing": "⚠️ Nie znaleziono pliku cookies: {path}",
+      "cookie_file_not_file": "⚠️ Wskazana ścieżka cookies nie jest plikiem: {path}",
+      "cookie_file_unreadable": "⚠️ Nie udało się odczytać pliku cookies: {path}. Szczegóły: {detail}",
+      "cookie_file_empty": "⚠️ Plik cookies jest pusty: {path}"
     },
     "startup": {
       "failed": "❌ Uruchamianie aplikacji nie powiodło się. Szczegóły: {detail}"

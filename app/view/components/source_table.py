@@ -5,9 +5,11 @@ import logging
 from typing import Any, Callable, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import QPoint, QRect
 
 from app.model.core.runtime.localization import tr
 from app.model.download.policy import DownloadPolicy
+from app.view.components.hint_popup import hide_hint_popup, hint_popup
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.view.support.widget_effects import repolish_widget
 from app.view.support.widget_setup import (
@@ -271,10 +273,51 @@ class SourceTable(QtWidgets.QTableWidget):
             self._schedule_header_layout_reapply()
 
     def viewportEvent(self, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+        event_type = event.type()
+        if event_type == QtCore.QEvent.Type.ToolTip:
+            help_event = event if isinstance(event, QtGui.QHelpEvent) else None
+            if help_event is not None:
+                tooltip_rect, tooltip = self._tooltip_at_viewport_pos(help_event.pos())
+                if tooltip_rect is not None and tooltip:
+                    hint_popup().show_for_rect(self.viewport(), tooltip_rect, tooltip)
+                    event.accept()
+                    return True
+            hide_hint_popup()
+            return True
+
         handled = super().viewportEvent(event)
-        if event.type() == QtCore.QEvent.Type.Paint:
+        if event_type == QtCore.QEvent.Type.Paint:
             self._mask_last_visible_gridline()
+        elif event_type in {
+            QtCore.QEvent.Type.Leave,
+            QtCore.QEvent.Type.Hide,
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QEvent.Type.MouseMove,
+            QtCore.QEvent.Type.Wheel,
+        }:
+            hide_hint_popup()
         return handled
+
+    def _tooltip_at_viewport_pos(self, pos: QPoint) -> tuple[QRect | None, str]:
+        child = self.viewport().childAt(pos)
+        widget = child if isinstance(child, QtWidgets.QWidget) else None
+        while isinstance(widget, QtWidgets.QWidget) and widget is not self.viewport():
+            tooltip = str(widget.toolTip() or "").strip()
+            if tooltip:
+                top_left = widget.mapTo(self.viewport(), QtCore.QPoint(0, 0))
+                rect = QtCore.QRect(top_left, widget.size())
+                return rect, tooltip
+            widget = widget.parentWidget()
+
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return None, ""
+
+        item = self.item(int(index.row()), int(index.column()))
+        tooltip = str(item.toolTip() if item is not None else "").strip()
+        if tooltip:
+            return self.visualRect(index), tooltip
+        return None, ""
 
     def _checkbox_indicator_size(self) -> int:
         return max(14, int(ui(self).table_check_indicator_size))

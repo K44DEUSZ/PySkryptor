@@ -37,12 +37,15 @@ class AboutPanel(QtWidgets.QWidget):
         enable_styled_background(self)
         self._ui = ui(self)
         set_passive_cursor(self)
-        self._license_browser: QtWidgets.QTextBrowser | None = None
-        self._logo: LogoSvgLabel | None = None
-        self._left: QtWidgets.QWidget | None = None
+        self._init_state()
         self._build_ui()
         self._wire_signals()
         self._restore_initial_state()
+
+    def _init_state(self) -> None:
+        self._license_browser: QtWidgets.QTextBrowser | None = None
+        self._logo: LogoSvgLabel | None = None
+        self._left: QtWidgets.QWidget | None = None
 
     def _build_ui(self) -> None:
         cfg = self._ui

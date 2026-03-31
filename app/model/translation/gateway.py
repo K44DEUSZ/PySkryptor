@@ -42,7 +42,7 @@ class _TranslationWorkerPolicy:
     request_timeout_s: float = 120.0
 
 
-class _ReadableTextStream(Protocol):
+class _ReadableTextStreamProtocol(Protocol):
     """Minimal text-stream contract used by the translation worker client."""
 
     def readline(self) -> str: ...
@@ -87,7 +87,7 @@ class _TranslationWorkerClient:
 
     def _read_worker_line(
         self,
-        stdout: _ReadableTextStream,
+        stdout: _ReadableTextStreamProtocol,
         *,
         timeout_s: float,
         cancel_check: Callable[[], bool] | None = None,

@@ -225,6 +225,8 @@ class SourceAccessInterventionRequest:
     action: str = ""
     suggested_access_mode: str = ""
     provider_state: str = ""
+    browser_policy: str = ""
+    available_browser_policies: tuple[str, ...] = ()
     can_retry: bool = False
     can_choose_cookie_file: bool = False
     can_continue_without_cookies: bool = False
@@ -243,6 +245,8 @@ class SourceAccessInterventionRequest:
             "action": str(self.action or ""),
             "suggested_access_mode": str(self.suggested_access_mode or ""),
             "provider_state": str(self.provider_state or ""),
+            "browser_policy": str(self.browser_policy or ""),
+            "available_browser_policies": [str(item or "") for item in (self.available_browser_policies or ())],
             "can_retry": bool(self.can_retry),
             "can_choose_cookie_file": bool(self.can_choose_cookie_file),
             "can_continue_without_cookies": bool(self.can_continue_without_cookies),
@@ -250,6 +254,36 @@ class SourceAccessInterventionRequest:
             "can_continue_basic": bool(self.can_continue_basic),
             "can_continue_degraded": bool(self.can_continue_degraded),
         }
+
+
+@dataclass(frozen=True)
+class SourceAccessInterventionResolution:
+    """Normalized UI decision returned for a source-access intervention."""
+
+    action: str = "cancel"
+    cookie_file_path: str = ""
+    browser_policy: str = ""
+
+    def as_payload(self) -> dict[str, str]:
+        """Return the serialized payload shared across panel/coordinator boundaries."""
+        return {
+            "action": str(self.action or "cancel"),
+            "cookie_file_path": str(self.cookie_file_path or ""),
+            "browser_policy": str(self.browser_policy or ""),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> SourceAccessInterventionResolution:
+        """Build a normalized resolution from a dict-like payload."""
+        if isinstance(payload, cls):
+            return payload
+        if isinstance(payload, dict):
+            return cls(
+                action=str(payload.get("action") or "cancel").strip().lower() or "cancel",
+                cookie_file_path=str(payload.get("cookie_file_path") or "").strip(),
+                browser_policy=str(payload.get("browser_policy") or "").strip().lower(),
+            )
+        return cls()
 
 
 class SourceAccessInterventionRequired(Exception):

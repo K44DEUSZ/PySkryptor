@@ -27,6 +27,7 @@ from app.model.settings.resolution import build_welcome_dialog_payload
 from app.model.settings.service import SettingsService
 from app.model.settings.validation import SettingsError
 from app.view.components.loading_screen import LoadingScreenWidget
+from app.view.components.hint_popup import install_application_tooltip_filter
 from app.view.dialogs import (
     ask_welcome_dialog,
     critical_config_load_failed_choice,
@@ -119,6 +120,8 @@ def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
         app.setProperty('ui_config', ui_cfg)
     except (RuntimeError, TypeError) as ex:
         _LOG.debug("Application ui_config property update skipped. detail=%s", ex)
+
+    install_application_tooltip_filter(app)
 
     _load_fonts(app, AppConfig.PATHS.ASSETS_DIR / 'fonts')
     return ui_cfg

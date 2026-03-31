@@ -38,6 +38,7 @@ class SourceExpansionService:
         *,
         browser_cookies_mode_override: str | None = None,
         cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
         access_mode_override: str | None = None,
         interactive: bool = False,
     ) -> SourceExpansionResult:
@@ -60,6 +61,7 @@ class SourceExpansionService:
                     cancel_check=self._cancel_check,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                     interactive=interactive,
                 )
@@ -74,6 +76,7 @@ class SourceExpansionService:
                             operation=DownloadPolicy.DOWNLOAD_OPERATION_PLAYLIST,
                             browser_cookies_mode_override=browser_cookies_mode_override,
                             cookie_file_override=cookie_file_override,
+                            browser_policy_override=browser_policy_override,
                             access_mode_override=access_mode_override,
                         )
                         if intervention is not None:

@@ -38,9 +38,11 @@ from app.view.support.status_presenter import (
     compose_status_text,
     display_texts_for_statuses,
     is_progress_status,
+    is_duplicate_reusable_status,
     is_terminal_status,
 )
 from app.view.support.host_runtime import (
+    connect_network_status_changed,
     normalize_network_status,
     open_external_url,
     open_local_path,
@@ -56,6 +58,7 @@ from app.view.support.widget_setup import (
     setup_layout,
     set_passive_cursor,
 )
+from app.model.download.domain import SourceAccessInterventionResolution
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
@@ -120,9 +123,9 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._download_aborted = False
         self._closing = False
 
-        self._init_state(parent)
+        self._init_state()
         self._build_ui()
-        self._wire_signals(parent)
+        self._wire_signals()
         self._restore_initial_state()
 
     def bind_coordinator(self, coordinator: DownloaderCoordinatorProtocol) -> None:
@@ -153,7 +156,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             records.append(
                 SourceDuplicateRecord(
                     source_key=str(job.url or "").strip(),
-                    is_terminal=is_terminal_status(self._job_status_key(job.status)),
+                    is_terminal=is_duplicate_reusable_status(self._job_status_key(job.status)),
                 )
             )
         return records
@@ -162,7 +165,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         decision = evaluate_source_duplicate(self._job_duplicate_records(), url)
         return bool(decision.allow), bool(decision.duplicate)
 
-    def _init_state(self, parent: QtWidgets.QWidget | None) -> None:
+    def _init_state(self) -> None:
         self._job_seq = 0
         self._jobs: list[_Job] = []
         self._meta_by_key: dict[str, dict[str, Any]] = {}
@@ -177,7 +180,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._download_aborted: bool = False
         self._dup_apply_all_action: str | None = None
         self._closing: bool = False
-        self._network_status: str = read_network_status(parent)
+        self._network_status: str = read_network_status(self.parentWidget())
         self._expansion_progress_dialog: dialogs.ExpansionProgressDialog | None = None
         self._last_availability_debug_key: tuple | None = None
 
@@ -369,7 +372,7 @@ class DownloaderPanel(QtWidgets.QWidget):
         self._meta_group = meta_group
         root.addWidget(meta_group, 1)
 
-    def _wire_signals(self, parent: QtWidgets.QWidget | None) -> None:
+    def _wire_signals(self) -> None:
         self.btn_add.clicked.connect(self._on_add_clicked)
         self.btn_open_downloads.clicked.connect(self._on_open_downloads_clicked)
         self.btn_open_in_browser.clicked.connect(self._on_open_in_browser_clicked)
@@ -386,13 +389,8 @@ class DownloaderPanel(QtWidgets.QWidget):
         self.tbl_queue.itemSelectionChanged.connect(self._sync_buttons)
         self.tbl_queue.cellClicked.connect(self._on_table_cell_clicked)
         self.tbl_queue.delete_pressed.connect(self._on_remove_selected)
-
-        parent_signal = getattr(parent, "network_status_changed", None)
-        if parent_signal is not None:
-            try:
-                parent_signal.connect(self._on_network_status_changed)
-            except (AttributeError, RuntimeError, TypeError) as ex:
-                _LOG.debug("Downloader network signal hookup skipped. detail=%s", ex)
+        if not connect_network_status_changed(self.parentWidget(), self._on_network_status_changed):
+            _LOG.debug("Downloader network signal hookup skipped. host=%s", type(self.parentWidget()).__name__)
 
     def _restore_initial_state(self) -> None:
         self._reset_meta_ui()
@@ -1533,10 +1531,10 @@ class DownloaderPanel(QtWidgets.QWidget):
         if coord is None:
             return
         if self._closing:
-            coord.resolve_access_intervention(job_key, "cancel", "")
+            coord.resolve_access_intervention(job_key, SourceAccessInterventionResolution())
             return
 
-        action, value = dialogs.ask_source_access_intervention(
+        resolution = dialogs.ask_source_access_intervention(
             self,
             kind=str((params or {}).get("kind") or "cookies").strip(),
             source_kind=str((params or {}).get("source_kind") or "browser").strip(),
@@ -1550,10 +1548,16 @@ class DownloaderPanel(QtWidgets.QWidget):
             can_retry_enhanced=bool((params or {}).get("can_retry_enhanced", False)),
             can_continue_basic=bool((params or {}).get("can_continue_basic", False)),
             can_continue_degraded=bool((params or {}).get("can_continue_degraded", False)),
+            browser_policy=str((params or {}).get("browser_policy") or "").strip(),
+            available_browser_policies=tuple(
+                str(item or "").strip().lower()
+                for item in ((params or {}).get("available_browser_policies") or ())
+                if str(item or "").strip()
+            ),
         )
-        if action == "cancel" and job_key != self._active_download_key() and self._row_for_key(job_key) >= 0:
+        if resolution.action == "cancel" and job_key != self._active_download_key() and self._row_for_key(job_key) >= 0:
             self._set_job_status(job_key, "queued")
-        coord.resolve_access_intervention(job_key, action, value)
+        coord.resolve_access_intervention(job_key, resolution)
 
     def _refresh_row_from_meta(self, job_key: str) -> None:
         meta = self._meta_by_key.get(job_key)

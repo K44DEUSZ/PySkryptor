@@ -9,6 +9,7 @@ from app.controller.support.panel_support import rebind_downloader_panel_view
 from app.controller.workers.download_worker import DownloadWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.worker_runner import WorkerRunner
+from app.model.download.domain import SourceAccessInterventionResolution
 
 
 class DownloaderCoordinator(QtCore.QObject):
@@ -226,7 +227,11 @@ class DownloaderCoordinator(QtCore.QObject):
         except (AttributeError, RuntimeError, TypeError):
             return
 
-    def resolve_access_intervention(self, job_key: str, action: str, value: str = "") -> None:
+    def resolve_access_intervention(
+        self,
+        job_key: str,
+        resolution: SourceAccessInterventionResolution,
+    ) -> None:
         key = str(job_key or "").strip()
         worker = self._probe_workers.get(key)
         if worker is None:
@@ -238,6 +243,6 @@ class DownloaderCoordinator(QtCore.QObject):
         if worker is None:
             return
         try:
-            worker.on_access_intervention_decided(action, value)
+            worker.on_access_intervention_decided(resolution)
         except (AttributeError, RuntimeError, TypeError):
             return

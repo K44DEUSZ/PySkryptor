@@ -214,8 +214,8 @@ class TranslationService:
         )
         return {
             "model_ref": str(model_path),
-            "device": str(getattr(AppConfig, "DEVICE_ID", "cpu")),
-            "dtype": _dtype_name(str(getattr(AppConfig, "DTYPE_ID", "float32"))),
+            "device": str(AppConfig.DEVICE_ID),
+            "dtype": _dtype_name(str(AppConfig.DTYPE_ID)),
             "low_cpu_mem_usage": bool(AppConfig.engine_low_cpu_mem_usage()),
             "max_new_tokens": int(mdl["max_new_tokens"]),
             "chunk_max_chars": int(mdl["chunk_max_chars"]),

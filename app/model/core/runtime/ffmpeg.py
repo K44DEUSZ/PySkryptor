@@ -12,7 +12,7 @@ def _resolve_ffmpeg_bin_dir(config_cls: Any) -> Path:
     if bin_dir.exists():
         return bin_dir
 
-    configured = getattr(getattr(config_cls, "PATHS", None), "FFMPEG_BIN_DIR", None)
+    configured = config_cls.PATHS.FFMPEG_BIN_DIR
     if configured not in (None, ""):
         configured_path = Path(configured)
         if configured_path.exists():

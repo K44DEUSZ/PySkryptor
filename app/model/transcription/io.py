@@ -27,10 +27,10 @@ class AudioExtractor:
 
     @staticmethod
     def _raise_ffmpeg_error(ex: AppError, *, src: Path, dst: Path) -> None:
-        if str(getattr(ex, "key", "")) == "error.cancelled":
+        if str(ex.key) == "error.cancelled":
             raise OperationCancelled()
 
-        params = dict(getattr(ex, "params", {}) or {})
+        params = dict(ex.params or {})
         params.setdefault("src", str(src))
         params.setdefault("dst", str(dst))
         if "detail" not in params:

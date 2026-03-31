@@ -29,6 +29,13 @@ _TERMINAL_STATUS_KEYS = frozenset(
     }
 )
 
+_DUPLICATE_REUSABLE_STATUS_KEYS = frozenset(
+    {
+        "status.done",
+        "status.saved",
+    }
+)
+
 _ACTIVE_WORK_STATUS_KEYS = frozenset(
     {
         "status.processing",
@@ -77,6 +84,11 @@ def present_status_key(status_key: str) -> str:
 def is_terminal_status(status_key: str) -> bool:
     """Return whether the status represents terminal work."""
     return present_status_key(status_key) in _TERMINAL_STATUS_KEYS
+
+
+def is_duplicate_reusable_status(status_key: str) -> bool:
+    """Return whether the status allows re-adding the same source."""
+    return present_status_key(status_key) in _DUPLICATE_REUSABLE_STATUS_KEYS
 
 
 def is_progress_status(status_key: str) -> bool:

@@ -276,8 +276,7 @@ def translation_runtime_available(
     if bool(str(translation_error_key or "").strip()):
         return False
 
-    engine_dir = getattr(getattr(AppConfig, "PATHS", None), "TRANSLATION_ENGINE_DIR", None)
-    engine_dir_name = str(getattr(engine_dir, "name", "") or "").strip()
+    engine_dir_name = str(AppConfig.PATHS.TRANSLATION_ENGINE_DIR.name or "").strip()
     if not engine_dir_name or engine_dir_name == AppConfig.MISSING_VALUE:
         return False
 

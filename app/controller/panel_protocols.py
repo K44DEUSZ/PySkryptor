@@ -7,6 +7,7 @@ from typing import Any, Protocol, TypeAlias, runtime_checkable
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.entities import SettingsSnapshot, TranscriptionSessionRequest
 from app.model.core.domain.results import SourceExpansionResult
+from app.model.download.domain import SourceAccessInterventionResolution
 
 ErrorParams: TypeAlias = dict[str, Any]
 ProbeRow: TypeAlias = dict[str, Any]
@@ -39,7 +40,11 @@ class FilesCoordinatorProtocol(Protocol):
     def expand_manual_input(self, raw: str) -> WorkerRef | None: ...
     def expand_local_paths(self, paths: list[str], origin_kind: str) -> WorkerRef | None: ...
     def cancel_expansion(self) -> None: ...
-    def resolve_access_intervention(self, source_key: str, action: str, value: str = "") -> None: ...
+    def resolve_access_intervention(
+        self,
+        source_key: str,
+        resolution: SourceAccessInterventionResolution,
+    ) -> None: ...
 
 
 class FilesPanelViewProtocol(Protocol):
@@ -167,7 +172,11 @@ class DownloaderCoordinatorProtocol(Protocol):
     ) -> WorkerRef | None: ...
     def cancel_download(self) -> None: ...
     def resolve_duplicate(self, action: str, new_name: str = "") -> None: ...
-    def resolve_access_intervention(self, job_key: str, action: str, value: str = "") -> None: ...
+    def resolve_access_intervention(
+        self,
+        job_key: str,
+        resolution: SourceAccessInterventionResolution,
+    ) -> None: ...
 
 
 class DownloaderPanelViewProtocol(Protocol):

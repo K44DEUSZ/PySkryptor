@@ -184,7 +184,9 @@
         "text_browser": "Schließe den Browser und versuche es erneut, wähle eine Cookie-Datei oder fahre für diesen Vorgang ohne Cookies fort.",
         "text_file": "Wähle eine andere Cookie-Datei oder fahre für diesen Vorgang ohne Cookies fort.",
         "source_browser_fallback": "ausgewählter Browser",
-        "source_file_fallback": "ausgewählte Cookie-Datei"
+        "source_file_fallback": "ausgewählte Cookie-Datei",
+        "browser_picker_hint": "Wähle für den nächsten Versuch einen anderen Browser oder lasse den aktuellen ausgewählt.",
+        "browser_picker_label": "Erneut mit Browser"
       },
       "access": {
         "title": "Quellzugriff erfordert eine Entscheidung",
@@ -336,7 +338,12 @@
       "settings_invalid": "⚠️ Die Einstellungsdatei „{path}” ist ungültig. Details: {detail}",
       "settings_missing": "⚠️ Die Einstellungsdatei fehlt: {path}",
       "invalid_video_height_range": "Die minimale Videohöhe ({min_height}) darf nicht größer als die maximale ({max_height}) sein.",
-      "unknown_action": "⚠️ Unbekannte Aktion „{action}”."
+      "unknown_action": "⚠️ Unbekannte Aktion „{action}”.",
+      "cookie_file_path_missing": "⚠️ Wenn der Cookie-Dateimodus aktiv ist, muss eine Cookie-Datei ausgewählt werden.",
+      "cookie_file_missing": "⚠️ Die Cookie-Datei wurde nicht gefunden: {path}",
+      "cookie_file_not_file": "⚠️ Der angegebene Cookie-Pfad ist keine Datei: {path}",
+      "cookie_file_unreadable": "⚠️ Die Cookie-Datei konnte nicht gelesen werden: {path}. Details: {detail}",
+      "cookie_file_empty": "⚠️ Die Cookie-Datei ist leer: {path}"
     },
     "startup": {
       "failed": "❌ Der Start der Anwendung ist fehlgeschlagen. Details: {detail}"

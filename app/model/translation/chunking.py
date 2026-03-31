@@ -1,6 +1,4 @@
 # app/model/translation/chunking.py
-"""Text batching helpers for translation requests."""
-
 from __future__ import annotations
 
 import re

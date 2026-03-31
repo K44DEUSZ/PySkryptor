@@ -42,8 +42,8 @@ ItemErrorFn = Callable[[str, str, dict[str, Any]], None]
 ItemOutputDirFn = Callable[[str, str], None]
 ConflictResolverFn = Callable[[str, str], tuple[str, str, bool]]
 AccessInterventionResolverFn = Callable[
-    [str, SourceAccessInterventionRequest, str | None, str | None, str | None],
-    tuple[str | None, str | None, str | None],
+    [str, SourceAccessInterventionRequest, str | None, str | None, str | None, str | None],
+    tuple[str | None, str | None, str | None, str | None],
 ]
 
 
@@ -1108,22 +1108,40 @@ class TranscriptionService:
         callbacks: _SessionCallbacks,
         browser_cookies_mode_override: str | None,
         cookie_file_override: str | None,
+        browser_policy_override: str | None,
         access_mode_override: str | None,
-        operation: Callable[[str | None, str | None, str | None], _DownloadResult],
-    ) -> tuple[_DownloadResult, str | None, str | None, str | None]:
+        operation: Callable[[str | None, str | None, str | None, str | None], _DownloadResult],
+    ) -> tuple[_DownloadResult, str | None, str | None, str | None, str | None]:
         resolver = callbacks.access_intervention_resolver
         while True:
             try:
-                result = operation(browser_cookies_mode_override, cookie_file_override, access_mode_override)
-                return result, browser_cookies_mode_override, cookie_file_override, access_mode_override
+                result = operation(
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    browser_policy_override,
+                    access_mode_override,
+                )
+                return (
+                    result,
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    browser_policy_override,
+                    access_mode_override,
+                )
             except SourceAccessInterventionRequired as ex:
                 if resolver is None:
                     raise
-                browser_cookies_mode_override, cookie_file_override, access_mode_override = resolver(
+                (
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    browser_policy_override,
+                    access_mode_override,
+                ) = resolver(
                     source_key,
                     ex.request,
                     browser_cookies_mode_override,
                     cookie_file_override,
+                    browser_policy_override,
                     access_mode_override,
                 )
             except DownloadError as ex:
@@ -1135,15 +1153,22 @@ class TranscriptionService:
                     operation=operation_name,
                     browser_cookies_mode_override=browser_cookies_mode_override,
                     cookie_file_override=cookie_file_override,
+                    browser_policy_override=browser_policy_override,
                     access_mode_override=access_mode_override,
                 )
                 if intervention is None:
                     raise
-                browser_cookies_mode_override, cookie_file_override, access_mode_override = resolver(
+                (
+                    browser_cookies_mode_override,
+                    cookie_file_override,
+                    browser_policy_override,
+                    access_mode_override,
+                ) = resolver(
                     source_key,
                     intervention.request,
                     browser_cookies_mode_override,
                     cookie_file_override,
+                    browser_policy_override,
                     access_mode_override,
                 )
 
@@ -1181,11 +1206,13 @@ class TranscriptionService:
         download_started = time.perf_counter()
         browser_cookies_mode_override: str | None = None
         cookie_file_override: str | None = None
+        browser_policy_override: str | None = None
         access_mode_override: str | None = None
         (
             meta,
             browser_cookies_mode_override,
             cookie_file_override,
+            browser_policy_override,
             access_mode_override,
         ) = self._call_download_service_with_intervention(
             source_key=old_key,
@@ -1194,11 +1221,13 @@ class TranscriptionService:
             callbacks=callbacks,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
-            operation=lambda mode_override, file_override, access_override: self._download.probe(
+            operation=lambda mode_override, file_override, browser_override, access_override: self._download.probe(
                 request.source_key,
                 browser_cookies_mode_override=mode_override,
                 cookie_file_override=file_override,
+                browser_policy_override=browser_override,
                 access_mode_override=access_override,
                 interactive=True,
             ),
@@ -1239,6 +1268,7 @@ class TranscriptionService:
             dst,
             browser_cookies_mode_override,
             cookie_file_override,
+            browser_policy_override,
             access_mode_override,
         ) = self._call_download_service_with_intervention(
             source_key=old_key,
@@ -1247,8 +1277,9 @@ class TranscriptionService:
             callbacks=callbacks,
             browser_cookies_mode_override=browser_cookies_mode_override,
             cookie_file_override=cookie_file_override,
+            browser_policy_override=browser_policy_override,
             access_mode_override=access_mode_override,
-            operation=lambda mode_override, file_override, access_override: self._download.download(
+            operation=lambda mode_override, file_override, browser_override, access_override: self._download.download(
                 url=request.source_key,
                 kind=kind,
                 quality=quality,
@@ -1263,6 +1294,7 @@ class TranscriptionService:
                 meta=meta,
                 browser_cookies_mode_override=mode_override,
                 cookie_file_override=file_override,
+                browser_policy_override=browser_override,
                 access_mode_override=access_override,
             ),
         )

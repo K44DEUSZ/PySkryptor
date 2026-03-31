@@ -67,12 +67,14 @@ from app.view.support.status_presenter import (
     compose_status_text,
     display_texts_for_statuses,
     is_active_work_status,
+    is_duplicate_reusable_status,
     is_terminal_status,
     normalize_status_base_key,
     status_display_text,
 )
 from app.view.support.theme_runtime import active_theme_key, status_icon
 from app.view.support.host_runtime import (
+    connect_network_status_changed,
     normalize_network_status,
     open_external_url,
     open_local_path,
@@ -90,6 +92,7 @@ from app.view.support.widget_setup import (
     setup_option_checkbox,
     set_passive_cursor,
 )
+from app.model.download.domain import SourceAccessInterventionResolution
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
@@ -140,9 +143,9 @@ class FilesPanel(QtWidgets.QWidget):
         set_passive_cursor(self)
         self._panel_coordinator: FilesCoordinatorProtocol | None = None
 
-        self._init_state(parent)
+        self._init_state()
         self._build_ui()
-        self._wire_signals(parent)
+        self._wire_signals()
         self._restore_initial_state()
 
     def bind_coordinator(self, coordinator: FilesCoordinatorProtocol) -> None:
@@ -243,7 +246,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _is_row_terminal(self, row_id: str) -> bool:
         status_key = str(self._status_base_by_row_id.get(str(row_id), "") or "").strip()
-        return bool(status_key and is_terminal_status(status_key))
+        return bool(status_key and is_duplicate_reusable_status(status_key))
 
     def _transcription_row_ids(self) -> list[str]:
         row_ids: list[str] = []
@@ -254,7 +257,7 @@ class FilesPanel(QtWidgets.QWidget):
             row_ids.append(row_id)
         return row_ids
 
-    def _init_state(self, parent: QtWidgets.QWidget | None) -> None:
+    def _init_state(self) -> None:
         self._was_cancelled: bool = False
         self._cancel_notice_pending: bool = False
         self._conflict_apply_all_action: str | None = None
@@ -280,7 +283,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._error_by_row_id: dict[str, tuple[str, dict[str, Any]]] = {}
         self._output_dir_by_row_id: dict[str, str] = {}
 
-        self._network_status = read_network_status(parent)
+        self._network_status = read_network_status(self.parentWidget())
         self._session_target_language = LanguagePolicy.PREFERRED
         self._expansion_progress_dialog: dialogs.ExpansionProgressDialog | None = None
         self._session_source_language = LanguagePolicy.PREFERRED
@@ -578,7 +581,7 @@ class FilesPanel(QtWidgets.QWidget):
         tmp_host = self._build_url_temp_options_field(base_h)
         return mode_host, out_host, source_host, target_host, tmp_host
 
-    def _wire_signals(self, parent: QtWidgets.QWidget | None) -> None:
+    def _wire_signals(self) -> None:
         self.btn_src_add.clicked.connect(self._on_add_clicked)
         self.ed_source_input.returnPressed.connect(self._on_add_clicked)
 
@@ -610,13 +613,8 @@ class FilesPanel(QtWidgets.QWidget):
         self.cmb_video_ext.currentIndexChanged.connect(self._on_quick_option_changed)
         self.cmb_target_language.currentTextChanged.connect(self._on_target_language_changed)
         self.cmb_source_language.currentTextChanged.connect(self._on_source_language_changed)
-
-        parent_signal = getattr(parent, "network_status_changed", None)
-        if parent_signal is not None:
-            try:
-                parent_signal.connect(self._on_network_status_changed)
-            except (AttributeError, RuntimeError, TypeError) as ex:
-                _LOG.debug("Files network signal hookup skipped. detail=%s", ex)
+        if not connect_network_status_changed(self.parentWidget(), self._on_network_status_changed):
+            _LOG.debug("Files network signal hookup skipped. host=%s", type(self.parentWidget()).__name__)
 
     def _restore_initial_state(self) -> None:
         self._apply_saved_quick_options()
@@ -1718,7 +1716,7 @@ class FilesPanel(QtWidgets.QWidget):
             return False
         if not self._transcription_ready:
             return False
-        if getattr(AppConfig, "SETTINGS", None) is None:
+        if AppConfig.SETTINGS is None:
             return False
         return True
 
@@ -2068,19 +2066,23 @@ class FilesPanel(QtWidgets.QWidget):
             return
         coord.resolve_conflict(action, new_stem)
 
-    def _submit_access_intervention(self, source_key: str, action: str, value: str = "") -> None:
+    def _submit_access_intervention(
+        self,
+        source_key: str,
+        resolution: SourceAccessInterventionResolution,
+    ) -> None:
         coord = self.coordinator()
         if coord is None:
             return
-        coord.resolve_access_intervention(source_key, action, value)
+        coord.resolve_access_intervention(source_key, resolution)
 
     @QtCore.pyqtSlot(str, dict)
     def on_access_intervention_required(self, source_key: str, params: dict[str, Any]) -> None:
         if self._was_cancelled or self._cancel_notice_pending:
-            self._submit_access_intervention(source_key, "cancel", "")
+            self._submit_access_intervention(source_key, SourceAccessInterventionResolution())
             return
 
-        action, value = dialogs.ask_source_access_intervention(
+        resolution = dialogs.ask_source_access_intervention(
             self,
             kind=str((params or {}).get("kind") or "cookies").strip(),
             source_kind=str((params or {}).get("source_kind") or "browser").strip(),
@@ -2094,8 +2096,14 @@ class FilesPanel(QtWidgets.QWidget):
             can_retry_enhanced=bool((params or {}).get("can_retry_enhanced", False)),
             can_continue_basic=bool((params or {}).get("can_continue_basic", False)),
             can_continue_degraded=bool((params or {}).get("can_continue_degraded", False)),
+            browser_policy=str((params or {}).get("browser_policy") or "").strip(),
+            available_browser_policies=tuple(
+                str(item or "").strip().lower()
+                for item in ((params or {}).get("available_browser_policies") or ())
+                if str(item or "").strip()
+            ),
         )
-        self._submit_access_intervention(source_key, action, value)
+        self._submit_access_intervention(source_key, resolution)
 
     @QtCore.pyqtSlot(str, str)
     def on_conflict_check(self, stem: str, _existing_dir: str) -> None:

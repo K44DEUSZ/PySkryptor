@@ -3,8 +3,18 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+
+
+@runtime_checkable
+class NetworkStatusHostProtocol(Protocol):
+    """Host contract for views that expose normalized network state."""
+
+    network_status_changed: Any
+
+    def network_status(self) -> str: ...
 
 
 def normalize_network_status(value: str) -> str:
@@ -16,14 +26,29 @@ def normalize_network_status(value: str) -> str:
 
 
 def read_network_status(parent: QtWidgets.QWidget | None) -> str:
-    """Read a normalized network status from a parent view when exposed."""
-    getter = getattr(parent, "network_status", None) if parent is not None else None
-    if callable(getter):
-        try:
-            return normalize_network_status(str(getter()))
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            return "checking"
-    return "checking"
+    """Read a normalized network status from a typed parent host."""
+    if not isinstance(parent, NetworkStatusHostProtocol):
+        return "checking"
+
+    try:
+        return normalize_network_status(str(parent.network_status()))
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return "checking"
+
+
+def connect_network_status_changed(
+    parent: QtWidgets.QWidget | None,
+    slot: Any,
+) -> bool:
+    """Connect a typed network-status host signal to a panel slot."""
+    if not isinstance(parent, NetworkStatusHostProtocol):
+        return False
+
+    try:
+        parent.network_status_changed.connect(slot)
+        return True
+    except (AttributeError, RuntimeError, TypeError):
+        return False
 
 
 def open_local_path(target: str | Path) -> bool:

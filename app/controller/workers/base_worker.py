@@ -18,7 +18,7 @@ class _BaseWorkerMeta(type(QtCore.QObject), ABCMeta):
 
 
 def _app_error_log_detail(ex: AppError) -> str:
-    params = dict(getattr(ex, "params", {}) or {})
+    params = dict(ex.params or {})
     parts: list[str] = []
     for field in ("detail", "path", "reason", "code", "field", "action", "lang", "seconds", "cmd"):
         value = params.get(field)
@@ -66,10 +66,8 @@ class BaseWorker(QtCore.QObject, metaclass=_BaseWorkerMeta):
 
     @staticmethod
     def _exception_to_i18n(ex: BaseException) -> tuple[str, dict[str, Any]]:
-        key = getattr(ex, "key", None)
-        params = getattr(ex, "params", None)
-        if key:
-            return str(key), dict(params or {})
+        if isinstance(ex, AppError):
+            return str(ex.key), dict(ex.params or {})
         return "error.generic", {"detail": str(ex)}
 
     def _emit_failure(

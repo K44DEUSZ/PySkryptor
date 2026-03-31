@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.model.core.config.config import AppConfig
 from app.model.core.config.config import ConfigError
@@ -19,7 +19,8 @@ class ModelNotInstalledError(AppError):
     """Raised when a required local model directory is missing."""
 
     def __init__(self, key: str, path: Path) -> None:
-        super().__init__(str(key), {"path": str(path)})
+        self.path = Path(path)
+        super().__init__(str(key), {"path": str(self.path)})
 
 
 def _enrich_model_cfg(
@@ -114,8 +115,8 @@ def _resolve_torch_dtype(dtype_id: str, device: Any) -> Any:
 
 
 def _resolve_torch_device_dtype() -> tuple[Any, Any]:
-    device = _resolve_torch_device(getattr(AppConfig, "DEVICE_ID", "cpu"))
-    dtype = _resolve_torch_dtype(getattr(AppConfig, "DTYPE_ID", "float32"), device)
+    device = _resolve_torch_device(AppConfig.DEVICE_ID)
+    dtype = _resolve_torch_dtype(AppConfig.DTYPE_ID, device)
     return device, dtype
 
 
@@ -183,7 +184,7 @@ class _TranscriptionModelLoader:
             ),
             engine_name,
             str(device),
-            getattr(dtype, "__str__", lambda: str(dtype))(),
+            str(dtype),
             low_cpu_mem_usage,
             use_safetensors,
         )
@@ -204,7 +205,7 @@ class _TranscriptionModelLoader:
 
         processor = AutoProcessor.from_pretrained(str(model_path), local_files_only=True)
 
-        dev = getattr(model, "device", device)
+        dev = cast(Any, getattr(model, "device", device))
         device_index = int(getattr(dev, "index", 0) or 0) if getattr(dev, "type", "cpu") == "cuda" else -1
 
         self._pipeline = pipeline(
@@ -258,7 +259,6 @@ class AIModelsService:
             import torch
 
             has_cuda = bool(torch.cuda.is_available())
-            getattr(AppConfig, "HAS_CUDA")
             AppConfig.HAS_CUDA = has_cuda
 
             bf16_supported = False
