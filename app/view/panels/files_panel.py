@@ -1508,8 +1508,7 @@ class FilesPanel(QtWidgets.QWidget):
                 dialogs.show_info(
                     self,
                     title=tr("dialog.info.title"),
-                    header=tr("dialog.info.header"),
-                    message=tr("dialog.info.source_missing"),
+                        message=tr("dialog.info.source_missing"),
                 )
             return None
 
@@ -1609,7 +1608,6 @@ class FilesPanel(QtWidgets.QWidget):
         dialogs.show_info(
             self,
             title=tr("dialog.info.title"),
-            header=tr("dialog.info.header"),
             message=message,
         )
 
@@ -1871,7 +1869,6 @@ class FilesPanel(QtWidgets.QWidget):
             dialogs.show_info(
                 self,
                 title=tr("dialog.info.title"),
-                header=tr("dialog.info.header"),
                 message=tr("files.msg.no_media_found"),
             )
             return
@@ -1914,8 +1911,7 @@ class FilesPanel(QtWidgets.QWidget):
                 dialogs.show_info(
                     self,
                     title=tr("dialog.info.title"),
-                    header=tr("dialog.info.header"),
-                    message=tr("dialog.info.cancelled"),
+                        message=tr("dialog.info.cancelled"),
                 )
         self._cancel_notice_pending = False
         self._update_buttons()

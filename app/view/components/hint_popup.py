@@ -101,14 +101,12 @@ class HintPopup(QtWidgets.QWidget):
 
     def __init__(self) -> None:
         super().__init__(None, QtCore.Qt.WindowType.ToolTip | QtCore.Qt.WindowType.FramelessWindowHint)
-        self.setProperty("role", "hintPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
-        self._body.setProperty("role", "hintPopup")
         configure_floating_popup_surface(self, self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)

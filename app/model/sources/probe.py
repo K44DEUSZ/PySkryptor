@@ -104,12 +104,29 @@ class MediaProbeReader:
             },
         )
 
-    def from_url(self, url: str) -> MediaProbe:
+    def from_url(
+        self,
+        url: str,
+        *,
+        interactive: bool = False,
+        allow_degraded_probe: bool = True,
+        browser_cookies_mode_override: str | None = None,
+        cookie_file_override: str | None = None,
+        browser_policy_override: str | None = None,
+        access_mode_override: str | None = None,
+    ) -> MediaProbe:
         """Probe remote media and normalize it into MediaProbe."""
         try:
-            raw = self._probe_url(url, interactive=False)
+            raw = self._probe_url(
+                url,
+                browser_cookies_mode_override=browser_cookies_mode_override,
+                cookie_file_override=cookie_file_override,
+                browser_policy_override=browser_policy_override,
+                access_mode_override=access_mode_override,
+                interactive=interactive,
+            )
         except DownloadError as ex:
-            if self._is_nonblocking_probe_error(ex):
+            if allow_degraded_probe and self._is_nonblocking_probe_error(ex):
                 return self._fallback_url_probe(url, ex)
             raise
         size = raw.get("filesize") or raw.get("filesize_approx")

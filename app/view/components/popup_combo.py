@@ -307,14 +307,12 @@ class ComboPopup(QtWidgets.QWidget):
         )
         self._combo = combo
         cfg = ui(self)
-        self.setProperty("role", "comboPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
-        self._body.setProperty("role", "comboPopup")
         configure_floating_popup_surface(self, self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
@@ -507,14 +505,12 @@ class MultiSelectPopup(QtWidgets.QWidget):
         self._field = field
         self._rows: list[_PopupCheckItem] = []
         cfg = ui(self)
-        self.setProperty("role", "comboPopupHost")
 
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(*popup_host_root_margins(self))
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
-        self._body.setProperty("role", "comboPopup")
         configure_floating_popup_surface(self, self._body)
 
         body_lay = QtWidgets.QVBoxLayout(self._body)
@@ -699,7 +695,8 @@ class _PopupHostComboMixin:
         popup = self._popup_widget()
         return self._popup_binding.contains_widget(widget, cast(QtWidgets.QWidget, cast(object, self)), popup)
 
-    def event_filter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         handled = self._popup_binding.handle_dismiss_event(
             obj=obj,
             event=event,
@@ -713,32 +710,39 @@ class _PopupHostComboMixin:
             return True
         return QtWidgets.QWidget.eventFilter(cast(QtWidgets.QWidget, cast(object, self)), obj, event)
 
-    def show_event(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def showEvent(self, event: QtGui.QShowEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.showEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def hide_event(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         self.hide_popup()
         QtWidgets.QWidget.hideEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def move_event(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def moveEvent(self, event: QtGui.QMoveEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.moveEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._popup_binding.refresh_geometry(self._popup_widget())
 
-    def resize_event(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.resizeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._popup_binding.refresh_geometry(self._popup_widget())
 
-    def focus_in_event(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def focusInEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusInEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def focus_out_event(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.focusOutEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         self._schedule_visual_state_sync()
 
-    def change_event(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
+    # noinspection PyPep8Naming
+    def changeEvent(self, event: QtCore.QEvent) -> None:  # type: ignore[override]
         QtWidgets.QWidget.changeEvent(cast(QtWidgets.QWidget, cast(object, self)), event)
         if event.type() in {QtCore.QEvent.Type.EnabledChange, QtCore.QEvent.Type.ParentChange}:
             if not cast(QtWidgets.QWidget, cast(object, self)).isEnabled():

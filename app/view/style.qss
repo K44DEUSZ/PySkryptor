@@ -50,8 +50,6 @@ QScrollArea, QScrollArea::viewport {
     border: none;
 }
 
-QWidget#card,
-QFrame#card,
 QGroupBox {
     background: @PANEL_BG@;
     border: none;
@@ -311,11 +309,6 @@ QTextBrowser {
     padding: @PAD_BLOCK@;
 }
 
-QPlainTextEdit#logView,
-QTextEdit#logView {
-    font-family: "Roboto Mono", "JetBrains Mono", "Cascadia Code", "Consolas";
-    font-size: 12px;
-}
 
 *:disabled {
     color: @TEXT_DISABLED@;

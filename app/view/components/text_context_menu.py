@@ -222,7 +222,6 @@ class _TextContextPopup(QtWidgets.QWidget):
             | QtCore.Qt.WindowType.FramelessWindowHint
             | QtCore.Qt.WindowType.NoDropShadowWindowHint,
         )
-        self.setProperty("role", "textContextPopupHost")
 
         cfg = ui(self)
 
@@ -231,7 +230,6 @@ class _TextContextPopup(QtWidgets.QWidget):
         root.setSpacing(0)
 
         self._body = QtWidgets.QFrame(self)
-        self._body.setProperty("role", "textContextPopup")
         configure_floating_popup_surface(self, self._body)
 
         self._content = QtWidgets.QVBoxLayout(self._body)

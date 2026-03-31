@@ -1004,7 +1004,6 @@ class DownloaderPanel(QtWidgets.QWidget):
         dialogs.show_info(
             self,
             title=tr("dialog.info.title"),
-            header=tr("dialog.info.header"),
             message=message,
         )
 
@@ -1027,7 +1026,6 @@ class DownloaderPanel(QtWidgets.QWidget):
             dialogs.show_info(
                 self,
                 title=tr("dialog.info.title"),
-                header=tr("dialog.info.header"),
                 message=tr("files.msg.no_media_found"),
             )
             return

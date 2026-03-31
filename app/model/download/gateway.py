@@ -11,6 +11,7 @@ import yt_dlp
 from app.model.core.config.config import AppConfig
 from app.model.core.domain.errors import OperationCancelled
 from app.model.core.utils.string_utils import is_youtube_url, sanitize_url_for_log
+from app.model.download.cookies import is_cookie_file_runtime_error, validate_cookie_file
 from app.model.download.domain import (
     CookieBrowserAttempt,
     SourceAccessInterventionRequest,
@@ -416,6 +417,10 @@ class YtdlpGateway:
         return any(marker in text for marker in _COOKIE_BROWSER_INTERVENTION_MARKERS)
 
     @staticmethod
+    def is_cookie_file_error(ex: Exception) -> bool:
+        return is_cookie_file_runtime_error(_normalize_ytdlp_detail(ex))
+
+    @staticmethod
     def is_auth_required_error(ex: Exception) -> bool:
         text = _normalize_ytdlp_detail(ex).lower()
         return any(marker in text for marker in _AUTH_REQUIRED_ERROR_MARKERS)
@@ -639,6 +644,22 @@ class YtdlpGateway:
         if cookie_browser_requested and not cookie_browsers:
             diag["cookie_runtime_fallback"] = True
             diag["cookie_runtime_error"] = "no usable browser cookie store detected"
+            if allow_cookie_intervention:
+                raise SourceAccessInterventionRequired(
+                    SourceAccessInterventionRequest(
+                        kind="cookies",
+                        source_kind="browser",
+                        source_label="browser",
+                        detail=str(diag["cookie_runtime_error"] or ""),
+                        can_retry=True,
+                        can_choose_cookie_file=True,
+                        can_continue_without_cookies=True,
+                    )
+                )
+            raise DownloadError(
+                "error.down.browser_cookies_unavailable",
+                detail=str(diag["cookie_runtime_error"] or ""),
+            )
 
         for browser in cookie_browsers:
             diag["cookie_browser_attempts"].append(browser)
@@ -700,11 +721,23 @@ class YtdlpGateway:
             diag["cookie_browser_used"] = browser
             return info, diag
 
+        if cookie_browser_requested:
+            detail = str(diag["cookie_runtime_error"] or diag["authentication_error"] or "").strip()
+            if not detail and last_cookie_error is not None:
+                detail = _normalize_ytdlp_detail(last_cookie_error)
+            raise DownloadError("error.down.browser_cookies_unavailable", detail=detail)
+
         try:
             info = YtdlpGateway._extract_once(url=url, ydl_opts=base_opts, download=download, diag=diag)
             return info, diag
         except _YTDLP_EXCEPTIONS as ex:
             detail = _normalize_ytdlp_detail(ex)
+            if cookie_file_requested:
+                validation = validate_cookie_file(cookie_file_path)
+                if not validation.ok:
+                    raise DownloadError("error.down.cookie_file_invalid", detail=validation.detail)
+                if YtdlpGateway.is_cookie_file_error(ex):
+                    raise DownloadError("error.down.cookie_file_invalid", detail=detail)
             if YtdlpGateway.is_no_downloadable_formats_error(ex):
                 diag["no_downloadable_formats"] = True
                 diag["no_downloadable_formats_detail"] = detail

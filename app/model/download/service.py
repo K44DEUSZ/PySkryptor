@@ -10,6 +10,7 @@ from app.model.core.domain.entities import PlaylistEntry, PlaylistResolveResult
 from app.model.core.domain.errors import OperationCancelled
 from app.model.core.utils.string_utils import sanitize_filename, sanitize_url_for_log
 from app.model.download.artifacts import DownloadArtifactManager
+from app.model.download.cookies import validate_cookie_file
 from app.model.download.plan import DownloadPlanBuilder
 from app.model.download.policy import DownloadPolicy
 from app.model.download.inventory import TrackInventory
@@ -536,21 +537,6 @@ class DownloadService:
         )
 
     @staticmethod
-    def _cookie_file_error_detail(cookie_file_path: str) -> str:
-        raw_path = str(cookie_file_path or "").strip()
-        if not raw_path:
-            return "cookies file path is empty"
-        try:
-            candidate = Path(raw_path).expanduser()
-        except (OSError, RuntimeError, TypeError, ValueError):
-            return "cookies file path is invalid"
-        if not candidate.exists():
-            return f"cookies file not found: {candidate}"
-        if not candidate.is_file():
-            return f"cookies path is not a file: {candidate}"
-        return ""
-
-    @staticmethod
     def _cookie_source_label(context: DownloadCookieContext) -> str:
         if context.mode == "from_browser":
             resolved = resolve_effective_cookie_browser(context.browser_policy)
@@ -570,18 +556,18 @@ class DownloadService:
     def _validate_cookie_context(context: DownloadCookieContext) -> None:
         if context.mode != "from_file":
             return
-        detail = DownloadService._cookie_file_error_detail(context.cookie_file_path)
-        if not detail:
+        result = validate_cookie_file(context.cookie_file_path)
+        if result.ok:
             return
         if context.interactive:
             raise SourceAccessInterventionRequired(
                 DownloadService._cookie_intervention_request(
                     context,
-                    detail=detail,
+                    detail=result.detail,
                     can_retry=False,
                 )
             )
-        raise DownloadError("error.down.cookie_file_invalid", detail=detail)
+        raise DownloadError("error.down.cookie_file_invalid", detail=result.detail)
 
     @staticmethod
     def _available_track_probe_clients(

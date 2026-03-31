@@ -1,6 +1,5 @@
 {
   "meta": {
-    "locale": "en",
     "name": "English"
   },
   "about": {
@@ -46,7 +45,6 @@
     },
     "enable": "Enable",
     "disable": "Disable",
-    "inherit": "Inherit from profile",
     "browse": "Browse..."
   },
   "ctrl": {
@@ -60,12 +58,6 @@
     "availability": {
       "downloader_offline": {
         "text": "No network connection. Downloader is unavailable while offline."
-      },
-      "files_only_url_offline": {
-        "text": "No network connection. Only local sources can be processed right now. All queued URL sources were skipped."
-      },
-      "files_url_offline": {
-        "text": "No network connection. URL sources cannot be added while offline."
       },
       "network_offline": {
         "header": "Offline",
@@ -111,10 +103,8 @@
     "info": {
       "cancelled": "Operation cancelled.",
       "downloaded_prefix": "Downloaded file:",
-      "header": "Info",
       "source_missing": "The selected source no longer exists.",
-      "title": "Information",
-      "done_header": "Done"
+      "title": "Information"
     },
     "restart_required": {
       "later": "Later",
@@ -171,11 +161,8 @@
       },
       "cookies": {
         "title": "Cookies unavailable",
-        "header": "Could not read cookies from {browser}",
-        "text": "Close the browser and try again, or continue without cookies for this operation.",
         "retry": "Retry after closing browser",
         "without": "Continue without cookies",
-        "browser_fallback": "selected browser",
         "use_file": "Use cookies file...",
         "file_title": "Select cookies file",
         "file_filter": "Cookies files (*.txt *.sqlite *.db);;All files (*.*)",
@@ -211,7 +198,6 @@
     },
     "welcome": {
       "title": "Welcome",
-      "header": "PySkryptor",
       "meta_version": "Version: {version}",
       "meta_author": "Author: {author}",
       "meta_years": "Development years: {years}",
@@ -263,15 +249,6 @@
         "video": "Video"
       }
     },
-    "status": {
-      "done": "Done",
-      "downloading": "Downloading...",
-      "error": "Error",
-      "offline": "Offline",
-      "postprocessing": "Post-processing...",
-      "probing": "Analyzing...",
-      "queued": "Queued"
-    },
     "url": {
       "placeholder": "Paste media URL here..."
     },
@@ -301,7 +278,7 @@
       "authentication_required": "❌ This source requires authentication. Details: {detail}",
       "audio_track_probe_only": "❌ The selected audio track was detected only during probing and cannot be downloaded reliably.",
       "no_downloadable_formats": "❌ No downloadable media formats are available. Details: {detail}",
-      "cookie_file_invalid": "❌ Cookies file is invalid. Details: {detail}",
+      "cookie_file_invalid": "❌ Cookies file is invalid or unreadable for the application. Details: {detail}",
       "extended_access_required": "❌ This source requires extended extractor access. Details: {detail}"
     },
     "external_tool_failed": "❌ External tool failed. Command: {cmd}",
@@ -343,7 +320,8 @@
       "cookie_file_missing": "⚠️ Cookies file was not found: {path}",
       "cookie_file_not_file": "⚠️ Cookies path is not a file: {path}",
       "cookie_file_unreadable": "⚠️ Cookies file could not be read: {path}. Details: {detail}",
-      "cookie_file_empty": "⚠️ Cookies file is empty: {path}"
+      "cookie_file_empty": "⚠️ Cookies file is empty: {path}",
+      "cookie_file_invalid": "⚠️ Cookies file is invalid or uses an unsupported format: {path}. Details: {detail}"
     },
     "startup": {
       "failed": "❌ Application startup failed. Details: {detail}"
@@ -502,12 +480,6 @@
       "stream": "Streaming transcription",
       "cumulative": "Cumulative transcription"
     },
-    "context_policy": {
-      "label": "Session context"
-    },
-    "silence_guard": {
-      "label": "Silence protection"
-    },
     "profile": {
       "balanced": "Balanced",
       "high_context": "High context",
@@ -614,7 +586,6 @@
       "fp32_math_mode": "FP32 acceleration (TF32)"
     },
     "help": {
-      "chunk_length": "Sets the length of a single audio chunk passed to the model. Larger chunks can improve context and speed, but increase memory usage.",
       "concurrent_fragments": "Number of fragments downloaded at the same time. Higher values can speed up downloading, but put more load on the connection and server.",
       "device": "Selects where models run their computations. Auto uses a CUDA GPU when available, otherwise CPU. Forcing GPU may be ignored if the environment does not support CUDA.",
       "http_timeout_s": "Maximum time to wait for a server response for a single request.",
@@ -629,7 +600,6 @@
       "browser_cookies_browser": "Selects which browser should be used as the cookie source. Auto uses the first Windows browser with a concrete cookie store detected by the runtime.",
       "precision_hint": "Precision controls the numeric format used by the model. Lower precision usually improves speed and reduces memory use, but can increase the chance of numerical differences. On CPU, Float32 is the safest choice; on compatible GPUs, Auto often selects BFloat16 or Float16.",
       "retries": "Defines how many times failed network requests are retried before the operation is considered failed.",
-      "stride_length": "Adds overlap between adjacent audio chunks. This can improve continuity at segment boundaries, but increases compute cost.",
       "theme": "Choose the interface theme.",
       "transcription_engine": "Selects the model used to convert speech to text. Different models may vary in speed, hardware requirements, and robustness on difficult recordings.",
       "translation_chunk_max_chars": "Defines the maximum size of text passed to the translation model in one step. Smaller fragments are safer for memory and stability, but they weaken coherence between sentences.",
@@ -744,9 +714,6 @@
       "guarded_tip": "Filters silence, weak signal, and suspicious fragments most aggressively. Best for recordings with pauses, noise, background music, or a high hallucination risk.",
       "custom": "Custom",
       "custom_tip": "Unlocks manual editing of transcription profile parameters. Starts from the values of the currently selected built-in profile."
-    },
-    "tooltip": {
-      "browser_cookies_file_path": "Path to an exported cookies file used in advanced mode for authenticated yt_dlp downloads. For some services, this is more stable than reading a live browser profile when browser-cookie access is blocked or rotated."
     }
   },
   "status": {

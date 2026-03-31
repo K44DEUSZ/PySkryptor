@@ -74,6 +74,7 @@ class FilesCoordinator(QtCore.QObject):
         self._view: FilesPanelViewProtocol | None = None
         self._runtime_state = AppRuntimeState()
         self._pipe: Any | None = None
+        self._access_intervention_worker: object | None = None
 
     def bind_view(self, panel: FilesPanelViewProtocol) -> None:
         if self._view is panel:
@@ -125,8 +126,13 @@ class FilesCoordinator(QtCore.QObject):
         return self.is_probe_running() or self.is_transcribing() or self.is_expanding()
 
     def _emit_access_intervention_payload(self, payload: dict[str, object]) -> None:
+        if self._expansion_runner.is_running() and self._expansion_worker is not None:
+            self._set_access_intervention_worker(self._expansion_worker)
         source_key = str((payload or {}).get("source_key") or (payload or {}).get("job_key") or "")
         self.access_intervention_required.emit(source_key, dict(payload or {}))
+
+    def _set_access_intervention_worker(self, worker: object | None) -> None:
+        self._access_intervention_worker = worker
 
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
         return start_manual_input_expansion(
@@ -160,6 +166,8 @@ class FilesCoordinator(QtCore.QObject):
         )
 
     def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
+        if worker is None and self._access_intervention_worker is self._expansion_worker:
+            self._set_access_intervention_worker(None)
         self._expansion_worker = worker
 
     def cancel_expansion(self) -> None:
@@ -183,10 +191,18 @@ class FilesCoordinator(QtCore.QObject):
         self.busy_changed.emit(True)
 
         def _connect(wk: MediaProbeWorker) -> None:
+            def _emit_access_intervention(payload: dict[str, object]) -> None:
+                self._set_access_intervention_worker(wk)
+                source_key = str((payload or {}).get("source_key") or "")
+                self.access_intervention_required.emit(source_key, dict(payload or {}))
+
             wk.table_ready.connect(self.probe_table_ready)
             wk.item_error.connect(self.probe_item_error)
+            wk.access_intervention_required.connect(_emit_access_intervention)
 
         def _done() -> None:
+            if self._access_intervention_worker is self._probe_worker:
+                self._set_access_intervention_worker(None)
             self._probe_worker = None
             pending = self._pending_probe_entries
             self._pending_probe_entries = None
@@ -221,6 +237,7 @@ class FilesCoordinator(QtCore.QObject):
 
         def _connect(wk: TranscriptionWorker) -> None:
             def _emit_access_intervention(payload: dict[str, object]) -> None:
+                self._set_access_intervention_worker(wk)
                 source_key = str((payload or {}).get("source_key") or "")
                 self.access_intervention_required.emit(source_key, dict(payload or {}))
 
@@ -238,6 +255,8 @@ class FilesCoordinator(QtCore.QObject):
             wk.session_done.connect(self.session_done)
 
         def _done() -> None:
+            if self._access_intervention_worker is self._transcription_worker:
+                self._set_access_intervention_worker(None)
             self._transcription_worker = None
             self.transcription_busy_changed.emit(False)
             self.busy_changed.emit(self.is_busy())
@@ -274,9 +293,13 @@ class FilesCoordinator(QtCore.QObject):
         _source_key: str,
         resolution: SourceAccessInterventionResolution,
     ) -> None:
-        worker = self._expansion_worker if self._expansion_runner.is_running() else self._transcription_worker
-        if worker is None:
-            worker = self._transcription_worker if self._transcription_runner.is_running() else self._expansion_worker
+        worker = self._access_intervention_worker
+        if worker is None and self._probe_runner.is_running():
+            worker = self._probe_worker
+        if worker is None and self._expansion_runner.is_running():
+            worker = self._expansion_worker
+        if worker is None and self._transcription_runner.is_running():
+            worker = self._transcription_worker
         if worker is None:
             return
         try:

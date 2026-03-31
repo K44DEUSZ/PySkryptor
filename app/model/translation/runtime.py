@@ -194,11 +194,11 @@ def _run_runtime() -> int:
     return 0
 
 
-def _cli_entry(argv: list[str]) -> int:
+def cli_entry(argv: list[str]) -> int:
     if "--worker" not in argv:
         return 0
     return _run_runtime()
 
 
 if __name__ == "__main__":
-    raise SystemExit(_cli_entry(sys.argv[1:]))
+    raise SystemExit(cli_entry(sys.argv[1:]))

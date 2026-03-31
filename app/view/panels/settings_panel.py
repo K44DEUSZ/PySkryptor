@@ -153,7 +153,6 @@ class SettingsPanel(QtWidgets.QWidget):
     _loaded_data: dict[str, Any] | None
     _blocking_updates: bool
     _pending_restart_prompt: bool
-    _restore_baseline_data: dict[str, Any] | None
 
     _RESTART_SENSITIVE_KEYS: tuple[tuple[str, ...], ...] = (
         ("app", "language"),
@@ -197,7 +196,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self._dirty = False
         self._blocking_updates: bool = False
         self._pending_restart_prompt: bool = False
-        self._restore_baseline_data: dict[str, Any] | None = None
 
         self._advanced_rows: list[QtWidgets.QWidget] = []
         self._dirty_row_specs: list[tuple[QtWidgets.QWidget, QtWidgets.QWidget, tuple[tuple[str, ...], ...]]] = []
@@ -1396,9 +1394,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def on_saved(self, action: str, snap: SettingsSnapshot) -> None:
         data = snapshot_to_dict(snap)
         op = str(action or "save").strip().lower()
-        need_restart = self._pending_restart_prompt if op == "save" else False
-        if op == "restore_defaults" and self._restore_baseline_data is not None:
-            need_restart = self._needs_restart_between(self._restore_baseline_data, data)
+        need_restart = self._pending_restart_prompt if op == "save" else op == "restore_defaults"
 
         self._data = data
         self._loaded_data = copy.deepcopy(data)
@@ -1414,7 +1410,6 @@ class SettingsPanel(QtWidgets.QWidget):
         QtCore.QTimer.singleShot(0, self._sync_column_widths)
 
         self._pending_restart_prompt = False
-        self._restore_baseline_data = None
 
         if need_restart:
             restart_now = dialogs.ask_restart_required(self)
@@ -1427,7 +1422,6 @@ class SettingsPanel(QtWidgets.QWidget):
                 self,
                 title=tr("dialog.info.title"),
                 message=tr("settings.msg.saved"),
-                header=tr("dialog.info.header"),
             )
 
     def on_error(self, key: str, params: dict[str, Any]) -> None:
@@ -1783,7 +1777,6 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_restore_clicked(self) -> None:
         if not dialogs.ask_restore_defaults(self):
             return
-        self._restore_baseline_data = copy.deepcopy(self._data or {})
         coord = self.coordinator()
         if coord is not None:
             coord.restore_defaults()
@@ -1791,7 +1784,6 @@ class SettingsPanel(QtWidgets.QWidget):
     def _on_save_clicked(self) -> None:
         if not dialogs.ask_save_settings(self):
             return
-        self._restore_baseline_data = None
         payload = self._collect_payload()
         self._pending_restart_prompt = self._needs_restart(payload)
         coord = self.coordinator()

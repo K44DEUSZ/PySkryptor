@@ -8,10 +8,39 @@ from typing import Any
 
 LoggerLike = Any
 
+_TRANSLATION_WORKER_ARG = '--translation-worker'
+
 if __package__ in (None, ''):
     root_dir = Path(__file__).resolve().parents[1]
     if str(root_dir) not in sys.path:
         sys.path.insert(0, str(root_dir))
+
+
+def _resolve_bundle_root() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(getattr(sys, '_MEIPASS', Path(sys.executable).resolve().parent)).resolve()
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_install_root() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def _dispatch_embedded_worker(argv: list[str] | None = None) -> int | None:
+    args = list(argv if argv is not None else sys.argv[1:])
+    if _TRANSLATION_WORKER_ARG not in args:
+        return None
+
+    from app.model.translation.runtime import cli_entry
+
+    return cli_entry(['--worker'])
+
+
+_worker_exit_code = _dispatch_embedded_worker()
+if _worker_exit_code is not None:
+    raise SystemExit(_worker_exit_code)
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -106,8 +135,9 @@ def _create_application(argv: list[str] | None = None) -> QtWidgets.QApplication
 
 
 def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
-    project_root = Path(__file__).resolve().parent.parent
-    AppConfig.set_root_dir(project_root)
+    bundle_root = _resolve_bundle_root()
+    install_root = _resolve_install_root()
+    AppConfig.set_root_dir(bundle_root, install_root=install_root)
 
     try:
         app.setApplicationName(AppMeta.NAME)

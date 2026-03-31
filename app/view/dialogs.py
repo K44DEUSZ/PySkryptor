@@ -15,6 +15,7 @@ from app.model.core.runtime.localization import tr
 from app.model.core.utils.string_utils import sanitize_filename
 from app.model.download.domain import SourceAccessInterventionResolution
 from app.model.download.policy import DownloadPolicy
+from app.view.components.popup_combo import PopupComboBox
 from app.view.support.theme_runtime import active_theme_key, apply_windows_dark_titlebar
 from app.view.support.widget_setup import (
     connect_qt_signal,
@@ -60,6 +61,7 @@ class _DialogFrameSpec:
 
     title: str
     header: str = ""
+    lead: str = ""
     body_lines: tuple[str, ...] = ()
     detail_lines: tuple[str, ...] = ()
     width_class: _DialogWidthClass = _DialogWidthClass.STANDARD
@@ -95,15 +97,13 @@ class _ChoiceOptionSpec:
 
 
 @dataclass(frozen=True)
-class _DecisionDialogResult:
-    """Normalized internal result returned by decision dialog helpers."""
+class _ChoiceDialogResult:
+    """Normalized internal result returned by choice-style dialog helpers."""
 
     action: str = "cancel"
     text_value: str = ""
     int_value: int = 0
     apply_all: bool = False
-    browser_policy: str = ""
-    cookie_file_path: str = ""
 
 
 class _NoCloseFilter(QtCore.QObject):
@@ -169,55 +169,96 @@ def _tune_dialog_window(dlg: QtWidgets.QDialog) -> None:
 def _dialog_width_limits(cfg: UIConfig, width_class: _DialogWidthClass) -> tuple[int, int]:
     """Return the lower and upper width bound for a dialog family."""
     dialog_min = int(cfg.dialog_min_w)
-    dialog_max = int(cfg.dialog_max_w)
+    dialog_max = max(dialog_min, int(cfg.dialog_max_w))
     control_min = int(cfg.control_min_w)
 
     if width_class is _DialogWidthClass.COMPACT:
-        lower = max(440, dialog_min - 80, int(control_min * 3.5))
-        upper = max(lower, dialog_max)
-        return lower, upper
+        lower = max(control_min * 3, dialog_min - control_min)
+        return lower, dialog_min
 
     if width_class is _DialogWidthClass.WIDE:
-        lower = max(dialog_min, 640, int(control_min * 5.2))
-        upper = max(lower, dialog_max, 860)
-        return lower, upper
+        return dialog_min, dialog_max
 
-    lower = max(dialog_min, int(control_min * 4.4))
-    upper = max(lower, dialog_max)
-    return lower, upper
+    span = max(0, dialog_max - dialog_min)
+    return dialog_min, max(dialog_min, dialog_min + (span // 2))
+
 
 
 def _dialog_option_min_h(cfg: UIConfig) -> int:
     return max(int(cfg.option_row_min_h), int(cfg.control_min_h) - int(cfg.space_s) - 1)
 
 
+
 def _dialog_option_spacing(cfg: UIConfig) -> int:
     return max(4, int(cfg.space_s))
+
 
 
 def _setup_dialog_toggle(btn: QtWidgets.QAbstractButton, cfg: UIConfig) -> QtWidgets.QAbstractButton:
     return setup_toggle_button(btn, min_h=_dialog_option_min_h(cfg))
 
 
+
 def _setup_dialog_option_checkbox(btn: QtWidgets.QCheckBox, cfg: UIConfig) -> QtWidgets.QCheckBox:
     return setup_option_checkbox(btn, min_h=_dialog_option_min_h(cfg))
 
 
+
 def _finalize_dialog_window(dlg: QtWidgets.QDialog, cfg: UIConfig, *, width_class: _DialogWidthClass) -> None:
-    """Finalize the dialog size from its shared width class and size hint."""
-    dlg.layout().activate()
+    """Finalize a stable dialog size bounded by the active screen geometry."""
+    layout = dlg.layout()
+    if layout is not None:
+        layout.activate()
     dlg.adjustSize()
 
     lower, upper = _dialog_width_limits(cfg, width_class)
     hint = dlg.sizeHint()
     minimum_hint = dlg.minimumSizeHint()
 
-    start_w = max(lower, min(max(int(hint.width()), int(minimum_hint.width())), upper))
-    start_h = max(int(hint.height()), int(minimum_hint.height()))
+    try:
+        screen = dlg.screen()
+    except (AttributeError, RuntimeError, TypeError):
+        screen = None
+    if screen is None:
+        app = cast(QtWidgets.QApplication | None, QtWidgets.QApplication.instance())
+        screen = app.primaryScreen() if app is not None else None
 
-    dlg.setMinimumWidth(lower)
-    dlg.setMaximumWidth(upper)
-    dlg.resize(start_w, start_h)
+    if screen is not None:
+        try:
+            screen_rect = screen.availableGeometry()
+            screen_w = int(screen_rect.width())
+            screen_h = int(screen_rect.height())
+        except (AttributeError, RuntimeError, TypeError):
+            screen_w = int(cfg.window_min_w)
+            screen_h = int(cfg.window_min_h)
+    else:
+        screen_w = int(cfg.window_min_w)
+        screen_h = int(cfg.window_min_h)
+
+    max_w = max(lower, min(upper, screen_w - (int(cfg.margin) * 6)))
+    target_w = max(int(hint.width()), int(minimum_hint.width()), lower)
+    target_w = min(target_w, max_w)
+
+    dlg.setMinimumWidth(target_w)
+    dlg.setMaximumWidth(target_w)
+
+    if layout is not None and layout.hasHeightForWidth():
+        target_h = int(layout.totalHeightForWidth(target_w))
+    else:
+        dlg.resize(target_w, max(1, int(minimum_hint.height())))
+        if layout is not None:
+            layout.activate()
+        dlg.adjustSize()
+        hint = dlg.sizeHint()
+        minimum_hint = dlg.minimumSizeHint()
+        target_h = max(int(hint.height()), int(minimum_hint.height()))
+
+    max_h = max(int(minimum_hint.height()), screen_h - (int(cfg.margin) * 8))
+    target_h = max(int(minimum_hint.height()), min(int(target_h), max_h))
+
+    dlg.setMinimumHeight(target_h)
+    dlg.setMaximumHeight(max_h)
+    dlg.resize(target_w, target_h)
 
 
 def _wrap_label(text: str) -> QtWidgets.QLabel:
@@ -226,16 +267,11 @@ def _wrap_label(text: str) -> QtWidgets.QLabel:
     return lbl
 
 
+
 def _section_label(text: str) -> QtWidgets.QLabel:
     lbl = QtWidgets.QLabel(text)
     setup_label(lbl, role="sectionTitle")
     lbl.setWordWrap(True)
-    return lbl
-
-
-def _caption_label(text: str) -> QtWidgets.QLabel:
-    lbl = _wrap_label(text)
-    setup_label(lbl, role="caption")
     return lbl
 
 
@@ -253,19 +289,28 @@ def _build_dialog_frame(
 
     layout = QtWidgets.QVBoxLayout(dlg)
     _tune_dialog_layout(layout, cfg)
+    layout.setSpacing(0)
 
-    if frame.header:
-        layout.addWidget(_section_label(frame.header))
+    def add_widget(widget: QtWidgets.QWidget, *, space_before: int = 0) -> None:
+        if layout.count() > 0 and space_before > 0:
+            layout.addSpacing(int(space_before))
+        layout.addWidget(widget)
 
-    for detail in frame.detail_lines:
-        text = str(detail or "").strip()
-        if text:
-            layout.addWidget(_caption_label(text))
+    header = str(frame.header or "").strip()
+    lead = str(frame.lead or "").strip()
+    body_lines = tuple(str(body or "").strip() for body in tuple(frame.body_lines or ()) if str(body or "").strip())
+    detail_lines = tuple(
+        str(detail or "").strip() for detail in tuple(frame.detail_lines or ()) if str(detail or "").strip()
+    )
 
-    for body in frame.body_lines:
-        text = str(body or "").strip()
-        if text:
-            layout.addWidget(_wrap_label(text))
+    if header:
+        add_widget(_section_label(header))
+    if lead:
+        add_widget(_wrap_label(lead), space_before=cfg.space_s if header else 0)
+    for body in body_lines:
+        add_widget(_wrap_label(body), space_before=cfg.space_s)
+    for detail in detail_lines:
+        add_widget(_wrap_label(detail), space_before=cfg.space_s)
 
     return dlg, cfg, layout
 
@@ -295,6 +340,17 @@ def _build_dialog_button_box(
     return box, buttons
 
 
+def _normalize_dialog_lines(lines: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
+    return tuple(str(line or "").strip() for line in tuple(lines or ()) if str(line or "").strip())
+
+
+def _split_dialog_lines(lines: tuple[str, ...] | list[str] | None) -> tuple[str, tuple[str, ...]]:
+    normalized = _normalize_dialog_lines(lines)
+    if not normalized:
+        return "", ()
+    return normalized[0], normalized[1:]
+
+
 def _run_message_dialog(
     parent: QtWidgets.QWidget | None,
     *,
@@ -309,7 +365,7 @@ def _run_message_dialog(
     frame = _DialogFrameSpec(
         title=str(title or AppMeta.NAME),
         header=str(header or "").strip(),
-        body_lines=(str(message or ""),),
+        lead=str(message or "").strip(),
         width_class=width_class,
         close_policy=(
             _DialogClosePolicy.REQUIRE_EXPLICIT_ACTION if no_close else _DialogClosePolicy.ALLOW_CLOSE
@@ -336,6 +392,8 @@ def _run_message_dialog(
         ),
         finish,
     )
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
     layout.addWidget(box)
     _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
     dlg.exec_()
@@ -353,10 +411,12 @@ def _run_simple_decision_dialog(
     width_class: _DialogWidthClass = _DialogWidthClass.STANDARD,
 ) -> bool:
     """Show a simple explicit-decision dialog and return True for accept."""
+    lead, remaining_body = _split_dialog_lines(body_lines)
     frame = _DialogFrameSpec(
         title=str(title or AppMeta.NAME),
         header=str(header or "").strip(),
-        body_lines=tuple(body_lines or ()),
+        lead=lead,
+        body_lines=remaining_body,
         width_class=width_class,
         close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
     )
@@ -385,6 +445,8 @@ def _run_simple_decision_dialog(
         ),
     )
     box, _ = _build_dialog_button_box(dlg, cfg, actions, finish)
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
     layout.addWidget(box)
     _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
     dlg.exec_()
@@ -403,11 +465,13 @@ def _run_notice_dialog(
     detail_lines: tuple[str, ...] = (),
 ) -> NoticeDecision:
     """Show the shared explicit-decision notice dialog."""
+    lead, remaining_body = _split_dialog_lines(paragraphs)
     frame = _DialogFrameSpec(
         title=str(title or AppMeta.NAME),
         header=str(header or "").strip(),
-        body_lines=tuple(paragraphs or ()),
-        detail_lines=tuple(detail_lines or ()),
+        lead=lead,
+        body_lines=remaining_body,
+        detail_lines=_normalize_dialog_lines(detail_lines),
         width_class=_DialogWidthClass.STANDARD,
         close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
     )
@@ -415,6 +479,8 @@ def _run_notice_dialog(
 
     chk_dont_show = QtWidgets.QCheckBox(checkbox_text, dlg)
     _setup_dialog_option_checkbox(chk_dont_show, cfg)
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_m)
     layout.addWidget(chk_dont_show)
 
     selected_action = {"name": "reject"}
@@ -444,12 +510,65 @@ def _run_notice_dialog(
         ),
         finish,
     )
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
     layout.addWidget(box)
     _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
     dlg.exec_()
 
     accepted = str(selected_action.get("name") or "reject") == "accept"
     return NoticeDecision(accepted=accepted, dont_show_again=accepted and chk_dont_show.isChecked())
+
+
+def _run_completion_dialog(
+    parent: QtWidgets.QWidget | None,
+    *,
+    title: str,
+    message: str,
+    action_text: str,
+    dismiss_text: str,
+    header: str = "",
+    width_class: _DialogWidthClass = _DialogWidthClass.COMPACT,
+) -> bool:
+    """Show a completion dialog with an optional follow-up action."""
+    frame = _DialogFrameSpec(
+        title=str(title or AppMeta.NAME),
+        header=str(header or "").strip(),
+        lead=str(message or "").strip(),
+        width_class=width_class,
+        close_policy=_DialogClosePolicy.ALLOW_CLOSE,
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
+    selected_action = {"name": "dismiss"}
+
+    def finish(action_name: str) -> None:
+        selected_action["name"] = str(action_name or "dismiss")
+        dlg.accept()
+
+    box, _ = _build_dialog_button_box(
+        dlg,
+        cfg,
+        (
+            _DialogActionSpec(
+                key="action",
+                text=action_text,
+                role=QtWidgets.QDialogButtonBox.ActionRole,
+            ),
+            _DialogActionSpec(
+                key="dismiss",
+                text=dismiss_text,
+                role=QtWidgets.QDialogButtonBox.AcceptRole,
+                is_default=True,
+            ),
+        ),
+        finish,
+    )
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
+    layout.addWidget(box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
+    return str(selected_action.get("name") or "dismiss") == "action"
 
 
 def _build_preview_block(
@@ -465,7 +584,10 @@ def _build_preview_block(
     if not normalized_lines:
         return
 
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_m)
     layout.addWidget(_section_label(title))
+    layout.addSpacing(cfg.space_s)
 
     preview_box = QtWidgets.QPlainTextEdit(parent)
     preview_box.setReadOnly(True)
@@ -540,13 +662,15 @@ def _run_choice_dialog(
     preview_lines: tuple[str, ...] = (),
     apply_all_text: str = "",
     width_class: _DialogWidthClass = _DialogWidthClass.STANDARD,
-) -> _DecisionDialogResult:
+) -> _ChoiceDialogResult:
     """Run the shared decision dialog used by all choice-style prompts."""
+    lead, remaining_body = _split_dialog_lines(body_lines)
     frame = _DialogFrameSpec(
         title=str(title or AppMeta.NAME),
         header=str(header or "").strip(),
-        body_lines=tuple(body_lines or ()),
-        detail_lines=tuple(detail_lines or ()),
+        lead=lead,
+        body_lines=remaining_body,
+        detail_lines=_normalize_dialog_lines(detail_lines),
         width_class=width_class,
         close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
     )
@@ -565,6 +689,8 @@ def _run_choice_dialog(
     options_layout = QtWidgets.QVBoxLayout(options_host)
     options_layout.setContentsMargins(0, 0, 0, 0)
     options_layout.setSpacing(_dialog_option_spacing(cfg))
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_m)
     layout.addWidget(options_host)
 
     radios_by_key: dict[str, QtWidgets.QRadioButton] = {}
@@ -580,7 +706,7 @@ def _run_choice_dialog(
         options_layout.addWidget(radio)
 
         if spec.description:
-            description_label = _caption_label(spec.description)
+            description_label = _wrap_label(spec.description)
             description_label.setContentsMargins(int(cfg.margin), 0, 0, 0)
             options_layout.addWidget(description_label)
 
@@ -596,6 +722,8 @@ def _run_choice_dialog(
     if apply_all_text:
         apply_all_checkbox = QtWidgets.QCheckBox(apply_all_text, dlg)
         _setup_dialog_option_checkbox(apply_all_checkbox, cfg)
+        if layout.count() > 0:
+            layout.addSpacing(cfg.space_m)
         layout.addWidget(apply_all_checkbox)
 
     def sync_choice_state() -> None:
@@ -643,12 +771,14 @@ def _run_choice_dialog(
         )
 
     button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
     layout.addWidget(button_box)
     _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
     dlg.exec_()
 
     if str(selected_action.get("name") or "cancel") != "accept":
-        return _DecisionDialogResult(action="cancel")
+        return _ChoiceDialogResult(action="cancel")
 
     selected_key = next((key for key, radio in radios_by_key.items() if radio.isChecked()), "")
     text_value = ""
@@ -661,7 +791,7 @@ def _run_choice_dialog(
         elif isinstance(editor, QtWidgets.QSpinBox):
             int_value = int(editor.value())
 
-    return _DecisionDialogResult(
+    return _ChoiceDialogResult(
         action=selected_key,
         text_value=text_value,
         int_value=int_value,
@@ -789,9 +919,9 @@ class _WelcomeDialog(QtWidgets.QDialog):
         meta_col = QtWidgets.QVBoxLayout()
         meta_col.setContentsMargins(0, 0, 0, 0)
         meta_col.setSpacing(0)
-        meta_col.addWidget(_caption_label(tr("dialog.welcome.meta_version", version=AppMeta.VERSION)))
-        meta_col.addWidget(_caption_label(tr("dialog.welcome.meta_author", author=AppMeta.AUTHOR)))
-        meta_col.addWidget(_caption_label(tr("dialog.welcome.meta_years", years=AppMeta.DEVELOPMENT_YEARS)))
+        meta_col.addWidget(_wrap_label(tr("dialog.welcome.meta_version", version=AppMeta.VERSION)))
+        meta_col.addWidget(_wrap_label(tr("dialog.welcome.meta_author", author=AppMeta.AUTHOR)))
+        meta_col.addWidget(_wrap_label(tr("dialog.welcome.meta_years", years=AppMeta.DEVELOPMENT_YEARS)))
         text_col.addLayout(meta_col)
 
         text_col.addSpacing(cfg.space_s)
@@ -920,6 +1050,7 @@ def ask_cancel(parent: QtWidgets.QWidget) -> bool:
         accept_text=tr("action.cancel_now"),
         reject_text=tr("action.keep_working"),
         default_action="reject",
+        width_class=_DialogWidthClass.COMPACT,
     )
 
 
@@ -931,6 +1062,7 @@ def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
         accept_text=tr("settings.buttons.save"),
         reject_text=tr("ctrl.cancel"),
         default_action="reject",
+        width_class=_DialogWidthClass.COMPACT,
     )
 
 
@@ -942,6 +1074,7 @@ def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
         accept_text=tr("settings.buttons.restore_defaults"),
         reject_text=tr("ctrl.cancel"),
         default_action="reject",
+        width_class=_DialogWidthClass.COMPACT,
     )
 
 
@@ -960,14 +1093,12 @@ def ask_restart_required(parent: QtWidgets.QWidget) -> bool:
 
 def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> bool:
     """Return True if the user wants to open the session folder."""
-    return _run_simple_decision_dialog(
+    return _run_completion_dialog(
         parent,
         title=tr("dialog.info.title"),
-        header=tr("dialog.info.done_header"),
-        body_lines=(str(session_dir or ""),),
-        accept_text=tr("files.open_output"),
-        reject_text=tr("ctrl.ok"),
-        default_action="reject",
+        message=str(session_dir or ""),
+        action_text=tr("files.open_output"),
+        dismiss_text=tr("ctrl.ok"),
     )
 
 
@@ -982,14 +1113,12 @@ def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -
     if file_name:
         message = f"{message} {file_name}"
 
-    return _run_simple_decision_dialog(
+    return _run_completion_dialog(
         parent,
         title=tr("dialog.info.title"),
-        header=tr("dialog.info.done_header"),
-        body_lines=(message,),
-        accept_text=tr("down.open_folder"),
-        reject_text=tr("ctrl.ok"),
-        default_action="reject",
+        message=message,
+        action_text=tr("down.open_folder"),
+        dismiss_text=tr("ctrl.ok"),
     )
 
 
@@ -1222,107 +1351,113 @@ def _ordered_cookie_browser_policies(
     return tuple(ordered)
 
 
-def ask_source_access_intervention(
+def _ask_enhanced_access_intervention(
     parent: QtWidgets.QWidget,
     *,
-    kind: str,
-    source_kind: str = "",
-    source_label: str = "",
-    detail: str = "",
-    state: str = "",
-    provider_state: str = "",
-    can_retry: bool = True,
-    can_choose_cookie_file: bool = True,
-    can_continue_without_cookies: bool = True,
-    can_retry_enhanced: bool = False,
-    can_continue_basic: bool = False,
-    can_continue_degraded: bool = False,
-    browser_policy: str = "",
-    available_browser_policies: tuple[str, ...] = (),
+    source_kind: str,
+    source_label: str,
+    detail: str,
+    state: str,
+    provider_state: str,
+    can_retry_enhanced: bool,
+    can_continue_basic: bool,
+    can_continue_degraded: bool,
 ) -> SourceAccessInterventionResolution:
-    """Return the next action for a user-actionable source-access failure."""
-    normalized_kind = str(kind or "cookies").strip().lower() or "cookies"
+    label = str(source_label or source_kind or tr("dialog.down.access.source_fallback")).strip()
+    state_key = str(state or "").strip().lower()
+    text_key = "dialog.down.access.text"
+    if state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED:
+        text_key = "dialog.down.access.text_enhanced_recommended"
+    elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED:
+        text_key = "dialog.down.access.text_enhanced_required"
+    elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING:
+        text_key = "dialog.down.access.text_provider_missing"
+    elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE:
+        text_key = "dialog.down.access.text_unavailable"
 
-    if normalized_kind == "enhanced_access":
-        label = str(source_label or source_kind or tr("dialog.down.access.source_fallback")).strip()
-        state_key = str(state or "").strip().lower()
-        text_key = "dialog.down.access.text"
-        if state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED:
-            text_key = "dialog.down.access.text_enhanced_recommended"
-        elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED:
-            text_key = "dialog.down.access.text_enhanced_required"
-        elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING:
-            text_key = "dialog.down.access.text_provider_missing"
-        elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE:
-            text_key = "dialog.down.access.text_unavailable"
+    access_detail_lines: list[str] = []
+    detail_text = str(detail or "").strip()
+    if detail_text:
+        access_detail_lines.append(detail_text)
+    provider_text = str(provider_state or "").strip()
+    if provider_text and provider_text not in {"none", "available"}:
+        access_detail_lines.append(tr("dialog.down.access.provider_state", state=provider_text))
 
-        access_detail_lines: list[str] = []
-        detail_text = str(detail or "").strip()
-        if detail_text:
-            access_detail_lines.append(detail_text)
-        provider_text = str(provider_state or "").strip()
-        if provider_text and provider_text not in {"none", "available"}:
-            access_detail_lines.append(tr("dialog.down.access.provider_state", state=provider_text))
+    frame = _DialogFrameSpec(
+        title=tr("dialog.down.access.title"),
+        header=tr("dialog.down.access.header", source=label),
+        lead=tr(text_key, source=label),
+        detail_lines=tuple(access_detail_lines),
+        width_class=_DialogWidthClass.WIDE,
+        close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
+    )
+    dlg, cfg, layout = _build_dialog_frame(parent, frame)
+    selected_action = {"name": "cancel"}
 
-        frame = _DialogFrameSpec(
-            title=tr("dialog.down.access.title"),
-            header=tr("dialog.down.access.header", source=label),
-            body_lines=(tr(text_key, source=label),),
-            detail_lines=tuple(access_detail_lines),
-            width_class=_DialogWidthClass.WIDE,
-            close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
-        )
-        dlg, cfg, layout = _build_dialog_frame(parent, frame)
-        selected_action = {"name": "cancel"}
+    def finish(action_name: str) -> None:
+        selected_action["name"] = str(action_name or "cancel")
+        if selected_action["name"] == "cancel":
+            dlg.reject()
+        else:
+            dlg.accept()
 
-        def finish(action_name: str) -> None:
-            selected_action["name"] = str(action_name or "cancel")
-            if selected_action["name"] == "cancel":
-                dlg.reject()
-            else:
-                dlg.accept()
-
-        actions: list[_DialogActionSpec] = []
-        if can_retry_enhanced:
-            actions.append(
-                _DialogActionSpec(
-                    key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
-                    text=tr("dialog.down.access.retry_enhanced"),
-                    role=QtWidgets.QDialogButtonBox.AcceptRole,
-                    is_default=True,
-                )
-            )
-        if can_continue_basic:
-            actions.append(
-                _DialogActionSpec(
-                    key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
-                    text=tr("dialog.down.access.continue_basic"),
-                    role=QtWidgets.QDialogButtonBox.ActionRole,
-                    is_default=not actions,
-                )
-            )
-        if can_continue_degraded:
-            actions.append(
-                _DialogActionSpec(
-                    key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED,
-                    text=tr("dialog.down.access.continue_degraded"),
-                    role=QtWidgets.QDialogButtonBox.ActionRole,
-                )
-            )
+    actions: list[_DialogActionSpec] = []
+    if can_retry_enhanced:
         actions.append(
             _DialogActionSpec(
-                key="cancel",
-                text=tr("ctrl.cancel"),
-                role=QtWidgets.QDialogButtonBox.RejectRole,
+                key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
+                text=tr("dialog.down.access.retry_enhanced"),
+                role=QtWidgets.QDialogButtonBox.AcceptRole,
+                is_default=True,
             )
         )
+    if can_continue_basic:
+        actions.append(
+            _DialogActionSpec(
+                key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
+                text=tr("dialog.down.access.continue_basic"),
+                role=QtWidgets.QDialogButtonBox.ActionRole,
+                is_default=not actions,
+            )
+        )
+    if can_continue_degraded:
+        actions.append(
+            _DialogActionSpec(
+                key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED,
+                text=tr("dialog.down.access.continue_degraded"),
+                role=QtWidgets.QDialogButtonBox.ActionRole,
+            )
+        )
+    actions.append(
+        _DialogActionSpec(
+            key="cancel",
+            text=tr("ctrl.cancel"),
+            role=QtWidgets.QDialogButtonBox.RejectRole,
+        )
+    )
 
-        button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
-        layout.addWidget(button_box)
-        _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
-        dlg.exec_()
-        return SourceAccessInterventionResolution(action=str(selected_action.get("name") or "cancel"))
+    button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
+    layout.addWidget(button_box)
+    _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
+    dlg.exec_()
+    return SourceAccessInterventionResolution(action=str(selected_action.get("name") or "cancel"))
 
+
+
+def _ask_cookie_access_intervention(
+    parent: QtWidgets.QWidget,
+    *,
+    source_kind: str,
+    source_label: str,
+    detail: str,
+    can_retry: bool,
+    can_choose_cookie_file: bool,
+    can_continue_without_cookies: bool,
+    browser_policy: str,
+    available_browser_policies: tuple[str, ...],
+) -> SourceAccessInterventionResolution:
     source_mode = str(source_kind or "browser").strip().lower()
     if source_mode == "file":
         label = str(source_label or "").strip() or tr("dialog.down.cookies.source_file_fallback")
@@ -1333,12 +1468,11 @@ def ask_source_access_intervention(
         header = tr("dialog.down.cookies.header_browser", browser=label)
         body = tr("dialog.down.cookies.text_browser", browser=label)
 
-    cookie_detail_lines: tuple[str, ...] = tuple(filter(None, (str(detail or "").strip(),)))
     frame = _DialogFrameSpec(
         title=tr("dialog.down.cookies.title"),
         header=header,
-        body_lines=(body,),
-        detail_lines=cookie_detail_lines,
+        lead=body,
+        detail_lines=_normalize_dialog_lines((str(detail or "").strip(),)),
         width_class=_DialogWidthClass.WIDE,
         close_policy=_DialogClosePolicy.REQUIRE_EXPLICIT_ACTION,
     )
@@ -1349,9 +1483,11 @@ def ask_source_access_intervention(
     if selected_browser_policy not in ordered_browser_policies and ordered_browser_policies:
         selected_browser_policy = ordered_browser_policies[0]
 
-    browser_combo: QtWidgets.QComboBox | None = None
+    browser_combo: PopupComboBox | None = None
     if source_mode == "browser" and can_retry and len(ordered_browser_policies) > 1:
-        layout.addWidget(_caption_label(tr("dialog.down.cookies.browser_picker_hint")))
+        if layout.count() > 0:
+            layout.addSpacing(cfg.space_m)
+        layout.addWidget(_wrap_label(tr("dialog.down.cookies.browser_picker_hint")))
 
         browser_host = QtWidgets.QWidget(dlg)
         browser_row = QtWidgets.QHBoxLayout(browser_host)
@@ -1359,10 +1495,10 @@ def ask_source_access_intervention(
         browser_row.setSpacing(_dialog_option_spacing(cfg))
 
         lbl_browser = QtWidgets.QLabel(tr("dialog.down.cookies.browser_picker_label"), browser_host)
-        setup_label(lbl_browser, role="label")
+        setup_label(lbl_browser, role="fieldLabel")
         browser_row.addWidget(lbl_browser)
 
-        browser_combo = QtWidgets.QComboBox(browser_host)
+        browser_combo = PopupComboBox(browser_host)
         setup_combo(browser_combo, min_h=_dialog_option_min_h(cfg))
         browser_combo.setMinimumWidth(max(int(cfg.control_min_w), 180))
         for policy in ordered_browser_policies:
@@ -1420,6 +1556,8 @@ def ask_source_access_intervention(
     )
 
     button_box, _ = _build_dialog_button_box(dlg, cfg, tuple(actions), finish)
+    if layout.count() > 0:
+        layout.addSpacing(cfg.space_l)
     layout.addWidget(button_box)
     _finalize_dialog_window(dlg, cfg, width_class=frame.width_class)
     dlg.exec_()
@@ -1439,8 +1577,60 @@ def ask_source_access_intervention(
     return SourceAccessInterventionResolution()
 
 
-def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str, header: str | None = None) -> None:
-    _run_message_dialog(parent, title=title, message=message, header=header, ok_text=tr("ctrl.ok"))
+
+def ask_source_access_intervention(
+    parent: QtWidgets.QWidget,
+    *,
+    kind: str,
+    source_kind: str = "",
+    source_label: str = "",
+    detail: str = "",
+    state: str = "",
+    provider_state: str = "",
+    can_retry: bool = True,
+    can_choose_cookie_file: bool = True,
+    can_continue_without_cookies: bool = True,
+    can_retry_enhanced: bool = False,
+    can_continue_basic: bool = False,
+    can_continue_degraded: bool = False,
+    browser_policy: str = "",
+    available_browser_policies: tuple[str, ...] = (),
+) -> SourceAccessInterventionResolution:
+    """Return the next action for a user-actionable source-access failure."""
+    normalized_kind = str(kind or "cookies").strip().lower() or "cookies"
+    if normalized_kind == "enhanced_access":
+        return _ask_enhanced_access_intervention(
+            parent,
+            source_kind=source_kind,
+            source_label=source_label,
+            detail=detail,
+            state=state,
+            provider_state=provider_state,
+            can_retry_enhanced=can_retry_enhanced,
+            can_continue_basic=can_continue_basic,
+            can_continue_degraded=can_continue_degraded,
+        )
+    return _ask_cookie_access_intervention(
+        parent,
+        source_kind=source_kind,
+        source_label=source_label,
+        detail=detail,
+        can_retry=can_retry,
+        can_choose_cookie_file=can_choose_cookie_file,
+        can_continue_without_cookies=can_continue_without_cookies,
+        browser_policy=browser_policy,
+        available_browser_policies=available_browser_policies,
+    )
+
+
+def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str) -> None:
+    _run_message_dialog(
+        parent,
+        title=title,
+        message=message,
+        ok_text=tr("ctrl.ok"),
+        width_class=_DialogWidthClass.COMPACT,
+    )
 
 
 def show_error(

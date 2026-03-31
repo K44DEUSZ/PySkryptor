@@ -1,6 +1,5 @@
 {
   "meta": {
-    "locale": "de",
     "name": "Deutsch"
   },
   "about": {
@@ -46,7 +45,6 @@
     },
     "enable": "Aktivieren",
     "disable": "Deaktivieren",
-    "inherit": "Vom Profil übernehmen",
     "browse": "Durchsuchen..."
   },
   "ctrl": {
@@ -60,12 +58,6 @@
     "availability": {
       "downloader_offline": {
         "text": "Keine Netzwerkverbindung. Der Downloader ist im Offline-Modus nicht verfügbar."
-      },
-      "files_only_url_offline": {
-        "text": "Keine Netzwerkverbindung. Zurzeit können nur lokale Quellen verarbeitet werden. Alle URL-Quellen wurden übersprungen."
-      },
-      "files_url_offline": {
-        "text": "Keine Netzwerkverbindung. URL-Quellen können im Offline-Modus nicht hinzugefügt werden."
       },
       "network_offline": {
         "header": "Offline",
@@ -111,10 +103,8 @@
     "info": {
       "cancelled": "Vorgang abgebrochen.",
       "downloaded_prefix": "Heruntergeladene Datei:",
-      "header": "Info",
       "source_missing": "Die ausgewählte Quelle existiert nicht mehr.",
-      "title": "Information",
-      "done_header": "Fertig"
+      "title": "Information"
     },
     "restart_required": {
       "later": "Später",
@@ -171,11 +161,8 @@
       },
       "cookies": {
         "title": "Cookies sind nicht verfügbar",
-        "header": "Cookies aus {browser} konnten nicht gelesen werden",
-        "text": "Schließe den Browser und versuche es erneut oder fahre für diesen Vorgang ohne Cookies fort.",
         "retry": "Nach dem Schließen erneut versuchen",
         "without": "Ohne Cookies fortfahren",
-        "browser_fallback": "ausgewählter Browser",
         "use_file": "Cookie-Datei verwenden...",
         "file_title": "Cookie-Datei auswählen",
         "file_filter": "Cookie-Dateien (*.txt *.sqlite *.db);;Alle Dateien (*.*)",
@@ -211,7 +198,6 @@
     },
     "welcome": {
       "title": "Willkommen",
-      "header": "PySkryptor",
       "meta_version": "Version: {version}",
       "meta_author": "Autor: {author}",
       "meta_years": "Entwicklungsjahre: {years}",
@@ -263,15 +249,6 @@
         "video": "Video"
       }
     },
-    "status": {
-      "done": "Fertig",
-      "downloading": "Wird heruntergeladen...",
-      "error": "Fehler",
-      "offline": "Offline",
-      "postprocessing": "Nachbearbeitung...",
-      "probing": "Analyse...",
-      "queued": "In der Warteschlange"
-    },
     "url": {
       "placeholder": "Medien-URL hier einfügen..."
     },
@@ -301,7 +278,7 @@
       "authentication_required": "❌ Diese Quelle erfordert eine Anmeldung. Details: {detail}",
       "audio_track_probe_only": "❌ Die ausgewählte Audiospur wurde nur beim Prüfen erkannt und kann nicht zuverlässig heruntergeladen werden.",
       "no_downloadable_formats": "❌ Keine herunterladbaren Medienformate verfügbar. Details: {detail}",
-      "cookie_file_invalid": "❌ Die Cookie-Datei ist ungültig. Details: {detail}",
+      "cookie_file_invalid": "❌ Die Cookie-Datei ist für die Anwendung ungültig oder nicht lesbar. Details: {detail}",
       "extended_access_required": "❌ Diese Quelle erfordert erweiterten Extractor-Zugriff. Details: {detail}"
     },
     "external_tool_failed": "❌ Externes Werkzeug fehlgeschlagen. Befehl: {cmd}",
@@ -343,7 +320,8 @@
       "cookie_file_missing": "⚠️ Die Cookie-Datei wurde nicht gefunden: {path}",
       "cookie_file_not_file": "⚠️ Der angegebene Cookie-Pfad ist keine Datei: {path}",
       "cookie_file_unreadable": "⚠️ Die Cookie-Datei konnte nicht gelesen werden: {path}. Details: {detail}",
-      "cookie_file_empty": "⚠️ Die Cookie-Datei ist leer: {path}"
+      "cookie_file_empty": "⚠️ Die Cookie-Datei ist leer: {path}",
+      "cookie_file_invalid": "⚠️ Die Cookie-Datei ist ungültig oder verwendet ein nicht unterstütztes Format: {path}. Details: {detail}"
     },
     "startup": {
       "failed": "❌ Der Start der Anwendung ist fehlgeschlagen. Details: {detail}"
@@ -502,12 +480,6 @@
       "stream": "Streaming-Transkription",
       "cumulative": "Kumulative Transkription"
     },
-    "context_policy": {
-      "label": "Sitzungskontext"
-    },
-    "silence_guard": {
-      "label": "Stillschutz"
-    },
     "profile": {
       "balanced": "Ausgewogen",
       "high_context": "Hoher Kontext",
@@ -614,7 +586,6 @@
       "fp32_math_mode": "FP32-Beschleunigung (TF32)"
     },
     "help": {
-      "chunk_length": "Legt die Länge eines einzelnen Audioabschnitts fest, der an das Modell übergeben wird. Größere Abschnitte können Kontext und Tempo verbessern, erhöhen aber den Speicherbedarf.",
       "concurrent_fragments": "Anzahl der gleichzeitig heruntergeladenen Fragmente. Höhere Werte können Downloads beschleunigen, belasten aber Verbindung und Server stärker.",
       "device": "Legt fest, wo die Modelle ihre Berechnungen ausführen. Auto verwendet eine CUDA-GPU, wenn verfügbar, sonst die CPU. Eine erzwungene GPU-Auswahl kann ignoriert werden, wenn die Umgebung CUDA nicht unterstützt.",
       "http_timeout_s": "Maximale Wartezeit auf eine Serverantwort für eine einzelne Anfrage.",
@@ -629,7 +600,6 @@
       "browser_cookies_browser": "Wählt den Browser als Cookie-Quelle. Auto verwendet den ersten unter Windows erkannten Browser mit einem konkreten Cookie-Speicher.",
       "precision_hint": "Die Genauigkeit bestimmt das Zahlenformat des Modells. Geringere Präzision erhöht meist die Geschwindigkeit und senkt den Speicherbedarf, kann aber numerische Abweichungen wahrscheinlicher machen. Auf der CPU ist Float32 die sicherste Wahl; auf kompatiblen GPUs wählt Auto oft BFloat16 oder Float16.",
       "retries": "Legt fest, wie oft fehlgeschlagene Netzwerkanfragen wiederholt werden, bevor die Operation als fehlgeschlagen gilt.",
-      "stride_length": "Fügt benachbarten Audioabschnitten eine Überlappung hinzu. Das kann die Kontinuität an Segmentgrenzen verbessern, erhöht aber den Rechenaufwand.",
       "theme": "Wähle das Oberflächenthema.",
       "transcription_engine": "Wählt das Modell zur Umwandlung von Sprache in Text. Verschiedene Modelle unterscheiden sich in Geschwindigkeit, Hardwareanforderungen und Robustheit bei schwierigen Aufnahmen.",
       "translation_chunk_max_chars": "Legt die maximale Textgröße fest, die in einem Schritt an das Übersetzungsmodell übergeben wird. Kleinere Fragmente sind für Speicher und Stabilität sicherer, schwächen aber die Kohärenz zwischen Sätzen.",
@@ -744,9 +714,6 @@
       "guarded_tip": "Filtert Stille, schwaches Signal und verdächtige Fragmente am stärksten. Am besten für Aufnahmen mit Pausen, Rauschen, Hintergrundmusik oder hohem Halluzinationsrisiko.",
       "custom": "Benutzerdefiniert",
       "custom_tip": "Entsperrt die manuelle Bearbeitung der Transkriptionsprofil-Parameter. Startet mit den Werten des aktuell gewählten eingebauten Profils."
-    },
-    "tooltip": {
-      "browser_cookies_file_path": "Pfad zu einer exportierten Cookie-Datei, die im erweiterten Modus für authentifizierte yt_dlp-Downloads verwendet wird. Für einige Dienste ist das stabiler als das Lesen eines laufenden Browser-Profils, wenn Browser-Cookies blockiert werden oder rotieren."
     }
   },
   "status": {

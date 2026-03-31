@@ -274,16 +274,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if target is focus_w or focus_w.isAncestorOf(target):
             return
 
-        popup_roles = {
-            'comboPopupHost',
-            'comboPopup',
-            'comboPopupList',
-            'comboPopupViewport',
-            'hintPopupHost',
-            'hintPopup',
-        }
+        popup_roles = {'comboPopupList', 'comboPopupViewport'}
+        popup_surfaces = {'floatingHost', 'floatingBody'}
         w = target
         while w is not None:
+            if str(w.property('uiSurface') or '') in popup_surfaces:
+                return
             if str(w.property('role') or '') in popup_roles:
                 return
             if w is focus_w:

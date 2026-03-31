@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 from app.model.core.config.config import AppConfig
@@ -11,6 +10,7 @@ from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.entities import SettingsSnapshot
 from app.model.core.domain.errors import AppError
 from app.model.core.utils.string_utils import normalize_lang_code
+from app.model.download.cookies import validate_cookie_file
 from app.model.download.policy import DownloadPolicy
 from app.model.engines.capabilities import transcription_language_codes, translation_language_codes
 from app.model.engines.registry import ModelRegistry
@@ -480,20 +480,19 @@ def _validate_browser_cookies(src: dict[str, Any], schema: dict[str, Any]) -> di
     )
     file_path = str(_schema_value(src, schema, "file_path", "") or "").strip()
     if mode == "from_file":
-        cookie_path = Path(file_path)
-        if not file_path:
-            raise SettingsError("error.settings.cookie_file_path_missing")
-        if not cookie_path.exists():
-            raise SettingsError("error.settings.cookie_file_missing", path=str(cookie_path))
-        if not cookie_path.is_file():
-            raise SettingsError("error.settings.cookie_file_not_file", path=str(cookie_path))
-        try:
-            with cookie_path.open("rb") as handle:
-                probe = handle.read(32)
-        except OSError as ex:
-            raise SettingsError("error.settings.cookie_file_unreadable", path=str(cookie_path), detail=str(ex)) from ex
-        if not probe:
-            raise SettingsError("error.settings.cookie_file_empty", path=str(cookie_path))
+        result = validate_cookie_file(file_path)
+        if not result.ok:
+            if result.reason == "path_missing":
+                raise SettingsError("error.settings.cookie_file_path_missing")
+            if result.reason == "missing":
+                raise SettingsError("error.settings.cookie_file_missing", path=result.path)
+            if result.reason == "not_file":
+                raise SettingsError("error.settings.cookie_file_not_file", path=result.path)
+            if result.reason == "unreadable":
+                raise SettingsError("error.settings.cookie_file_unreadable", path=result.path, detail=result.detail)
+            if result.reason == "empty":
+                raise SettingsError("error.settings.cookie_file_empty", path=result.path)
+            raise SettingsError("error.settings.cookie_file_invalid", path=result.path, detail=result.detail)
     return {
         "mode": mode,
         "browser": browser,

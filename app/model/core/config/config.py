@@ -73,10 +73,11 @@ class AppConfig:
         return cls.PATHS.TRANSLATION_ENGINE_DIR / cls.TRANSLATION_MODEL_TOKENIZER_FILE
 
     @classmethod
-    def set_root_dir(cls, root_dir: Path) -> None:
+    def set_root_dir(cls, root_dir: Path, *, install_root: Path | None = None) -> None:
         cls._DEFAULT_SETTINGS_CACHE = None
         cls.PATHS = PathCatalog.build(
             root_dir,
+            install_root_dir=install_root,
             app_log_name=cls.APP_LOG_NAME,
             crash_log_name=cls.CRASH_LOG_NAME,
             missing_value=cls.MISSING_VALUE,

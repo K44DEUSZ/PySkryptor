@@ -56,6 +56,12 @@ class _TranslationWorkerClient:
         self._worker: _WorkerIO | None = None
         self._guard = threading.Lock()
 
+    @staticmethod
+    def _worker_command() -> list[str]:
+        if getattr(sys, 'frozen', False):
+            return [sys.executable, '--translation-worker']
+        return [sys.executable, '-m', 'app.model.translation.runtime', '--worker']
+
     @property
     def policy(self) -> _TranslationWorkerPolicy:
         return self._policy
@@ -141,7 +147,7 @@ class _TranslationWorkerClient:
             _LOG.debug("Translation worker starting. worker=translation")
             try:
                 proc = subprocess.Popen(
-                    [sys.executable, "-m", "app.model.translation.runtime", "--worker"],
+                    self._worker_command(),
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
@@ -149,7 +155,7 @@ class _TranslationWorkerClient:
                     encoding="utf-8",
                     errors="replace",
                     bufsize=1,
-                    cwd=str(AppConfig.PATHS.ROOT_DIR),
+                    cwd=str(AppConfig.PATHS.INSTALL_ROOT_DIR),
                 )
             except (OSError, ValueError, RuntimeError) as ex:
                 self._worker = None
