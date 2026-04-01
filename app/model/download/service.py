@@ -52,6 +52,16 @@ class DownloadService:
         return TrackInventory.available_audio_bitrates(info)
 
     @staticmethod
+    def available_cookie_browser_names() -> tuple[str, ...]:
+        """Return cookie browsers currently usable by the runtime."""
+        return available_cookie_browsers()
+
+    @staticmethod
+    def resolve_effective_cookie_browser(policy_browser: str | None) -> str:
+        """Resolve the primary browser shown for browser-cookie mode."""
+        return resolve_effective_cookie_browser(policy_browser)
+
+    @staticmethod
     def resolve_playlist(
         url: str,
         *,

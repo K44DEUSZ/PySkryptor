@@ -307,7 +307,7 @@ def _clamp_third_party_logging(logger: Any) -> None:
 def _build_startup_labels() -> dict[str, str]:
     return {
         'asr': tr('loading.stage.transcription_model'),
-        'tr': tr('loading.stage.translation_model'),
+        'translation': tr('loading.stage.translation_model'),
         'init': tr('loading.stage.init'),
         'dirs': tr('loading.stage.dirs'),
         'ffmpeg': tr('loading.stage.ffmpeg'),

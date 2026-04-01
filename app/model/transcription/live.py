@@ -11,6 +11,7 @@ from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.errors import AppError
 from app.model.core.domain.results import LiveUpdate
 from app.model.transcription.chunking import pcm16le_bytes_to_float32, seconds_to_frames
+from app.model.transcription.runtime import call_pipe_with_fallbacks
 from app.model.transcription.service import TranscriptionError
 from app.model.transcription.whisper import (
     audio_rms_level,
@@ -290,49 +291,15 @@ class LiveTranscriptionService:
         )
 
         try:
-            try:
-                result = self._pipe(
-                    payload,
-                    return_language=True,
-                    return_timestamps=False,
-                    generate_kwargs=generate_kwargs,
-                    ignore_warning=self._ignore_warning,
-                )
-            except TypeError:
-                fallback_kwargs = dict(generate_kwargs)
-                fallback_kwargs.pop("prompt_ids", None)
-                try:
-                    result = self._pipe(
-                        payload,
-                        return_language=True,
-                        return_timestamps=False,
-                        generate_kwargs=fallback_kwargs,
-                    )
-                except TypeError:
-                    candidate_kwargs = {
-                        k: v
-                        for k, v in fallback_kwargs.items()
-                        if k
-                        not in (
-                            "no_speech_threshold",
-                            "logprob_threshold",
-                            "compression_ratio_threshold",
-                            "temperature",
-                        )
-                    }
-                    try:
-                        result = self._pipe(
-                            payload,
-                            return_language=True,
-                            return_timestamps=False,
-                            generate_kwargs=candidate_kwargs,
-                        )
-                    except TypeError:
-                        result = self._pipe(
-                            payload,
-                            return_language=True,
-                            return_timestamps=False,
-                        )
+            result = call_pipe_with_fallbacks(
+                pipe=self._pipe,
+                payload=payload,
+                generate_kwargs=generate_kwargs,
+                normalized_lang=self._src_lang,
+                ignore_warning=self._ignore_warning,
+                want_timestamps=False,
+                require_language=False,
+            )
         except Exception as exc:
             _LOG.exception("ASR pipeline call failed.")
             raise TranscriptionError("error.transcription.asr_failed") from exc

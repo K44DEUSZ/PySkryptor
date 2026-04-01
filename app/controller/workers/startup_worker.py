@@ -221,7 +221,7 @@ def build_startup_tasks(config_cls: Any, snap: Any, labels: dict[str, str]) -> l
             fn=_task_load_transcription_model,
             runtime=runtime,
         ),
-        StartupTask(label=labels["tr"], weight=3, min_display_ms=0, fn=_task_warmup_translation_model, runtime=runtime),
+        StartupTask(label=labels["translation"], weight=3, min_display_ms=0, fn=_task_warmup_translation_model, runtime=runtime),
     ]
 
 

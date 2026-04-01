@@ -52,6 +52,8 @@
     "cancel": "Abbrechen ✖️",
     "exit": "Beenden",
     "ok": "OK",
+    "open_source": "Quelle öffnen 🔗",
+    "refresh_status": "Status aktualisieren 🔄",
     "start": "Start ▶️"
   },
   "dialog": {
@@ -228,7 +230,6 @@
       "views": "Aufrufe"
     },
     "open_folder": "Download-Ordner öffnen 📂",
-    "open_in_browser": "Im Browser öffnen 🌐",
     "queue": {
       "formats": "Formate",
       "outputs": "Ausgaben",
@@ -236,7 +237,9 @@
     },
     "select": {
       "audio_track": {
-        "default": "Standardspur"
+        "default": "Standardspur",
+        "role_original": "original",
+        "role_descriptive": "mit Audiodeskription"
       },
       "formats": {
         "placeholder": "Formate auswählen..."
@@ -300,7 +303,6 @@
       "failed": "❌ Die Medienmetadaten konnten nicht gelesen werden. Details: {detail}"
     },
     "model": {
-      "not_installed": "⚠️ Das Modell ist nicht installiert.",
       "transcription_missing": "⚠️ Das Transkriptionsmodell ist nicht installiert.",
       "translation_missing": "⚠️ Das Übersetzungsmodell ist nicht installiert."
     },
@@ -355,9 +357,7 @@
       "unsupported_sample_width": "Nicht unterstützte Audio-Sample-Breite: {sample_width}.",
       "expected_mono_wav": "Es wurde eine mono WAV-Datei erwartet, aber {channels} Kanäle wurden erkannt.",
       "invalid_sample_rate": "Ungültige WAV-Abtastrate: {sample_rate}.",
-      "invalid_sample_width": "Ungültige WAV-Sample-Breite: {sample_width}.",
-      "empty_audio": "Die Audiodaten sind leer.",
-      "invalid_chunk_parameters": "Ungültige Chunking-Parameter."
+      "invalid_sample_width": "Ungültige WAV-Sample-Breite: {sample_width}."
     },
     "playlist": {
       "resolve_failed": "Der Inhalt der Playlist konnte nicht gelesen werden.\n\nDetails:\n{detail}",
@@ -650,7 +650,10 @@
       "context_policy": "Kontextnutzung zwischen Segmenten",
       "silence_guard": "Filterung von Stille und schwachem Signal",
       "language_stability": "Schwelle für stabile Spracherkennung",
-      "profile_label": "Transkriptionsprofil"
+      "profile_label": "Transkriptionsprofil",
+      "engine": {
+        "disabled": "Deaktiviert"
+      }
     },
     "translation": {
       "chunk_max_chars": "Maximale Eingabelänge pro Abschnitt",

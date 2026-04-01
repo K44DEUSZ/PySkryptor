@@ -52,6 +52,8 @@
     "cancel": "Cancel ✖️",
     "exit": "Exit",
     "ok": "OK",
+    "open_source": "Open source 🔗",
+    "refresh_status": "Refresh status 🔄",
     "start": "Start ▶️"
   },
   "dialog": {
@@ -228,7 +230,6 @@
       "views": "Views"
     },
     "open_folder": "Open downloads folder 📂",
-    "open_in_browser": "Open in browser 🌐",
     "queue": {
       "formats": "Formats",
       "outputs": "Outputs",
@@ -236,7 +237,9 @@
     },
     "select": {
       "audio_track": {
-        "default": "Default track"
+        "default": "Default track",
+        "role_original": "original",
+        "role_descriptive": "with audio description"
       },
       "formats": {
         "placeholder": "Select formats..."
@@ -300,7 +303,6 @@
       "failed": "❌ Failed to read media metadata. Details: {detail}"
     },
     "model": {
-      "not_installed": "⚠️ Model is not installed.",
       "transcription_missing": "⚠️ Transcription model is not installed.",
       "translation_missing": "⚠️ Translation model is not installed."
     },
@@ -355,9 +357,7 @@
       "unsupported_sample_width": "Unsupported audio sample width: {sample_width}.",
       "expected_mono_wav": "Expected a mono WAV file, but got {channels} channels.",
       "invalid_sample_rate": "Invalid WAV sample rate: {sample_rate}.",
-      "invalid_sample_width": "Invalid WAV sample width: {sample_width}.",
-      "empty_audio": "The audio data is empty.",
-      "invalid_chunk_parameters": "Invalid chunking parameters."
+      "invalid_sample_width": "Invalid WAV sample width: {sample_width}."
     },
     "playlist": {
       "resolve_failed": "Failed to read playlist contents.\n\nDetails:\n{detail}",
@@ -650,7 +650,10 @@
       "context_policy": "Cross-segment context usage",
       "silence_guard": "Silence and weak-signal filtering",
       "language_stability": "Language detection stability threshold",
-      "profile_label": "Transcription profile"
+      "profile_label": "Transcription profile",
+      "engine": {
+        "disabled": "Disabled"
+      }
     },
     "translation": {
       "chunk_max_chars": "Maximum input chunk length",

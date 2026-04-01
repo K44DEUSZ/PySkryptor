@@ -69,6 +69,16 @@ def _is_disabled_engine_name(name: str) -> bool:
     return ModelRegistry.is_disabled_engine_name(name)
 
 
+def _model_cfg_disabled(model_cfg: dict[str, Any] | None) -> bool:
+    cfg = model_cfg if isinstance(model_cfg, dict) else {}
+    return _is_disabled_engine_name(str(cfg.get("engine_name", "") or ""))
+
+
+def _local_model_names(*, task: str) -> tuple[str, ...]:
+    task_id = _normalize_model_task(task)
+    return EngineResolver.local_model_names_for_task(task_id)
+
+
 def _require_dir(path: Path, *, error_key: str) -> None:
     if path.exists() and path.is_dir() and path.name != AppConfig.MISSING_VALUE:
         return
@@ -344,6 +354,21 @@ class AIModelsService:
     def current_model_cfg(task: str) -> dict[str, Any]:
         """Return the active model configuration for a task with runtime metadata."""
         return _current_model_cfg(task=task)
+
+    @staticmethod
+    def current_model_disabled(task: str) -> bool:
+        """Return whether the currently selected engine for a task is disabled."""
+        return _model_cfg_disabled(_current_model_cfg(task=task))
+
+    @staticmethod
+    def model_cfg_disabled(model_cfg: dict[str, Any] | None) -> bool:
+        """Return whether the given model configuration resolves to a disabled engine."""
+        return _model_cfg_disabled(model_cfg)
+
+    @staticmethod
+    def local_model_names(task: str) -> tuple[str, ...]:
+        """Return locally installed engine names for the requested task."""
+        return _local_model_names(task=task)
 
     def _loader_for_task(self, task: str) -> Any:
         return self._loaders[_normalize_model_task(task)]

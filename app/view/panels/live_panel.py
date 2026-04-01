@@ -11,7 +11,6 @@ from app.model.core.config.config import AppConfig
 from app.model.core.config.policy import LanguagePolicy
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.runtime.localization import current_language, language_display_name, tr
-from app.model.engines.registry import ModelRegistry
 from app.model.engines.service import AIModelsService
 from app.model.settings.resolution import (
     build_live_quick_options_payload,
@@ -19,7 +18,6 @@ from app.model.settings.resolution import (
     translation_runtime_available,
 )
 from app.model.transcription.policy import TranscriptionOutputPolicy
-from app.model.transcription.writer import TranscriptWriter
 from app.view import dialogs
 from app.view.components.audio_spectrum import AudioSpectrumWidget
 from app.view.components.choice_toggle import ChoiceToggle
@@ -899,8 +897,12 @@ class LivePanel(QtWidgets.QWidget):
         if not path:
             return
 
+        coordinator = self.coordinator()
+        if coordinator is None:
+            return
+
         try:
-            TranscriptWriter.save_live_transcript(
+            coordinator.save_transcript(
                 target_path=path,
                 source_text=src_text,
                 target_text=tgt_text,
@@ -910,10 +912,6 @@ class LivePanel(QtWidgets.QWidget):
             self._set_status("status.error")
             dialogs.show_error(self, key="error.generic", params={"detail": str(e)})
 
-    @staticmethod
-    def _model_engine_disabled(model_cfg: dict[str, Any]) -> bool:
-        engine = str(model_cfg.get("engine_name") or "none").strip().lower()
-        return ModelRegistry.is_disabled_engine_name(engine) or engine == "null"
 
     def _translation_runtime_available(self) -> bool:
         return bool(self._translation_ready) and translation_runtime_available(
@@ -924,7 +922,7 @@ class LivePanel(QtWidgets.QWidget):
     def _build_transcription_runtime_presentation(self) -> RuntimePresentation:
         return build_runtime_presentation(
             ready=self._transcription_ready,
-            disabled=self._model_engine_disabled(AIModelsService.current_model_cfg("transcription")),
+            disabled=AIModelsService.current_model_disabled("transcription"),
             ready_text=tr("status.idle"),
             disabled_text=tr("files.runtime.status_disabled"),
             missing_text=tr("live.model.unavailable"),
@@ -936,7 +934,7 @@ class LivePanel(QtWidgets.QWidget):
     def _build_translation_runtime_presentation(self) -> RuntimePresentation:
         return build_runtime_presentation(
             ready=self._translation_runtime_available(),
-            disabled=self._model_engine_disabled(AIModelsService.current_model_cfg("translation")),
+            disabled=AIModelsService.current_model_disabled("translation"),
             ready_text=tr("status.idle"),
             disabled_text=tr("files.runtime.status_disabled"),
             missing_text=tr("live.model.unavailable"),

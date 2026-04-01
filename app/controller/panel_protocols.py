@@ -94,6 +94,14 @@ class FilesPanelViewProtocol(Protocol):
 class LiveCoordinatorProtocol(Protocol):
     """Controller-facing contract for the live transcription panel."""
     def is_running(self) -> bool: ...
+    def save_transcript(
+        self,
+        *,
+        target_path: str,
+        source_text: str,
+        target_text: str,
+        write_source_companion: bool,
+    ) -> list[str]: ...
     def start_session(
         self,
         *,

@@ -40,6 +40,114 @@ class ResultPostprocessorProtocol(Protocol):
     def clean(self, text: str) -> str: ...
 
 
+def _invoke_pipe_candidate(
+    *,
+    pipe: Any,
+    payload: dict[str, Any],
+    return_language: bool | None,
+    return_timestamps: bool | None,
+    generate_kwargs: dict[str, Any] | None,
+    ignore_warning: bool,
+) -> Any:
+    """Run one ASR pipeline candidate call and retry once without optional warning handling."""
+
+    call_kwargs: dict[str, Any] = {}
+    if return_language is not None:
+        call_kwargs["return_language"] = bool(return_language)
+    if return_timestamps is not None:
+        call_kwargs["return_timestamps"] = bool(return_timestamps)
+    if generate_kwargs is not None:
+        call_kwargs["generate_kwargs"] = dict(generate_kwargs)
+    call_kwargs["ignore_warning"] = bool(ignore_warning)
+
+    try:
+        return pipe(payload, **call_kwargs)
+    except TypeError as ex:
+        if "ignore_warning" not in str(ex):
+            raise
+
+    call_kwargs.pop("ignore_warning", None)
+    return pipe(payload, **call_kwargs)
+
+
+def call_pipe_with_fallbacks(
+    *,
+    pipe: Any,
+    payload: dict[str, Any],
+    generate_kwargs: dict[str, Any],
+    normalized_lang: str,
+    ignore_warning: bool,
+    want_timestamps: bool,
+    require_language: bool,
+    error_factory: ErrorFactoryFn | None = None,
+) -> Any:
+    """Run the ASR pipeline with shared compatibility fallbacks for older backends."""
+
+    try:
+        return _invoke_pipe_candidate(
+            pipe=pipe,
+            payload=payload,
+            return_language=True,
+            return_timestamps=want_timestamps,
+            generate_kwargs=generate_kwargs,
+            ignore_warning=ignore_warning,
+        )
+    except TypeError as ex:
+        msg = str(ex)
+        if error_factory is not None and "return_language" in msg and bool(require_language):
+            raise error_factory("error.transcription.language_detection_unsupported") from ex
+        if error_factory is not None and "return_timestamps" in msg and bool(want_timestamps):
+            raise error_factory("error.transcription.timestamps_unsupported") from ex
+
+        fallback_kwargs = dict(generate_kwargs)
+        fallback_kwargs.pop("prompt_ids", None)
+        candidate_kwargs = [
+            fallback_kwargs,
+            {
+                key: value
+                for key, value in fallback_kwargs.items()
+                if key not in (
+                    "no_speech_threshold",
+                    "logprob_threshold",
+                    "compression_ratio_threshold",
+                    "temperature",
+                )
+            },
+            {"task": "transcribe", **({"language": normalized_lang} if normalized_lang else {})},
+            None,
+        ]
+        for candidate in candidate_kwargs:
+            try:
+                return _invoke_pipe_candidate(
+                    pipe=pipe,
+                    payload=payload,
+                    return_language=True,
+                    return_timestamps=want_timestamps,
+                    generate_kwargs=candidate,
+                    ignore_warning=ignore_warning,
+                )
+            except TypeError:
+                continue
+
+        if bool(want_timestamps):
+            return _invoke_pipe_candidate(
+                pipe=pipe,
+                payload=payload,
+                return_language=None,
+                return_timestamps=True,
+                generate_kwargs=None,
+                ignore_warning=ignore_warning,
+            )
+        return _invoke_pipe_candidate(
+            pipe=pipe,
+            payload=payload,
+            return_language=None,
+            return_timestamps=None,
+            generate_kwargs=None,
+            ignore_warning=ignore_warning,
+        )
+
+
 def pipe_call(
     *,
     pipe: Any,
@@ -73,54 +181,16 @@ def pipe_call(
             signal_kind=signal_kind,
         )
 
-        try:
-            out = pipe(
-                payload,
-                return_language=True,
-                return_timestamps=True,
-                generate_kwargs=generate_kwargs,
-                ignore_warning=bool(ignore_warning),
-            )
-        except TypeError as ex:
-            msg = str(ex)
-            if "return_language" in msg and bool(require_language):
-                raise error_factory("error.transcription.language_detection_unsupported") from ex
-            if "return_timestamps" in msg:
-                raise error_factory("error.transcription.timestamps_unsupported") from ex
-
-            fallback_kwargs = dict(generate_kwargs)
-            fallback_kwargs.pop("prompt_ids", None)
-            for candidate_kwargs in (
-                fallback_kwargs,
-                {
-                    key: value
-                    for key, value in fallback_kwargs.items()
-                    if key not in (
-                        "no_speech_threshold",
-                        "logprob_threshold",
-                        "compression_ratio_threshold",
-                        "temperature",
-                    )
-                },
-                {"task": "transcribe", **({"language": normalized_lang} if normalized_lang else {})},
-            ):
-                try:
-                    out = pipe(
-                        payload,
-                        return_language=True,
-                        return_timestamps=True,
-                        generate_kwargs=candidate_kwargs,
-                        ignore_warning=bool(ignore_warning),
-                    )
-                    break
-                except TypeError:
-                    continue
-            else:
-                out = pipe(
-                    payload,
-                    return_timestamps=True,
-                    ignore_warning=bool(ignore_warning),
-                )
+        out = call_pipe_with_fallbacks(
+            pipe=pipe,
+            payload=payload,
+            generate_kwargs=generate_kwargs,
+            normalized_lang=normalized_lang,
+            ignore_warning=bool(ignore_warning),
+            want_timestamps=True,
+            require_language=bool(require_language),
+            error_factory=error_factory,
+        )
     except Exception as ex:
         _LOG.exception("ASR pipeline call failed.")
         raise error_factory("error.transcription.asr_failed") from ex

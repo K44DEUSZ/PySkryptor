@@ -52,6 +52,8 @@
     "cancel": "Anuluj ✖️",
     "exit": "Wyjdź",
     "ok": "OK",
+    "open_source": "Otwórz źródło 🔗",
+    "refresh_status": "Odśwież status 🔄",
     "start": "Start ▶️"
   },
   "dialog": {
@@ -228,7 +230,6 @@
       "views": "Wyświetlenia"
     },
     "open_folder": "Otwórz folder pobrań 📂",
-    "open_in_browser": "Otwórz w przeglądarce 🌐",
     "queue": {
       "formats": "Formaty",
       "outputs": "Wyjścia",
@@ -236,7 +237,9 @@
     },
     "select": {
       "audio_track": {
-        "default": "Domyślna ścieżka"
+        "default": "Domyślna ścieżka",
+        "role_original": "oryginalna",
+        "role_descriptive": "z audiodeskrypcją"
       },
       "formats": {
         "placeholder": "Wybierz formaty..."
@@ -300,7 +303,6 @@
       "failed": "❌ Nie udało się odczytać metadanych mediów. Szczegóły: {detail}"
     },
     "model": {
-      "not_installed": "⚠️ Model nie jest zainstalowany.",
       "transcription_missing": "⚠️ Model transkrypcji nie jest zainstalowany.",
       "translation_missing": "⚠️ Model tłumaczenia nie jest zainstalowany."
     },
@@ -355,9 +357,7 @@
       "unsupported_sample_width": "Nieobsługiwana szerokość próbki audio: {sample_width}.",
       "expected_mono_wav": "Oczekiwano monofonicznego pliku WAV, ale wykryto {channels} kanały.",
       "invalid_sample_rate": "Nieprawidłowa częstotliwość próbkowania WAV: {sample_rate}.",
-      "invalid_sample_width": "Nieprawidłowa szerokość próbki WAV: {sample_width}.",
-      "empty_audio": "Dane audio są puste.",
-      "invalid_chunk_parameters": "Nieprawidłowe parametry chunkingu."
+      "invalid_sample_width": "Nieprawidłowa szerokość próbki WAV: {sample_width}."
     },
     "playlist": {
       "resolve_failed": "Nie udało się odczytać zawartości playlisty.\n\nSzczegóły:\n{detail}",
@@ -650,7 +650,10 @@
       "context_policy": "Wykorzystanie kontekstu między segmentami",
       "silence_guard": "Filtrowanie ciszy i słabego sygnału",
       "language_stability": "Próg stabilizacji wykrywania języka",
-      "profile_label": "Profil transkrypcji"
+      "profile_label": "Profil transkrypcji",
+      "engine": {
+        "disabled": "Wyłączone"
+      }
     },
     "translation": {
       "chunk_max_chars": "Maksymalna długość fragmentu wejściowego",

@@ -7,10 +7,6 @@ from typing import Any, Iterable
 
 from app.model.core.runtime.localization import tr
 
-_DISPLAY_STATUS_ALIASES = {
-    "status.probing": "status.processing",
-}
-
 _PROGRESS_STATUS_KEYS = frozenset(
     {
         "status.downloading",
@@ -29,16 +25,10 @@ _TERMINAL_STATUS_KEYS = frozenset(
     }
 )
 
-_DUPLICATE_REUSABLE_STATUS_KEYS = frozenset(
-    {
-        "status.done",
-        "status.saved",
-    }
-)
-
 _ACTIVE_WORK_STATUS_KEYS = frozenset(
     {
         "status.processing",
+        "status.probing",
         "status.downloading",
         "status.transcribing",
         "status.translating",
@@ -75,35 +65,24 @@ def normalize_status_base_key(status: str) -> str:
         return str(status or "").strip()
 
 
-def present_status_key(status_key: str) -> str:
-    """Map a raw status key to its display-facing alias."""
-    key = normalize_status_base_key(status_key)
-    return _DISPLAY_STATUS_ALIASES.get(key, key)
-
-
 def is_terminal_status(status_key: str) -> bool:
     """Return whether the status represents terminal work."""
-    return present_status_key(status_key) in _TERMINAL_STATUS_KEYS
-
-
-def is_duplicate_reusable_status(status_key: str) -> bool:
-    """Return whether the status allows re-adding the same source."""
-    return present_status_key(status_key) in _DUPLICATE_REUSABLE_STATUS_KEYS
+    return normalize_status_base_key(status_key) in _TERMINAL_STATUS_KEYS
 
 
 def is_progress_status(status_key: str) -> bool:
     """Return whether the status should surface percentage progress."""
-    return present_status_key(status_key) in _PROGRESS_STATUS_KEYS
+    return normalize_status_base_key(status_key) in _PROGRESS_STATUS_KEYS
 
 
 def is_active_work_status(status_key: str) -> bool:
     """Return whether the status represents ongoing work."""
-    return present_status_key(status_key) in _ACTIVE_WORK_STATUS_KEYS
+    return normalize_status_base_key(status_key) in _ACTIVE_WORK_STATUS_KEYS
 
 
 def status_display_text(status_key: str, fallback: str = "") -> str:
     """Resolve display text for a status key or fallback value."""
-    key = present_status_key(status_key)
+    key = normalize_status_base_key(status_key)
     if str(key or "").startswith("status."):
         return tr(key)
     return str(fallback or key or "")

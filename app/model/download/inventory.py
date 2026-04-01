@@ -127,7 +127,9 @@ class TrackLabelHeuristics:
             "flac",
             "h264",
             "h265",
+            "high",
             "ios",
+            "low",
             "m4a",
             "medium",
             "missing pot",
@@ -139,11 +141,47 @@ class TrackLabelHeuristics:
             "small",
             "tiny",
             "tv",
+            "ultralow",
             "vorbis",
             "vp9",
             "web",
             "webm",
         }
+
+    @staticmethod
+    def normalize_audio_track_role(value: Any) -> str:
+        text = str(value or "").strip().lower()
+        if not text:
+            return ""
+        if "descriptive" in text:
+            return "descriptive"
+        if "original" in text:
+            return "original"
+        if "default" in text:
+            return "default"
+        return ""
+
+    @staticmethod
+    def semantic_audio_track_role(value: Any) -> str:
+        role = TrackLabelHeuristics.normalize_audio_track_role(value)
+        return role if role in {"original", "descriptive"} else ""
+
+    @staticmethod
+    def clean_audio_track_label_source(value: Any, *, lang_code: str = "") -> str:
+        text = TrackLabelHeuristics.split_audio_track_label_text(value)
+        if not text:
+            return ""
+        text = re.sub(r"\s*\(\s*default\s*\)\s*$", "", text, flags=re.IGNORECASE).strip()
+        if not text:
+            return ""
+        if TrackLabelHeuristics.looks_like_media_descriptor(text):
+            return ""
+        normalized_lang = normalize_lang_code(text, drop_region=False) or ""
+        if normalized_lang and normalized_lang == (normalize_lang_code(lang_code, drop_region=False) or ""):
+            return ""
+        if TrackLabelHeuristics.normalize_audio_track_role(text):
+            return ""
+        return text
 
     @staticmethod
     def youtube_audio_role_label(fmt: dict[str, Any]) -> str:
@@ -152,13 +190,11 @@ class TrackLabelHeuristics:
         combined_text = " ".join(part for part in (display_name, note_text) if part)
         audio_track = TrackLabelHeuristics.audio_track_payload(fmt)
 
-        if "descriptive" in combined_text:
-            return "descriptive"
-        if "original" in combined_text:
-            return "original"
+        role = TrackLabelHeuristics.normalize_audio_track_role(combined_text)
+        if role:
+            return role
         if (
-            "(default)" in combined_text
-            or audio_track.get("audioIsDefault")
+            audio_track.get("audioIsDefault")
             or audio_track.get("audio_is_default")
             or audio_track.get("default")
         ):
@@ -167,59 +203,46 @@ class TrackLabelHeuristics:
 
     @staticmethod
     def audio_track_label_source(fmt: dict[str, Any], *, info_is_youtube: bool) -> str:
-        label_source = TrackLabelHeuristics.split_audio_track_label_text(
-            TrackLabelHeuristics.audio_track_display_name(fmt)
+        lang_code = TrackLabelHeuristics.audio_track_language_code(fmt)
+        label_source = TrackLabelHeuristics.clean_audio_track_label_source(
+            TrackLabelHeuristics.audio_track_display_name(fmt),
+            lang_code=lang_code,
         )
-        if not label_source:
-            raw_track_id = TrackLabelHeuristics.audio_track_raw_id(fmt)
-            if raw_track_id and info_is_youtube:
-                label_source = raw_track_id
 
         if not label_source and info_is_youtube:
             for token in TrackLabelHeuristics.audio_track_note_tokens(fmt, include_format=False):
-                if not TrackLabelHeuristics.looks_like_media_descriptor(token):
-                    label_source = token
+                cleaned = TrackLabelHeuristics.clean_audio_track_label_source(token, lang_code=lang_code)
+                if cleaned:
+                    label_source = cleaned
                     break
-            if not label_source and TrackLabelHeuristics.audio_track_note_tokens(fmt, include_format=False):
-                label_source = TrackLabelHeuristics.youtube_audio_role_label(fmt)
 
         if not label_source and not info_is_youtube:
             for key in ("language", "lang", "audio_lang"):
-                text = TrackLabelHeuristics.split_audio_track_label_text(fmt.get(key))
-                if text and not TrackLabelHeuristics.looks_like_media_descriptor(text):
-                    label_source = text
+                cleaned = TrackLabelHeuristics.clean_audio_track_label_source(fmt.get(key), lang_code=lang_code)
+                if cleaned:
+                    label_source = cleaned
                     break
 
         if not label_source and not info_is_youtube:
             for key in ("format_note", "format"):
-                text = TrackLabelHeuristics.split_audio_track_label_text(fmt.get(key))
-                if text and not TrackLabelHeuristics.looks_like_media_descriptor(text):
-                    label_source = text
+                cleaned = TrackLabelHeuristics.clean_audio_track_label_source(fmt.get(key), lang_code=lang_code)
+                if cleaned:
+                    label_source = cleaned
                     break
 
-        if (
-            label_source
-            and TrackLabelHeuristics.audio_track_is_default(fmt)
-            and "(default)" not in label_source.lower()
-        ):
-            label_source = f"{label_source} (default)"
         return label_source
 
     @staticmethod
     def audio_track_signature_blob(
         *,
-        audio_track_key: str,
         lang_code: str,
         label_source: str,
-        is_default: bool,
-        language_preference: int,
+        role: str,
     ) -> str:
         payload = {
-            "audio_track_key": str(audio_track_key or ""),
-            "is_default": bool(is_default),
             "lang_code": str(lang_code or ""),
-            "language_preference": int(language_preference or 0),
             "label_source": str(label_source or ""),
+            "role": TrackLabelHeuristics.semantic_audio_track_role(role),
         }
         return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
@@ -237,6 +260,9 @@ class TrackLabelHeuristics:
     def track_display_label(track: dict[str, Any] | None) -> str:
         if not isinstance(track, dict):
             return ""
+        label_source = str(track.get("label_source") or "").strip()
+        if label_source:
+            return label_source
         label = str(track.get("label") or "").strip()
         lang_code = str(track.get("lang_code") or "").strip()
         prefix = f"{lang_code} - "
@@ -246,20 +272,19 @@ class TrackLabelHeuristics:
 
     @staticmethod
     def track_role(track: dict[str, Any] | None) -> str:
+        if not isinstance(track, dict):
+            return ""
+        explicit = TrackLabelHeuristics.normalize_audio_track_role(track.get("role"))
+        if explicit:
+            return explicit
         text = TrackLabelHeuristics.track_display_label(track).lower()
-        if "descriptive" in text:
-            return "descriptive"
-        if "original" in text:
-            return "original"
-        if "(default)" in text:
-            return "default"
-        return ""
+        return TrackLabelHeuristics.normalize_audio_track_role(text)
 
     @staticmethod
     def track_is_default(track: dict[str, Any] | None) -> bool:
         if not isinstance(track, dict):
             return False
-        if "(default)" in TrackLabelHeuristics.track_display_label(track).lower():
+        if bool(track.get("is_default")):
             return True
         try:
             return int(track.get("language_preference") or 0) == 5
@@ -271,7 +296,6 @@ class TrackLabelHeuristics:
         label = TrackLabelHeuristics.track_display_label(track)
         if not label:
             return ""
-        label = re.sub(r"\s*\(default\)\s*$", "", label, flags=re.IGNORECASE).strip()
         role = TrackLabelHeuristics.track_role(track)
         if role in {"original", "descriptive", "default"}:
             return ""
@@ -281,9 +305,8 @@ class TrackLabelHeuristics:
     def audio_track_merge_signature_blob(track: dict[str, Any]) -> str:
         payload = {
             "canonical_label": TrackLabelHeuristics.track_canonical_label(track),
-            "is_default": TrackLabelHeuristics.track_is_default(track),
             "lang_code": str(track.get("lang_code") or "").strip(),
-            "role": TrackLabelHeuristics.track_role(track),
+            "role": TrackLabelHeuristics.semantic_audio_track_role(track.get("role")),
         }
         return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
@@ -354,19 +377,15 @@ class TrackInventory:
         is_default = TrackLabelHeuristics.audio_track_is_default(fmt)
         lang_code = TrackLabelHeuristics.audio_track_language_code(fmt)
         language_preference = TrackLabelHeuristics.audio_track_language_preference(fmt)
+        role = TrackLabelHeuristics.youtube_audio_role_label(fmt)
         label_source = TrackLabelHeuristics.audio_track_label_source(fmt, info_is_youtube=True)
-        if not lang_code or not (raw_track_id or display_name or label_source):
+        if not lang_code or not (raw_track_id or display_name or label_source or role or is_default):
             return None
 
-        label_source = label_source or raw_track_id or lang_code
-        if is_default and "(default)" not in label_source.lower():
-            label_source = f"{label_source} (default)"
         signature_blob = TrackLabelHeuristics.audio_track_signature_blob(
-            audio_track_key=raw_track_id,
             lang_code=lang_code,
             label_source=label_source,
-            is_default=is_default,
-            language_preference=language_preference,
+            role=role,
         )
         return {
             "signature_blob": signature_blob,
@@ -374,6 +393,7 @@ class TrackInventory:
             "track_key": raw_track_id,
             "lang_code": lang_code,
             "label_source": label_source,
+            "role": role,
             "is_default": is_default,
             "language_preference": language_preference,
         }
@@ -393,17 +413,16 @@ class TrackInventory:
         if not lang_code:
             return None
 
-        label_source = TrackLabelHeuristics.audio_track_label_source(fmt, info_is_youtube=False) or lang_code
-        if TrackLabelHeuristics.looks_like_media_descriptor(label_source):
-            return None
+        label_source = TrackLabelHeuristics.audio_track_label_source(fmt, info_is_youtube=False)
+        role = TrackLabelHeuristics.normalize_audio_track_role(label_source)
+        if role:
+            label_source = ""
 
         language_preference = TrackLabelHeuristics.audio_track_language_preference(fmt)
         signature_blob = TrackLabelHeuristics.audio_track_signature_blob(
-            audio_track_key="",
             lang_code=lang_code,
             label_source=label_source,
-            is_default=False,
-            language_preference=language_preference,
+            role=role,
         )
         return {
             "signature_blob": signature_blob,
@@ -411,6 +430,7 @@ class TrackInventory:
             "track_key": "",
             "lang_code": lang_code,
             "label_source": label_source,
+            "role": role,
             "is_default": False,
             "language_preference": language_preference,
         }
@@ -448,9 +468,10 @@ class TrackInventory:
         }
 
     @staticmethod
-    def audio_track_label(*, lang_code: str, label_source: str, is_default: bool = False) -> str:
+    def audio_track_label(*, lang_code: str, label_source: str, role: str = "") -> str:
         lang = str(lang_code or "").strip()
         source = str(label_source or "").strip()
+        normalized_role = TrackLabelHeuristics.normalize_audio_track_role(role)
 
         if source:
             hinted_lang = normalize_lang_code(source, drop_region=False) or ""
@@ -459,8 +480,8 @@ class TrackInventory:
             elif lang and source.lower() == lang.lower():
                 source = ""
 
-        if source and is_default and "(default)" not in source.lower():
-            source = f"{source} (default)"
+        if normalized_role in {"original", "descriptive"}:
+            source = normalized_role
 
         if lang and source:
             return f"{lang} - {source}"
@@ -548,6 +569,7 @@ class TrackInventory:
                     "language_preference": int(identity.get("language_preference") or 0),
                     "_label_source": str(identity.get("label_source") or ""),
                     "_track_key": str(identity.get("track_key") or ""),
+                    "_role": str(identity.get("role") or ""),
                     "_is_default": bool(identity.get("is_default")),
                     "candidates": [],
                 },
@@ -556,6 +578,13 @@ class TrackInventory:
                 int(track.get("language_preference") or 0),
                 int(identity.get("language_preference") or 0),
             )
+            track["_is_default"] = bool(track.get("_is_default")) or bool(identity.get("is_default"))
+            if not str(track.get("_label_source") or "").strip():
+                track["_label_source"] = str(identity.get("label_source") or "")
+            if not str(track.get("_track_key") or "").strip():
+                track["_track_key"] = str(identity.get("track_key") or "")
+            if not str(track.get("_role") or "").strip():
+                track["_role"] = str(identity.get("role") or "")
 
         tracks_by_lang: dict[str, list[str]] = {}
         for signature_blob, track in tracks_by_signature.items():
@@ -604,29 +633,9 @@ class TrackInventory:
             track["label"] = TrackInventory.audio_track_label(
                 lang_code=str(track.get("lang_code") or ""),
                 label_source=str(track.get("_label_source") or ""),
-                is_default=bool(track.get("_is_default")),
+                role=str(track.get("_role") or ""),
             )
 
-        label_counts: dict[str, int] = {}
-        for track in tracks:
-            label = str(track.get("label") or "")
-            label_counts[label] = label_counts.get(label, 0) + 1
-
-        disambiguated_counts: dict[str, int] = {}
-        for track in tracks:
-            label = str(track.get("label") or "")
-            if label_counts.get(label, 0) > 1:
-                track_key = str(track.get("_track_key") or "").strip()
-                lang_code = str(track.get("lang_code") or "")
-                if track_key and f"[{track_key}]" not in label:
-                    label = f"{label} [{track_key}]"
-                elif lang_code and f"[{lang_code}]" not in label:
-                    label = f"{label} [{lang_code}]"
-                if disambiguated_counts.get(label, 0) > 0:
-                    label = f"{label} #{str(track.get('track_id') or '')[:4]}"
-                track["label"] = label
-            normalized_label = str(track.get("label") or "")
-            disambiguated_counts[normalized_label] = disambiguated_counts.get(normalized_label, 0) + 1
 
         normalized_tracks: list[dict[str, Any]] = []
         for track in sorted(tracks, key=TrackInventory.audio_track_sort_key):
@@ -636,6 +645,10 @@ class TrackInventory:
                     "track_id": str(track.get("track_id") or ""),
                     "lang_code": str(track.get("lang_code") or ""),
                     "label": str(track.get("label") or ""),
+                    "label_source": str(track.get("_label_source") or ""),
+                    "track_key": str(track.get("_track_key") or ""),
+                    "role": str(track.get("_role") or ""),
+                    "is_default": bool(track.get("_is_default")),
                     "language_preference": int(track.get("language_preference") or 0),
                     "candidates": list(track.get("candidates") or []),
                     "download_clients": download_clients,
@@ -660,7 +673,7 @@ class TrackInventory:
         return list(inventory.get("tracks") or [])
 
     @staticmethod
-    def merged_track_label_priority(track: dict[str, Any], *, probe_client: str) -> tuple[int, int, int]:
+    def merged_track_label_priority(track: dict[str, Any], *, probe_client: str) -> tuple[int, int, int, int]:
         display_label = TrackLabelHeuristics.track_display_label(track)
         lang_code = str(track.get("lang_code") or "").strip().lower()
         normalized_display = normalize_lang_code(display_label, drop_region=False) or ""
@@ -669,8 +682,10 @@ class TrackInventory:
             if display_label and normalized_display != lang_code and display_label.lower() != lang_code
             else 0
         )
+        role = TrackLabelHeuristics.track_role(track)
         return (
             int(TrackLabelHeuristics.track_is_default(track)),
+            1 if role in {"original", "descriptive"} else 0,
             richness,
             -YtdlpGateway.probe_client_sort_key(probe_client)[0],
         )
@@ -771,6 +786,10 @@ class TrackInventory:
                         "track_id": TrackLabelHeuristics.make_audio_track_id(signature_blob=merge_signature),
                         "lang_code": str(track.get("lang_code") or "").strip(),
                         "label": str(track.get("label") or "").strip(),
+                        "label_source": str(track.get("label_source") or "").strip(),
+                        "track_key": str(track.get("track_key") or "").strip(),
+                        "role": str(track.get("role") or "").strip(),
+                        "is_default": bool(track.get("is_default")),
                         "language_preference": int(track.get("language_preference") or 0),
                         "candidates": [],
                         "_label_priority": TrackInventory.merged_track_label_priority(
@@ -785,8 +804,12 @@ class TrackInventory:
                 )
                 merged["candidates"].extend(list(track.get("candidates") or []))
                 label_priority = TrackInventory.merged_track_label_priority(track, probe_client=client)
-                if label_priority > tuple(merged.get("_label_priority") or (0, 0, 0)):
+                if label_priority > tuple(merged.get("_label_priority") or (0, 0, 0, 0)):
                     merged["label"] = str(track.get("label") or "").strip()
+                    merged["label_source"] = str(track.get("label_source") or "").strip()
+                    merged["track_key"] = str(track.get("track_key") or "").strip()
+                    merged["role"] = str(track.get("role") or "").strip()
+                    merged["is_default"] = bool(track.get("is_default"))
                     merged["_label_priority"] = label_priority
 
         merged_tracks: list[dict[str, Any]] = []
@@ -796,6 +819,10 @@ class TrackInventory:
                     "track_id": str(track.get("track_id") or "").strip(),
                     "lang_code": str(track.get("lang_code") or "").strip(),
                     "label": str(track.get("label") or "").strip(),
+                    "label_source": str(track.get("label_source") or "").strip(),
+                    "track_key": str(track.get("track_key") or "").strip(),
+                    "role": str(track.get("role") or "").strip(),
+                    "is_default": bool(track.get("is_default")),
                     "language_preference": int(track.get("language_preference") or 0),
                     "candidates": TrackInventory.dedupe_audio_track_candidates(list(track.get("candidates") or [])),
                 }

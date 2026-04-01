@@ -15,9 +15,10 @@ from app.model.core.config.policy import LanguagePolicy
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.entities import SettingsSnapshot, snapshot_to_dict
 from app.model.core.runtime.localization import list_locales, tr
-from app.model.download.runtime import available_cookie_browsers, resolve_effective_cookie_browser
 from app.model.download.policy import DownloadPolicy
+from app.model.download.service import DownloadService
 from app.model.engines.resolution import EngineResolver
+from app.model.engines.service import AIModelsService
 from app.model.settings.resolution import transcription_language_codes, translation_language_codes
 from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
@@ -1054,7 +1055,7 @@ class SettingsPanel(QtWidgets.QWidget):
     def _build_translation_section(self, base_h: int) -> None:
         lay = self._prepare_section_layout(self.grp_translation, title_key="settings.section.translation")
 
-        self.cmb_tr_engine = self._new_combo(base_h)
+        self.cmb_translation_engine = self._new_combo(base_h)
         self.cmb_translation_profile = self._new_combo(base_h)
         self._add_combo_option(
             self.cmb_translation_profile,
@@ -1080,7 +1081,7 @@ class SettingsPanel(QtWidgets.QWidget):
             RuntimeProfiles.TRANSLATION_PROFILE_CUSTOM,
             tooltip_key="settings.translation.profile.custom_tip",
         )
-        self.cmb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
+        self.cmb_translation_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
         self.cmb_default_target_language = LanguageCombo(
             special_first=(
@@ -1091,36 +1092,36 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         self.cmb_default_target_language.setMinimumHeight(base_h)
 
-        self.cmb_tr_style = self._new_combo(base_h)
+        self.cmb_translation_style = self._new_combo(base_h)
         self._add_combo_option(
-            self.cmb_tr_style,
+            self.cmb_translation_style,
             "settings.translation.style.literal",
             RuntimeProfiles.TRANSLATION_STYLE_LITERAL,
             tooltip_key="settings.translation.style.literal_tip",
         )
         self._add_combo_option(
-            self.cmb_tr_style,
+            self.cmb_translation_style,
             "settings.translation.style.balanced",
             RuntimeProfiles.TRANSLATION_STYLE_BALANCED,
             tooltip_key="settings.translation.style.balanced_tip",
         )
         self._add_combo_option(
-            self.cmb_tr_style,
+            self.cmb_translation_style,
             "settings.translation.style.fluent",
             RuntimeProfiles.TRANSLATION_STYLE_FLUENT,
             tooltip_key="settings.translation.style.fluent_tip",
         )
 
-        self.sp_tr_beams = self._new_spinbox(base_h, 0, 12, step=1)
-        self.sp_tr_no_repeat = self._new_spinbox(base_h, -1, 8, step=1)
-        self.sp_tr_max_tokens = self._new_spinbox(base_h, 16, 8192, step=16)
-        self.sp_tr_chunk_chars = self._new_spinbox(base_h, 200, 20000, step=100)
+        self.sp_translation_beams = self._new_spinbox(base_h, 0, 12, step=1)
+        self.sp_translation_no_repeat = self._new_spinbox(base_h, -1, 8, step=1)
+        self.sp_translation_max_tokens = self._new_spinbox(base_h, 16, 8192, step=16)
+        self.sp_translation_chunk_chars = self._new_spinbox(base_h, 200, 20000, step=100)
 
         self._add_tracked_row(
             lay,
             self._row(
                 tr("settings.translation.engine.label"),
-                self.cmb_tr_engine,
+                self.cmb_translation_engine,
                 tr("settings.help.translation_engine"),
             ),
             ("model", "translation_model", "engine_name"),
@@ -1147,7 +1148,7 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(
                 tr("settings.translation.style.label"),
-                self.cmb_tr_style,
+                self.cmb_translation_style,
                 tr("settings.help.translation_style"),
                 advanced=True,
             ),
@@ -1157,7 +1158,7 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(
                 tr("settings.translation.num_beams"),
-                self.sp_tr_beams,
+                self.sp_translation_beams,
                 tr("settings.help.translation_num_beams"),
                 advanced=True,
             ),
@@ -1167,7 +1168,7 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(
                 tr("settings.translation.no_repeat_ngram_size"),
-                self.sp_tr_no_repeat,
+                self.sp_translation_no_repeat,
                 tr("settings.help.translation_no_repeat_ngram_size"),
                 advanced=True,
             ),
@@ -1177,7 +1178,7 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(
                 tr("settings.translation.max_new_tokens"),
-                self.sp_tr_max_tokens,
+                self.sp_translation_max_tokens,
                 tr("settings.help.translation_max_new_tokens"),
                 advanced=True,
             ),
@@ -1187,7 +1188,7 @@ class SettingsPanel(QtWidgets.QWidget):
             lay,
             self._row(
                 tr("settings.translation.chunk_max_chars"),
-                self.sp_tr_chunk_chars,
+                self.sp_translation_chunk_chars,
                 tr("settings.help.translation_chunk_max_chars"),
                 advanced=True,
             ),
@@ -1197,21 +1198,21 @@ class SettingsPanel(QtWidgets.QWidget):
         lay.addStretch(1)
 
         self._connect_mark_dirty(
-            self.cmb_tr_engine.currentIndexChanged,
+            self.cmb_translation_engine.currentIndexChanged,
             self.cmb_default_target_language.currentIndexChanged,
-            self.cmb_tr_style.currentIndexChanged,
+            self.cmb_translation_style.currentIndexChanged,
         )
         self._connect_spinbox_mark_dirty(
-            self.sp_tr_beams,
-            self.sp_tr_no_repeat,
-            self.sp_tr_max_tokens,
-            self.sp_tr_chunk_chars,
+            self.sp_translation_beams,
+            self.sp_translation_no_repeat,
+            self.sp_translation_max_tokens,
+            self.sp_translation_chunk_chars,
         )
         self.cmb_transcription_profile.currentIndexChanged.connect(self._on_transcription_profile_changed)
         self.cmb_translation_profile.currentIndexChanged.connect(self._on_translation_profile_changed)
-        self.cmb_tr_style.currentIndexChanged.connect(self._on_translation_advanced_changed)
-        self.sp_tr_beams.valueChanged.connect(self._on_translation_advanced_changed)
-        self.sp_tr_no_repeat.valueChanged.connect(self._on_translation_advanced_changed)
+        self.cmb_translation_style.currentIndexChanged.connect(self._on_translation_advanced_changed)
+        self.sp_translation_beams.valueChanged.connect(self._on_translation_advanced_changed)
+        self.sp_translation_no_repeat.valueChanged.connect(self._on_translation_advanced_changed)
 
     def _build_download_section(self, base_h: int) -> None:
         cfg = self._ui
@@ -1630,9 +1631,9 @@ class SettingsPanel(QtWidgets.QWidget):
 
     def _capture_translation_controls(self) -> dict[str, Any]:
         return {
-            "style": str(self.cmb_tr_style.currentData() or RuntimeProfiles.TRANSLATION_STYLE_BALANCED),
-            "num_beams": max(1, int(self.sp_tr_beams.value())),
-            "no_repeat_ngram_size": max(0, int(self.sp_tr_no_repeat.value())),
+            "style": str(self.cmb_translation_style.currentData() or RuntimeProfiles.TRANSLATION_STYLE_BALANCED),
+            "num_beams": max(1, int(self.sp_translation_beams.value())),
+            "no_repeat_ngram_size": max(0, int(self.sp_translation_no_repeat.value())),
         }
 
     def _apply_transcription_runtime_to_controls(self, runtime: dict[str, Any], *, editable: bool) -> None:
@@ -1668,13 +1669,13 @@ class SettingsPanel(QtWidgets.QWidget):
 
     def _apply_translation_runtime_to_controls(self, runtime: dict[str, Any], *, editable: bool) -> None:
         set_combo_data(
-            self.cmb_tr_style,
+            self.cmb_translation_style,
             runtime.get("style"),
             fallback_data=RuntimeProfiles.TRANSLATION_STYLE_BALANCED,
         )
-        self.sp_tr_beams.setValue(int(runtime.get("num_beams", 3) or 3))
-        self.sp_tr_no_repeat.setValue(int(runtime.get("no_repeat_ngram_size", 0) or 0))
-        for widget in (self.cmb_tr_style, self.sp_tr_beams, self.sp_tr_no_repeat):
+        self.sp_translation_beams.setValue(int(runtime.get("num_beams", 3) or 3))
+        self.sp_translation_no_repeat.setValue(int(runtime.get("no_repeat_ngram_size", 0) or 0))
+        for widget in (self.cmb_translation_style, self.sp_translation_beams, self.sp_translation_no_repeat):
             row = self._find_setting_row(widget)
             if row is not None:
                 self._set_row_control_enabled(row, editable, control=widget)
@@ -1909,7 +1910,7 @@ class SettingsPanel(QtWidgets.QWidget):
         tr_engine_name = EngineResolver.resolve_translation_engine_name(model)
         if tr_engine_name == AppConfig.MISSING_VALUE:
             tr_engine_name = str(x_model.get("engine_name", "none"))
-        set_combo_data(self.cmb_tr_engine, tr_engine_name, fallback_data="none")
+        set_combo_data(self.cmb_translation_engine, tr_engine_name, fallback_data="none")
         _populate_combo_fields(
             x_model,
             (("profile", self.cmb_translation_profile, RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),),
@@ -1924,8 +1925,8 @@ class SettingsPanel(QtWidgets.QWidget):
         _populate_spin_fields(
             x_model,
             (
-                ("max_new_tokens", self.sp_tr_max_tokens, 256),
-                ("chunk_max_chars", self.sp_tr_chunk_chars, 1200),
+                ("max_new_tokens", self.sp_translation_max_tokens, 256),
+                ("chunk_max_chars", self.sp_translation_chunk_chars, 1200),
             ),
         )
 
@@ -2066,7 +2067,7 @@ class SettingsPanel(QtWidgets.QWidget):
             "translation_model": {
                 **_collect_combo_fields(
                     (
-                        ("engine_name", self.cmb_tr_engine, "none"),
+                        ("engine_name", self.cmb_translation_engine, "none"),
                         ("profile", self.cmb_translation_profile, RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),
                     ),
                 ),
@@ -2074,8 +2075,8 @@ class SettingsPanel(QtWidgets.QWidget):
                     dict[str, Any],
                     _collect_spin_fields(
                         (
-                            ("max_new_tokens", self.sp_tr_max_tokens),
-                            ("chunk_max_chars", self.sp_tr_chunk_chars),
+                            ("max_new_tokens", self.sp_translation_max_tokens),
+                            ("chunk_max_chars", self.sp_translation_chunk_chars),
                         ),
                     ),
                 ),
@@ -2177,7 +2178,9 @@ class SettingsPanel(QtWidgets.QWidget):
         current_browser = str(
             selected_browser or self.cmb_cookie_browser.currentData() or LanguagePolicy.AUTO
         ).strip().lower() or LanguagePolicy.AUTO
-        detected_browsers = {str(browser or "").strip().lower() for browser in available_cookie_browsers()}
+        detected_browsers = {
+            str(browser or "").strip().lower() for browser in DownloadService.available_cookie_browser_names()
+        }
         browsers: list[str] = []
         for browser in DownloadPolicy.COOKIE_BROWSERS:
             if browser in detected_browsers:
@@ -2242,7 +2245,7 @@ class SettingsPanel(QtWidgets.QWidget):
         if idx_auto >= 0:
             self.cmb_engine_device.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_dev})')
 
-        resolved_browser = resolve_effective_cookie_browser(DownloadPolicy.COOKIE_BROWSER_AUTO)
+        resolved_browser = DownloadService.resolve_effective_cookie_browser(DownloadPolicy.COOKIE_BROWSER_AUTO)
         resolved_browser_label = ""
         if resolved_browser:
             resolved_browser_key = f"settings.browser_cookies.browser.{resolved_browser}"
@@ -2275,34 +2278,34 @@ class SettingsPanel(QtWidgets.QWidget):
             return
 
     def _populate_model_engines(self) -> None:
-        trans_names = EngineResolver.local_model_names_for_task("transcription")
-        tr_names = EngineResolver.local_model_names_for_task("translation")
+        transcription_names = AIModelsService.local_model_names("transcription")
+        translation_names = AIModelsService.local_model_names("translation")
 
         self.cmb_trans_engine.blockSignals(True)
         try:
             current = str(self.cmb_trans_engine.currentData() or "none")
             self.cmb_trans_engine.clear()
-            self.cmb_trans_engine.addItem(tr("settings.translation.engine.disabled"), "none")
+            self.cmb_trans_engine.addItem(tr("settings.transcription.engine.disabled"), "none")
 
-            for name in trans_names:
+            for name in transcription_names:
                 self.cmb_trans_engine.addItem(name, name)
 
             set_combo_data(self.cmb_trans_engine, current, fallback_data="none")
         finally:
             self.cmb_trans_engine.blockSignals(False)
 
-        self.cmb_tr_engine.blockSignals(True)
+        self.cmb_translation_engine.blockSignals(True)
         try:
-            current_tr = str(self.cmb_tr_engine.currentData() or "none")
-            self.cmb_tr_engine.clear()
-            self.cmb_tr_engine.addItem(tr("settings.translation.engine.disabled"), "none")
+            current_translation = str(self.cmb_translation_engine.currentData() or "none")
+            self.cmb_translation_engine.clear()
+            self.cmb_translation_engine.addItem(tr("settings.translation.engine.disabled"), "none")
 
-            for name in tr_names:
-                self.cmb_tr_engine.addItem(name, name)
+            for name in translation_names:
+                self.cmb_translation_engine.addItem(name, name)
 
-            set_combo_data(self.cmb_tr_engine, current_tr, fallback_data="none")
+            set_combo_data(self.cmb_translation_engine, current_translation, fallback_data="none")
         finally:
-            self.cmb_tr_engine.blockSignals(False)
+            self.cmb_translation_engine.blockSignals(False)
 
     def _refresh_runtime_capabilities(self) -> None:
         caps = AppConfig.runtime_capabilities()

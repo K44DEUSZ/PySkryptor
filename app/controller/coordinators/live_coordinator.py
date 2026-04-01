@@ -17,6 +17,7 @@ from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.worker_runner import WorkerRunner
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.state import AppRuntimeState
+from app.model.transcription.writer import TranscriptWriter
 
 
 class LiveCoordinator(QtCore.QObject):
@@ -78,6 +79,25 @@ class LiveCoordinator(QtCore.QObject):
 
     def list_input_devices(self) -> list[str]:
         return self._input_devices_provider()
+
+    def save_transcript(
+        self,
+        *,
+        target_path: str,
+        source_text: str,
+        target_text: str,
+        write_source_companion: bool,
+    ) -> list[str]:
+        """Persist the current live transcript using the shared writer."""
+        return [
+            str(path)
+            for path in TranscriptWriter.save_live_transcript(
+                target_path=target_path,
+                source_text=source_text,
+                target_text=target_text,
+                write_source_companion=write_source_companion,
+            )
+        ]
 
     def start_session(
         self,

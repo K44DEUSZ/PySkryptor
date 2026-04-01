@@ -16,7 +16,6 @@ from app.model.core.domain.results import ExpandedSourceItem, SourceExpansionRes
 from app.model.core.runtime.localization import current_language, tr
 from app.model.core.utils.string_utils import format_hms
 from app.model.download.policy import DownloadPolicy
-from app.model.engines.registry import ModelRegistry
 from app.model.engines.service import AIModelsService
 from app.model.settings.resolution import (
     build_files_quick_options_payload,
@@ -25,7 +24,11 @@ from app.model.settings.resolution import (
     translation_runtime_available,
 )
 from app.model.sources.probe import is_url_source
-from app.model.sources.duplicates import SourceDuplicateRecord, evaluate_source_duplicate
+from app.model.sources.duplicates import (
+    SourceDuplicateRecord,
+    evaluate_source_duplicate,
+    is_duplicate_terminal_status,
+)
 from app.model.sources.parser import build_entries, parse_source_input
 from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
@@ -67,7 +70,6 @@ from app.view.support.status_presenter import (
     compose_status_text,
     display_texts_for_statuses,
     is_active_work_status,
-    is_duplicate_reusable_status,
     is_terminal_status,
     normalize_status_base_key,
     status_display_text,
@@ -84,6 +86,7 @@ from app.view.support.source_notice import confirm_source_rights_notice
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import (
     build_field_stack,
+    build_layout_host,
     make_grid,
     setup_button,
     setup_combo,
@@ -192,7 +195,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _row_id_for_runtime_key(self, runtime_key: str) -> str:
         candidates = self._runtime_row_ids(runtime_key)
         for row_id in reversed(candidates):
-            if not self._is_row_terminal(row_id):
+            if not self._is_row_completed(row_id):
                 return row_id
         return candidates[-1] if candidates else ""
 
@@ -235,24 +238,31 @@ class FilesPanel(QtWidgets.QWidget):
             records.append(
                 SourceDuplicateRecord(
                     source_key=key,
-                    is_terminal=self._is_row_terminal(row_id),
+                    is_terminal=self._is_row_duplicate_terminal(row_id),
                 )
             )
         return records
 
     def _can_add_source_key(self, source_key: str) -> tuple[bool, bool]:
-        decision = evaluate_source_duplicate(self._row_duplicate_records(), source_key)
+        decision = evaluate_source_duplicate(
+            self._row_duplicate_records(),
+            source_key,
+        )
         return bool(decision.allow), bool(decision.duplicate)
 
-    def _is_row_terminal(self, row_id: str) -> bool:
+    def _is_row_duplicate_terminal(self, row_id: str) -> bool:
         status_key = str(self._status_base_by_row_id.get(str(row_id), "") or "").strip()
-        return bool(status_key and is_duplicate_reusable_status(status_key))
+        return bool(status_key and is_duplicate_terminal_status(status_key))
+
+    def _is_row_completed(self, row_id: str) -> bool:
+        status_key = str(self._status_base_by_row_id.get(str(row_id), "") or "").strip()
+        return status_key in {"status.done", "status.saved"}
 
     def _transcription_row_ids(self) -> list[str]:
         row_ids: list[str] = []
         for row in range(self.tbl_sources.rowCount()):
             row_id = self._row_id_at(row)
-            if not row_id or self._is_row_terminal(row_id):
+            if not row_id or self._is_row_completed(row_id):
                 continue
             row_ids.append(row_id)
         return row_ids
@@ -331,9 +341,12 @@ class FilesPanel(QtWidgets.QWidget):
         self.btn_open_output.setObjectName("FilesOpenOutput")
         setup_button(self.btn_open_output, min_h=base_h, min_w=cfg.control_min_w)
 
-        top_btn_host = QtWidgets.QWidget(self._top_section_host)
-        top_btn_box = QtWidgets.QHBoxLayout(top_btn_host)
-        setup_layout(top_btn_box, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_l)
+        top_btn_host, top_btn_box = build_layout_host(
+            parent=self._top_section_host,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.space_l,
+        )
         top_btn_box.addWidget(self.btn_src_add, 1)
         top_btn_box.addWidget(self.btn_open_output, 3)
 
@@ -342,17 +355,35 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
         self.btn_add_folder = QtWidgets.QPushButton(tr("files.add_folder"))
+        self.btn_open_source = QtWidgets.QPushButton(tr("ctrl.open_source"))
+        self.btn_refresh_status = QtWidgets.QPushButton(tr("ctrl.refresh_status"))
         self.btn_remove_selected = QtWidgets.QPushButton(tr("files.remove_selected"))
         self.btn_clear_list = QtWidgets.QPushButton(tr("files.clear"))
 
-
-        for button in (self.btn_add_files, self.btn_add_folder, self.btn_remove_selected, self.btn_clear_list):
+        for button in (
+            self.btn_add_files,
+            self.btn_add_folder,
+            self.btn_open_source,
+            self.btn_refresh_status,
+            self.btn_remove_selected,
+            self.btn_clear_list,
+        ):
             setup_button(button, min_h=base_h, min_w=cfg.control_min_w)
 
-        top_grid.addWidget(self.btn_add_files, 1, 0)
-        top_grid.addWidget(self.btn_add_folder, 1, 1)
-        top_grid.addWidget(self.btn_remove_selected, 1, 2)
-        top_grid.addWidget(self.btn_clear_list, 1, 3)
+        actions_host, actions_box = build_layout_host(
+            parent=self._top_section_host,
+            layout="hbox",
+            margins=(0, 0, 0, 0),
+            spacing=cfg.space_l,
+        )
+        actions_box.addWidget(self.btn_add_files, 1)
+        actions_box.addWidget(self.btn_add_folder, 1)
+        actions_box.addWidget(self.btn_open_source, 1)
+        actions_box.addWidget(self.btn_refresh_status, 1)
+        actions_box.addWidget(self.btn_remove_selected, 1)
+        actions_box.addWidget(self.btn_clear_list, 1)
+
+        top_grid.addWidget(actions_host, 1, 0, 1, 4)
 
         root.addWidget(self._top_section_host)
 
@@ -587,6 +618,8 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.btn_add_files.clicked.connect(self._on_add_files_clicked)
         self.btn_add_folder.clicked.connect(self._on_add_folder_clicked)
+        self.btn_open_source.clicked.connect(self._on_open_source_clicked)
+        self.btn_refresh_status.clicked.connect(self._on_refresh_status_clicked)
         self.btn_remove_selected.clicked.connect(self._on_remove_selected)
         self.btn_clear_list.clicked.connect(self._on_clear_clicked)
         self.btn_open_output.clicked.connect(self._open_output_folder)
@@ -648,9 +681,7 @@ class FilesPanel(QtWidgets.QWidget):
             )
             self.tg_mode.set_first_checked(not translate_after)
 
-            tr_mdl = AIModelsService.current_model_cfg("translation")
-            tr_eng = str(tr_mdl.get("engine_name", "none") or "none").strip().lower()
-            translation_option_enabled = bool(tr_eng and tr_eng not in ("none", "off", "disabled"))
+            translation_option_enabled = not AIModelsService.current_model_disabled("translation")
             self.tg_mode.set_second_enabled(translation_option_enabled)
 
             self._rebuild_target_language_combo(
@@ -734,6 +765,31 @@ class FilesPanel(QtWidgets.QWidget):
         item.setText(text)
         item.setToolTip('')
 
+    def _set_probe_row_status(self, row_id: str) -> None:
+        target_row_id = str(row_id or '').strip()
+        if not target_row_id:
+            return
+        row = self._row_for_row_id(target_row_id)
+        if row < 0:
+            return
+        self._status_base_by_row_id[target_row_id] = 'status.probing'
+        self._pct_by_row_id.pop(target_row_id, None)
+        item = self.tbl_sources.item(row, self.COL_STATUS)
+        if item is None:
+            return
+        item.setText(status_display_text('status.probing', 'status.probing'))
+        item.setToolTip('')
+
+    def _finish_probe_row_status(self, row_id: str) -> None:
+        target_row_id = str(row_id or '').strip()
+        if not target_row_id:
+            return
+        row = self._row_for_row_id(target_row_id)
+        if row < 0:
+            return
+        self._status_base_by_row_id.pop(target_row_id, None)
+        self._set_pending_row_status(row, self._pending_status_for_row_id(target_row_id))
+
     def _refresh_runtime_badge(self) -> None:
         self._refresh_mode_badge()
         if self._network_status == 'offline':
@@ -764,10 +820,6 @@ class FilesPanel(QtWidgets.QWidget):
     def _disabled_value() -> str:
         return str(tr("files.runtime.value_disabled") or "").strip() or "disabled"
 
-    @staticmethod
-    def _model_engine_disabled(model_cfg: dict[str, Any]) -> bool:
-        engine = str(model_cfg.get("engine_name") or "none").strip().lower()
-        return ModelRegistry.is_disabled_engine_name(engine) or engine == "null"
 
     def _build_runtime_engine_presentation(
         self,
@@ -777,7 +829,7 @@ class FilesPanel(QtWidgets.QWidget):
         error_key: str | None,
         error_params: dict[str, Any],
     ) -> RuntimePresentation:
-        disabled = self._model_engine_disabled(model_cfg)
+        disabled = AIModelsService.model_cfg_disabled(model_cfg)
         engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
         return build_runtime_presentation(
             ready=bool(ready and (not disabled)),
@@ -792,7 +844,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _build_runtime_summary_presentation(self) -> RuntimePresentation:
         return build_runtime_presentation(
             ready=self._transcription_ready,
-            disabled=self._model_engine_disabled(AIModelsService.current_model_cfg("transcription")),
+            disabled=AIModelsService.current_model_disabled("transcription"),
             ready_text=tr("files.runtime.status_ready"),
             disabled_text=tr("files.runtime.status_disabled"),
             missing_text=tr("files.runtime.status_missing"),
@@ -1117,6 +1169,7 @@ class FilesPanel(QtWidgets.QWidget):
                     'status.queued',
                     'status.offline',
                     'status.processing',
+                    'status.probing',
                     'status.downloading',
                     'status.transcribing',
                     'status.translating',
@@ -1281,6 +1334,8 @@ class FilesPanel(QtWidgets.QWidget):
             preferred_audio_track_id=self._audio_track_by_row_id.get(row_id) if row_id else None,
             internal_key=row_id or None,
         )
+        if row_id:
+            self._audio_track_by_row_id[row_id] = self.tbl_sources.audio_track_id_at(row, self.COL_LANG)
 
         self._update_buttons()
 
@@ -1391,7 +1446,6 @@ class FilesPanel(QtWidgets.QWidget):
                 enabled=False,
             ),
         )
-
     def _update_row_from_meta(self, row: int, meta: dict[str, Any]) -> None:
         if row < 0 or row >= self.tbl_sources.rowCount():
             return
@@ -1414,12 +1468,18 @@ class FilesPanel(QtWidgets.QWidget):
 
         coord = self.coordinator()
         if coord is not None:
+            for key in keys:
+                row_id = self._row_id_for_runtime_key(str(key or '').strip())
+                if row_id:
+                    self._set_probe_row_status(row_id)
             coord.start_probe(entries)
 
     def _update_buttons(self) -> None:
         has_items = self.tbl_sources.rowCount() > 0
         has_runnable_items = bool(self._transcription_row_ids())
-        has_sel = bool(self.tbl_sources.rows_for_removal(self.COL_CHECK))
+        action_rows = self._action_rows()
+        has_sel = bool(action_rows)
+        has_source_target = bool(self._source_target_for_row(action_rows[0])) if action_rows else False
         model_ready = self._transcription_ready
         running = self._is_transcription_running()
         expanding = self._coordinator_is_expanding()
@@ -1435,6 +1495,8 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.btn_src_add.setEnabled(not busy and model_ready)
         self.btn_open_output.setEnabled(True)
+        self.btn_open_source.setEnabled(has_source_target)
+        self.btn_refresh_status.setEnabled(has_sel and not busy and model_ready)
 
         self.btn_add_files.setEnabled(not busy and model_ready)
         self.btn_add_folder.setEnabled(not busy and model_ready)
@@ -1689,6 +1751,80 @@ class FilesPanel(QtWidgets.QWidget):
             return
         coord.expand_local_paths([str(p)], origin_kind="folder")
 
+    def _action_rows(self) -> list[int]:
+        return self.tbl_sources.rows_for_removal(self.COL_CHECK)
+
+    def _source_target_for_row(self, row: int) -> str:
+        if row < 0 or row >= self.tbl_sources.rowCount():
+            return ""
+        row_id = self._row_id_at(row)
+        if not row_id:
+            return ""
+        return self._source_key_for_row_id(row_id)
+
+    @staticmethod
+    def _open_source_target(target: str) -> bool:
+        source = str(target or "").strip()
+        if not source:
+            return False
+
+        try:
+            if is_url_source(source):
+                if "://" not in source:
+                    source = "https://" + source
+                return bool(open_external_url(source))
+
+            path = Path(source)
+            if not path.exists():
+                return False
+
+            if path.is_file():
+                subprocess.Popen(["explorer", "/select,", str(path)])
+                return True
+
+            return bool(open_local_path(path))
+        except (OSError, RuntimeError, ValueError) as ex:
+            _LOG.debug("Files source open skipped. target=%s detail=%s", source, ex)
+            return False
+
+    def _on_open_source_clicked(self) -> None:
+        rows = self._action_rows()
+        if not rows:
+            return
+        self._open_source_target(self._source_target_for_row(rows[0]))
+
+    def _reset_row_status(self, row_id: str) -> None:
+        target_row_id = str(row_id or "").strip()
+        if not target_row_id:
+            return
+
+        self._pct_by_row_id.pop(target_row_id, None)
+        self._status_base_by_row_id.pop(target_row_id, None)
+        self._error_by_row_id.pop(target_row_id, None)
+        self._output_dir_by_row_id.pop(target_row_id, None)
+        self._transcript_by_row_id.pop(target_row_id, None)
+        self._set_preview_enabled(target_row_id, False)
+
+        row = self._row_for_row_id(target_row_id)
+        if row < 0:
+            return
+        self._set_pending_row_status(row, self._pending_status_for_row_id(target_row_id))
+
+    def _on_refresh_status_clicked(self) -> None:
+        if self._is_transcription_running() or self._coordinator_is_expanding():
+            return
+
+        rows = self._action_rows()
+        if not rows:
+            return
+
+        for row in rows:
+            row_id = self._row_id_at(row)
+            if row_id:
+                self._reset_row_status(row_id)
+
+        self._update_buttons()
+
     def _on_remove_selected(self) -> None:
         rows = self.tbl_sources.rows_for_removal(self.COL_CHECK)
         self._remove_rows(rows)
@@ -1837,6 +1973,7 @@ class FilesPanel(QtWidgets.QWidget):
             if row < 0:
                 continue
             self._update_row_from_meta(row, meta)
+            self._finish_probe_row_status(row_id)
 
     @QtCore.pyqtSlot(str, str, dict)
     def on_meta_item_error(self, key: str, err_key: str, params: dict[str, Any]) -> None:
@@ -2046,6 +2183,8 @@ class FilesPanel(QtWidgets.QWidget):
             return
 
         self._replace_runtime_key(row_id, new_key)
+        if self._source_kind_by_row_id.get(row_id) == "url":
+            return
         self._start_metadata_for([new_key])
 
     @QtCore.pyqtSlot(str, str)

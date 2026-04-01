@@ -1,8 +1,18 @@
 # app/model/sources/duplicates.py
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Iterable
+
+_DUPLICATE_TERMINAL_STATUS_KEYS = frozenset(
+    {
+        "status.done",
+        "status.saved",
+        "status.skipped",
+        "status.error",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -19,8 +29,21 @@ class DuplicateDecision:
 
     allow: bool
     duplicate: bool
-    has_active_duplicate: bool
-    has_terminal_duplicate: bool
+
+
+def normalize_duplicate_status_key(status_key: str) -> str:
+    """Strip transient progress suffixes from a duplicate-policy status key."""
+
+    try:
+        return re.sub(r"\s*\(\d+%\)\s*$", "", str(status_key or "")).strip()
+    except (TypeError, ValueError):
+        return str(status_key or "").strip()
+
+
+def is_duplicate_terminal_status(status_key: str) -> bool:
+    """Return whether a status should lock the source for duplicate checks."""
+
+    return normalize_duplicate_status_key(status_key) in _DUPLICATE_TERMINAL_STATUS_KEYS
 
 
 def evaluate_source_duplicate(
@@ -34,8 +57,6 @@ def evaluate_source_duplicate(
         return DuplicateDecision(
             allow=False,
             duplicate=False,
-            has_active_duplicate=False,
-            has_terminal_duplicate=False,
         )
 
     has_active_duplicate = False
@@ -49,9 +70,8 @@ def evaluate_source_duplicate(
         has_active_duplicate = True
         break
 
+    has_duplicate = bool(has_active_duplicate or has_terminal_duplicate)
     return DuplicateDecision(
-        allow=not has_active_duplicate,
-        duplicate=bool(has_active_duplicate or has_terminal_duplicate),
-        has_active_duplicate=has_active_duplicate,
-        has_terminal_duplicate=has_terminal_duplicate,
+        allow=not has_duplicate,
+        duplicate=has_duplicate,
     )

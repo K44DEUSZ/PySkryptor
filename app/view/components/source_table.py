@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, cast
+from typing import Any, Callable, Optional, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import QPoint, QRect
-
 from app.model.core.runtime.localization import tr
 from app.model.download.policy import DownloadPolicy
 from app.view.components.hint_popup import hide_hint_popup, hint_popup
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
+from app.view.support.audio_track_labels import build_audio_track_display_map
 from app.view.support.widget_effects import repolish_widget
 from app.view.support.widget_setup import (
     build_layout_host,
@@ -90,6 +89,7 @@ class SourceTable(QtWidgets.QTableWidget):
         self._header_checkbox.hide()
 
         self.itemSelectionChanged.connect(self._sync_embedded_selection_state)
+        self.currentCellChanged.connect(lambda *_args: self._sync_embedded_selection_state())
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setShowGrid(True)
@@ -174,14 +174,16 @@ class SourceTable(QtWidgets.QTableWidget):
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
         if isinstance(obj, QtWidgets.QWidget):
             if event.type() == QtCore.QEvent.Type.MouseButtonPress:
-                row = self._row_for_widget(obj)
-                if row >= 0:
-                    self.selectRow(int(row))
+                idx = self._index_for_widget(obj)
+                if idx.isValid():
+                    self.setCurrentIndex(idx)
+                    self._sync_embedded_selection_state()
                     self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
             elif event.type() == QtCore.QEvent.Type.FocusIn:
-                row = self._row_for_widget(obj)
-                if row >= 0:
-                    self.selectRow(int(row))
+                idx = self._index_for_widget(obj)
+                if idx.isValid():
+                    self.setCurrentIndex(idx)
+                    self._sync_embedded_selection_state()
             elif event.type() == QtCore.QEvent.Type.KeyPress:
                 ke = event  # type: ignore[assignment]
                 if isinstance(ke, QtGui.QKeyEvent) and ke.key() == QtCore.Qt.Key.Key_Delete:
@@ -190,12 +192,15 @@ class SourceTable(QtWidgets.QTableWidget):
                     return True
         return super().eventFilter(obj, event)
 
-    def _row_for_widget(self, w: QtWidgets.QWidget) -> int:
+    def _index_for_widget(self, w: QtWidgets.QWidget) -> QtCore.QModelIndex:
         try:
             pt = w.mapTo(self.viewport(), QtCore.QPoint(max(0, int(w.width() / 2)), max(0, int(w.height() / 2))))
         except (AttributeError, RuntimeError, TypeError, ValueError):
-            return -1
-        idx = self.indexAt(pt)
+            return QtCore.QModelIndex()
+        return self.indexAt(pt)
+
+    def _row_for_widget(self, w: QtWidgets.QWidget) -> int:
+        idx = self._index_for_widget(w)
         return int(idx.row()) if idx.isValid() else -1
 
     @staticmethod
@@ -207,8 +212,21 @@ class SourceTable(QtWidgets.QTableWidget):
         widget.setProperty("selectedRow", bool(row_selected))
         repolish_widget(widget)
 
+    def _selection_rows(self) -> list[int]:
+        sm = self.selectionModel()
+        if sm is None:
+            return []
+        rows = sorted({int(i.row()) for i in sm.selectedRows() if i.isValid()})
+        if rows:
+            return rows
+        out: set[int] = set()
+        for rg in self.selectedRanges():
+            for r in range(rg.topRow(), rg.bottomRow() + 1):
+                out.add(int(r))
+        return sorted(out)
+
     def _sync_embedded_selection_state(self) -> None:
-        selected = set(self.selected_rows())
+        selected = set(self._selection_rows())
         for row in range(self.rowCount()):
             row_selected = row in selected
             for col in range(self.columnCount()):
@@ -230,6 +248,8 @@ class SourceTable(QtWidgets.QTableWidget):
             idx = self.indexAt(e.pos())
             if not idx.isValid():
                 self.clearSelection()
+                self.setCurrentIndex(QtCore.QModelIndex())
+                self._sync_embedded_selection_state()
         super().mousePressEvent(e)
 
     def dragEnterEvent(self, e: QtGui.QDragEnterEvent) -> None:
@@ -298,7 +318,7 @@ class SourceTable(QtWidgets.QTableWidget):
             hide_hint_popup()
         return handled
 
-    def _tooltip_at_viewport_pos(self, pos: QPoint) -> tuple[QRect | None, str]:
+    def _tooltip_at_viewport_pos(self, pos: QtCore.QPoint) -> tuple[Optional[QtCore.QRect], str]:
         child = self.viewport().childAt(pos)
         widget = child if isinstance(child, QtWidgets.QWidget) else None
         while isinstance(widget, QtWidgets.QWidget) and widget is not self.viewport():
@@ -1109,17 +1129,13 @@ class SourceTable(QtWidgets.QTableWidget):
         return rows
 
     def selected_rows(self) -> list[int]:
-        sm = self.selectionModel()
-        if sm is None:
-            return []
-        rows = sorted({int(i.row()) for i in sm.selectedRows() if i.isValid()})
+        rows = self._selection_rows()
         if rows:
             return rows
-        out: set[int] = set()
-        for rg in self.selectedRanges():
-            for r in range(rg.topRow(), rg.bottomRow() + 1):
-                out.add(int(r))
-        return sorted(out)
+        idx = self.currentIndex()
+        if idx.isValid():
+            return [int(idx.row())]
+        return []
 
     def rows_for_removal(self, checkbox_col: int) -> list[int]:
         rows = self.checked_rows(int(checkbox_col))
@@ -1322,6 +1338,12 @@ class SourceTable(QtWidgets.QTableWidget):
         if key:
             self.preview_requested.emit(key)
 
+    @staticmethod
+    def _sync_audio_track_combo_tooltip(combo: QtWidgets.QComboBox | None) -> None:
+        if not isinstance(combo, QtWidgets.QComboBox):
+            return
+        combo.setToolTip(str(combo.currentText() or "").strip())
+
     def make_audio_track_combo(
         self,
         *,
@@ -1338,8 +1360,10 @@ class SourceTable(QtWidgets.QTableWidget):
         cb.setProperty("internal_key", str(internal_key))
         cb.setEnabled(bool(enabled))
         cb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        cb.currentIndexChanged.connect(lambda _idx, combo=cb: self._sync_audio_track_combo_tooltip(combo))
         if on_changed is not None:
             cb.currentIndexChanged.connect(on_changed)
+        self._sync_audio_track_combo_tooltip(cb)
         return self._make_stretch_cell_host(cb)
 
     def update_audio_tracks(
@@ -1356,23 +1380,16 @@ class SourceTable(QtWidgets.QTableWidget):
         if not isinstance(w, QtWidgets.QComboBox):
             return [None]
 
-        raw = meta.get("audio_tracks") or []
+        raw = [track for track in list(meta.get("audio_tracks") or []) if isinstance(track, dict)]
+        labels_by_track_id = build_audio_track_display_map(raw, fallback_text=default_text)
         options: list[tuple[str, str]] = []
         seen_track_ids: set[str] = set()
-        for t in raw or []:
-            if not isinstance(t, dict):
-                continue
-            track_id = str(t.get("track_id") or "").strip()
-            label = str(
-                t.get("label")
-                or t.get("lang_code")
-                or t.get("lang")
-                or t.get("language")
-                or ""
-            ).strip()
+        for track in raw:
+            track_id = str(track.get("track_id") or "").strip()
             if not track_id or track_id in seen_track_ids:
                 continue
             seen_track_ids.add(track_id)
+            label = str(labels_by_track_id.get(track_id) or default_text or track_id).strip()
             options.append((track_id, label or track_id))
 
         prev_idx = int(w.currentIndex())
@@ -1381,39 +1398,33 @@ class SourceTable(QtWidgets.QTableWidget):
             prev_track_id = prev_track_ids[prev_idx] if 0 <= prev_idx < len(prev_track_ids) else None
         except (IndexError, TypeError):
             prev_track_id = None
+
         w.blockSignals(True)
         w.clear()
-        w.addItem(str(default_text or ""))
-        track_ids: list[str | None] = [None]
 
-        for track_id, label in options:
-            w.addItem(label)
-            track_ids.append(track_id)
+        track_ids: list[str | None] = []
+        if options:
+            for track_id, label in options:
+                w.addItem(label)
+                track_ids.append(track_id)
+        else:
+            w.addItem(str(default_text or ""))
+            track_ids = [None]
 
         desired = str(preferred_audio_track_id or prev_track_id or "").strip()
-
         chosen = 0
-        if desired:
-            try:
-                idx = track_ids.index(desired) if desired in track_ids else -1
-            except ValueError:
-                idx = -1
-            if idx >= 0:
-                chosen = int(idx)
-        elif len(track_ids) == 2:
-            chosen = 1
+        if desired and desired in track_ids:
+            chosen = int(track_ids.index(desired))
 
         w.setCurrentIndex(chosen)
         w.blockSignals(False)
 
         w.setProperty("audio_track_ids", track_ids)
-        w.setProperty("has_choices", len(track_ids) > 2)
+        w.setProperty("has_choices", len(options) > 1)
         if internal_key is not None:
             w.setProperty("internal_key", str(internal_key))
-        if len(track_ids) == 2 and options:
-            w.setToolTip(str(options[0][1] or ""))
-        else:
-            w.setToolTip("")
+
+        self._sync_audio_track_combo_tooltip(w)
         return track_ids
 
     def apply_probe_diagnostics_notice(

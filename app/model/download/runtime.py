@@ -206,10 +206,6 @@ def detect_extended_extractor_provider_name() -> str:
     return ""
 
 
-@lru_cache(maxsize=None)
-def has_extended_extractor_provider() -> bool:
-    """Return True when a likely extended extractor provider plugin is available."""
-    return bool(detect_extended_extractor_provider_name())
 
 
 @lru_cache(maxsize=None)
@@ -259,18 +255,6 @@ def detect_extractor_capabilities(extractor_key: str | None) -> ExtractorCapabil
         notes=tuple(notes),
     )
 
-
-def detect_windows_installed_cookie_browsers() -> tuple[str, ...]:
-    """Return supported cookie browsers detected from known Windows profile roots."""
-    if sys.platform != "win32":
-        return tuple()
-
-    roots_by_browser = _windows_cookie_browser_roots()
-    detected: list[str] = []
-    for browser in DownloadPolicy.COOKIE_BROWSERS:
-        if any(path.exists() for path in roots_by_browser.get(browser, ())):
-            detected.append(browser)
-    return tuple(detected)
 
 
 def detect_windows_usable_cookie_browsers() -> tuple[str, ...]:
