@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt5 import QtCore
 
 from app.controller.panel_protocols import DownloaderPanelViewProtocol
-from app.controller.support.expansion_flow import start_manual_input_expansion
+from app.controller.support.expansion_flow import start_source_expansion
 from app.controller.support.panel_support import rebind_downloader_panel_view
 from app.controller.workers.download_worker import DownloadWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
@@ -146,10 +146,11 @@ class DownloaderCoordinator(QtCore.QObject):
             runner.cancel()
 
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
-        return start_manual_input_expansion(
+        return start_source_expansion(
             runner=self._expansion_runner,
             current_worker=self._expansion_worker,
-            raw=raw,
+            mode="manual_input",
+            raw=str(raw or ""),
             set_worker=self._set_expansion_worker,
             emit_expansion_busy=self.expansion_busy_changed.emit,
             emit_busy=self.busy_changed.emit,

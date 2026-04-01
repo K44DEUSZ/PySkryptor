@@ -45,6 +45,7 @@ if _worker_exit_code is not None:
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.coordinators.app_coordinator import AppCoordinator
+from app.controller.workers.startup_worker import build_startup_tasks
 from app.controller.platform.logging_setup import LoggingSetup
 from app.model.core.config.config import AppConfig
 from app.model.core.config.meta import AppMeta
@@ -413,7 +414,7 @@ def _start_startup(
         startup_worker.failed.connect(_on_failed)
         startup_worker.ready.connect(_on_ready)
 
-    worker = startup.build_and_start(AppConfig, snap, labels, connect=_connect_worker)
+    worker = startup.start(build_startup_tasks(AppConfig, snap, labels), connect=_connect_worker)
     if worker is None:
         logger.error('Entrypoint startup worker could not be scheduled. reason=busy')
         loading.finish()

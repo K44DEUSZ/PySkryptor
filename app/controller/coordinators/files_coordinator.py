@@ -11,10 +11,7 @@ from app.controller.support.panel_support import (
     rebind_files_panel_view,
     start_quick_options_save,
 )
-from app.controller.support.expansion_flow import (
-    start_local_paths_expansion,
-    start_manual_input_expansion,
-)
+from app.controller.support.expansion_flow import start_source_expansion
 from app.controller.workers.media_probe_worker import MediaProbeWorker
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
@@ -135,10 +132,11 @@ class FilesCoordinator(QtCore.QObject):
         self._access_intervention_worker = worker
 
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
-        return start_manual_input_expansion(
+        return start_source_expansion(
             runner=self._expansion_runner,
             current_worker=self._expansion_worker,
-            raw=raw,
+            mode="manual_input",
+            raw=str(raw or ""),
             set_worker=self._set_expansion_worker,
             emit_expansion_busy=self.expansion_busy_changed.emit,
             emit_busy=self.busy_changed.emit,
@@ -150,11 +148,12 @@ class FilesCoordinator(QtCore.QObject):
         )
 
     def expand_local_paths(self, paths: list[str], origin_kind: str) -> SourceExpansionWorker | None:
-        return start_local_paths_expansion(
+        return start_source_expansion(
             runner=self._expansion_runner,
             current_worker=self._expansion_worker,
-            paths=paths,
-            origin_kind=origin_kind,
+            mode="local_paths",
+            paths=list(paths or []),
+            origin_kind=str(origin_kind or "local_paths"),
             set_worker=self._set_expansion_worker,
             emit_expansion_busy=self.expansion_busy_changed.emit,
             emit_busy=self.busy_changed.emit,

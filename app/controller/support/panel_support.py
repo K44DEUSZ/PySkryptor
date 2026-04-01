@@ -15,7 +15,10 @@ from app.controller.workers.worker_runner import WorkerRunner
 from app.model.core.domain.state import AppRuntimeState
 
 SignalHandler = Callable[..., None]
+SlotBindingSpec = str | tuple[str, str]
+SignalBindingSpec = tuple["BoundSignalProtocol", SlotBindingSpec]
 RuntimeStatePanelProtocol = FilesPanelViewProtocol | LivePanelViewProtocol
+
 
 class BoundSignalProtocol(Protocol):
     """Minimal Qt signal surface needed by the panel rebind helpers."""
@@ -23,6 +26,7 @@ class BoundSignalProtocol(Protocol):
     def connect(self, slot: SignalHandler) -> object: ...
 
     def disconnect(self, slot: SignalHandler) -> object: ...
+
 
 def _disconnect_signal(signal: BoundSignalProtocol, slot: SignalHandler | None) -> None:
     if slot is None:
@@ -32,14 +36,35 @@ def _disconnect_signal(signal: BoundSignalProtocol, slot: SignalHandler | None) 
     except (TypeError, RuntimeError):
         pass
 
-def _rebind_signal(
+
+def _resolve_slot_names(binding: SlotBindingSpec) -> tuple[str, str]:
+    if isinstance(binding, tuple):
+        return binding
+    return binding, binding
+
+
+def _view_slot(view: object | None, name: str) -> SignalHandler | None:
+    if view is None:
+        return None
+    slot = getattr(view, name, None)
+    return slot if callable(slot) else None
+
+
+def _rebind_view_signals(
     *,
-    signal: BoundSignalProtocol,
-    previous_slot: SignalHandler | None,
-    new_slot: SignalHandler,
+    previous_view: object | None,
+    new_view: object,
+    bindings: tuple[SignalBindingSpec, ...],
 ) -> None:
-    _disconnect_signal(signal, previous_slot)
-    signal.connect(new_slot)
+    for signal, binding in bindings:
+        previous_name, new_name = _resolve_slot_names(binding)
+        previous_slot = _view_slot(previous_view, previous_name)
+        new_slot = _view_slot(new_view, new_name)
+        if new_slot is None:
+            continue
+        _disconnect_signal(signal, previous_slot)
+        signal.connect(new_slot)
+
 
 def _build_runtime_state_payload(
     state: AppRuntimeState,
@@ -54,6 +79,7 @@ def _build_runtime_state_payload(
         "translation_error_key": state.translation_error_key,
         "translation_error_params": dict(state.translation_error_params or {}),
     }
+
 
 def rebind_files_panel_view(
     *,
@@ -80,101 +106,32 @@ def rebind_files_panel_view(
     quick_options_save_failed: BoundSignalProtocol,
 ) -> None:
     """Reconnect Files coordinator signals to the active Files panel view."""
-    _rebind_signal(
-        signal=probe_table_ready,
-        previous_slot=previous_view.on_meta_rows_ready if previous_view is not None else None,
-        new_slot=new_view.on_meta_rows_ready,
+    _rebind_view_signals(
+        previous_view=previous_view,
+        new_view=new_view,
+        bindings=(
+            (probe_table_ready, "on_meta_rows_ready"),
+            (probe_item_error, "on_meta_item_error"),
+            (probe_finished, "on_meta_finished"),
+            (expansion_busy_changed, "on_expansion_busy_changed"),
+            (expansion_status_changed, "on_expansion_status_changed"),
+            (expansion_ready, "on_expansion_ready"),
+            (expansion_failed, "on_expansion_error"),
+            (progress, "on_global_progress"),
+            (item_status, "on_item_status"),
+            (item_progress, "on_item_progress"),
+            (item_path_update, "on_item_path_update"),
+            (transcript_ready, "on_transcript_ready"),
+            (item_error, "on_item_error"),
+            (item_output_dir, "on_item_output_dir"),
+            (conflict_check, "on_conflict_check"),
+            (access_intervention_required, "on_access_intervention_required"),
+            (session_done, "on_session_done"),
+            (transcription_finished, "on_transcribe_finished"),
+            (quick_options_save_failed, "on_quick_options_save_error"),
+        ),
     )
-    _rebind_signal(
-        signal=probe_item_error,
-        previous_slot=previous_view.on_meta_item_error if previous_view is not None else None,
-        new_slot=new_view.on_meta_item_error,
-    )
-    _rebind_signal(
-        signal=probe_finished,
-        previous_slot=previous_view.on_meta_finished if previous_view is not None else None,
-        new_slot=new_view.on_meta_finished,
-    )
-    _rebind_signal(
-        signal=expansion_busy_changed,
-        previous_slot=previous_view.on_expansion_busy_changed if previous_view is not None else None,
-        new_slot=new_view.on_expansion_busy_changed,
-    )
-    _rebind_signal(
-        signal=expansion_status_changed,
-        previous_slot=previous_view.on_expansion_status_changed if previous_view is not None else None,
-        new_slot=new_view.on_expansion_status_changed,
-    )
-    _rebind_signal(
-        signal=expansion_ready,
-        previous_slot=previous_view.on_expansion_ready if previous_view is not None else None,
-        new_slot=new_view.on_expansion_ready,
-    )
-    _rebind_signal(
-        signal=expansion_failed,
-        previous_slot=previous_view.on_expansion_error if previous_view is not None else None,
-        new_slot=new_view.on_expansion_error,
-    )
-    _rebind_signal(
-        signal=progress,
-        previous_slot=previous_view.on_global_progress if previous_view is not None else None,
-        new_slot=new_view.on_global_progress,
-    )
-    _rebind_signal(
-        signal=item_status,
-        previous_slot=previous_view.on_item_status if previous_view is not None else None,
-        new_slot=new_view.on_item_status,
-    )
-    _rebind_signal(
-        signal=item_progress,
-        previous_slot=previous_view.on_item_progress if previous_view is not None else None,
-        new_slot=new_view.on_item_progress,
-    )
-    _rebind_signal(
-        signal=item_path_update,
-        previous_slot=previous_view.on_item_path_update if previous_view is not None else None,
-        new_slot=new_view.on_item_path_update,
-    )
-    _rebind_signal(
-        signal=transcript_ready,
-        previous_slot=previous_view.on_transcript_ready if previous_view is not None else None,
-        new_slot=new_view.on_transcript_ready,
-    )
-    _rebind_signal(
-        signal=item_error,
-        previous_slot=previous_view.on_item_error if previous_view is not None else None,
-        new_slot=new_view.on_item_error,
-    )
-    _rebind_signal(
-        signal=item_output_dir,
-        previous_slot=previous_view.on_item_output_dir if previous_view is not None else None,
-        new_slot=new_view.on_item_output_dir,
-    )
-    _rebind_signal(
-        signal=conflict_check,
-        previous_slot=previous_view.on_conflict_check if previous_view is not None else None,
-        new_slot=new_view.on_conflict_check,
-    )
-    _rebind_signal(
-        signal=access_intervention_required,
-        previous_slot=previous_view.on_access_intervention_required if previous_view is not None else None,
-        new_slot=new_view.on_access_intervention_required,
-    )
-    _rebind_signal(
-        signal=session_done,
-        previous_slot=previous_view.on_session_done if previous_view is not None else None,
-        new_slot=new_view.on_session_done,
-    )
-    _rebind_signal(
-        signal=transcription_finished,
-        previous_slot=previous_view.on_transcribe_finished if previous_view is not None else None,
-        new_slot=new_view.on_transcribe_finished,
-    )
-    _rebind_signal(
-        signal=quick_options_save_failed,
-        previous_slot=previous_view.on_quick_options_save_error if previous_view is not None else None,
-        new_slot=new_view.on_quick_options_save_error,
-    )
+
 
 def rebind_live_panel_view(
     *,
@@ -192,56 +149,23 @@ def rebind_live_panel_view(
     quick_options_save_failed: BoundSignalProtocol,
 ) -> None:
     """Reconnect Live coordinator signals to the active Live panel view."""
-    _rebind_signal(
-        signal=status,
-        previous_slot=previous_view.on_status if previous_view is not None else None,
-        new_slot=new_view.on_status,
+    _rebind_view_signals(
+        previous_view=previous_view,
+        new_view=new_view,
+        bindings=(
+            (status, "on_status"),
+            (failed, "on_worker_failed"),
+            (detected_language, "on_detected_language"),
+            (source_text, "on_source_text"),
+            (target_text, "on_target_text"),
+            (archive_source_text, "on_archive_source_text"),
+            (archive_target_text, "on_archive_target_text"),
+            (spectrum, "on_spectrum"),
+            (finished, "on_live_finished"),
+            (quick_options_save_failed, "on_quick_options_save_error"),
+        ),
     )
-    _rebind_signal(
-        signal=failed,
-        previous_slot=previous_view.on_worker_failed if previous_view is not None else None,
-        new_slot=new_view.on_worker_failed,
-    )
-    _rebind_signal(
-        signal=detected_language,
-        previous_slot=previous_view.on_detected_language if previous_view is not None else None,
-        new_slot=new_view.on_detected_language,
-    )
-    _rebind_signal(
-        signal=source_text,
-        previous_slot=previous_view.on_source_text if previous_view is not None else None,
-        new_slot=new_view.on_source_text,
-    )
-    _rebind_signal(
-        signal=target_text,
-        previous_slot=previous_view.on_target_text if previous_view is not None else None,
-        new_slot=new_view.on_target_text,
-    )
-    _rebind_signal(
-        signal=archive_source_text,
-        previous_slot=previous_view.on_archive_source_text if previous_view is not None else None,
-        new_slot=new_view.on_archive_source_text,
-    )
-    _rebind_signal(
-        signal=archive_target_text,
-        previous_slot=previous_view.on_archive_target_text if previous_view is not None else None,
-        new_slot=new_view.on_archive_target_text,
-    )
-    _rebind_signal(
-        signal=spectrum,
-        previous_slot=previous_view.on_spectrum if previous_view is not None else None,
-        new_slot=new_view.on_spectrum,
-    )
-    _rebind_signal(
-        signal=finished,
-        previous_slot=previous_view.on_live_finished if previous_view is not None else None,
-        new_slot=new_view.on_live_finished,
-    )
-    _rebind_signal(
-        signal=quick_options_save_failed,
-        previous_slot=previous_view.on_quick_options_save_error if previous_view is not None else None,
-        new_slot=new_view.on_quick_options_save_error,
-    )
+
 
 def rebind_downloader_panel_view(
     *,
@@ -263,78 +187,27 @@ def rebind_downloader_panel_view(
     finished: BoundSignalProtocol,
 ) -> None:
     """Reconnect Downloader coordinator signals to the active Downloader panel view."""
-    _rebind_signal(
-        signal=probe_meta_ready,
-        previous_slot=previous_view.on_probe_ready if previous_view is not None else None,
-        new_slot=new_view.on_probe_ready,
-    )
-    _rebind_signal(
-        signal=probe_failed,
-        previous_slot=previous_view.on_probe_error if previous_view is not None else None,
-        new_slot=new_view.on_probe_error,
-    )
-    _rebind_signal(
-        signal=access_intervention_required,
-        previous_slot=(
-            previous_view.on_access_intervention_required if previous_view is not None else None
+    _rebind_view_signals(
+        previous_view=previous_view,
+        new_view=new_view,
+        bindings=(
+            (probe_meta_ready, "on_probe_ready"),
+            (probe_failed, "on_probe_error"),
+            (access_intervention_required, "on_access_intervention_required"),
+            (expansion_busy_changed, "on_expansion_busy_changed"),
+            (expansion_status_changed, "on_expansion_status_changed"),
+            (expansion_ready, "on_expansion_ready"),
+            (expansion_failed, "on_expansion_error"),
+            (progress_pct, "on_progress_pct"),
+            (stage_changed, "on_stage_changed"),
+            (duplicate_check, "on_duplicate_check"),
+            (download_finished, "on_download_finished"),
+            (failed, "on_download_error"),
+            (cancelled, "on_download_cancelled"),
+            (finished, "on_download_cycle_finished"),
         ),
-        new_slot=new_view.on_access_intervention_required,
     )
-    _rebind_signal(
-        signal=expansion_busy_changed,
-        previous_slot=previous_view.on_expansion_busy_changed if previous_view is not None else None,
-        new_slot=new_view.on_expansion_busy_changed,
-    )
-    _rebind_signal(
-        signal=expansion_status_changed,
-        previous_slot=previous_view.on_expansion_status_changed if previous_view is not None else None,
-        new_slot=new_view.on_expansion_status_changed,
-    )
-    _rebind_signal(
-        signal=expansion_ready,
-        previous_slot=previous_view.on_expansion_ready if previous_view is not None else None,
-        new_slot=new_view.on_expansion_ready,
-    )
-    _rebind_signal(
-        signal=expansion_failed,
-        previous_slot=previous_view.on_expansion_error if previous_view is not None else None,
-        new_slot=new_view.on_expansion_error,
-    )
-    _rebind_signal(
-        signal=progress_pct,
-        previous_slot=previous_view.on_progress_pct if previous_view is not None else None,
-        new_slot=new_view.on_progress_pct,
-    )
-    _rebind_signal(
-        signal=stage_changed,
-        previous_slot=previous_view.on_stage_changed if previous_view is not None else None,
-        new_slot=new_view.on_stage_changed,
-    )
-    _rebind_signal(
-        signal=duplicate_check,
-        previous_slot=previous_view.on_duplicate_check if previous_view is not None else None,
-        new_slot=new_view.on_duplicate_check,
-    )
-    _rebind_signal(
-        signal=download_finished,
-        previous_slot=previous_view.on_download_finished if previous_view is not None else None,
-        new_slot=new_view.on_download_finished,
-    )
-    _rebind_signal(
-        signal=failed,
-        previous_slot=previous_view.on_download_error if previous_view is not None else None,
-        new_slot=new_view.on_download_error,
-    )
-    _rebind_signal(
-        signal=cancelled,
-        previous_slot=previous_view.on_download_cancelled if previous_view is not None else None,
-        new_slot=new_view.on_download_cancelled,
-    )
-    _rebind_signal(
-        signal=finished,
-        previous_slot=previous_view.on_download_cycle_finished if previous_view is not None else None,
-        new_slot=new_view.on_download_cycle_finished,
-    )
+
 
 def rebind_settings_panel_view(
     *,
@@ -345,21 +218,16 @@ def rebind_settings_panel_view(
     saved: BoundSignalProtocol,
 ) -> None:
     """Reconnect Settings coordinator signals to the active Settings panel view."""
-    _rebind_signal(
-        signal=failed,
-        previous_slot=previous_view.on_error if previous_view is not None else None,
-        new_slot=new_view.on_error,
+    _rebind_view_signals(
+        previous_view=previous_view,
+        new_view=new_view,
+        bindings=(
+            (failed, "on_error"),
+            (settings_loaded, "on_settings_loaded"),
+            (saved, "on_saved"),
+        ),
     )
-    _rebind_signal(
-        signal=settings_loaded,
-        previous_slot=previous_view.on_settings_loaded if previous_view is not None else None,
-        new_slot=new_view.on_settings_loaded,
-    )
-    _rebind_signal(
-        signal=saved,
-        previous_slot=previous_view.on_saved if previous_view is not None else None,
-        new_slot=new_view.on_saved,
-    )
+
 
 def push_runtime_state_to_panel(
     *,
@@ -371,6 +239,7 @@ def push_runtime_state_to_panel(
     if panel is None:
         return
     panel.on_runtime_state_changed(**_build_runtime_state_payload(state, pipeline=pipeline))
+
 
 def start_quick_options_save(
     *,

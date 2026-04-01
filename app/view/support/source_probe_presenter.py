@@ -29,7 +29,9 @@ def build_probe_success_presentation(
     """Build row presentation for a successful source probe result."""
     diagnostics = meta.get("probe_diagnostics") or {}
     if not isinstance(diagnostics, dict):
-        return SourceProbePresentation(status_visible_for=tuple(str(key) for key in visible_status_keys if str(key).strip()))
+        return SourceProbePresentation(
+            status_visible_for=tuple(str(key) for key in visible_status_keys if str(key).strip())
+        )
 
     warnings = {str(item).strip() for item in (diagnostics.get("warnings") or ()) if str(item).strip()}
     details = dict(diagnostics.get("details") or {})

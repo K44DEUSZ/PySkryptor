@@ -171,6 +171,21 @@ def find_existing_output(stem: str) -> Path | None:
     return None
 
 
+def _prune_parent_session_if_empty(path: Path) -> None:
+    parent = path.parent
+    try:
+        root = AppConfig.PATHS.TRANSCRIPTIONS_DIR
+        if parent == root:
+            return
+        if root in parent.parents and parent.is_dir():
+            try:
+                next(parent.iterdir())
+            except StopIteration:
+                shutil.rmtree(parent, ignore_errors=True)
+    except OSError as ex:
+        _LOG.debug("Parent output directory pruning skipped. path=%s detail=%s", parent, ex)
+
+
 def delete_output_dir(output_dir: Path) -> None:
     """Delete an item's output folder and prune the parent session when empty."""
     if output_dir is None:
@@ -187,18 +202,35 @@ def delete_output_dir(output_dir: Path) -> None:
         _LOG.debug("Output directory removal skipped. path=%s detail=%s", path, ex)
         return
 
-    parent = path.parent
+    _prune_parent_session_if_empty(path)
+
+
+def delete_output_dir_if_empty(output_dir: Path) -> None:
+    """Delete an item's output folder only when it is still empty."""
+    if output_dir is None:
+        return
     try:
-        root = AppConfig.PATHS.TRANSCRIPTIONS_DIR
-        if parent == root:
-            return
-        if root in parent.parents and parent.is_dir():
-            try:
-                next(parent.iterdir())
-            except StopIteration:
-                shutil.rmtree(parent, ignore_errors=True)
+        path = Path(output_dir)
+    except (TypeError, ValueError):
+        return
+    if not path.exists() or not path.is_dir():
+        return
+    try:
+        next(path.iterdir())
+        return
+    except StopIteration:
+        pass
     except OSError as ex:
-        _LOG.debug("Parent output directory pruning skipped. path=%s detail=%s", parent, ex)
+        _LOG.debug("Empty output directory check skipped. path=%s detail=%s", path, ex)
+        return
+
+    try:
+        shutil.rmtree(path, ignore_errors=True)
+    except OSError as ex:
+        _LOG.debug("Empty output directory cleanup skipped. path=%s detail=%s", path, ex)
+        return
+
+    _prune_parent_session_if_empty(path)
 
 
 def url_tmp_dir() -> Path:
@@ -234,5 +266,13 @@ def ensure_tmp_wav(source: Path, *, cancel_check: Callable[[], bool] | None = No
             out.unlink(missing_ok=True)
     except OSError as ex:
         _LOG.debug("Existing temp WAV cleanup skipped. path=%s detail=%s", out, ex)
-    AudioExtractor.ensure_mono_16k(source, out, cancel_check=cancel_check)
+    try:
+        AudioExtractor.ensure_mono_16k(source, out, cancel_check=cancel_check)
+    except Exception:
+        try:
+            if out.exists():
+                out.unlink(missing_ok=True)
+        except OSError as cleanup_ex:
+            _LOG.debug("Temp WAV rollback skipped. path=%s detail=%s", out, cleanup_ex)
+        raise
     return out

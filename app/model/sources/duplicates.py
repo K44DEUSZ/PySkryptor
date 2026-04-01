@@ -11,6 +11,7 @@ _DUPLICATE_TERMINAL_STATUS_KEYS = frozenset(
         "status.saved",
         "status.skipped",
         "status.error",
+        "status.cancelled",
     }
 )
 

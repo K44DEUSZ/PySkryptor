@@ -936,6 +936,8 @@ class TranscriptionService:
             callbacks.item_status(key, "status.error")
             return _ItemProcessResult(False, True, False, apply_all)
         except OperationCancelled:
+            callbacks.item_status(key, "status.cancelled")
+            workspace.delete_output_dir_if_empty(out_dir)
             return _ItemProcessResult(False, False, True, apply_all)
         except Exception as ex:
             self._emit_item_error(callbacks=callbacks, key=key, error=ex)

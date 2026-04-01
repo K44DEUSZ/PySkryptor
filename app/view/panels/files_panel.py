@@ -1947,16 +1947,23 @@ class FilesPanel(QtWidgets.QWidget):
             return
         coord.cancel_transcription()
 
-    def _reset_non_finished_rows_after_cancel(self) -> None:
+    def _mark_non_finished_rows_cancelled(self) -> None:
         for row in range(self.tbl_sources.rowCount()):
             row_id = self._row_id_at(row)
-            finished = bool(row_id and self._transcript_by_row_id.get(row_id))
-            if finished:
+            if not row_id:
                 continue
-            it = self.tbl_sources.item(row, self.COL_STATUS)
-            if it:
-                it.setText("-")
-                it.setToolTip("")
+            base_key = self._status_base_by_row_id.get(row_id)
+            if is_terminal_status(base_key or ""):
+                continue
+            self._status_base_by_row_id[row_id] = "status.cancelled"
+            self._apply_terminal_status_state(row_id, "status.cancelled")
+            self._pct_by_row_id.pop(row_id, None)
+            self._render_row_status_text(row_id, row, "status.cancelled", tr("status.cancelled"))
+            self.tbl_sources.refresh_probe_presentation(
+                row=row,
+                status_col=self.COL_STATUS,
+                status_key="status.cancelled",
+            )
 
     def _on_start_clicked(self) -> None:
         if not self._can_start_transcription():
@@ -2093,7 +2100,7 @@ class FilesPanel(QtWidgets.QWidget):
     def on_transcribe_finished(self) -> None:
         self.action_bar.reset()
         if self._was_cancelled:
-            self._reset_non_finished_rows_after_cancel()
+            self._mark_non_finished_rows_cancelled()
             if self._cancel_notice_pending:
                 dialogs.show_info(
                     self,
@@ -2138,7 +2145,7 @@ class FilesPanel(QtWidgets.QWidget):
                 self._set_preview_enabled(row_id, True)
             return
 
-        if status in ("status.skipped", "status.error"):
+        if status in ("status.skipped", "status.error", "status.cancelled"):
             self._pct_by_row_id.pop(row_id, None)
             self._output_dir_by_row_id.pop(row_id, None)
             self._transcript_by_row_id.pop(row_id, None)

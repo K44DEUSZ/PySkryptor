@@ -1092,7 +1092,7 @@ class SourceTable(QtWidgets.QTableWidget):
 
     def rows_for_removal(self, checkbox_col: int) -> list[int]:
         rows = self.checked_rows(int(checkbox_col))
-        return rows if rows else self.selected_rows()
+        return rows if rows else self._selection_rows()
 
     def control_at(self, row: int, col: int, cls: type[QtWidgets.QWidget]) -> QtWidgets.QWidget | None:
         host = self.cellWidget(row, col)

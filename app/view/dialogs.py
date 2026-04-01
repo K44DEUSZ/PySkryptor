@@ -727,7 +727,10 @@ def _run_choice_dialog(
         layout.addWidget(apply_all_checkbox)
 
     def sync_choice_state() -> None:
-        active_key = next((option_key for option_key, option_radio in radios_by_key.items() if option_radio.isChecked()), "")
+        active_key = next(
+            (option_key for option_key, option_radio in radios_by_key.items() if option_radio.isChecked()),
+            "",
+        )
         for option_key, option_editor_host in editors_by_key.items():
             option_editor_host.setEnabled(option_key == active_key)
         if apply_all_checkbox is None:

@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from PyQt5 import QtCore
 
-from app.controller.workers.startup_worker import StartupWorker, build_startup_tasks
+from app.controller.workers.startup_worker import StartupWorker
 from app.controller.workers.worker_runner import WorkerRunner
 
 
@@ -21,9 +21,6 @@ class StartupCoordinator(QtCore.QObject):
 
     def is_busy(self) -> bool:
         return self._runner.is_running()
-
-    def current_worker(self) -> StartupWorker | None:
-        return self._worker
 
     def start(
         self,
@@ -43,16 +40,6 @@ class StartupCoordinator(QtCore.QObject):
             self.busy_changed.emit(False)
 
         return self._runner.start(worker, connect=connect, on_finished=_done)
-
-    def build_and_start(
-        self,
-        config_cls: Any,
-        snap: Any,
-        labels: dict[str, str],
-        *,
-        connect: Callable[[StartupWorker], None] | None = None,
-    ) -> StartupWorker | None:
-        return self.start(build_startup_tasks(config_cls, snap, labels), connect=connect)
 
     def cancel(self) -> None:
         self._runner.cancel()

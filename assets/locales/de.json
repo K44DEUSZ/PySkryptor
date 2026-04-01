@@ -720,6 +720,7 @@
     }
   },
   "status": {
+    "cancelled": "🛑 Abgebrochen",
     "done": "✅ Fertig",
     "downloading": "⬇️ Wird heruntergeladen...",
     "error": "❌ Fehler",
