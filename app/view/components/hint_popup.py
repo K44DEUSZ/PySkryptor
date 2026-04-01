@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import QRect
 
 from app.view.support.popup_host import clamp_popup_geometry, hide_popup_widget
 from app.view.support.widget_effects import (
@@ -144,7 +143,7 @@ class HintPopup(QtWidgets.QWidget):
         pos: QtCore.QPoint,
         text: str,
         *,
-        avoid_rect: Optional["QRect"] = None,
+        avoid_rect: Optional[QtCore.QRect] = None,
     ) -> None:
         self._label.setText(str(text or "").strip())
         self.adjustSize()

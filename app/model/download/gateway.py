@@ -121,7 +121,6 @@ _COOKIE_BROWSER_DECRYPT_MARKERS: tuple[str, ...] = (
     "dpapi",
 )
 
-
 _EXTENDED_ACCESS_MARKERS: tuple[str, ...] = (
     "po token",
     "proof of origin",
@@ -147,7 +146,6 @@ _EXTRACTOR_ACCESS_LIMITED_MARKERS: tuple[str, ...] = (
 
 _YTDLP_EXCEPTIONS = (yt_dlp.DownloadError, OSError, ValueError, RuntimeError)
 
-
 def _is_noisy(msg: str, extra_noise: tuple[str, ...] = ()) -> bool:
     text = str(msg)
     for key in _NOISE_PATTERNS:
@@ -158,13 +156,11 @@ def _is_noisy(msg: str, extra_noise: tuple[str, ...] = ()) -> bool:
             return True
     return False
 
-
 def _normalize_ytdlp_detail(detail: Any) -> str:
     text = str(detail or "").strip()
     while text.lower().startswith("error:"):
         text = text[6:].strip()
     return text
-
 
 class YtdlpLogger:
     """Minimal logger adapter for yt_dlp."""
@@ -224,7 +220,6 @@ class YtdlpLogger:
             cancel_check=self._cancel_check,
             event_sink=event_sink,
         )
-
 
 class YtdlpGateway:
     """Build yt_dlp options and runtime-aware extractor calls."""
@@ -310,19 +305,7 @@ class YtdlpGateway:
         return clean
 
     @staticmethod
-    def without_cookie_file_opts(opts: dict[str, Any]) -> dict[str, Any]:
-        clean = dict(opts or {})
-        clean.pop("cookiefile", None)
-        return clean
 
-    @staticmethod
-    def with_cookie_file_opts(opts: dict[str, Any], cookie_file_path: str) -> dict[str, Any]:
-        clean = dict(opts or {})
-        clean["cookiefile"] = str(cookie_file_path or "").strip()
-        return clean
-
-
-    @staticmethod
     def probe_clients_for_access_context(source_access_context: SourceAccessContext) -> tuple[str, ...]:
         """Return probe clients for the resolved source access context."""
         extractor_context = source_access_context.extractor_context

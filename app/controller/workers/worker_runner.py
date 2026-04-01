@@ -22,14 +22,6 @@ class WorkerRunner(QtCore.QObject):
         self._worker: BaseWorker | None = None
         self._on_finished: Callable[[], None] | None = None
 
-    @property
-    def thread(self) -> QtCore.QThread | None:
-        return self._thread
-
-    @property
-    def worker(self) -> BaseWorker | None:
-        return self._worker
-
     def is_running(self) -> bool:
         return self._thread is not None
 
@@ -85,16 +77,17 @@ class WorkerRunner(QtCore.QObject):
         th.start()
         return worker
 
+    @staticmethod
+    def _run_finished_callback(callback: Callable[[], None]) -> None:
+        """Run the finished callback after cleanup state is applied."""
+        callback()
+
     @QtCore.pyqtSlot()
     def _cleanup(self) -> None:
         callback = self._on_finished
+        self._on_finished = None
         self._thread = None
         self._worker = None
-        self._on_finished = None
         if callback is None:
             return
         self._run_finished_callback(callback)
-
-    @staticmethod
-    def _run_finished_callback(callback: Callable[[], None]) -> None:
-        callback()

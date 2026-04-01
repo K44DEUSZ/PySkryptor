@@ -6,7 +6,6 @@ from typing import Any
 from app.model.core.config.policy import LanguagePolicy
 from app.model.core.utils.string_utils import is_youtube_url
 
-
 class DownloadPolicy:
     """Static download/media rules, formats and artifact contracts."""
 
@@ -201,12 +200,7 @@ class DownloadPolicy:
         return tuple(sorted(extensions))
 
     @classmethod
-    def is_download_audio_auto_value(cls, value: Any) -> bool:
-        token = str(value or "").strip().lower()
-        allowed = {str(item or "").strip().lower() for item in cls.DOWNLOAD_AUDIO_LANG_AUTO_VALUES}
-        return (not token) or token in allowed
 
-    @classmethod
     def normalize_cookie_browser_mode(cls, value: Any) -> str:
         token = str(value or "").strip().lower()
         return token if token in cls.COOKIE_BROWSER_MODES else cls.COOKIE_BROWSER_MODES[0]
@@ -217,10 +211,7 @@ class DownloadPolicy:
         return token if token in cls.COOKIE_BROWSER_POLICIES else cls.COOKIE_BROWSER_POLICIES[0]
 
     @classmethod
-    def is_authenticated_cookie_mode(cls, value: Any) -> bool:
-        return cls.normalize_cookie_browser_mode(value) in {"from_browser", "from_file"}
 
-    @classmethod
     def normalize_download_operation(cls, value: Any) -> str:
         token = str(value or "").strip().lower()
         if token in {
@@ -257,10 +248,7 @@ class DownloadPolicy:
         return cls.EXTRACTOR_KEY_YOUTUBE if is_youtube_url(url) else cls.EXTRACTOR_KEY_GENERIC
 
     @classmethod
-    def supports_extended_extractor_access(cls, extractor_key: Any) -> bool:
-        return cls.normalize_extractor_key(extractor_key) == cls.EXTRACTOR_KEY_YOUTUBE
 
-    @classmethod
     def youtube_enhanced_client(cls) -> str:
         return cls.YOUTUBE_ENHANCED_CLIENT
 
@@ -323,7 +311,6 @@ class DownloadPolicy:
             cls.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
             cls.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED,
         )
-
 
     @classmethod
     def is_limited_extractor_access_decision(cls, state: Any, action: Any = None) -> bool:

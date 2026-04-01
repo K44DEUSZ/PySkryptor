@@ -15,13 +15,11 @@ from app.model.transcription.policy import TranscriptionOutputPolicy
 if TYPE_CHECKING:
     from app.model.core.domain.entities import SettingsSnapshot
 
-
 class ConfigError(AppError):
     """Key-based runtime configuration error."""
 
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
-
 
 class AppConfig:
     """Global runtime configuration facade."""
@@ -225,7 +223,6 @@ class AppConfig:
         cfg = cls.live_ui_cfg_dict()
         return RuntimeProfiles.normalize_live_profile(cfg.get("profile"))
 
-
     @classmethod
     def live_ui_output_mode(cls) -> str:
         cfg = cls.live_ui_cfg_dict()
@@ -409,15 +406,8 @@ class AppConfig:
         return tuple(norm)
 
     @classmethod
-    def transcription_output_default_ext(cls) -> str:
-        mode_id = cls.transcription_output_mode_ids()[0]
-        mode = TranscriptionOutputPolicy.get_transcription_output_mode(mode_id)
-        return str(mode.get("ext", "txt") or "txt").strip().lower().lstrip(".") or "txt"
-
-    @classmethod
     def transcription_translate_after_enabled(cls) -> bool:
         return bool(cls._snapshot_section_value("transcription", "translate_after_transcription"))
-
 
     @classmethod
     def transcription_url_audio_ext(cls) -> str:
@@ -434,19 +424,6 @@ class AppConfig:
         cls.SETTINGS = snap
         cls._apply_transcription_engine_dir(snap.model)
         cls._apply_translation_engine_dir(snap.model)
-
-    @classmethod
-    def update_from_snapshot(
-        cls,
-        snap: "SettingsSnapshot",
-        *,
-        sections: tuple[str, ...] = ("transcription", "translation"),
-    ) -> None:
-        cls.SETTINGS = snap
-        want = set(sections or ())
-        if "model" in want:
-            cls._apply_transcription_engine_dir(snap.model)
-            cls._apply_translation_engine_dir(snap.model)
 
     @classmethod
     def ensure_dirs(cls) -> None:
@@ -516,7 +493,6 @@ class AppConfig:
             "bf16_supported": bool(cls.BF16_SUPPORTED),
             "tf32_supported": bool(cls.TF32_SUPPORTED),
         }
-
 
 AppConfig.PATHS = PathCatalog.build(
     Path(__file__).resolve().parents[4],

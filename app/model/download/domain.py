@@ -6,13 +6,11 @@ from typing import Any
 
 from app.model.core.domain.errors import AppError
 
-
 class DownloadError(AppError):
     """Key-based error used for i18n-friendly download failures."""
 
     def __init__(self, key: str, **params: Any) -> None:
         super().__init__(str(key), dict(params or {}))
-
 
 @dataclass(frozen=True)
 class DownloadCookieContext:
@@ -22,7 +20,6 @@ class DownloadCookieContext:
     browser_policy: str = ""
     cookie_file_path: str = ""
     interactive: bool = False
-
 
 @dataclass(frozen=True)
 class ExtractorCapabilityReport:
@@ -57,7 +54,6 @@ class ExtractorCapabilityReport:
             "basic_only_reason": str(self.basic_only_reason or ""),
             "notes": list(self.notes or ()),
         }
-
 
 @dataclass(frozen=True)
 class ExtractorAccessContext:
@@ -111,10 +107,6 @@ class ExtractorAccessContext:
         """Return True when the current context prefers enhanced extractor access."""
         return str(self.access_mode or "").strip().lower() == "enhanced"
 
-    def uses_degraded_access(self) -> bool:
-        """Return True when the current context already runs in degraded mode."""
-        return str(self.access_mode or "").strip().lower() == "degraded"
-
     def with_access_mode(self, access_mode: str, *, client: str | None = None) -> ExtractorAccessContext:
         """Return a copy with an updated access mode and optional client."""
         next_client = str(client or self.client or "").strip().lower() or "default"
@@ -136,7 +128,6 @@ class ExtractorAccessContext:
             fetch_po_token_policy=self.fetch_po_token_policy,
             runtime_capabilities=self.runtime_capabilities,
         )
-
 
 @dataclass(frozen=True)
 class ExtractorAccessDecision:
@@ -165,7 +156,6 @@ class ExtractorAccessDecision:
             "provider_state": str(self.provider_state or ""),
             "can_continue_basic": bool(self.can_continue_basic),
         }
-
 
 @dataclass(frozen=True)
 class SourceAccessContext:
@@ -196,7 +186,6 @@ class SourceAccessContext:
             extractor_context=updated_extractor_context,
         )
 
-
 @dataclass(frozen=True)
 class CookieBrowserAttempt:
     """Single browser-cookie probe attempt recorded during yt_dlp access."""
@@ -211,7 +200,6 @@ class CookieBrowserAttempt:
         if self.kind:
             payload["kind"] = self.kind
         return payload
-
 
 @dataclass(frozen=True)
 class SourceAccessInterventionRequest:
@@ -255,7 +243,6 @@ class SourceAccessInterventionRequest:
             "can_continue_degraded": bool(self.can_continue_degraded),
         }
 
-
 @dataclass(frozen=True)
 class SourceAccessInterventionResolution:
     """Normalized UI decision returned for a source-access intervention."""
@@ -284,7 +271,6 @@ class SourceAccessInterventionResolution:
                 browser_policy=str(payload.get("browser_policy") or "").strip().lower(),
             )
         return cls()
-
 
 class SourceAccessInterventionRequired(Exception):
     """Raised when a source-access flow needs a UI decision before it can continue."""

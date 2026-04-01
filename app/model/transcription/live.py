@@ -33,7 +33,6 @@ LiveCancelCheckFn = Callable[[], bool]
 
 _MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
-
 class LiveTranscriptionService:
     """Stateful live transcription session fed with PCM16 audio bytes."""
 
@@ -264,17 +263,6 @@ class LiveTranscriptionService:
             self._archive_source,
         ]
         return [str(item or "").strip() for item in refs if str(item or "").strip()]
-
-    def _relates_to_active_text(self, text: str) -> bool:
-        current = str(text or "").strip()
-        if not current:
-            return False
-        for ref in self._active_reference_texts():
-            if self._is_revision(ref, current, prefix_ratio=self._stream_replace_prefix_ratio):
-                return True
-            if self._is_revision(current, ref, prefix_ratio=self._stream_replace_prefix_ratio):
-                return True
-        return False
 
     def _transcribe_audio(self, audio: Any, *, signal_kind: str) -> tuple[str, bool]:
         payload = {"raw": audio, "sampling_rate": self._sr}

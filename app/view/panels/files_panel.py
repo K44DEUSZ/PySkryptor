@@ -83,6 +83,10 @@ from app.view.support.host_runtime import (
     read_network_status,
 )
 from app.view.support.source_notice import confirm_source_rights_notice
+from app.view.support.source_probe_presenter import (
+    build_probe_error_presentation,
+    build_probe_success_presentation,
+)
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import (
     build_field_stack,
@@ -763,7 +767,11 @@ class FilesPanel(QtWidgets.QWidget):
             return
         text = status_display_text(status_key, status_key)
         item.setText(text)
-        item.setToolTip('')
+        self.tbl_sources.refresh_probe_presentation(
+            row=row,
+            status_col=self.COL_STATUS,
+            status_key=str(status_key or '').strip(),
+        )
 
     def _set_probe_row_status(self, row_id: str) -> None:
         target_row_id = str(row_id or '').strip()
@@ -778,7 +786,11 @@ class FilesPanel(QtWidgets.QWidget):
         if item is None:
             return
         item.setText(status_display_text('status.probing', 'status.probing'))
-        item.setToolTip('')
+        self.tbl_sources.refresh_probe_presentation(
+            row=row,
+            status_col=self.COL_STATUS,
+            status_key='status.probing',
+        )
 
     def _finish_probe_row_status(self, row_id: str) -> None:
         target_row_id = str(row_id or '').strip()
@@ -1452,11 +1464,25 @@ class FilesPanel(QtWidgets.QWidget):
 
         title = str(meta.get("name") or meta.get("title") or tr("common.na"))
         duration = meta.get("duration")
+        row_id = self._row_id_at(row)
 
         self.tbl_sources.item(row, self.COL_TITLE).setText(title)
         txt = format_hms(duration, blank_for_none=True)
         self.tbl_sources.item(row, self.COL_DUR).setText(txt or tr("common.na"))
         self._update_audio_tracks(row, meta)
+        if row_id:
+            self._error_by_row_id.pop(row_id, None)
+        presentation = build_probe_success_presentation(
+            meta,
+            visible_status_keys=("status.queued", "status.offline"),
+        )
+        self.tbl_sources.set_probe_presentation(
+            row=row,
+            col=self.COL_LANG,
+            status_col=self.COL_STATUS,
+            presentation=presentation,
+            status_key='status.probing',
+        )
 
     def _start_metadata_for(self, keys: list[str]) -> None:
         if not keys:
@@ -1808,6 +1834,9 @@ class FilesPanel(QtWidgets.QWidget):
         row = self._row_for_row_id(target_row_id)
         if row < 0:
             return
+        item = self.tbl_sources.item(row, self.COL_STATUS)
+        if item is not None:
+            item.setToolTip("")
         self._set_pending_row_status(row, self._pending_status_for_row_id(target_row_id))
 
     def _on_refresh_status_clicked(self) -> None:
@@ -1889,6 +1918,7 @@ class FilesPanel(QtWidgets.QWidget):
             it = self.tbl_sources.item(row, self.COL_STATUS)
             if it:
                 it.setText("-")
+                it.setToolTip("")
 
         self.action_bar.reset()
         self._was_cancelled = False
@@ -1926,6 +1956,7 @@ class FilesPanel(QtWidgets.QWidget):
             it = self.tbl_sources.item(row, self.COL_STATUS)
             if it:
                 it.setText("-")
+                it.setToolTip("")
 
     def _on_start_clicked(self) -> None:
         if not self._can_start_transcription():
@@ -1980,9 +2011,28 @@ class FilesPanel(QtWidgets.QWidget):
         runtime_key = str(key or "").strip()
         row_id = self._row_id_for_runtime_key(runtime_key) if runtime_key else ""
         row = self._row_for_row_id(row_id) if row_id else -1
-        if row >= 0:
-            self._remove_rows([row])
-        dialogs.show_error(self, err_key, params or {})
+        if row < 0 or not row_id:
+            return
+
+        error_key = str(err_key or "error.generic").strip() or "error.generic"
+        error_params = dict(params or {})
+        self._error_by_row_id[row_id] = (error_key, error_params)
+        self._pct_by_row_id.pop(row_id, None)
+        self._status_base_by_row_id[row_id] = 'status.error'
+        self._output_dir_by_row_id.pop(row_id, None)
+        self._transcript_by_row_id.pop(row_id, None)
+        self._set_preview_enabled(row_id, False)
+        presentation = build_probe_error_presentation(error_key, error_params)
+        self.tbl_sources.set_probe_presentation(
+            row=row,
+            col=self.COL_LANG,
+            status_col=self.COL_STATUS,
+            presentation=presentation,
+            status_key='status.error',
+        )
+        item = self.tbl_sources.item(row, self.COL_STATUS)
+        if item is not None:
+            item.setText(tr('status.error'))
 
     def on_meta_finished(self) -> None:
         self._update_buttons()
@@ -2119,6 +2169,11 @@ class FilesPanel(QtWidgets.QWidget):
 
         self._apply_terminal_status_state(row_id, status)
         self._render_row_status_text(row_id, row, status, base_text)
+        self.tbl_sources.refresh_probe_presentation(
+            row=row,
+            status_col=self.COL_STATUS,
+            status_key=base_key,
+        )
 
     @QtCore.pyqtSlot(str, int)
     def on_item_progress(self, key: str, pct: int) -> None:

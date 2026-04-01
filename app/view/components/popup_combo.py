@@ -30,14 +30,11 @@ _POPUP_MULTISELECT_VISIBLE_ROWS_DEFAULT = 8
 _POPUP_COMBO_EXTRA_W = 52
 _POPUP_MULTISELECT_EXTRA_W = 60
 
-
 def _popup_content_extra_h(cfg) -> int:
     return int(cfg.pad_y_l) + int(cfg.space_s)
 
-
 def _popup_multiselect_inner_gap(cfg) -> int:
     return max(1, int(cfg.space_s) // 2)
-
 
 def _widget_alive(w: QtWidgets.QWidget | None) -> bool:
     if not isinstance(w, QtWidgets.QWidget):
@@ -49,10 +46,8 @@ def _widget_alive(w: QtWidgets.QWidget | None) -> bool:
     except (AttributeError, RuntimeError, TypeError):
         return False
 
-
 def _widget_visible(w: QtWidgets.QWidget | None) -> bool:
     return _widget_alive(w) and bool(w.isVisible())
-
 
 def _sum_list_row_heights(view: QtWidgets.QAbstractItemView, count: int, fallback: int) -> int:
     total = 0
@@ -64,20 +59,17 @@ def _sum_list_row_heights(view: QtWidgets.QAbstractItemView, count: int, fallbac
         total += max(int(fallback), int(row_hint), 1)
     return total
 
-
 def _layout_vertical_extra(layout: QtWidgets.QLayout | None) -> int:
     if layout is None:
         return 0
     margins = layout.contentsMargins()
     return int(margins.top() + margins.bottom())
 
-
 def _layout_contents_margins(layout: QtWidgets.QLayout | None) -> tuple[int, int, int, int]:
     if layout is None:
         return 0, 0, 0, 0
     margins = layout.contentsMargins()
     return int(margins.left()), int(margins.top()), int(margins.right()), int(margins.bottom())
-
 
 def normalize_combo_code(code: str, *, default: str = "") -> str:
     raw = LanguagePolicy.normalize_choice_value(code)
@@ -106,7 +98,6 @@ def normalize_combo_code(code: str, *, default: str = "") -> str:
 
     fallback = normalize_lang_code(fallback_raw, drop_region=False)
     return fallback or fallback_raw
-
 
 def set_combo_data(
     combo: QtWidgets.QComboBox,
@@ -137,7 +128,6 @@ def set_combo_data(
         idx = 0
     combo.setCurrentIndex(idx)
 
-
 def set_combo_code(
     combo: QtWidgets.QComboBox,
     code: str,
@@ -152,11 +142,9 @@ def set_combo_code(
         idx = 0
     combo.setCurrentIndex(idx)
 
-
 def combo_current_code(combo: QtWidgets.QComboBox, *, default: str) -> str:
     data = combo.currentData()
     return normalize_combo_code(str(data or ""), default=default)
-
 
 def rebuild_code_combo(
     combo: QtWidgets.QComboBox,
@@ -176,7 +164,6 @@ def rebuild_code_combo(
     finally:
         combo.blockSignals(False)
 
-
 class _ComboPopupItemDelegate(QtWidgets.QStyledItemDelegate):
     """Ensure popup rows keep the shared minimum control height."""
 
@@ -189,7 +176,6 @@ class _ComboPopupItemDelegate(QtWidgets.QStyledItemDelegate):
         cfg = ui(self.parent() if isinstance(self.parent(), QtWidgets.QWidget) else None)
         size.setHeight(max(int(size.height()), int(cfg.control_min_h)))
         return size
-
 
 class _PopupCheckItem(QtWidgets.QWidget):
     """Single checkable row rendered inside the multi-select popup."""
@@ -226,9 +212,6 @@ class _PopupCheckItem(QtWidgets.QWidget):
     def is_checked(self) -> bool:
         return bool(self.chk_item.isChecked())
 
-    def set_checked(self, checked: bool) -> None:
-        self.chk_item.setChecked(bool(checked))
-
     def _set_hovered(self, hovered: bool) -> None:
         self.setProperty("hovered", bool(hovered))
         repolish_widget(self)
@@ -264,7 +247,6 @@ class _PopupCheckItem(QtWidgets.QWidget):
                 self._set_hovered(False)
         return super().eventFilter(obj, event)
 
-
 class _ComboPopupList(QtWidgets.QListView):
     """List view preconfigured for the custom combo popup chrome."""
 
@@ -291,7 +273,6 @@ class _ComboPopupList(QtWidgets.QListView):
             enable_styled_background(vp)
             vp.setMouseTracking(True)
             set_interactive_cursor(vp)
-
 
 class ComboPopup(QtWidgets.QWidget):
     """Frameless popup list used as the custom dropdown for PopupComboBox."""
@@ -330,10 +311,6 @@ class ComboPopup(QtWidgets.QWidget):
 
         self._list.clicked.connect(self._on_index_clicked)
         self._list.activated.connect(self._on_index_clicked)
-
-    @property
-    def list_view(self) -> _ComboPopupList:
-        return self._list
 
     def sync_from_combo(self) -> None:
         combo = self._combo
@@ -489,7 +466,6 @@ class ComboPopup(QtWidgets.QWidget):
         super().hideEvent(event)
         self.closed.emit()
 
-
 class MultiSelectPopup(QtWidgets.QWidget):
     """Frameless popup list of check items for multi-select fields."""
     closed = QtCore.pyqtSignal()
@@ -618,7 +594,6 @@ class MultiSelectPopup(QtWidgets.QWidget):
     def hideEvent(self, event: QtGui.QHideEvent) -> None:  # type: ignore[override]
         super().hideEvent(event)
         self.closed.emit()
-
 
 class _PopupHostComboMixin:
     """Shared popup-host lifecycle used by custom combo-like controls."""
@@ -779,7 +754,6 @@ class _PopupHostComboMixin:
     def __del__(self) -> None:
         self._dispose_popup_host()
 
-
 class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
     """Combo box that renders and controls the custom popup list widget."""
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
@@ -902,7 +876,6 @@ class PopupComboBox(_PopupHostComboMixin, QtWidgets.QComboBox):
             self.textActivated.emit(self.currentText())
         self.hide_popup()
 
-
 class LanguageCombo(PopupComboBox):
     """Popup combo box preconfigured for normalized language-code options."""
     def __init__(
@@ -940,10 +913,6 @@ class LanguageCombo(PopupComboBox):
 
     def code(self) -> str:
         return combo_current_code(self, default=self._fallback_code)
-
-    def set_code(self, code: str) -> None:
-        set_combo_code(self, code, fallback_code=self._fallback_code)
-
 
 class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
     """Read-only field that opens a popup for multi-select choices."""

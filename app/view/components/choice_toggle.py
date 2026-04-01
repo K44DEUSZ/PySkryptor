@@ -7,7 +7,6 @@ from app.view.support.widget_effects import repolish_widget
 from app.view.support.widget_setup import set_interactive_cursor, set_widget_style_role
 from app.view.ui_config import ui
 
-
 class ChoiceToggle(QtWidgets.QWidget):
     """Two-option segmented toggle."""
 
@@ -86,15 +85,6 @@ class ChoiceToggle(QtWidgets.QWidget):
         self._set_segment_dirty(self._btn_first, dirty and self._btn_first.isChecked())
         self._set_segment_dirty(self._btn_second, dirty and self._btn_second.isChecked())
 
-    def clear_selection(self) -> None:
-        self._group.setExclusive(False)
-        try:
-            self._btn_first.setChecked(False)
-            self._btn_second.setChecked(False)
-        finally:
-            self._group.setExclusive(True)
-        self._sync_dirty_value_state()
-
     def set_first_checked(self, checked: bool) -> None:
         if bool(checked):
             self._btn_first.setChecked(True)
@@ -112,9 +102,6 @@ class ChoiceToggle(QtWidgets.QWidget):
 
     def is_second_checked(self) -> bool:
         return bool(self._btn_second.isChecked())
-
-    def set_first_enabled(self, enabled: bool) -> None:
-        self._btn_first.setEnabled(bool(enabled))
 
     def set_second_enabled(self, enabled: bool) -> None:
         self._btn_second.setEnabled(bool(enabled))

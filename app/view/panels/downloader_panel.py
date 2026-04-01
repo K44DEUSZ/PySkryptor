@@ -52,6 +52,10 @@ from app.view.support.host_runtime import (
     read_network_status,
 )
 from app.view.support.source_notice import confirm_source_rights_notice
+from app.view.support.source_probe_presenter import (
+    build_probe_error_presentation,
+    build_probe_success_presentation,
+)
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
 from app.view.support.widget_setup import (
     build_layout_host,
@@ -1581,13 +1585,23 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._clear_job_state(job_key)
             return
 
-        if has_row:
-            self._set_job_status(job_key, "error")
-
         meta = self._meta_by_key.setdefault(job_key, {})
         if isinstance(meta, dict):
             meta["_error_key"] = str(err_key)
             meta["_error_params"] = (params or {})
+
+        if has_row:
+            row = self._row_for_key(job_key)
+            if row >= 0:
+                presentation = build_probe_error_presentation(str(err_key or ""), params or {})
+                self.tbl_queue.set_probe_presentation(
+                    row=row,
+                    col=self.COL_LANGUAGE,
+                    status_col=self.COL_STATUS,
+                    presentation=presentation,
+                    status_key="status.error",
+                )
+            self._set_job_status(job_key, "error")
 
         _LOG.debug(
             "Downloader probe error. job_key=%s detail=%s",
@@ -1672,11 +1686,16 @@ class DownloaderPanel(QtWidgets.QWidget):
         )
         if job is not None:
             job.audio_track_id = self.tbl_queue.audio_track_id_at(row, self.COL_LANGUAGE)
-        self.tbl_queue.apply_probe_diagnostics_notice(
+        presentation = build_probe_success_presentation(
+            meta,
+            visible_status_keys=("status.queued",),
+        )
+        self.tbl_queue.set_probe_presentation(
             row=row,
             col=self.COL_LANGUAGE,
             status_col=self.COL_STATUS,
-            meta=meta,
+            presentation=presentation,
+            status_key=str(self._status_base_by_key.get(job.key if job is not None else "", "") or ""),
         )
 
         cb_audio = self.tbl_queue.combo_at(row, self.COL_LANGUAGE)
@@ -2116,3 +2135,10 @@ class DownloaderPanel(QtWidgets.QWidget):
             self._pct_by_key.pop(key, None)
 
         self._render_job_status_text(key, status_key)
+        row = self._row_for_key(key)
+        if row >= 0:
+            self.tbl_queue.refresh_probe_presentation(
+                row=row,
+                status_col=self.COL_STATUS,
+                status_key=status_key,
+            )

@@ -10,7 +10,6 @@ from app.model.core.utils.string_utils import is_youtube_url, normalize_lang_cod
 from app.model.download.gateway import YtdlpGateway
 from app.model.download.policy import DownloadPolicy
 
-
 class TrackLabelHeuristics:
     """Internal helpers for audio-track labels, roles, and signatures."""
 
@@ -357,11 +356,7 @@ class TrackInventory:
         return counts
 
     @staticmethod
-    def has_downloadable_media(info: dict[str, Any] | None) -> bool:
-        counts = TrackInventory.downloadable_media_counts(info)
-        return bool(counts.get("media_format_count"))
 
-    @staticmethod
     def trusted_audio_track_identity(
         fmt: dict[str, Any],
         *,
@@ -635,7 +630,6 @@ class TrackInventory:
                 label_source=str(track.get("_label_source") or ""),
                 role=str(track.get("_role") or ""),
             )
-
 
         normalized_tracks: list[dict[str, Any]] = []
         for track in sorted(tracks, key=TrackInventory.audio_track_sort_key):

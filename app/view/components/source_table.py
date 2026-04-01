@@ -5,8 +5,6 @@ import logging
 from typing import Any, Callable, Optional, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from app.model.core.runtime.localization import tr
-from app.model.download.policy import DownloadPolicy
 from app.view.components.hint_popup import hide_hint_popup, hint_popup
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.view.support.audio_track_labels import build_audio_track_display_map
@@ -23,29 +21,28 @@ from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
 
+_PROBE_STATUS_TOOLTIP_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 301
+_PROBE_STATUS_VISIBLE_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 302
+_PROBE_ACTIVE_STATUS_TOOLTIP_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 303
+_PROBE_AUDIO_TOOLTIP_PROPERTY = "probe_tooltip_override"
 
 def _source_row_height(cfg) -> int:
     return max(int(cfg.control_min_h) + int(cfg.space_s) * 2, 40)
 
-
 def _source_base_col_width(cfg) -> int:
     return max(36, int(cfg.control_min_h) + 8)
-
 
 def _source_number_col_width(cfg, raw_width: int | None = None) -> int:
     width = int(_source_base_col_width(cfg) + 6 if raw_width is None else raw_width)
     return max(_source_base_col_width(cfg), width)
 
-
 def _source_header_check_width(cfg, *, indicator_size: int) -> int:
     return max(_source_base_col_width(cfg), int(indicator_size) + int(cfg.pad_x_l) + int(cfg.space_s) + 1)
-
 
 def _source_cell_margins(cfg) -> tuple[int, int, int, int]:
     margin_x = max(2, int(cfg.space_s) - 1)
     margin_y = max(1, int(cfg.space_s) // 2)
     return margin_x, margin_y, margin_x, margin_y
-
 
 class SourceTable(QtWidgets.QTableWidget):
     """Table widget with drag-and-drop support used by Files and Downloader panels."""
@@ -198,10 +195,6 @@ class SourceTable(QtWidgets.QTableWidget):
         except (AttributeError, RuntimeError, TypeError, ValueError):
             return QtCore.QModelIndex()
         return self.indexAt(pt)
-
-    def _row_for_widget(self, w: QtWidgets.QWidget) -> int:
-        idx = self._index_for_widget(w)
-        return int(idx.row()) if idx.isValid() else -1
 
     @staticmethod
     def _apply_selected_row_state(widget: QtWidgets.QWidget | None, row_selected: bool) -> None:
@@ -944,16 +937,6 @@ class SourceTable(QtWidgets.QTableWidget):
             viewport_w = int(self.width()) - frame
         return max(0, int(viewport_w))
 
-    def minimum_required_width(self) -> int:
-        state = self._header_layout_state or {}
-        if not state:
-            total = sum(max(0, int(self.columnWidth(col))) for col in self._visible_columns())
-        else:
-            total = int(self._minimum_columns_width(state))
-        total += int(self.frameWidth()) * 2
-        total += max(0, int(self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent, None, self)))
-        return int(total)
-
     def _reapply_weighted_header_layout(self, state: dict[str, Any]) -> None:
         self._refresh_width_mode(state)
         check_col = int(state.get("check_col", 0))
@@ -1089,36 +1072,6 @@ class SourceTable(QtWidgets.QTableWidget):
             item = self.item(row, column)
             if item is not None:
                 item.setText(str(base + row))
-
-    def set_cell_internal_key(self, row: int, col: int, key: str) -> None:
-        host = self.cellWidget(row, col)
-        if host is None:
-            return
-
-        target = str(key or "").strip()
-        candidates: list[QtCore.QObject] = [host, *host.findChildren(QtCore.QObject)]
-        updated = False
-
-        for candidate in candidates:
-            try:
-                prop = candidate.property("internal_key")
-            except (AttributeError, RuntimeError, TypeError):
-                prop = None
-            if prop is None:
-                continue
-            try:
-                candidate.setProperty("internal_key", target)
-                updated = True
-            except (AttributeError, RuntimeError, TypeError):
-                continue
-
-        if updated:
-            return
-
-        try:
-            host.setProperty("internal_key", target)
-        except (AttributeError, RuntimeError, TypeError):
-            return
 
     def checked_rows(self, col: int) -> list[int]:
         rows: list[int] = []
@@ -1342,7 +1295,8 @@ class SourceTable(QtWidgets.QTableWidget):
     def _sync_audio_track_combo_tooltip(combo: QtWidgets.QComboBox | None) -> None:
         if not isinstance(combo, QtWidgets.QComboBox):
             return
-        combo.setToolTip(str(combo.currentText() or "").strip())
+        override = str(combo.property(_PROBE_AUDIO_TOOLTIP_PROPERTY) or "").strip()
+        combo.setToolTip(override or str(combo.currentText() or "").strip())
 
     def make_audio_track_combo(
         self,
@@ -1427,95 +1381,61 @@ class SourceTable(QtWidgets.QTableWidget):
         self._sync_audio_track_combo_tooltip(w)
         return track_ids
 
-    def apply_probe_diagnostics_notice(
+    def set_probe_presentation(
         self,
         *,
         row: int,
         col: int,
         status_col: int,
-        meta: dict[str, Any],
+        presentation,
+        status_key: str,
     ) -> None:
         cb = self.combo_at(row, col)
-        if not isinstance(cb, QtWidgets.QComboBox):
-            return
-
         it_status = self.item(row, status_col)
         if it_status is None:
             return
 
-        default_notice = tr("status.notice.metadata_incomplete")
-        current_tooltip = str(it_status.toolTip() or "").strip()
-        current_text = str(it_status.text() or "").strip()
-        has_custom_tooltip = bool(current_tooltip) and current_tooltip not in (current_text, default_notice)
-        if has_custom_tooltip:
+        status_tooltip = str(getattr(presentation, "status_tooltip", "") or "").strip()
+        audio_tooltip = str(getattr(presentation, "audio_tooltip", "") or "").strip()
+        visible_statuses = tuple(
+            str(item).strip()
+            for item in (getattr(presentation, "status_visible_for", ()) or ())
+            if str(item).strip()
+        )
+        it_status.setData(_PROBE_STATUS_TOOLTIP_ROLE, status_tooltip)
+        it_status.setData(_PROBE_STATUS_VISIBLE_ROLE, visible_statuses)
+        if isinstance(cb, QtWidgets.QComboBox):
+            cb.setProperty(_PROBE_AUDIO_TOOLTIP_PROPERTY, audio_tooltip)
+            self._sync_audio_track_combo_tooltip(cb)
+        self.refresh_probe_presentation(row=row, status_col=status_col, status_key=status_key)
+
+    def refresh_probe_presentation(
+        self,
+        *,
+        row: int,
+        status_col: int,
+        status_key: str,
+    ) -> None:
+        it_status = self.item(row, status_col)
+        if it_status is None:
             return
 
-        diagnostics = meta.get("probe_diagnostics") or {}
-        warnings = set(diagnostics.get("warnings") or []) if isinstance(diagnostics, dict) else set()
-        details = dict(diagnostics.get("details") or {}) if isinstance(diagnostics, dict) else {}
-        decision = dict(details.get("extractor_access_decision") or {})
-        decision_state = str(decision.get("state") or details.get("extractor_access_state") or "").strip()
-        decision_action = str(decision.get("action") or details.get("extractor_action") or "").strip()
-        has_diagnostics = (
-            bool(warnings or (diagnostics.get("errors") or []) or decision_state)
-            if isinstance(diagnostics, dict)
-            else False
+        tooltip = str(it_status.data(_PROBE_STATUS_TOOLTIP_ROLE) or "").strip()
+        visible_statuses = tuple(
+            str(item).strip()
+            for item in (it_status.data(_PROBE_STATUS_VISIBLE_ROLE) or ())
+            if str(item).strip()
         )
-        has_choices = bool(cb.property("has_choices"))
+        active_tooltip = str(it_status.data(_PROBE_ACTIVE_STATUS_TOOLTIP_ROLE) or "").strip()
+        current_tooltip = str(it_status.toolTip() or "").strip()
+        should_show = bool(tooltip) and str(status_key or "").strip() in visible_statuses
 
-        if "browser_cookies_unavailable" in warnings:
-            notice = tr("status.notice.browser_cookies_unavailable")
-        elif "authentication_required" in warnings:
-            notice = tr("status.notice.authentication_required")
-        elif DownloadPolicy.is_unavailable_extractor_access_state(decision_state):
-            notice = tr("status.notice.extended_access_unavailable")
-        elif DownloadPolicy.is_limited_extractor_access_decision(
-            decision_state,
-            decision_action,
-        ):
-            notice = tr("status.notice.extended_access_limited")
-        elif "extended_access_required" in warnings or "extractor_access_limited" in warnings:
-            notice = tr("status.notice.extended_access_required")
-        elif (
-            "media_unavailable" in warnings
-            or "no_downloadable_formats" in warnings
-            or "no_public_formats" in warnings
-        ):
-            notice = tr("status.notice.media_unavailable")
-        elif "audio_tracks_probe_only" in warnings:
-            notice = tr("status.notice.audio_tracks_probe_only")
-        else:
-            notice = default_notice
+        if should_show:
+            if not current_tooltip or current_tooltip == active_tooltip:
+                it_status.setToolTip(tooltip)
+                it_status.setData(_PROBE_ACTIVE_STATUS_TOOLTIP_ROLE, tooltip)
+            return
 
-        should_notice = has_diagnostics and (
-            not has_choices
-            or "browser_cookies_unavailable" in warnings
-            or "authentication_required" in warnings
-            or "extended_access_required" in warnings
-            or "extractor_access_limited" in warnings
-            or bool(decision_state)
-            or "media_unavailable" in warnings
-            or "no_downloadable_formats" in warnings
-            or "no_public_formats" in warnings
-            or "audio_tracks_probe_only" in warnings
-        )
-
-        it_status.setToolTip(notice if should_notice else "")
-        cb.setToolTip(notice if should_notice else "")
-
-    def set_cell_text(self, row: int, col: int, text: str, tooltip: str | None = None) -> None:
-        it = self.item(row, col)
-        if it is None:
-            it = QtWidgets.QTableWidgetItem()
-            it.setFlags(it.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-            self.setItem(row, col, it)
-        it.setText(text)
-        if tooltip is not None:
-            it.setToolTip(tooltip)
-        else:
-            it.setToolTip(text if self._item_value_tooltips_enabled else "")
-
-    def clear_cell_tooltip(self, row: int, col: int) -> None:
-        it = self.item(row, col)
-        if it is not None:
-            it.setToolTip(it.text() if self._item_value_tooltips_enabled else "")
+        if active_tooltip and current_tooltip == active_tooltip:
+            it_status.setToolTip("")
+        it_status.setData(_PROBE_ACTIVE_STATUS_TOOLTIP_ROLE, "")
