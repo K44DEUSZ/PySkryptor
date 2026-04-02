@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable, Optional, cast
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+
 from app.view.components.hint_popup import hide_hint_popup, hint_popup
 from app.view.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.view.support.audio_track_labels import build_audio_track_display_map
@@ -13,9 +14,9 @@ from app.view.support.widget_setup import (
     build_layout_host,
     connect_qt_signal,
     set_passive_cursor,
-    setup_toggle_button,
     setup_button,
     setup_combo,
+    setup_toggle_button,
 )
 from app.view.ui_config import ui
 

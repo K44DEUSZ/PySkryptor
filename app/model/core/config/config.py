@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from app.model.core.config.policy import LanguagePolicy
 from app.model.core.config.paths import PathCatalog
+from app.model.core.config.policy import LanguagePolicy
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.errors import AppError
 from app.model.download.policy import DownloadPolicy

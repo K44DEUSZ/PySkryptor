@@ -47,7 +47,7 @@
     "disable": "Deaktivieren",
     "browse": "Durchsuchen..."
   },
-  "ctrl": {
+  "controls": {
     "add": "Hinzufügen +",
     "cancel": "Abbrechen ✖️",
     "exit": "Beenden",
@@ -151,7 +151,7 @@
         "header": "Es wurde kein Audioeingabegerät erkannt"
       }
     },
-    "down": {
+    "download": {
       "exists": {
         "apply_all": "Diese Entscheidung auf alle Downloads anwenden",
         "overwrite": "Überschreiben ♻️",
@@ -216,7 +216,7 @@
       "dont_show_again": "Nicht erneut anzeigen"
     }
   },
-  "down": {
+  "download": {
     "meta": {
       "channel": "Kanal",
       "date": "Veröffentlichungsdatum",
@@ -255,7 +255,7 @@
     "url": {
       "placeholder": "Medien-URL hier einfügen..."
     },
-    "msg": {
+    "messages": {
       "already_on_list": "Dieses Element befindet sich bereits in der Downloadliste.",
       "bulk_add_summary_added": "Es wurden {added} Elemente zur Downloadliste hinzugefügt.",
       "bulk_add_summary_with_duplicates": "Es wurden {added} Elemente zur Downloadliste hinzugefügt. {skipped} Duplikate wurden übersprungen.",
@@ -270,7 +270,7 @@
       "ffprobe_failed": "❌ Die Audioanalyse ist fehlgeschlagen. Befehl: {cmd}"
     },
     "cancelled": "Vorgang abgebrochen.",
-    "down": {
+    "download": {
       "download_failed": "❌ Download fehlgeschlagen. Details: {detail}",
       "network_dns_failed": "❌ Der Hostname konnte nicht aufgelöst werden.",
       "network_offline": "❌ Keine Netzwerkverbindung.",
@@ -303,8 +303,19 @@
       "failed": "❌ Die Medienmetadaten konnten nicht gelesen werden. Details: {detail}"
     },
     "model": {
+      "not_ready": "Das erforderliche Modell ist nicht betriebsbereit.",
       "transcription_missing": "⚠️ Das Transkriptionsmodell ist nicht installiert.",
       "translation_missing": "⚠️ Das Übersetzungsmodell ist nicht installiert."
+    },
+    "engine": {
+      "host_health_failed": "Die Zustandsprüfung des Engine-Hosts ist fehlgeschlagen. Details: {detail}",
+      "host_missing": "Die ausführbare Datei des Engine-Hosts fehlt: {path}",
+      "host_not_running": "Der Engine-Host läuft nicht.",
+      "host_ping_failed": "Der Ping zum Engine-Host ist fehlgeschlagen. Details: {detail}",
+      "host_protocol_error": "Protokollfehler des Engine-Hosts. Details: {detail}",
+      "host_start_failed": "Der Engine-Host konnte nicht gestartet werden. Details: {detail}",
+      "host_warmup_failed": "Das Aufwärmen des Engine-Hosts ist fehlgeschlagen. Details: {detail}",
+      "no_response_from_host": "Der Engine-Host antwortet nicht."
     },
     "runtime": {
       "settings_not_initialized": "⚠️ Die Einstellungen sind nicht initialisiert.",
@@ -340,14 +351,9 @@
       "empty_result": "⚠️ Die Übersetzung hat ein leeres Ergebnis geliefert.",
       "language_catalog_unavailable": "⚠️ Der Sprachkatalog für die Übersetzung ist nicht verfügbar.",
       "missing_source_language": "⚠️ Für die Übersetzung muss eine Quellsprache angegeben werden.",
-      "no_response_from_worker": "❌ Keine Antwort vom Übersetzungs-Worker.",
       "unsupported_source": "⚠️ Nicht unterstützte Quellsprache: {lang}",
       "unsupported_target": "⚠️ Nicht unterstützte Zielsprache: {lang}",
-      "worker_error": "❌ Fehler im Übersetzungs-Worker. Details: {detail}",
-      "worker_not_running": "⚠️ Der Übersetzungs-Worker läuft nicht.",
-      "worker_ping_failed": "⚠️ Der Ping zum Übersetzungs-Worker ist fehlgeschlagen.",
-      "worker_protocol_error": "❌ Protokollfehler im Übersetzungs-Worker. Details: {detail}",
-      "worker_start_failed": "❌ Der Übersetzungs-Worker konnte nicht gestartet werden. Details: {detail}"
+      "worker_error": "❌ Fehler im Übersetzungs-Worker. Details: {detail}"
     },
     "type": {
       "enum": "⚠️ Das Feld „{field}” hat einen ungültigen Wert „{value}”. Zulässig: {allowed}",
@@ -400,7 +406,7 @@
       "output_format": {
         "label": "Ausgabeformat"
       },
-      "temp": {
+      "url_download": {
         "download_audio_only": "Nur Audio herunterladen (URL-Quellen)",
         "keep_audio": "Heruntergeladenes Audio behalten (URL)",
         "keep_video": "Heruntergeladenes Video behalten (URL)"
@@ -430,7 +436,7 @@
       "local": "Lokal",
       "url": "URL"
     },
-    "msg": {
+    "messages": {
       "no_media_found": "Es wurden keine unterstützten Audio-/Videodateien gefunden.",
       "bulk_add_summary_added": "Es wurden {added} Elemente zur Transkriptionsliste hinzugefügt.",
       "bulk_add_summary_with_duplicates": "Es wurden {added} Elemente zur Transkriptionsliste hinzugefügt. {skipped} Duplikate wurden übersprungen.",
@@ -440,7 +446,7 @@
       "bulk_add_summary_limited_with_duplicates": "Es wurden {added} der ersten {selected} Elemente von insgesamt {total} hinzugefügt. {skipped} Duplikate wurden übersprungen."
     }
   },
-  "lang": {
+  "language": {
     "special": {
       "auto_detect": "Automatische Erkennung",
       "default_ui": "Standard (App-Sprache)",
@@ -450,7 +456,7 @@
     }
   },
   "live": {
-    "ctrl": {
+    "controls": {
       "clear": "Löschen 🧹",
       "pause": "Pause ⏸️",
       "refresh": "Aktualisieren 🔄",
@@ -625,7 +631,7 @@
       "translation_profile": "Definiert das Dekodierprofil der Übersetzung: Zahl der geprüften Alternativen, Schutz vor Wiederholungen und Verhalten des Decoders. Eingebaute Profile haben feste Parameter. Das benutzerdefinierte Profil entsperrt deren manuelle Bearbeitung.",
       "browser_cookies_file_path": "Pfad zu einer exportierten Cookie-Datei, die im erweiterten Modus für authentifizierte yt_dlp-Downloads verwendet wird. Für YouTube ist das die stabilere Option, wenn Browser-Cookies blockiert werden oder rotieren."
     },
-    "msg": {
+    "messages": {
       "saved": "✅ Einstellungen wurden gespeichert."
     },
     "network": {

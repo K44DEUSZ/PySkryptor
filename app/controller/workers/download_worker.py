@@ -308,7 +308,7 @@ class DownloadWorker(AccessTaskWorker):
                 self._quality,
                 self._ext,
             )
-            raise DownloadError("error.down.download_failed", detail="download returned no output path")
+            raise DownloadError("error.download.download_failed", detail="download returned no output path")
 
         self.download_finished.emit(path)
 

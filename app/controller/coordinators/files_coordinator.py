@@ -6,20 +6,22 @@ from typing import Any
 from PyQt5 import QtCore
 
 from app.controller.panel_protocols import FilesPanelViewProtocol
+from app.controller.support.expansion_flow import start_source_expansion
 from app.controller.support.panel_support import (
     push_runtime_state_to_panel,
     rebind_files_panel_view,
     start_quick_options_save,
+    start_worker_lifecycle,
 )
-from app.controller.support.expansion_flow import start_source_expansion
 from app.controller.workers.media_probe_worker import MediaProbeWorker
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
-from app.controller.workers.worker_runner import WorkerRunner
 from app.controller.workers.transcription_worker import TranscriptionWorker
+from app.controller.workers.worker_runner import WorkerRunner
 from app.model.core.domain.entities import TranscriptionSessionRequest
 from app.model.core.domain.state import AppRuntimeState
 from app.model.download.domain import SourceAccessInterventionResolution
+from app.model.engines.manager import EngineManager
 
 
 class FilesCoordinator(QtCore.QObject):
@@ -53,8 +55,9 @@ class FilesCoordinator(QtCore.QObject):
     session_done = QtCore.pyqtSignal(str, bool, bool, bool)
     quick_options_save_failed = QtCore.pyqtSignal(str, dict)
 
-    def __init__(self, parent: QtCore.QObject | None = None) -> None:
+    def __init__(self, engine_manager: EngineManager, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
+        self._engines = engine_manager
         self._probe_runner = WorkerRunner(self)
         self._probe_worker: MediaProbeWorker | None = None
         self._pending_probe_entries: list[dict[str, Any]] | None = None
@@ -70,7 +73,6 @@ class FilesCoordinator(QtCore.QObject):
 
         self._view: FilesPanelViewProtocol | None = None
         self._runtime_state = AppRuntimeState()
-        self._pipe: Any | None = None
         self._access_intervention_worker: object | None = None
 
     def bind_view(self, panel: FilesPanelViewProtocol) -> None:
@@ -104,11 +106,10 @@ class FilesCoordinator(QtCore.QObject):
 
     def set_runtime_state(self, state: AppRuntimeState | None) -> None:
         self._runtime_state = state if state is not None else AppRuntimeState()
-        self._pipe = self._runtime_state.transcription_pipeline if self._runtime_state.transcription_ready else None
         self._push_runtime_state()
 
     def _push_runtime_state(self) -> None:
-        push_runtime_state_to_panel(panel=self._view, state=self._runtime_state, pipeline=self._pipe)
+        push_runtime_state_to_panel(panel=self._view, state=self._runtime_state)
 
     def is_probe_running(self) -> bool:
         return self._probe_runner.is_running()
@@ -118,6 +119,9 @@ class FilesCoordinator(QtCore.QObject):
 
     def is_expanding(self) -> bool:
         return self._expansion_runner.is_running()
+
+    def is_options_save_running(self) -> bool:
+        return self._settings_runner.is_running()
 
     def is_busy(self) -> bool:
         return self.is_probe_running() or self.is_transcribing() or self.is_expanding()
@@ -130,6 +134,9 @@ class FilesCoordinator(QtCore.QObject):
 
     def _set_access_intervention_worker(self, worker: object | None) -> None:
         self._access_intervention_worker = worker
+
+    def _set_transcription_worker(self, worker: TranscriptionWorker | None) -> None:
+        self._transcription_worker = worker
 
     def expand_manual_input(self, raw: str) -> SourceExpansionWorker | None:
         return start_source_expansion(
@@ -223,16 +230,9 @@ class FilesCoordinator(QtCore.QObject):
         entries: list[str | dict[str, Any]],
         session_request: TranscriptionSessionRequest,
     ) -> TranscriptionWorker | None:
-        if self._transcription_runner.is_running():
-            return self._transcription_worker
-        if self._pipe is None:
+        if not self._runtime_state.transcription.ready:
             self.failed.emit("error.model.not_ready", {})
             return None
-
-        worker = TranscriptionWorker(pipe=self._pipe, entries=entries, session_request=session_request)
-        self._transcription_worker = worker
-        self.transcription_busy_changed.emit(True)
-        self.busy_changed.emit(True)
 
         def _connect(wk: TranscriptionWorker) -> None:
             def _emit_access_intervention(payload: dict[str, object]) -> None:
@@ -253,15 +253,31 @@ class FilesCoordinator(QtCore.QObject):
             wk.access_intervention_required.connect(_emit_access_intervention)
             wk.session_done.connect(self.session_done)
 
-        def _done() -> None:
-            if self._access_intervention_worker is self._transcription_worker:
+        def _on_started(_worker: TranscriptionWorker) -> None:
+            self.transcription_busy_changed.emit(True)
+            self.busy_changed.emit(True)
+
+        def _on_finished(worker: TranscriptionWorker) -> None:
+            if self._access_intervention_worker is worker:
                 self._set_access_intervention_worker(None)
-            self._transcription_worker = None
             self.transcription_busy_changed.emit(False)
             self.busy_changed.emit(self.is_busy())
             self.transcription_finished.emit()
 
-        return self._transcription_runner.start(worker, connect=_connect, on_finished=_done)
+        return start_worker_lifecycle(
+            runner=self._transcription_runner,
+            current_worker=self._transcription_worker,
+            build_worker=lambda: TranscriptionWorker(
+                transcription_engine=self._engines.transcription_engine,
+                translation_engine=self._engines.translation_engine,
+                entries=entries,
+                session_request=session_request,
+            ),
+            set_worker=self._set_transcription_worker,
+            on_started=_on_started,
+            connect_worker=_connect,
+            on_finished=_on_finished,
+        )
 
     def cancel_transcription(self) -> None:
         self._transcription_runner.cancel()
@@ -272,6 +288,7 @@ class FilesCoordinator(QtCore.QObject):
             current_worker=self._settings_worker,
             payload=payload,
             on_failed=lambda wk: wk.failed.connect(self.quick_options_save_failed),
+            on_saved=None,
             set_worker=self._set_settings_worker,
         )
 

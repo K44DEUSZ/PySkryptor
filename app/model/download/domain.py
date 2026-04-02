@@ -6,6 +6,7 @@ from typing import Any
 
 from app.model.core.domain.errors import AppError
 
+
 class DownloadError(AppError):
     """Key-based error used for i18n-friendly download failures."""
 

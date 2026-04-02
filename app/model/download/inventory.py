@@ -10,6 +10,7 @@ from app.model.core.utils.string_utils import is_youtube_url, normalize_lang_cod
 from app.model.download.gateway import YtdlpGateway
 from app.model.download.policy import DownloadPolicy
 
+
 class TrackLabelHeuristics:
     """Internal helpers for audio-track labels, roles, and signatures."""
 

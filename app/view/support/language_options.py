@@ -1,6 +1,7 @@
 # app/view/support/language_options.py
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 
 from app.model.core.config.config import AppConfig
@@ -15,28 +16,27 @@ from app.model.settings.resolution import (
 )
 
 LanguageOption = tuple[str, str]
+_LOG = logging.getLogger(__name__)
+
+
+def _safe_supported_language_codes(provider, *, drop_region: bool) -> list[str]:
+    """Return normalized provider codes or an empty list on capability lookup errors."""
+    try:
+        return normalized_language_codes(provider(), drop_region=drop_region)
+    except (RuntimeError, TypeError, ValueError) as ex:
+        provider_name = getattr(provider, "__name__", type(provider).__name__)
+        _LOG.debug("Language provider fallback applied. provider=%s detail=%s", provider_name, ex)
+        return []
 
 
 def supported_source_language_codes() -> list[str]:
     """Return normalized supported transcription source language codes."""
-    try:
-        return normalized_language_codes(
-            transcription_language_codes(),
-            drop_region=False,
-        )
-    except (RuntimeError, TypeError, ValueError):
-        return []
+    return _safe_supported_language_codes(transcription_language_codes, drop_region=False)
 
 
 def supported_target_language_codes() -> list[str]:
     """Return normalized supported translation target language codes."""
-    try:
-        return normalized_language_codes(
-            translation_language_codes(),
-            drop_region=True,
-        )
-    except (RuntimeError, TypeError, ValueError):
-        return []
+    return _safe_supported_language_codes(translation_language_codes, drop_region=True)
 
 
 def normalized_language_codes(raw_codes: Iterable[str], *, drop_region: bool) -> list[str]:
@@ -111,11 +111,11 @@ def default_source_language_label(tab_name: str, *, supported: Iterable[str], ui
     """Build the user-facing label for the preferred source language option."""
     default_code = default_source_language_code(tab_name, supported=supported)
     if LanguagePolicy.is_auto(default_code):
-        base_label = tr("lang.special.auto_detect")
+        base_label = tr("language.special.auto_detect")
     else:
         base_label = language_display_name(default_code, ui_lang=ui_language)
-    base_label = str(base_label or tr("lang.special.auto_detect")).strip()
-    return tr("lang.special.preferred_named", name=base_label)
+    base_label = str(base_label or tr("language.special.auto_detect")).strip()
+    return tr("language.special.preferred_named", name=base_label)
 
 
 def preferred_target_language_label(tab_name: str, *, supported: Iterable[str], ui_language: str) -> str:
@@ -126,28 +126,34 @@ def preferred_target_language_label(tab_name: str, *, supported: Iterable[str], 
         ui_language=ui_language,
         supported=supported,
     )
-    base_label = language_display_name(resolved, ui_lang=ui_language) if resolved else tr("lang.special.default_ui")
-    base_label = str(base_label or tr("lang.special.default_ui")).strip()
-    return tr("lang.special.preferred_named", name=base_label)
+    base_label = language_display_name(resolved, ui_lang=ui_language) if resolved else tr("language.special.default_ui")
+    base_label = str(base_label or tr("language.special.default_ui")).strip()
+    return tr("language.special.preferred_named", name=base_label)
 
 
 def build_source_language_items(tab_name: str, *, supported: Iterable[str], ui_language: str) -> list[LanguageOption]:
     """Build source-language combo items with preferred and auto options first."""
     codes = list(supported)
-    items: list[LanguageOption] = [
-        (LanguagePolicy.PREFERRED, default_source_language_label(tab_name, supported=codes, ui_language=ui_language)),
-        (LanguagePolicy.AUTO, tr("lang.special.auto_detect")),
+    preferred_item = (
+        LanguagePolicy.PREFERRED,
+        default_source_language_label(tab_name, supported=codes, ui_language=ui_language),
+    )
+    return [
+        preferred_item,
+        (LanguagePolicy.AUTO, tr("language.special.auto_detect")),
+        *build_language_options(codes, ui_lang=ui_language),
     ]
-    items.extend(build_language_options(codes, ui_lang=ui_language))
-    return items
 
 
 def build_target_language_items(tab_name: str, *, supported: Iterable[str], ui_language: str) -> list[LanguageOption]:
     """Build target-language combo items with preferred and UI-language options first."""
     codes = list(supported)
-    items: list[LanguageOption] = [
-        (LanguagePolicy.PREFERRED, preferred_target_language_label(tab_name, supported=codes, ui_language=ui_language)),
-        (LanguagePolicy.DEFAULT_UI, tr("lang.special.default_ui")),
+    preferred_item = (
+        LanguagePolicy.PREFERRED,
+        preferred_target_language_label(tab_name, supported=codes, ui_language=ui_language),
+    )
+    return [
+        preferred_item,
+        (LanguagePolicy.DEFAULT_UI, tr("language.special.default_ui")),
+        *build_language_options(codes, ui_lang=ui_language),
     ]
-    items.extend(build_language_options(codes, ui_lang=ui_language))
-    return items

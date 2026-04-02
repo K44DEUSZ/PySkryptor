@@ -14,12 +14,12 @@ from app.model.core.utils.string_utils import is_youtube_url, sanitize_url_for_l
 from app.model.download.cookies import is_cookie_file_runtime_error, validate_cookie_file
 from app.model.download.domain import (
     CookieBrowserAttempt,
-    SourceAccessInterventionRequest,
     DownloadCookieContext,
     DownloadError,
-    SourceAccessInterventionRequired,
     ExtractorAccessContext,
     SourceAccessContext,
+    SourceAccessInterventionRequest,
+    SourceAccessInterventionRequired,
 )
 from app.model.download.policy import DownloadPolicy
 from app.model.download.runtime import resolve_cookie_browser_candidates
@@ -243,13 +243,13 @@ class YtdlpGateway:
     def classify_network_error(ex: Exception) -> str:
         text = str(ex or "").strip().lower()
         if isinstance(ex, (TimeoutError, socket.timeout)) or any(marker in text for marker in _NETWORK_TIMEOUT_MARKERS):
-            return "error.down.network_timeout"
+            return "error.download.network_timeout"
         if isinstance(ex, socket.gaierror) or any(marker in text for marker in _NETWORK_DNS_MARKERS):
-            return "error.down.network_dns_failed"
+            return "error.download.network_dns_failed"
         if any(marker in text for marker in _NETWORK_OFFLINE_MARKERS):
-            return "error.down.network_offline"
+            return "error.download.network_offline"
         if isinstance(ex, ConnectionError) or any(marker in text for marker in _NETWORK_UNREACHABLE_MARKERS):
-            return "error.down.network_unreachable"
+            return "error.download.network_unreachable"
         return ""
 
     @staticmethod
@@ -640,7 +640,7 @@ class YtdlpGateway:
                     )
                 )
             raise DownloadError(
-                "error.down.browser_cookies_unavailable",
+                "error.download.browser_cookies_unavailable",
                 detail=str(diag["cookie_runtime_error"] or ""),
             )
 
@@ -708,7 +708,7 @@ class YtdlpGateway:
             detail = str(diag["cookie_runtime_error"] or diag["authentication_error"] or "").strip()
             if not detail and last_cookie_error is not None:
                 detail = _normalize_ytdlp_detail(last_cookie_error)
-            raise DownloadError("error.down.browser_cookies_unavailable", detail=detail)
+            raise DownloadError("error.download.browser_cookies_unavailable", detail=detail)
 
         try:
             info = YtdlpGateway._extract_once(url=url, ydl_opts=base_opts, download=download, diag=diag)
@@ -718,27 +718,27 @@ class YtdlpGateway:
             if cookie_file_requested:
                 validation = validate_cookie_file(cookie_file_path)
                 if not validation.ok:
-                    raise DownloadError("error.down.cookie_file_invalid", detail=validation.detail)
+                    raise DownloadError("error.download.cookie_file_invalid", detail=validation.detail)
                 if YtdlpGateway.is_cookie_file_error(ex):
-                    raise DownloadError("error.down.cookie_file_invalid", detail=detail)
+                    raise DownloadError("error.download.cookie_file_invalid", detail=detail)
             if YtdlpGateway.is_no_downloadable_formats_error(ex):
                 diag["no_downloadable_formats"] = True
                 diag["no_downloadable_formats_detail"] = detail
-                raise DownloadError("error.down.no_downloadable_formats", detail=detail)
+                raise DownloadError("error.download.no_downloadable_formats", detail=detail)
             if YtdlpGateway.is_auth_required_error(ex):
                 diag["authentication_required"] = True
                 diag["authentication_error"] = detail
                 if cookie_browsers or cookie_browser_requested:
                     detail = diag["authentication_error"] or diag["cookie_runtime_error"] or detail
-                    raise DownloadError("error.down.browser_cookies_unavailable", detail=detail)
+                    raise DownloadError("error.download.browser_cookies_unavailable", detail=detail)
                 if cookie_file_requested:
-                    raise DownloadError("error.down.authentication_required", detail=detail)
-                raise DownloadError("error.down.authentication_required", detail=detail)
+                    raise DownloadError("error.download.authentication_required", detail=detail)
+                raise DownloadError("error.download.authentication_required", detail=detail)
             if YtdlpGateway.is_extended_extractor_access_error(ex):
                 diag["extended_access_required"] = True
                 diag["extended_access_required_detail"] = detail
                 diag["extended_access_scope"] = YtdlpGateway.classify_extended_access_scope(detail)
-                raise DownloadError("error.down.extended_access_required", detail=detail)
+                raise DownloadError("error.download.extended_access_required", detail=detail)
             if YtdlpGateway.is_extractor_access_limited_message(ex):
                 diag["extractor_access_limited"] = True
                 diag["extractor_access_limited_detail"] = detail
@@ -748,7 +748,7 @@ class YtdlpGateway:
                 and YtdlpGateway.is_cookie_browser_error(last_cookie_error)
             ):
                 raise DownloadError(
-                    "error.down.browser_cookies_unavailable",
+                    "error.download.browser_cookies_unavailable",
                     detail=_normalize_ytdlp_detail(last_cookie_error),
                 )
             raise

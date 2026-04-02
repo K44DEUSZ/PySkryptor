@@ -47,7 +47,7 @@
     "disable": "Disable",
     "browse": "Browse..."
   },
-  "ctrl": {
+  "controls": {
     "add": "Add +",
     "cancel": "Cancel ✖️",
     "exit": "Exit",
@@ -151,7 +151,7 @@
         "header": "No audio input device was detected"
       }
     },
-    "down": {
+    "download": {
       "exists": {
         "apply_all": "Apply this decision to all downloads",
         "overwrite": "Overwrite ♻️",
@@ -216,7 +216,7 @@
       "dont_show_again": "Do not show again"
     }
   },
-  "down": {
+  "download": {
     "meta": {
       "channel": "Channel",
       "date": "Upload date",
@@ -255,7 +255,7 @@
     "url": {
       "placeholder": "Paste media URL here..."
     },
-    "msg": {
+    "messages": {
       "already_on_list": "This item is already on the download list.",
       "bulk_add_summary_added": "Added {added} items to the download list.",
       "bulk_add_summary_with_duplicates": "Added {added} items to the download list. Skipped {skipped} duplicates.",
@@ -270,7 +270,7 @@
       "ffprobe_failed": "❌ Audio analysis failed. Command: {cmd}"
     },
     "cancelled": "Operation cancelled.",
-    "down": {
+    "download": {
       "download_failed": "❌ Download failed. Details: {detail}",
       "network_dns_failed": "❌ Could not resolve the host name.",
       "network_offline": "❌ No network connection.",
@@ -303,8 +303,19 @@
       "failed": "❌ Failed to read media metadata. Details: {detail}"
     },
     "model": {
+      "not_ready": "Required model is not ready.",
       "transcription_missing": "⚠️ Transcription model is not installed.",
       "translation_missing": "⚠️ Translation model is not installed."
+    },
+    "engine": {
+      "host_health_failed": "Engine host health check failed. Details: {detail}",
+      "host_missing": "Engine host executable is missing: {path}",
+      "host_not_running": "Engine host is not running.",
+      "host_ping_failed": "Engine host ping failed. Details: {detail}",
+      "host_protocol_error": "Engine host protocol error. Details: {detail}",
+      "host_start_failed": "Failed to start the engine host. Details: {detail}",
+      "host_warmup_failed": "Engine host warmup failed. Details: {detail}",
+      "no_response_from_host": "Engine host did not respond."
     },
     "runtime": {
       "settings_not_initialized": "⚠️ Settings are not initialized.",
@@ -340,14 +351,9 @@
       "empty_result": "⚠️ Translation returned an empty result.",
       "language_catalog_unavailable": "⚠️ Translation language catalog is unavailable.",
       "missing_source_language": "⚠️ Source language is required for translation.",
-      "no_response_from_worker": "❌ No response from the translation worker.",
       "unsupported_source": "⚠️ Unsupported source language: {lang}",
       "unsupported_target": "⚠️ Unsupported target language: {lang}",
-      "worker_error": "❌ Translation worker error. Details: {detail}",
-      "worker_not_running": "⚠️ Translation worker is not running.",
-      "worker_ping_failed": "⚠️ Translation worker ping failed.",
-      "worker_protocol_error": "❌ Translation worker protocol error. Details: {detail}",
-      "worker_start_failed": "❌ Failed to start translation worker. Details: {detail}"
+      "worker_error": "❌ Translation worker error. Details: {detail}"
     },
     "type": {
       "enum": "⚠️ Field “{field}” has invalid value “{value}”. Allowed: {allowed}",
@@ -400,7 +406,7 @@
       "output_format": {
         "label": "Output format"
       },
-      "temp": {
+      "url_download": {
         "download_audio_only": "Download audio only (URL sources)",
         "keep_audio": "Keep downloaded audio (URL)",
         "keep_video": "Keep downloaded video (URL)"
@@ -430,7 +436,7 @@
       "local": "Local",
       "url": "URL"
     },
-    "msg": {
+    "messages": {
       "no_media_found": "No supported audio/video files were found.",
       "bulk_add_summary_added": "Added {added} items to the transcription list.",
       "bulk_add_summary_with_duplicates": "Added {added} items to the transcription list. Skipped {skipped} duplicates.",
@@ -440,7 +446,7 @@
       "bulk_add_summary_limited_with_duplicates": "Added {added} of the first {selected} items out of {total}. Skipped {skipped} duplicates."
     }
   },
-  "lang": {
+  "language": {
     "special": {
       "auto_detect": "Auto-detect",
       "default_ui": "Default (app language)",
@@ -450,7 +456,7 @@
     }
   },
   "live": {
-    "ctrl": {
+    "controls": {
       "clear": "Clear 🧹",
       "pause": "Pause ⏸️",
       "refresh": "Refresh 🔄",
@@ -625,7 +631,7 @@
       "translation_profile": "Defines the translation decoding profile: number of alternatives explored, repetition protection, and decoder behavior. Built-in profiles have fixed parameters. The custom profile unlocks manual editing.",
       "browser_cookies_file_path": "Path to an exported cookies file used in advanced mode for authenticated yt_dlp downloads. This is the more stable option for YouTube when browser-cookie access is blocked or rotated."
     },
-    "msg": {
+    "messages": {
       "saved": "✅ Settings have been saved."
     },
     "network": {

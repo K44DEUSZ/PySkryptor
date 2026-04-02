@@ -7,6 +7,7 @@ from app.view.support.widget_effects import repolish_widget
 from app.view.support.widget_setup import set_interactive_cursor, set_widget_style_role
 from app.view.ui_config import ui
 
+
 class ChoiceToggle(QtWidgets.QWidget):
     """Two-option segmented toggle."""
 

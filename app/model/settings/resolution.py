@@ -10,7 +10,8 @@ from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.entities import TranscriptionSessionRequest
 from app.model.core.utils.string_utils import normalize_lang_code
 from app.model.engines import capabilities
-from app.model.engines.registry import ModelRegistry
+from app.model.engines.resolution import ModelRegistry
+from app.model.engines.types import EngineRuntimeState
 from app.model.transcription.policy import TranscriptionOutputPolicy
 
 PatchPayload: TypeAlias = dict[str, Any]
@@ -59,24 +60,29 @@ def _normalize_files_transcription_options(
     )
 
 
+def _sorted_capability_language_codes(provider) -> list[str]:
+    """Return stable, sorted language codes from a capability provider."""
+    return sorted(provider())
+
+
+def _capability_language_code_set(provider) -> set[str]:
+    """Return supported language codes as a set from a capability provider."""
+    return set(provider())
+
+
 def translation_language_codes() -> list[str]:
     """Return supported translation language codes as a sorted list."""
-    return sorted(capabilities.translation_language_codes())
+    return _sorted_capability_language_codes(capabilities.translation_language_codes)
 
 
 def transcription_language_codes() -> list[str]:
     """Return supported transcription language codes as a sorted list."""
-    return sorted(capabilities.transcription_language_codes())
+    return _sorted_capability_language_codes(capabilities.transcription_language_codes)
 
 
 def transcription_output_modes() -> tuple[dict[str, Any], ...]:
     """Return configured transcription output modes for UI selectors."""
     return TranscriptionOutputPolicy.get_transcription_output_modes()
-
-
-def _supported_translation_lang_codes() -> set[str]:
-    """Return supported translation language codes as a set."""
-    return set(capabilities.translation_language_codes())
 
 
 def resolve_source_language_for_run(
@@ -87,7 +93,11 @@ def resolve_source_language_for_run(
 ) -> str:
     """Resolve a source language selection into a concrete source language value."""
     raw = LanguagePolicy.normalize_panel_source_language_selection(source_code)
-    supported_codes = set(supported) if supported is not None else set(transcription_language_codes())
+    supported_codes = (
+        set(supported)
+        if supported is not None
+        else _capability_language_code_set(capabilities.transcription_language_codes)
+    )
 
     if LanguagePolicy.is_preferred(raw):
         resolved = AppConfig.resolve_default_source_language_for_tab(tab_name)
@@ -112,7 +122,11 @@ def resolve_target_language_for_run(
 ) -> str:
     """Resolve a target language selection into a concrete translation target."""
     raw = LanguagePolicy.normalize_panel_target_language_selection(target_code)
-    supported_codes = set(supported) if supported is not None else _supported_translation_lang_codes()
+    supported_codes = (
+        set(supported)
+        if supported is not None
+        else _capability_language_code_set(capabilities.translation_language_codes)
+    )
 
     if LanguagePolicy.is_preferred(raw):
         resolved = AppConfig.resolve_default_target_language_for_tab(tab_name, ui_language=ui_language)
@@ -269,11 +283,13 @@ def build_transcription_session_request(
 
 def translation_runtime_available(
     *,
-    translation_error_key: str | None = None,
+    translation_state: EngineRuntimeState,
     model_cfg: dict[str, Any] | None = None,
 ) -> bool:
     """Return True when translation runtime is available for UI actions."""
-    if bool(str(translation_error_key or "").strip()):
+    if not bool(translation_state.ready):
+        return False
+    if bool(str(translation_state.error_key or "").strip()):
         return False
 
     engine_dir_name = str(AppConfig.PATHS.TRANSLATION_ENGINE_DIR.name or "").strip()

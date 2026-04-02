@@ -1,7 +1,10 @@
 # app/controller/platform/microphone.py
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+_LOG = logging.getLogger(__name__)
 
 
 def _qt_multimedia() -> Any:
@@ -14,7 +17,8 @@ def list_input_devices() -> list[Any]:
     qt_multimedia = _qt_multimedia()
     try:
         return list(qt_multimedia.QAudioDeviceInfo.availableDevices(qt_multimedia.QAudio.AudioInput))
-    except (AttributeError, RuntimeError, TypeError, ValueError):
+    except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+        _LOG.warning("Audio input device enumeration failed. detail=%s", ex)
         return []
 
 
@@ -161,6 +165,7 @@ def resolve_input_device(device_name: str = "") -> tuple[Any, Any | None]:
     qt_multimedia = _qt_multimedia()
     devices = list_input_devices()
     if not devices:
+        _LOG.debug("Audio input device resolution found no available devices.")
         return qt_multimedia, None
 
     wanted = str(device_name or "").strip()
@@ -170,10 +175,12 @@ def resolve_input_device(device_name: str = "") -> tuple[Any, Any | None]:
         picked = _pick_input_device(matches)
         if picked is not None:
             return qt_multimedia, picked
+        _LOG.warning("Requested audio input device not found. requested=%s", wanted)
 
     try:
         return qt_multimedia, qt_multimedia.QAudioDeviceInfo.defaultInputDevice()
-    except (AttributeError, RuntimeError, TypeError, ValueError):
+    except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+        _LOG.warning("Default audio input device lookup failed. detail=%s", ex)
         return qt_multimedia, devices[0]
 
 

@@ -1,0 +1,281 @@
+Code Style for app and repository support files
+===============================================
+
+This guide captures the style that already shows up across app and in the
+small set of repository-root support files that are maintained alongside it.
+It is not trying to be a generic Python guide or a textbook version of PEP 8.
+The goal is simpler: when we change code here, it should still look and read
+like it belongs.
+
+General approach
+----------------
+
+This project leans toward self-explanatory code. Most of the clarity comes
+from:
+
+- descriptive names
+- small helper functions
+- short docstrings
+- predictable file structure
+- grouping related state and responsibilities together
+
+Comments are not the main way this codebase explains itself. If a better name
+or a small helper can make something clear, that is the preferred move.
+
+Comments
+--------
+
+File header comment
+
+Every Python module in app starts with a one-line path header:
+
+    # app/view/panels/files_panel.py
+
+Keep that convention in place.
+
+Docstrings over narrative comments
+
+The default form of documentation in this codebase is the short, single-line
+English docstring. We use it for:
+
+- classes
+- dataclasses
+- domain-specific errors
+- important helpers
+
+A good docstring says what a thing is for. It should not walk through the
+implementation line by line.
+
+When # comments make sense
+
+Inline comments are fine when they explain something that would be hard to
+infer from the code alone, such as:
+
+- low-level technical details
+- tricky math or binary data handling
+- framework quirks
+- IDE, type-checking, or inspection suppressions
+- workarounds with non-obvious reasons
+
+Typical examples in this project are comments around PCM decoding and lines
+like # noinspection PyPep8Naming.
+
+What we do not want are comments that narrate obvious steps like "set button
+text" or "update state".
+
+Naming
+------
+
+Modules and files
+
+Files use snake_case, and most of them carry a role in the name:
+
+- *_panel
+- *_service
+- *_coordinator
+- *_worker
+- *_policy
+- *_runtime
+- *_resolver
+- *_presenter
+
+A file name should tell you what kind of job the module does before you even
+open it.
+
+Classes
+
+- public classes use PascalCase
+- internal helper classes usually use _PascalCase
+- dataclasses are named like data shapes or state objects
+
+Examples:
+
+- FilesPanel
+- SettingsService
+- _SessionOptions
+- RuntimePresentation
+
+Functions and methods
+
+- use snake_case
+- prefix private helpers with _
+- favor verb-led names for actions
+
+Common action prefixes in this codebase include:
+
+- build_
+- load_
+- save_
+- resolve_
+- normalize_
+- apply_
+- bind_
+- refresh_
+- update_
+- start_
+- cancel_
+
+Constants, type aliases, and signals
+
+- module-level constants use UPPER_CASE
+- type aliases use PascalCase, sometimes with an Fn suffix
+- protocols end with Protocol
+- Qt signals use event-style names such as *_changed, *_ready, or *_finished
+
+Localization keys and import aliases
+
+- translation keys use full, descriptive snake_case segments
+- do not introduce abbreviated key families such as ctrl, down, lang, msg, or
+  temp
+- import the translation helper as tr
+- keep technical aliases only when they are long-standing conventions or
+  improve readability in a real way, such as np
+
+UI field names
+
+In the UI layer, short prefixes are part of the local language of the
+codebase:
+
+- btn_ for buttons
+- chk_ for checkboxes
+- lbl_ for labels
+- ed_ for line edits
+- grp_ for grouped sections
+
+Supporting state often follows recurring shapes such as:
+
+- _..._by_key
+- _..._runner
+- _..._worker
+- _..._ready
+- _..._error_key
+
+Whitespace and layout
+---------------------
+
+Indentation and line length
+
+- Python uses 4 spaces
+- the preferred line length is 120 characters
+- line endings are LF
+- trailing whitespace should be removed
+- every file should end with a final newline
+
+Automated checks stay intentionally light. Ruff is only used to catch real
+Python issues, import ordering drift, and lines over 120 characters. The rest
+of the visual style remains a conscious project convention rather than
+something enforced by a formatter.
+
+Typical module shape
+
+Most files follow this rough order:
+
+1. file header comment
+2. from __future__ import annotations
+3. imports
+4. constants, aliases, or logger setup
+5. classes, helpers, and functions
+
+Import grouping is somewhat loose today, but the overall module shape is
+stable and worth preserving.
+
+Vertical density
+
+This codebase is fairly compact. It is not trying to maximize blank space for
+its own sake.
+
+- a single blank line usually separates meaningful blocks
+- extra empty lines are used sparingly
+- longer constructors and _init_state() methods group related fields together
+
+When cleaning up style, do not stretch files out just to match a more generic
+Python aesthetic if that breaks the existing rhythm of the code.
+
+Multi-line formatting
+
+Once a call or data structure gets long, the usual move is to break it
+vertically for readability:
+
+- put arguments on separate lines
+- format larger collections vertically
+- keep trailing commas where they make future edits easier
+
+Responsibility and structure
+----------------------------
+
+A lot of the visual clarity in app comes from recurring structure.
+
+In the UI layer, the common pattern is:
+
+- _init_state() for internal state
+- _build_ui() for widgets and layouts
+- _wire_signals() for connections
+- _restore_initial_state() for the last step of setup
+
+In the model and controller layers, the same idea shows up in other ways:
+
+- normalization and configuration logic are pulled into helpers
+- session-like state is often modeled with small dataclasses
+- longer workflows are broken into private steps
+
+Repository-root support files
+-----------------------------
+
+Small build and repository files at the project root should follow the same
+"single author" feel:
+
+- keep comments short and in English
+- use explicit, descriptive names for build constants and environment
+  variables
+- prefer one obvious path through a script over layered compatibility wrappers
+- keep helper blocks small and local
+- group top-level declarations before execution flow
+- treat build inputs as explicit lists rather than scattered inline literals
+
+This applies in particular to:
+
+- PySkryptor.spec
+- build_onedir.bat
+- requirements.txt
+- pyproject.toml
+- .pre-commit-config.yaml
+- THIRD_PARTY_NOTICES.txt
+
+How to apply this style
+-----------------------
+
+When editing a file in app:
+
+1. keep the file header comment
+2. do not add comments if a better name or helper would do the job
+3. keep identifiers, docstrings, and logs in English
+4. name new code according to its layer and role
+5. match the file's existing blank-line rhythm
+6. keep state, UI setup, and signal wiring in the same structural sections
+   used elsewhere
+
+When editing repository-root support files:
+
+1. keep naming explicit and role-based
+2. prefer compact sections over long prose
+3. keep output messages short, operational, and English
+4. avoid duplicated lists or parallel definitions when one helper can own them
+5. do not leave compatibility bridges after a rename or cleanup
+
+What still needs normalizing
+----------------------------
+
+Some parts of the style are strong conventions already. Others are present,
+but not fully consistent yet.
+
+The main cleanup targets for future work are:
+
+- import ordering and grouping
+- small differences in top-level spacing
+- occasional UI names that drift away from the usual prefixes
+- repository metadata that starts life as local tooling but later becomes part
+  of the committed project contract
+
+The practical approach is to normalize style as part of real feature work,
+then decide later whether stronger automation in ruff or a formatter makes
+sense for the codebase.

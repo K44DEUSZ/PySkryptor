@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 def clean_text(text: str) -> str:
@@ -151,45 +151,6 @@ class TextPostprocessor:
 
 class TranscriptWriter:
     """Shared transcript rendering and saving helpers for batch and live flows."""
-
-    @staticmethod
-    def stitch_texts(parts: Iterable[str]) -> str:
-        """Stitch chunk texts by removing simple overlaps and duplicates."""
-        stitched: list[str] = []
-
-        def _words(text: str) -> list[str]:
-            return [w for w in clean_text(text).split() if w]
-
-        for part in parts:
-            part_text = clean_text(str(part or ""))
-            if not part_text:
-                continue
-            if not stitched:
-                stitched.append(part_text)
-                continue
-
-            prev_text = stitched[-1]
-            prev_words = _words(prev_text)
-            next_words = _words(part_text)
-            if not prev_words or not next_words:
-                stitched.append(part_text)
-                continue
-
-            max_overlap = min(len(prev_words), len(next_words), 12)
-            overlap = 0
-            for size in range(max_overlap, 0, -1):
-                if prev_words[-size:] == next_words[:size]:
-                    overlap = size
-                    break
-
-            if overlap:
-                stitched[-1] = " ".join(prev_words + next_words[overlap:]).strip()
-                continue
-
-            if part_text != prev_text:
-                stitched.append(part_text)
-
-        return clean_text("\n".join(stitched))
 
     @staticmethod
     def offset_segments(segments: list[dict[str, Any]], *, offset_s: float) -> list[dict[str, Any]]:

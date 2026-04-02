@@ -1,19 +1,24 @@
-# app/controller/platform/logging_setup.py
+# app/controller/platform/logging_bootstrap.py
 from __future__ import annotations
 
-import atexit
 import json
 import logging
 import logging.handlers
 import sys
-import traceback
 from dataclasses import dataclass
-from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from app.model.core.config.meta import AppMeta
+from app.model.core.runtime.runtime_logging import (
+    append_crash_entry,
+    configure_external_library_logging,
+    enable_process_faulthandler,
+    install_process_excepthook,
+    log_level_from_name,
+    normalize_log_level_name,
+)
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
@@ -21,32 +26,19 @@ _LOG = logging.getLogger(__name__)
 
 _APP_FILE_HANDLER_NAME = f"{AppMeta.NAME}AppFile"
 _CONSOLE_HANDLER_NAME = f"{AppMeta.NAME}Console"
-_LEVEL_MAP = {
-    "debug": logging.DEBUG,
-    "info": logging.INFO,
-    "warning": logging.WARNING,
-    "error": logging.ERROR,
-}
+
 
 @dataclass(frozen=True)
 class LoggingContext:
     """Resolved logging paths used during bootstrap."""
+
     logs_dir: Path
     app_log_path: Path
     crash_log_path: Path
 
 
-class LoggingSetup:
-    """File logging bootstrap + crash hooks."""
-
-    @staticmethod
-    def _normalize_level_name(level: str) -> str:
-        raw = str(level or "warning").strip().lower()
-        return raw if raw in _LEVEL_MAP else "warning"
-
-    @staticmethod
-    def _coerce_level(level: str) -> int:
-        return _LEVEL_MAP.get(LoggingSetup._normalize_level_name(level), logging.WARNING)
+class LoggingBootstrap:
+    """Main-process logging sinks and crash hooks."""
 
     @staticmethod
     def read_bootstrap_settings(defaults_path: Path, settings_path: Path) -> tuple[bool, str]:
@@ -71,9 +63,9 @@ class LoggingSetup:
         if "enabled" in settings_cfg:
             file_enabled = bool(settings_cfg.get("enabled", True))
 
-        level = LoggingSetup._normalize_level_name(defaults_cfg.get("level", "warning"))
+        level = normalize_log_level_name(defaults_cfg.get("level", "warning"), default="warning")
         if "level" in settings_cfg:
-            level = LoggingSetup._normalize_level_name(settings_cfg.get("level", level))
+            level = normalize_log_level_name(settings_cfg.get("level", level), default=level)
 
         return file_enabled, level
 
@@ -96,27 +88,27 @@ class LoggingSetup:
         crash_log_path.parent.mkdir(parents=True, exist_ok=True)
 
         root = logging.getLogger()
-        level_name = LoggingSetup._normalize_level_name(bootstrap_level)
-        root.setLevel(LoggingSetup._coerce_level(level_name))
+        level_name = normalize_log_level_name(bootstrap_level, default="warning")
+        root.setLevel(log_level_from_name(level_name, default="warning"))
 
         if file_enabled:
-            LoggingSetup._ensure_app_file_handler(
+            LoggingBootstrap._ensure_app_file_handler(
                 root,
                 app_log_path,
                 max_bytes=max_bytes,
                 backup_count=backup_count,
             )
         else:
-            LoggingSetup._remove_named_handler(root, _APP_FILE_HANDLER_NAME)
-        LoggingSetup._ensure_console_handler(root, enabled=console)
+            LoggingBootstrap._remove_named_handler(root, _APP_FILE_HANDLER_NAME)
+        LoggingBootstrap._ensure_console_handler(root, enabled=console)
 
-        LoggingSetup._write_startup_header()
-        LoggingSetup._install_excepthook(crash_log_path)
+        LoggingBootstrap._write_startup_header()
+        install_process_excepthook(crash_log_path, logger=_LOG)
 
-        logging.getLogger("transformers").setLevel(logging.ERROR)
+        configure_external_library_logging(logger=_LOG)
 
         if enable_faulthandler:
-            LoggingSetup._enable_faulthandler(crash_log_path)
+            enable_process_faulthandler(crash_log_path, logger=_LOG)
 
         _LOG.debug(
             "Logging bootstrap initialized. level=%s file_enabled=%s app_log=%s crash_log=%s",
@@ -136,18 +128,18 @@ class LoggingSetup:
     def apply_settings(ctx: LoggingContext, *, file_enabled: bool, level: str) -> None:
         root = logging.getLogger()
 
-        lvl = LoggingSetup._normalize_level_name(level)
-        root.setLevel(LoggingSetup._coerce_level(lvl))
+        lvl = normalize_log_level_name(level, default="warning")
+        root.setLevel(log_level_from_name(lvl, default="warning"))
 
         if file_enabled:
-            LoggingSetup._ensure_app_file_handler(
+            LoggingBootstrap._ensure_app_file_handler(
                 root,
                 ctx.app_log_path,
                 max_bytes=2_000_000,
                 backup_count=5,
             )
         else:
-            LoggingSetup._remove_named_handler(root, _APP_FILE_HANDLER_NAME)
+            LoggingBootstrap._remove_named_handler(root, _APP_FILE_HANDLER_NAME)
 
         _LOG.debug(
             "Logging settings applied. level=%s file_enabled=%s app_log=%s",
@@ -169,7 +161,7 @@ class LoggingSetup:
 
     @staticmethod
     def _remove_named_handler(logger: logging.Logger, name: str) -> None:
-        handler = LoggingSetup._find_named_handler(logger, name)
+        handler = LoggingBootstrap._find_named_handler(logger, name)
         if handler is None:
             return
         try:
@@ -186,12 +178,12 @@ class LoggingSetup:
         max_bytes: int,
         backup_count: int,
     ) -> None:
-        existing = LoggingSetup._find_named_handler(logger, _APP_FILE_HANDLER_NAME)
+        existing = LoggingBootstrap._find_named_handler(logger, _APP_FILE_HANDLER_NAME)
         if isinstance(existing, logging.handlers.RotatingFileHandler):
             current_path = Path(getattr(existing, "baseFilename", "")).resolve()
             if current_path == Path(app_log_path).resolve():
                 return
-            LoggingSetup._remove_named_handler(logger, _APP_FILE_HANDLER_NAME)
+            LoggingBootstrap._remove_named_handler(logger, _APP_FILE_HANDLER_NAME)
 
         fh = logging.handlers.RotatingFileHandler(
             app_log_path,
@@ -200,68 +192,27 @@ class LoggingSetup:
             encoding="utf-8",
         )
         fh.set_name(_APP_FILE_HANDLER_NAME)
-        fh.setFormatter(LoggingSetup._create_formatter())
+        fh.setFormatter(LoggingBootstrap._create_formatter())
         logger.addHandler(fh)
 
     @staticmethod
     def _ensure_console_handler(logger: logging.Logger, *, enabled: bool) -> None:
-        existing = LoggingSetup._find_named_handler(logger, _CONSOLE_HANDLER_NAME)
+        existing = LoggingBootstrap._find_named_handler(logger, _CONSOLE_HANDLER_NAME)
         if not enabled:
             if existing is not None:
-                LoggingSetup._remove_named_handler(logger, _CONSOLE_HANDLER_NAME)
+                LoggingBootstrap._remove_named_handler(logger, _CONSOLE_HANDLER_NAME)
             return
         if existing is not None:
             return
 
         sh = logging.StreamHandler()
         sh.set_name(_CONSOLE_HANDLER_NAME)
-        sh.setFormatter(LoggingSetup._create_formatter())
+        sh.setFormatter(LoggingBootstrap._create_formatter())
         logger.addHandler(sh)
 
     @staticmethod
-    def _append_crash_entry(crash_log_path: Path, title: str, text: str) -> None:
-        try:
-            with Path(crash_log_path).open("a", encoding="utf-8") as f:
-                stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"\n--- {title} {stamp} ---\n")
-                f.write(str(text or ""))
-                if text and not str(text).endswith("\n"):
-                    f.write("\n")
-        except OSError as ex:
-            _LOG.debug("Crash log append skipped. path=%s detail=%s", crash_log_path, ex)
-
-    @staticmethod
     def _write_startup_header() -> None:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        _LOG.debug("Startup session opened. started_at=%s", ts)
-
-    @staticmethod
-    def _install_excepthook(crash_log_path: Path) -> None:
-        def _hook(exc_type, exc, tb) -> None:
-            text = "".join(traceback.format_exception(exc_type, exc, tb))
-            _LOG.error("Unhandled exception.\n%s", text)
-            LoggingSetup._append_crash_entry(crash_log_path, "python crash", text)
-
-        sys.excepthook = _hook
-
-    @staticmethod
-    def _enable_faulthandler(crash_log_path: Path) -> None:
-        try:
-            import faulthandler
-
-            f: TextIO = Path(crash_log_path).open("a", encoding="utf-8")
-            faulthandler.enable(file=f)
-
-            def _close() -> None:
-                try:
-                    f.close()
-                except OSError as close_ex:
-                    _LOG.debug("Faulthandler file close skipped. path=%s detail=%s", crash_log_path, close_ex)
-
-            atexit.register(_close)
-            _LOG.debug("Faulthandler enabled. path=%s", crash_log_path)
-        except (ImportError, OSError, RuntimeError, AttributeError, TypeError, ValueError) as ex:
-            _LOG.warning("Faulthandler enable failed. detail=%s", ex)
+        _LOG.debug("Startup session opened.")
 
     @staticmethod
     def make_qt_message_handler(crash_log_path: Path):
@@ -318,7 +269,7 @@ class LoggingSetup:
                     _LOG.info("[qt-raw] %s%s", msg, origin)
 
                 if crash_title is not None:
-                    LoggingSetup._append_crash_entry(crash_log_path, crash_title, f"{msg}{origin}")
+                    append_crash_entry(crash_log_path, crash_title, f"{msg}{origin}")
             except Exception as ex:
                 try:
                     sys.stderr.write(f"Qt message handler failure: {ex}\n")

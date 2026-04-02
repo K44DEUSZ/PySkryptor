@@ -1,6 +1,7 @@
 # app/model/transcription/live.py
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from typing import Any, Callable
@@ -10,19 +11,15 @@ from app.model.core.config.policy import LanguagePolicy
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.errors import AppError
 from app.model.core.domain.results import LiveUpdate
+from app.model.engines.contracts import TranscriptionEngineProtocol, TranslationEngineProtocol
+from app.model.engines.types import RecognizeAudioRequest
 from app.model.transcription.chunking import pcm16le_bytes_to_float32, seconds_to_frames
-from app.model.transcription.runtime import call_pipe_with_fallbacks
-from app.model.transcription.service import TranscriptionError
+from app.model.transcription.errors import TranscriptionError
 from app.model.transcription.whisper import (
     audio_rms_level,
-    build_whisper_generate_kwargs,
     can_detect_language_from_audio,
     classify_audio_signal,
-    detect_language_from_pipe_runtime,
-    extract_detected_language_from_result,
     filter_asr_text,
-    should_use_prompt,
-    whisper_prompt_ids_from_text,
 )
 from app.model.transcription.writer import TextPostprocessor
 from app.model.translation.service import TranslationService
@@ -46,7 +43,8 @@ class LiveTranscriptionService:
     def __init__(
         self,
         *,
-        pipe: Any,
+        transcription_engine: TranscriptionEngineProtocol,
+        translation_engine: TranslationEngineProtocol,
         source_language: str,
         target_language: str,
         translate_enabled: bool,
@@ -55,7 +53,8 @@ class LiveTranscriptionService:
         output_mode: str = OUTPUT_MODE_CUMULATIVE,
         runtime_profile: dict[str, Any] | None = None,
     ) -> None:
-        self._pipe = pipe
+        self._transcription_engine = transcription_engine
+        self._translation = TranslationService(translation_engine=translation_engine)
         self._cancel_check = cancel_check
 
         self._src_lang = LanguagePolicy.normalize_policy_value(source_language)
@@ -110,7 +109,6 @@ class LiveTranscriptionService:
         )
 
         self._post = TextPostprocessor()
-        self._translator = TranslationService()
 
         self._stable_language_min_hits = int(self._profile.get("stable_language_min_hits", 2) or 2)
         self._language_hits: dict[str, int] = {}
@@ -241,8 +239,8 @@ class LiveTranscriptionService:
             return ""
 
         try:
-            return self._translator.translate(
-                source_text,
+            return self._translation.translate_text(
+                text=source_text,
                 src_lang=src_lang,
                 tgt_lang=self._tgt_lang,
                 cancel_check=self._cancel_check,
@@ -264,42 +262,9 @@ class LiveTranscriptionService:
         ]
         return [str(item or "").strip() for item in refs if str(item or "").strip()]
 
-    def _transcribe_audio(self, audio: Any, *, signal_kind: str) -> tuple[str, bool]:
-        payload = {"raw": audio, "sampling_rate": self._sr}
-
-        prompt_source = self._draft_source or self._archive_source or self._previous_source or self._current_source
-        prompt_ids = None
-        if prompt_source and should_use_prompt(signal_kind=signal_kind, profile=self._profile):
-            prompt_ids = whisper_prompt_ids_from_text(pipe=self._pipe, text=prompt_source)
-        generate_kwargs = build_whisper_generate_kwargs(
-            profile=self._profile,
-            source_language=self._src_lang,
-            prompt_ids=prompt_ids,
-            signal_kind=signal_kind,
-        )
-
-        try:
-            result = call_pipe_with_fallbacks(
-                pipe=self._pipe,
-                payload=payload,
-                generate_kwargs=generate_kwargs,
-                normalized_lang=self._src_lang,
-                ignore_warning=self._ignore_warning,
-                want_timestamps=False,
-                require_language=False,
-            )
-        except Exception as exc:
-            _LOG.exception("ASR pipeline call failed.")
-            raise TranscriptionError("error.transcription.asr_failed") from exc
-
-        if not isinstance(result, dict):
-            result = {"text": str(result)}
-
-        language_changed = False
-        detected = "" if self._source_language_forced else extract_detected_language_from_result(result)
-        if (
-            not detected
-            and not self._source_language_forced
+    def _transcribe_audio(self, data: bytes, audio: Any, *, signal_kind: str) -> tuple[str, bool]:
+        require_language = bool(
+            (not self._source_language_forced)
             and (self._translate or not self._src_lang)
             and can_detect_language_from_audio(
                 audio,
@@ -307,15 +272,30 @@ class LiveTranscriptionService:
                 signal_kind=signal_kind,
                 profile=self._profile,
             )
-        ):
-            detected = detect_language_from_pipe_runtime(
-                pipe=self._pipe,
-                audio=audio,
-                sr=self._sr,
-            )
-            if detected:
-                result["language"] = detected
+        )
 
+        try:
+            result = self._transcription_engine.recognize_audio(
+                RecognizeAudioRequest(
+                    audio_b64=base64.b64encode(data).decode("ascii"),
+                    sample_rate=self._sr,
+                    source_language=self._src_lang,
+                    ignore_warning=self._ignore_warning,
+                    signal_kind=signal_kind,
+                    previous_text=(
+                        self._draft_source or self._archive_source or self._previous_source or self._current_source
+                    ),
+                    require_language=require_language,
+                    runtime_profile=dict(self._profile),
+                ),
+                cancel_check=self._cancel_check,
+            )
+        except Exception as exc:
+            _LOG.error("ASR engine call failed.", exc_info=True)
+            raise TranscriptionError("error.transcription.asr_failed") from exc
+
+        language_changed = False
+        detected = "" if self._source_language_forced else str(result.detected_language or "")
         if detected and not self._source_language_forced:
             normalized_detected = str(detected or "").strip().lower()
             if normalized_detected and (
@@ -330,7 +310,7 @@ class LiveTranscriptionService:
                     self._detected_lang = normalized_detected
                     language_changed = True
 
-        return str(result.get("text") or ""), language_changed
+        return str(result.text or ""), language_changed
 
     def _refresh_stream_text(self) -> None:
         previous_source = str(self._previous_source or "").strip()
@@ -560,7 +540,7 @@ class LiveTranscriptionService:
             return bool(str(self._current_source or "").strip() or str(self._previous_source or "").strip())
         return bool(str(self._draft_source or "").strip() or str(self._archive_source or "").strip())
 
-    def _run_pipeline_on_pcm16(
+    def _run_engine_on_pcm16(
         self,
         data: bytes,
         *,
@@ -580,7 +560,7 @@ class LiveTranscriptionService:
         if signal_kind == self.SIGNAL_WEAK and not self._has_active_text():
             return False, False
 
-        current_source, language_changed = self._transcribe_audio(audio, signal_kind=signal_kind)
+        current_source, language_changed = self._transcribe_audio(data, audio, signal_kind=signal_kind)
         current_source = filter_asr_text(
             current_source,
             clean_fn=self._post.clean,
@@ -612,7 +592,7 @@ class LiveTranscriptionService:
 
         data = bytes(self._buf)
         self._buf.clear()
-        return self._run_pipeline_on_pcm16(data, ignore_cancel=ignore_cancel, from_tail=True)
+        return self._run_engine_on_pcm16(data, ignore_cancel=ignore_cancel, from_tail=True)
 
     def _flush_on_silence(self, *, ignore_cancel: bool = False) -> list[LiveUpdate]:
         out: list[LiveUpdate] = []
@@ -678,7 +658,7 @@ class LiveTranscriptionService:
             chunk = bytes(self._buf[: self._chunk_f * bytes_per_frame])
             del self._buf[: self._step_f * bytes_per_frame]
 
-            committed, partial_changed = self._run_pipeline_on_pcm16(
+            committed, partial_changed = self._run_engine_on_pcm16(
                 chunk,
                 ignore_cancel=ignore_cancel,
             )

@@ -1,233 +1,160 @@
 # app/model/translation/service.py
 from __future__ import annotations
 
-import logging
+from dataclasses import dataclass
 from typing import Any, Callable
 
-from app.model.core.config.config import AppConfig
-from app.model.core.config.config import ConfigError
-from app.model.core.config.profiles import RuntimeProfiles
-from app.model.core.domain.errors import AppError, OperationCancelled
-from app.model.core.utils.string_utils import normalize_lang_code
-from app.model.engines.capabilities import translation_language_codes
-from app.model.translation.chunking import chunk_text
-from app.model.translation.gateway import _WORKER_CLIENT, TranslationError
+from app.model.core.domain.errors import OperationCancelled
+from app.model.core.utils.progress_utils import progress_pct_from_budget
+from app.model.core.utils.text_stitching import stitch_texts
+from app.model.engines.contracts import TranslationEngineProtocol
+from app.model.translation.chunking import TranslationChunk, plan_chunks, stitch_chunks
+from app.model.translation.errors import TranslationError
+from app.model.translation.runtime_request import (
+    TranslationRuntimeConfig,
+    build_translation_request,
+    resolve_translation_runtime_config,
+)
 
-_LOG = logging.getLogger(__name__)
-
-LogFn = Callable[[str], None]
-
-
-def _norm_lang(code: str | None) -> str:
-    return normalize_lang_code(code, drop_region=True)
+ProgressFn = Callable[[int], None]
+CancelCheckFn = Callable[[], bool]
 
 
-def _supported() -> set[str]:
-    return set(translation_language_codes())
+@dataclass(frozen=True)
+class SegmentTranslationResult:
+    """Translated timestamped segments plus a plain-text stitched version."""
 
-
-def _dtype_name(dtype_name: str) -> str:
-    name = str(dtype_name or "float32").strip().lower()
-    if name in ("float16", "fp16", "half"):
-        return "float16"
-    if name in ("bfloat16", "bf16"):
-        return "bfloat16"
-    return "float32"
+    plain_text: str
+    segments: list[dict[str, Any]]
 
 
 class TranslationService:
-    """Translation via a dedicated worker process."""
+    """Chunk-aware translation orchestration shared by batch and live workflows."""
 
-    def warmup(self, *, log: LogFn | None = None) -> bool:
-        _WORKER_CLIENT.ensure_worker(log=log)
-        rep = _WORKER_CLIENT.rpc(
-            {"cmd": "warmup", **self._runtime_request_payload()},
-            timeout_s=_WORKER_CLIENT.policy.warmup_timeout_s,
-        )
-        if not isinstance(rep, dict) or not rep.get("ok", False):
-            _WORKER_CLIENT.dispose(log_reason="warmup_failed")
-            raise TranslationError(
-                "error.translation.worker_error",
-                detail=str(rep.get("error") or rep.get("code") or "warmup failed"),
-            )
-        return True
-
-    def translate(
+    def __init__(
         self,
-        text: str,
         *,
+        translation_engine: TranslationEngineProtocol,
+        runtime: TranslationRuntimeConfig | None = None,
+    ) -> None:
+        self._translation_engine = translation_engine
+        self._runtime = runtime
+
+    def _runtime_config(self) -> TranslationRuntimeConfig:
+        runtime = self._runtime
+        if runtime is None:
+            runtime = resolve_translation_runtime_config()
+            self._runtime = runtime
+        return runtime
+
+    def _translate_chunk_plan(
+        self,
+        *,
+        chunks: list[TranslationChunk],
         src_lang: str,
         tgt_lang: str,
-        log: LogFn | None = None,
-        progress_cb: Callable[[int], None] | None = None,
-        cancel_check: Callable[[], bool] | None = None,
-    ) -> str:
-        payload_text = str(text or "").strip()
-        if not payload_text:
-            return ""
+        runtime: TranslationRuntimeConfig,
+        cancel_check: CancelCheckFn,
+        progress_cb: ProgressFn | None,
+        completed: int,
+        total: int,
+    ) -> tuple[str, int]:
+        translated_parts: list[str] = []
+        current_completed = int(completed)
 
-        _WORKER_CLIENT.ensure_worker(log=log)
-
-        supported = _supported()
-        if not supported:
-            raise TranslationError("error.translation.language_catalog_unavailable")
-
-        src = _norm_lang(src_lang)
-        tgt = _norm_lang(tgt_lang)
-
-        if not tgt or tgt == "auto":
-            raise TranslationError("error.translation.unsupported_target", lang=str(tgt_lang))
-        if not src or src == "auto":
-            raise TranslationError("error.translation.unsupported_source", lang=str(src_lang))
-
-        if tgt not in supported:
-            raise TranslationError("error.translation.unsupported_target", lang=str(tgt))
-        if src not in supported:
-            raise TranslationError("error.translation.unsupported_source", lang=str(src))
-
-        if AppConfig.SETTINGS is None:
-            raise ConfigError("error.runtime.settings_not_initialized")
-
-        runtime_payload = self._runtime_request_payload()
-        chunk_max_chars = int(runtime_payload["chunk_max_chars"])
-        chunks = chunk_text(payload_text, max_chars=chunk_max_chars)
-        chunk_count = len(chunks)
-
-        if _LOG.isEnabledFor(logging.DEBUG):
-            _LOG.debug(
-                (
-                    "Translation request prepared. worker=translation text_chars=%s chunk_count=%s "
-                    "src_lang=%s tgt_lang=%s device=%s dtype=%s profile=%s style=%s"
-                ),
-                len(payload_text),
-                chunk_count,
-                src,
-                tgt,
-                str(runtime_payload["device"]),
-                str(runtime_payload["dtype"]),
-                str(runtime_payload["profile"]),
-                str(runtime_payload["style"]),
-            )
-
-        if progress_cb is not None:
-            progress_cb(0)
-
-        out_parts: list[str] = []
-        total = max(1, chunk_count)
-        for idx, chunk in enumerate(chunks, start=1):
-            if cancel_check is not None and cancel_check():
+        for chunk in chunks:
+            if cancel_check():
                 raise OperationCancelled()
-            out_parts.append(
-                self._translate_chunk_text(
-                    chunk=chunk,
-                    src=src,
-                    tgt=tgt,
-                    runtime_payload=runtime_payload,
-                    cancel_check=cancel_check,
-                )
-            )
-            if progress_cb is not None:
-                progress_cb(int(round((idx / float(total)) * 100)))
 
-        out = "\n\n".join([part for part in out_parts if str(part).strip()]).strip()
-        if not out:
-            raise TranslationError("error.translation.empty_result")
-
-        if _LOG.isEnabledFor(logging.DEBUG):
-            _LOG.debug(
-                "Translation request finished. worker=translation text_chars=%s output_chars=%s chunk_count=%s",
-                len(payload_text),
-                len(out),
-                chunk_count,
-            )
-        return out
-
-    def _translate_chunk_text(
-        self,
-        *,
-        chunk: str,
-        src: str,
-        tgt: str,
-        runtime_payload: dict[str, Any],
-        cancel_check: Callable[[], bool] | None = None,
-    ) -> str:
-        payload = {
-            "cmd": "translate",
-            "text": str(chunk or ""),
-            "src": src,
-            "tgt": tgt,
-            **runtime_payload,
-        }
-
-        try:
-            rep = _WORKER_CLIENT.rpc(
-                payload,
-                timeout_s=_WORKER_CLIENT.policy.request_timeout_s,
+            translated = self._translation_engine.translate_text(
+                build_translation_request(
+                    text=chunk.text,
+                    src_lang=src_lang,
+                    tgt_lang=tgt_lang,
+                    runtime=runtime,
+                ),
                 cancel_check=cancel_check,
             )
-        except AppError:
-            raise
-        except Exception as ex:
-            _LOG.exception("Translation worker protocol error.")
-            raise TranslationError("error.translation.worker_protocol_error", detail=str(ex))
+            translated = str(translated or "").strip()
+            if not translated:
+                raise TranslationError("error.translation.empty_result")
 
-        out = self._extract_text_from_reply(rep)
-        if not out:
-            raise TranslationError("error.translation.empty_result")
-        return out
+            translated_parts.append(translated)
+            current_completed += max(1, len(chunk.text))
+            if progress_cb is not None:
+                progress_cb(progress_pct_from_budget(completed=current_completed, total=total))
 
-    @staticmethod
-    def _extract_text_from_reply(rep: dict[str, Any] | Any) -> str:
-        if not isinstance(rep, dict) or not rep.get("ok", False):
-            err_key = str(rep.get("error_key") or "").strip() if isinstance(rep, dict) else ""
-            err_params = rep.get("error_params") if isinstance(rep, dict) else None
-            if err_key:
-                det = str(rep.get("error") or "").strip() if isinstance(rep, dict) else ""
-                if det:
-                    _LOG.debug("Translation worker error detail. detail=%s", det)
-                raise TranslationError(err_key, **dict(err_params or {}))
+        return stitch_chunks(chunks, translated_parts), current_completed
 
-            code = str(rep.get("code", "")) if isinstance(rep, dict) else ""
-            err = str(rep.get("error", "")) if isinstance(rep, dict) else ""
-            msg = (err or code or "unknown").strip()
-            raise TranslationError("error.translation.worker_error", detail=msg)
+    def translate_text(
+        self,
+        *,
+        text: str,
+        src_lang: str,
+        tgt_lang: str,
+        cancel_check: CancelCheckFn,
+        progress_cb: ProgressFn | None = None,
+    ) -> str:
+        payload = str(text or "").strip()
+        if not payload:
+            return ""
 
-        return str(rep.get("text", "") or "").strip()
-
-    @staticmethod
-    def _runtime_request_payload() -> dict[str, Any]:
-        if AppConfig.SETTINGS is None:
-            raise ConfigError("error.runtime.settings_not_initialized")
-
-        mdl = AppConfig.translation_model_raw_cfg_dict()
-        if not mdl:
-            raise ConfigError("error.runtime.settings_not_initialized")
-
-        model_path = AppConfig.PATHS.TRANSLATION_ENGINE_DIR
-        if not (model_path.exists() and model_path.is_dir()):
-            raise ConfigError("error.model.translation_missing", path=str(model_path))
-
-        advanced = mdl.get("advanced") if isinstance(mdl.get("advanced"), dict) else {}
-        runtime = RuntimeProfiles.resolve_translation_runtime(
-            profile=mdl.get("profile", RuntimeProfiles.TRANSLATION_DEFAULT_PROFILE),
-            overrides=advanced,
+        runtime = self._runtime_config()
+        chunks = plan_chunks(payload, max_chars=runtime.chunk_max_chars)
+        total_budget = sum(max(1, len(chunk.text)) for chunk in chunks)
+        translated_text, _completed = self._translate_chunk_plan(
+            chunks=chunks,
+            src_lang=src_lang,
+            tgt_lang=tgt_lang,
+            runtime=runtime,
+            cancel_check=cancel_check,
+            progress_cb=progress_cb,
+            completed=0,
+            total=total_budget,
         )
-        return {
-            "model_ref": str(model_path),
-            "device": str(AppConfig.DEVICE_ID),
-            "dtype": _dtype_name(str(AppConfig.DTYPE_ID)),
-            "low_cpu_mem_usage": bool(AppConfig.engine_low_cpu_mem_usage()),
-            "max_new_tokens": int(mdl["max_new_tokens"]),
-            "chunk_max_chars": int(mdl["chunk_max_chars"]),
-            "profile": str(runtime["profile"]),
-            "style": str(runtime["style"]),
-            "num_beams": int(runtime["num_beams"]),
-            "no_repeat_ngram_size": int(runtime["no_repeat_ngram_size"]),
-        }
+        return translated_text
 
+    def translate_segments(
+        self,
+        *,
+        segments: list[dict[str, Any]],
+        src_lang: str,
+        tgt_lang: str,
+        cancel_check: CancelCheckFn,
+        progress_cb: ProgressFn | None = None,
+    ) -> SegmentTranslationResult:
+        runtime = self._runtime_config()
+        planned: list[tuple[dict[str, object], list[TranslationChunk]]] = []
+        total_budget = 0
 
-__all__ = [
-    "LogFn",
-    "TranslationError",
-    "TranslationService",
-]
+        for segment in list(segments or []):
+            text = str(segment.get("text") or "").strip()
+            if not text:
+                continue
+            chunk_plan = plan_chunks(text, max_chars=runtime.chunk_max_chars)
+            planned.append((dict(segment or {}), chunk_plan))
+            total_budget += sum(max(1, len(chunk.text)) for chunk in chunk_plan)
+
+        completed = 0
+        translated_segments: list[dict[str, Any]] = []
+        for segment, chunk_plan in planned:
+            translated_text, completed = self._translate_chunk_plan(
+                chunks=chunk_plan,
+                src_lang=src_lang,
+                tgt_lang=tgt_lang,
+                runtime=runtime,
+                cancel_check=cancel_check,
+                progress_cb=progress_cb,
+                completed=completed,
+                total=total_budget,
+            )
+            translated_segments.append(
+                {
+                    "start": segment.get("start"),
+                    "end": segment.get("end"),
+                    "text": translated_text,
+                }
+            )
+
+        plain_text = stitch_texts(str(item.get("text") or "") for item in translated_segments)
+        return SegmentTranslationResult(plain_text=plain_text, segments=translated_segments)

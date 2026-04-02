@@ -8,56 +8,27 @@ from typing import Any
 
 LoggerLike = Any
 
-_TRANSLATION_WORKER_ARG = '--translation-worker'
-
 if __package__ in (None, ''):
     root_dir = Path(__file__).resolve().parents[1]
     if str(root_dir) not in sys.path:
         sys.path.insert(0, str(root_dir))
 
-
-def _resolve_bundle_root() -> Path:
-    if getattr(sys, 'frozen', False):
-        return Path(getattr(sys, '_MEIPASS', Path(sys.executable).resolve().parent)).resolve()
-    return Path(__file__).resolve().parent.parent
-
-
-def _resolve_install_root() -> Path:
-    if getattr(sys, 'frozen', False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
-
-
-def _dispatch_embedded_worker(argv: list[str] | None = None) -> int | None:
-    args = list(argv if argv is not None else sys.argv[1:])
-    if _TRANSLATION_WORKER_ARG not in args:
-        return None
-
-    from app.model.translation.runtime import cli_entry
-
-    return cli_entry(['--worker'])
-
-
-_worker_exit_code = _dispatch_embedded_worker()
-if _worker_exit_code is not None:
-    raise SystemExit(_worker_exit_code)
-
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.controller.coordinators.app_coordinator import AppCoordinator
-from app.controller.workers.startup_worker import build_startup_tasks
-from app.controller.platform.logging_setup import LoggingSetup
+from app.controller.platform.logging_bootstrap import LoggingBootstrap
 from app.model.core.config.config import AppConfig
 from app.model.core.config.meta import AppMeta
 from app.model.core.domain.errors import AppError
 from app.model.core.domain.state import AppRuntimeState
+from app.model.core.runtime.bootstrap import build_startup_labels, resolve_runtime_roots
 from app.model.core.runtime.localization import current_language, load, load_best, tr
 from app.model.core.runtime.platform import ensure_windows_platform
 from app.model.settings.resolution import build_welcome_dialog_payload
 from app.model.settings.service import SettingsService
 from app.model.settings.validation import SettingsError
-from app.view.components.loading_screen import LoadingScreenWidget
 from app.view.components.hint_popup import install_application_tooltip_filter
+from app.view.components.loading_screen import LoadingScreenWidget
 from app.view.dialogs import (
     ask_welcome_dialog,
     critical_config_load_failed_choice,
@@ -74,7 +45,7 @@ from app.view.support.theme_runtime import (
 )
 from app.view.ui_config import UIConfig
 
-_LOG = logging.getLogger(__name__)
+_LOG = logging.getLogger("app.main")
 
 
 def _load_fonts(app: QtWidgets.QApplication, fonts_dir: Path) -> None:
@@ -136,8 +107,7 @@ def _create_application(argv: list[str] | None = None) -> QtWidgets.QApplication
 
 
 def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
-    bundle_root = _resolve_bundle_root()
-    install_root = _resolve_install_root()
+    bundle_root, install_root = resolve_runtime_roots(__file__, unfrozen_parent_index=1)
     AppConfig.set_root_dir(bundle_root, install_root=install_root)
 
     try:
@@ -159,11 +129,11 @@ def _configure_application(app: QtWidgets.QApplication) -> UIConfig:
 
 
 def _setup_logging() -> Any:
-    bootstrap_file_enabled, bootstrap_level = LoggingSetup.read_bootstrap_settings(
+    bootstrap_file_enabled, bootstrap_level = LoggingBootstrap.read_bootstrap_settings(
         AppConfig.PATHS.DEFAULTS_FILE,
         AppConfig.PATHS.SETTINGS_FILE,
     )
-    log_ctx = LoggingSetup.setup(
+    log_ctx = LoggingBootstrap.setup(
         AppConfig.PATHS.APP_LOG_PATH,
         AppConfig.PATHS.CRASH_LOG_PATH,
         file_enabled=bootstrap_file_enabled,
@@ -180,7 +150,7 @@ def _setup_logging() -> Any:
 
     try:
         QtCore.qInstallMessageHandler(
-            LoggingSetup.make_qt_message_handler(log_ctx.crash_log_path)
+            LoggingBootstrap.make_qt_message_handler(log_ctx.crash_log_path)
         )
         _LOG.debug('Qt message handler installed. crash_log=%s', log_ctx.crash_log_path)
     except (RuntimeError, TypeError) as ex:
@@ -239,7 +209,7 @@ def _load_settings(service: SettingsService, logger: LoggerLike) -> Any | None:
             critical_startup_error_and_exit(None, type(restore_ex).__name__)
             return None
     except (OSError, RuntimeError, TypeError, ValueError) as load_ex:
-        logger.exception('Entrypoint settings load failed. detail=%s', load_ex)
+        logger.error('Entrypoint settings load failed. detail=%s', load_ex, exc_info=True)
         critical_startup_error_and_exit(None, type(load_ex).__name__)
         return None
 
@@ -247,7 +217,7 @@ def _load_settings(service: SettingsService, logger: LoggerLike) -> Any | None:
 def _apply_logging_settings(log_ctx: Any, snap: Any) -> None:
     try:
         logging_cfg = snap.app.get('logging', {}) if isinstance(snap.app.get('logging'), dict) else {}
-        LoggingSetup.apply_settings(
+        LoggingBootstrap.apply_settings(
             log_ctx,
             file_enabled=bool(logging_cfg.get('enabled', True)),
             level=str(logging_cfg.get('level', 'warning') or 'warning'),
@@ -282,7 +252,7 @@ def _apply_theme(app: QtWidgets.QApplication, snap: Any, logger: Any) -> str:
         _apply_palette(app, theme)
         logger.debug('Application theme applied. theme=%s styles_dir=%s', theme, AppConfig.PATHS.STYLES_DIR)
     except (OSError, RuntimeError, TypeError, ValueError) as stylesheet_ex:
-        logger.exception('Entrypoint stylesheet failed. detail=%s', stylesheet_ex)
+        logger.error('Entrypoint stylesheet failed. detail=%s', stylesheet_ex, exc_info=True)
     return theme
 
 
@@ -293,26 +263,6 @@ def _apply_window_icon(app: QtWidgets.QApplication, theme: str) -> None:
             app.setWindowIcon(icon)
     except (RuntimeError, TypeError) as ex:
         _LOG.debug("Application window icon update skipped. theme=%s detail=%s", theme, ex)
-
-
-def _clamp_third_party_logging(logger: Any) -> None:
-    try:
-        from transformers.utils import logging as hf_logging
-
-        hf_logging.set_verbosity_error()
-        logger.debug('Transformers logging clamped to error level.')
-    except (ImportError, AttributeError, RuntimeError, TypeError, ValueError) as ex:
-        logger.debug('Transformers logging clamp skipped. detail=%s', ex)
-
-
-def _build_startup_labels() -> dict[str, str]:
-    return {
-        'asr': tr('loading.stage.transcription_model'),
-        'translation': tr('loading.stage.translation_model'),
-        'init': tr('loading.stage.init'),
-        'dirs': tr('loading.stage.dirs'),
-        'ffmpeg': tr('loading.stage.ffmpeg'),
-    }
 
 
 def _start_loading_screen(app: QtWidgets.QApplication) -> LoadingScreenWidget:
@@ -364,8 +314,8 @@ def _start_startup(
     logger.debug('Loading screen shown.')
 
     controller = AppCoordinator(app)
-    startup = controller.startup
-    labels = _build_startup_labels()
+    runtime = controller.runtime
+    labels = build_startup_labels()
 
     def _on_status(text: str) -> None:
         loading.set_status(text)
@@ -378,7 +328,7 @@ def _start_startup(
     def _on_failed(_failed_key: str, params: dict[str, Any]) -> None:
         detail = str((params or {}).get('detail') or '').strip()
         path = str((params or {}).get('path') or '').strip()
-        logger.error('Entrypoint startup worker failed. detail=%s path=%s', detail, path)
+        logger.error('Entrypoint runtime worker failed. detail=%s path=%s', detail, path)
         loading.finish()
         ui_detail = detail or path or 'StartupError'
         critical_startup_error_and_exit(None, ui_detail)
@@ -391,15 +341,15 @@ def _start_startup(
             win.show()
             live_panel = win.live_panel
             live_has_audio = bool(live_panel.has_audio_devices()) if live_panel is not None else False
-            logger.debug(
+            logger.info(
                 'Startup context ready. asr_ready=%s translation_ready=%s network_status=%s microphones_detected=%s',
-                bool(runtime_state.transcription_ready),
-                bool(runtime_state.translation_ready),
+                bool(runtime_state.transcription.ready),
+                bool(runtime_state.translation.ready),
                 win.network_status(),
                 live_has_audio,
             )
         except (OSError, RuntimeError, TypeError, ValueError, AttributeError) as ready_ex:
-            logger.exception('Entrypoint main window creation failed. detail=%s', ready_ex)
+            logger.error('Entrypoint main window creation failed. detail=%s', ready_ex, exc_info=True)
             loading.finish()
             critical_startup_error_and_exit(None, type(ready_ex).__name__)
             return
@@ -408,20 +358,21 @@ def _start_startup(
         loading.deleteLater()
         QtCore.QTimer.singleShot(0, lambda: _show_runtime_welcome_dialog(app, win, settings_service, logger))
 
-    def _connect_worker(startup_worker: Any) -> None:
-        startup_worker.status.connect(_on_status)
-        startup_worker.progress.connect(_on_progress)
-        startup_worker.failed.connect(_on_failed)
-        startup_worker.ready.connect(_on_ready)
+    def _connect_worker(runtime_worker: Any) -> None:
+        runtime_worker.status.connect(_on_status)
+        runtime_worker.progress.connect(_on_progress)
+        runtime_worker.failed.connect(_on_failed)
+        runtime_worker.ready.connect(_on_ready)
 
-    worker = startup.start(build_startup_tasks(AppConfig, snap, labels), connect=_connect_worker)
+    worker = runtime.start(snap, labels=labels, connect=_connect_worker)
     if worker is None:
         logger.error('Entrypoint startup worker could not be scheduled. reason=busy')
         loading.finish()
         critical_startup_error_and_exit(None, 'StartupBusy')
         return 1
 
-    logger.debug('Startup worker scheduled.')
+    logger.debug('Runtime worker scheduled.')
+    app.aboutToQuit.connect(controller.shutdown)
     return app.exec_()
 
 
@@ -454,7 +405,6 @@ def run(argv: list[str] | None = None) -> int:
 
     theme = _apply_theme(app, snap, _LOG)
     _apply_window_icon(app, theme)
-    _clamp_third_party_logging(_LOG)
 
     snap = AppConfig.SETTINGS or snap
     return _start_startup(app, ui_cfg=ui_cfg, snap=snap, logger=_LOG, settings_service=settings_service)

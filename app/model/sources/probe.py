@@ -8,10 +8,10 @@ from typing import Any, Callable, TypeAlias
 
 from app.model.core.config.config import AppConfig
 from app.model.core.domain.errors import AppError
-from app.model.download.domain import DownloadError
-from app.model.download.policy import DownloadPolicy
 from app.model.core.infrastructure.command_runner import CommandRunner
 from app.model.core.runtime.ffmpeg import resolve_ffmpeg_tool
+from app.model.download.domain import DownloadError
+from app.model.download.policy import DownloadPolicy
 
 _URL_RE = re.compile(r"^(?:https?://|ftp://)", re.IGNORECASE)
 
@@ -66,24 +66,24 @@ class MediaProbeReader:
         """Return True for URL probe errors that should degrade into partial metadata."""
         key = str(ex.key or "").strip()
         return key in {
-            "error.down.authentication_required",
-            "error.down.browser_cookies_unavailable",
-            "error.down.no_downloadable_formats",
-            "error.down.extended_access_required",
+            "error.download.authentication_required",
+            "error.download.browser_cookies_unavailable",
+            "error.download.no_downloadable_formats",
+            "error.download.extended_access_required",
         }
 
     @staticmethod
     def _fallback_url_probe(url: str, ex: DownloadError) -> MediaProbe:
         """Build a partial URL probe result when remote metadata access is blocked."""
-        key = str(ex.key or "error.down.probe_failed")
+        key = str(ex.key or "error.download.probe_failed")
         warning = "partial_metadata"
-        if key == "error.down.authentication_required":
+        if key == "error.download.authentication_required":
             warning = "authentication_required"
-        elif key == "error.down.browser_cookies_unavailable":
+        elif key == "error.download.browser_cookies_unavailable":
             warning = "browser_cookies_unavailable"
-        elif key == "error.down.no_downloadable_formats":
+        elif key == "error.download.no_downloadable_formats":
             warning = "no_public_formats"
-        elif key == "error.down.extended_access_required":
+        elif key == "error.download.extended_access_required":
             warning = "extended_access_required"
         details = {"detail": str(ex), "error_key": key}
         if warning == "extended_access_required":

@@ -144,8 +144,9 @@ class MediaProbeWorker(AccessTaskWorker):
             except OperationCancelled:
                 raise
             except Exception as ex:
-                _LOG.exception(
+                _LOG.error(
                     "Media probe failed.",
+                    exc_info=True,
                     extra={"source": src, "value": val},
                 )
                 self.item_error.emit(

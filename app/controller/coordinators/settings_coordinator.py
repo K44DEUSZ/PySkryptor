@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from PyQt5 import QtCore
 
 from app.controller.panel_protocols import SettingsPanelViewProtocol
-from app.controller.support.panel_support import rebind_settings_panel_view
+from app.controller.support.panel_support import rebind_settings_panel_view, start_worker_lifecycle
 from app.controller.workers.settings_worker import SettingsWorker
 from app.controller.workers.worker_runner import WorkerRunner
 
@@ -21,7 +21,7 @@ class SettingsCoordinator(QtCore.QObject):
     failed = QtCore.pyqtSignal(str, dict)
     settings_loaded = QtCore.pyqtSignal(object)
     saved = QtCore.pyqtSignal(str, object)
-    settings_applied = QtCore.pyqtSignal()
+    settings_applied = QtCore.pyqtSignal(object)
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
@@ -59,14 +59,10 @@ class SettingsCoordinator(QtCore.QObject):
     def cancel(self) -> None:
         self._runner.cancel()
 
-    def _start_worker(self, *, action: str, payload: dict[str, Any] | None = None) -> SettingsWorker | None:
-        if self._runner.is_running():
-            return self._worker
-
-        worker = SettingsWorker(action=action, payload=payload)
+    def _set_worker(self, worker: SettingsWorker | None) -> None:
         self._worker = worker
-        self.busy_changed.emit(True)
 
+    def _start_worker(self, *, action: str, payload: dict[str, Any] | None = None) -> SettingsWorker | None:
         def _connect(wk: SettingsWorker) -> None:
             def _on_loaded(snap: "SettingsSnapshot") -> None:
                 self.settings_loaded.emit(snap)
@@ -74,14 +70,24 @@ class SettingsCoordinator(QtCore.QObject):
             def _on_saved(saved_action: str, snap: "SettingsSnapshot") -> None:
                 self.saved.emit(saved_action, snap)
                 if str(saved_action or "").strip().lower() in {"save", "restore_defaults"}:
-                    self.settings_applied.emit()
+                    self.settings_applied.emit(snap)
 
             wk.settings_loaded.connect(_on_loaded)
             wk.saved.connect(_on_saved)
             wk.failed.connect(self.failed)
 
-        def _done() -> None:
-            self._worker = None
+        def _on_started(_worker: SettingsWorker) -> None:
+            self.busy_changed.emit(True)
+
+        def _on_finished(_worker: SettingsWorker) -> None:
             self.busy_changed.emit(False)
 
-        return self._runner.start(worker, connect=_connect, on_finished=_done)
+        return start_worker_lifecycle(
+            runner=self._runner,
+            current_worker=self._worker,
+            build_worker=lambda: SettingsWorker(action=action, payload=payload),
+            set_worker=self._set_worker,
+            on_started=_on_started,
+            connect_worker=_connect,
+            on_finished=_on_finished,
+        )

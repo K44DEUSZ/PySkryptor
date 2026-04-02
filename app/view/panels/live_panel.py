@@ -10,8 +10,11 @@ from app.controller.panel_protocols import LiveCoordinatorProtocol
 from app.model.core.config.config import AppConfig
 from app.model.core.config.policy import LanguagePolicy
 from app.model.core.config.profiles import RuntimeProfiles
+from app.model.core.domain.entities import SettingsSnapshot
+from app.model.core.domain.state import AppRuntimeState
 from app.model.core.runtime.localization import current_language, language_display_name, tr
-from app.model.engines.service import AIModelsService
+from app.model.engines.resolution import EngineCatalog
+from app.model.engines.types import EngineRuntimeState
 from app.model.settings.resolution import (
     build_live_quick_options_payload,
     compute_translation_runtime,
@@ -66,6 +69,10 @@ class LivePanel(QtWidgets.QWidget):
     _translation_error_key: str | None
     _translation_error_params: dict[str, Any]
     _first_shown: bool
+    _saved_device_name: str
+    _saved_profile: str
+    _saved_mode: str
+    _saved_output_mode: str
 
     def __init__(
         self,
@@ -96,27 +103,25 @@ class LivePanel(QtWidgets.QWidget):
         """Return whether the panel currently sees any available input device."""
         return bool(self._has_audio_devices)
 
-    def on_runtime_state_changed(
-        self,
-        *,
-        transcription_ready: bool,
-        transcription_error_key: str | None,
-        transcription_error_params: dict[str, Any],
-        translation_ready: bool,
-        translation_error_key: str | None,
-        translation_error_params: dict[str, Any],
-    ) -> None:
-        self._transcription_ready = bool(transcription_ready)
-        self._transcription_error_key = str(transcription_error_key or "").strip() or None
-        self._transcription_error_params = dict(transcription_error_params or {})
-        self._translation_ready = bool(translation_ready)
-        self._translation_error_key = str(translation_error_key or "").strip() or None
-        self._translation_error_params = dict(translation_error_params or {})
+    def on_runtime_state_changed(self, state: AppRuntimeState) -> None:
+        self._transcription_ready = bool(state.transcription.ready)
+        self._transcription_error_key = str(state.transcription.error_key or "").strip() or None
+        self._transcription_error_params = dict(state.transcription.error_params or {})
+        self._translation_ready = bool(state.translation.ready)
+        self._translation_error_key = str(state.translation.error_key or "").strip() or None
+        self._translation_error_params = dict(state.translation.error_params or {})
         self._sync_options_ui()
 
     def _coordinator_is_running(self) -> bool:
         coord = self.coordinator()
         return bool(coord is not None and coord.is_running())
+
+    def _coordinator_is_options_save_running(self) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and coord.is_options_save_running())
+
+    def _quick_options_save_is_busy(self) -> bool:
+        return self._coordinator_is_running() or self._coordinator_is_options_save_running()
 
     def _init_state(self) -> None:
         self._status_key = ""
@@ -155,7 +160,7 @@ class LivePanel(QtWidgets.QWidget):
             self,
             build_payload=self._build_quick_options_payload,
             commit=self._commit_quick_options_payload,
-            is_busy=self._coordinator_is_running,
+            is_busy=self._quick_options_save_is_busy,
             interval_ms=1200,
             pending_delay_ms=300,
         )
@@ -197,8 +202,8 @@ class LivePanel(QtWidgets.QWidget):
         self.cmb_device.setEditable(False)
         setup_combo(self.cmb_device, min_h=base_h)
 
-        self.btn_refresh_devices = QtWidgets.QPushButton(tr("live.ctrl.refresh"))
-        self.btn_refresh_devices.setToolTip(tr("live.ctrl.refresh"))
+        self.btn_refresh_devices = QtWidgets.QPushButton(tr("live.controls.refresh"))
+        self.btn_refresh_devices.setToolTip(tr("live.controls.refresh"))
         setup_button(self.btn_refresh_devices, min_h=base_h, min_w=cfg.control_min_w)
 
         dev_row, dev_row_lay = build_layout_host(
@@ -295,9 +300,9 @@ class LivePanel(QtWidgets.QWidget):
         )
         btn_big_row, big_lay = build_layout_host(parent=self, layout="hbox", margins=(0, 0, 0, 0), spacing=cfg.spacing)
 
-        self.btn_start = QtWidgets.QPushButton(tr("live.ctrl.start"))
-        self.btn_pause = QtWidgets.QPushButton(tr("live.ctrl.pause"))
-        self.btn_stop = QtWidgets.QPushButton(tr("live.ctrl.stop"))
+        self.btn_start = QtWidgets.QPushButton(tr("live.controls.start"))
+        self.btn_pause = QtWidgets.QPushButton(tr("live.controls.pause"))
+        self.btn_stop = QtWidgets.QPushButton(tr("live.controls.stop"))
         for button in (self.btn_start, self.btn_pause, self.btn_stop):
             setup_button(button, min_h=cfg.button_big_h, min_w=cfg.control_min_w)
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
@@ -312,8 +317,8 @@ class LivePanel(QtWidgets.QWidget):
             spacing=cfg.spacing,
         )
 
-        self.btn_save = QtWidgets.QPushButton(tr("live.ctrl.save_transcript"))
-        self.btn_clear = QtWidgets.QPushButton(tr("live.ctrl.clear"))
+        self.btn_save = QtWidgets.QPushButton(tr("live.controls.save_transcript"))
+        self.btn_clear = QtWidgets.QPushButton(tr("live.controls.clear"))
         for button in (self.btn_save, self.btn_clear):
             setup_button(button, min_h=base_h, min_w=cfg.control_min_w)
             in_lay.addWidget(button)
@@ -563,34 +568,17 @@ class LivePanel(QtWidgets.QWidget):
             target_language_selection=self._session_target_language,
         )
 
-    def _on_quick_options_saved(self, _snap: object) -> None:
-        self._saved_device_name = str(self.cmb_device.currentData() or self._saved_device_name or "").strip()
-        self._saved_profile = RuntimeProfiles.normalize_live_profile(
-            self.cmb_profile.currentData() or self._saved_profile
-        )
-        self._saved_mode = (
-            RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE_TRANSLATE
-            if self._is_translate_mode_checked()
-            else RuntimeProfiles.LIVE_UI_MODE_TRANSCRIBE
-        )
-        self._saved_output_mode = self._current_output_mode()
-        self._session_source_language = str(
-            self.cmb_source_language.code()
-            or self._session_source_language
-            or LanguagePolicy.PREFERRED
-        )
-        self._session_target_language = str(
-            self.cmb_target_language.code()
-            or self._session_target_language
-            or LanguagePolicy.PREFERRED
-        )
-
     def _commit_quick_options_payload(self, payload: dict[str, Any]) -> None:
         coord = self.coordinator()
         if coord is None:
             return
-        self._on_quick_options_saved(None)
         coord.save_quick_options(payload)
+
+    def on_quick_options_saved(self, _snap: SettingsSnapshot) -> None:
+        self._saved_device_name = AppConfig.live_ui_device_name()
+        self._saved_profile = AppConfig.live_ui_profile()
+        self._saved_mode = AppConfig.live_ui_mode()
+        self._saved_output_mode = AppConfig.live_ui_output_mode()
 
     def on_quick_options_save_error(self, key: str, params: dict[str, Any]) -> None:
         dialogs.show_error(self, key=key, params=params or {})
@@ -663,7 +651,7 @@ class LivePanel(QtWidgets.QWidget):
                 coord.resume()
             except (AttributeError, RuntimeError, TypeError) as ex:
                 _LOG.debug("Live resume request skipped. detail=%s", ex)
-            _LOG.debug("Live session resumed.")
+            _LOG.info("Live session resumed.")
             self._set_panel_state(self.STATE_LISTENING, status="status.listening")
 
     def _on_pause_clicked(self) -> None:
@@ -678,11 +666,11 @@ class LivePanel(QtWidgets.QWidget):
         except (AttributeError, RuntimeError, TypeError) as ex:
             _LOG.debug("Live pause request skipped. detail=%s", ex)
 
-        _LOG.debug("Live session paused.")
+        _LOG.info("Live session paused.")
         self._set_panel_state(self.STATE_PAUSED, status="status.paused")
 
     def _on_stop_clicked(self) -> None:
-        _LOG.debug("Live session stop requested.")
+        _LOG.info("Live session stop requested.")
         self._stop_live_session()
         self.spectrum.clear()
         self._set_panel_state(self.STATE_STOPPED, status="status.stopped")
@@ -705,7 +693,7 @@ class LivePanel(QtWidgets.QWidget):
             return
 
         self._start_live_session()
-        _LOG.debug("Live session started.")
+        _LOG.info("Live session started.")
         self._set_panel_state(self.STATE_LISTENING, status="status.listening")
 
     def _build_live_session_request(self) -> dict[str, Any]:
@@ -890,7 +878,7 @@ class LivePanel(QtWidgets.QWidget):
 
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
-            tr("live.ctrl.save_transcript"),
+            tr("live.controls.save_transcript"),
             TranscriptionOutputPolicy.transcript_filename("txt"),
             tr("live.save.file_filter"),
         )
@@ -915,14 +903,18 @@ class LivePanel(QtWidgets.QWidget):
 
     def _translation_runtime_available(self) -> bool:
         return bool(self._translation_ready) and translation_runtime_available(
-            translation_error_key=self._translation_error_key,
-            model_cfg=AIModelsService.current_model_cfg("translation"),
+            translation_state=EngineRuntimeState(
+                ready=self._translation_ready,
+                error_key=self._translation_error_key,
+                error_params=self._translation_error_params,
+            ),
+            model_cfg=EngineCatalog.current_model_cfg("translation"),
         )
 
     def _build_transcription_runtime_presentation(self) -> RuntimePresentation:
         return build_runtime_presentation(
             ready=self._transcription_ready,
-            disabled=AIModelsService.current_model_disabled("transcription"),
+            disabled=EngineCatalog.current_model_disabled("transcription"),
             ready_text=tr("status.idle"),
             disabled_text=tr("files.runtime.status_disabled"),
             missing_text=tr("live.model.unavailable"),
@@ -934,7 +926,7 @@ class LivePanel(QtWidgets.QWidget):
     def _build_translation_runtime_presentation(self) -> RuntimePresentation:
         return build_runtime_presentation(
             ready=self._translation_runtime_available(),
-            disabled=AIModelsService.current_model_disabled("translation"),
+            disabled=EngineCatalog.current_model_disabled("translation"),
             ready_text=tr("status.idle"),
             disabled_text=tr("files.runtime.status_disabled"),
             missing_text=tr("live.model.unavailable"),

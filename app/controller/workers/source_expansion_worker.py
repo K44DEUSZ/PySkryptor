@@ -5,9 +5,9 @@ from PyQt5 import QtCore
 
 from app.controller.workers.access_task_worker import AccessTaskWorker
 from app.model.core.domain.results import SourceExpansionResult
+from app.model.download.domain import DownloadError, SourceAccessInterventionRequired
 from app.model.download.policy import DownloadPolicy
 from app.model.download.service import DownloadService
-from app.model.download.domain import DownloadError, SourceAccessInterventionRequired
 from app.model.sources.service import SourceExpansionService
 
 

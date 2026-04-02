@@ -20,6 +20,7 @@ from app.controller.workers.session_worker import SessionWorker
 from app.model.core.config.profiles import RuntimeProfiles
 from app.model.core.domain.errors import AppError
 from app.model.core.domain.results import LiveUpdate
+from app.model.engines.contracts import TranscriptionEngineProtocol, TranslationEngineProtocol
 from app.model.transcription.chunking import pcm16le_bytes_to_float32
 from app.model.transcription.live import LiveTranscriptionService
 
@@ -47,7 +48,8 @@ class LiveWorker(SessionWorker):
     def __init__(
         self,
         *,
-        pipe: Any,
+        transcription_engine: TranscriptionEngineProtocol,
+        translation_engine: TranslationEngineProtocol,
         device_name: str = "",
         source_language: str = "",
         target_language: str = "",
@@ -58,7 +60,8 @@ class LiveWorker(SessionWorker):
         cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
-        self._pipe = pipe
+        self._transcription_engine = transcription_engine
+        self._translation_engine = translation_engine
         self._device_name = str(device_name or "").strip()
 
         self._src_lang = str(source_language or "").strip()
@@ -376,7 +379,8 @@ class LiveWorker(SessionWorker):
 
     def _create_live_session(self) -> LiveTranscriptionService:
         return LiveTranscriptionService(
-            pipe=self._pipe,
+            transcription_engine=self._transcription_engine,
+            translation_engine=self._translation_engine,
             source_language=self._src_lang,
             target_language=self._tgt_lang,
             translate_enabled=self._translate_enabled,
@@ -481,7 +485,7 @@ class LiveWorker(SessionWorker):
         try:
             self._shutdown_session()
         except (AttributeError, RuntimeError, TypeError, ValueError, OSError):
-            _LOG.exception("Live worker shutdown after failure failed.")
+            _LOG.error("Live worker shutdown after failure failed.", exc_info=True)
 
         self._finish_failure(ex)
 

@@ -1,11 +1,17 @@
 # PySkryptor runtime dependencies
+# PyTorch wheels are resolved from the official CUDA 12.4 package index.
 --extra-index-url https://download.pytorch.org/whl/cu124
 
+# Core application runtime
+Babel>=2.12,<3
 PyQt5==5.15.11
 numpy>=1.24,<3
+
+# AI runtime
+safetensors>=0.4,<1
+sentencepiece>=0.2,<1
 torch==2.6.0+cu124
 transformers>=4.40,<5
-sentencepiece>=0.2,<1
-safetensors>=0.4,<1
+
+# Download runtime
 yt-dlp>=2026.03.17
-Babel>=2.12,<3

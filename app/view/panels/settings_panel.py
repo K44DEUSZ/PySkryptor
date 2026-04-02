@@ -17,28 +17,27 @@ from app.model.core.domain.entities import SettingsSnapshot, snapshot_to_dict
 from app.model.core.runtime.localization import list_locales, tr
 from app.model.download.policy import DownloadPolicy
 from app.model.download.service import DownloadService
-from app.model.engines.resolution import EngineResolver
-from app.model.engines.service import AIModelsService
-from app.model.settings.resolution import transcription_language_codes, translation_language_codes
+from app.model.engines.resolution import EngineCatalog, EngineResolver
 from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view.components.popup_combo import LanguageCombo, PopupComboBox, set_combo_data
 from app.view.components.section_group import SectionGroup
+from app.view.support.host_runtime import open_local_path
+from app.view.support.language_options import supported_source_language_codes, supported_target_language_codes
 from app.view.support.options_autosave import OptionsAutosave
 from app.view.support.theme_runtime import system_theme_key
-from app.view.support.host_runtime import open_local_path
 from app.view.support.widget_effects import enable_styled_background, repolish_widget
 from app.view.support.widget_setup import (
     build_layout_host,
     build_setting_row,
     connect_qt_signal,
+    set_passive_cursor,
     setup_button,
     setup_combo,
     setup_input,
     setup_layout,
     setup_spinbox,
     setup_toggle_button,
-    set_passive_cursor,
 )
 from app.view.ui_config import ui
 
@@ -877,10 +876,10 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cmb_default_language = LanguageCombo(
             special_first=(
-                ("lang.special.auto_detect", LanguagePolicy.AUTO),
-                ("lang.special.last_used", LanguagePolicy.LAST_USED),
+                ("language.special.auto_detect", LanguagePolicy.AUTO),
+                ("language.special.last_used", LanguagePolicy.LAST_USED),
             ),
-            codes_provider=transcription_language_codes,
+            codes_provider=supported_source_language_codes,
         )
         self.cmb_default_language.setMinimumHeight(base_h)
 
@@ -1085,10 +1084,10 @@ class SettingsPanel(QtWidgets.QWidget):
 
         self.cmb_default_target_language = LanguageCombo(
             special_first=(
-                ("lang.special.app_language", LanguagePolicy.DEFAULT_UI),
-                ("lang.special.last_used", LanguagePolicy.LAST_USED),
+                ("language.special.app_language", LanguagePolicy.DEFAULT_UI),
+                ("language.special.last_used", LanguagePolicy.LAST_USED),
             ),
-            codes_provider=translation_language_codes,
+            codes_provider=supported_target_language_codes,
         )
         self.cmb_default_target_language.setMinimumHeight(base_h)
 
@@ -1422,7 +1421,7 @@ class SettingsPanel(QtWidgets.QWidget):
             dialogs.show_info(
                 self,
                 title=tr("dialog.info.title"),
-                message=tr("settings.msg.saved"),
+                message=tr("settings.messages.saved"),
             )
 
     def on_error(self, key: str, params: dict[str, Any]) -> None:
@@ -2278,8 +2277,8 @@ class SettingsPanel(QtWidgets.QWidget):
             return
 
     def _populate_model_engines(self) -> None:
-        transcription_names = AIModelsService.local_model_names("transcription")
-        translation_names = AIModelsService.local_model_names("translation")
+        transcription_names = EngineCatalog.local_model_names("transcription")
+        translation_names = EngineCatalog.local_model_names("translation")
 
         self.cmb_trans_engine.blockSignals(True)
         try:

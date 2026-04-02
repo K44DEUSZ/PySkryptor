@@ -5,7 +5,7 @@ from PyQt5 import QtCore
 
 from app.controller.panel_protocols import DownloaderPanelViewProtocol
 from app.controller.support.expansion_flow import start_source_expansion
-from app.controller.support.panel_support import rebind_downloader_panel_view
+from app.controller.support.panel_support import rebind_downloader_panel_view, start_worker_lifecycle
 from app.controller.workers.download_worker import DownloadWorker
 from app.controller.workers.source_expansion_worker import SourceExpansionWorker
 from app.controller.workers.worker_runner import WorkerRunner
@@ -164,6 +164,9 @@ class DownloaderCoordinator(QtCore.QObject):
     def _set_expansion_worker(self, worker: SourceExpansionWorker | None) -> None:
         self._expansion_worker = worker
 
+    def _set_download_worker(self, worker: DownloadWorker | None) -> None:
+        self._download_worker = worker
+
     def cancel_expansion(self) -> None:
         self._expansion_runner.cancel()
 
@@ -178,24 +181,6 @@ class DownloaderCoordinator(QtCore.QObject):
         audio_track_id: str | None = None,
         browser_cookies_mode_override: str | None = None,
     ) -> DownloadWorker | None:
-        if self._download_runner.is_running():
-            return self._download_worker
-
-        worker = DownloadWorker(
-            action="download",
-            url=url,
-            job_key=job_key,
-            kind=kind,
-            quality=quality,
-            ext=ext,
-            audio_track_id=audio_track_id,
-            browser_cookies_mode_override=browser_cookies_mode_override,
-        )
-        self._download_worker = worker
-
-        self.download_busy_changed.emit(True)
-        self.busy_changed.emit(True)
-
         def _connect(wk: DownloadWorker) -> None:
             def _emit_access_intervention(params: dict[str, object]) -> None:
                 self.access_intervention_required.emit(str(wk.job_key or job_key), dict(params or {}))
@@ -208,13 +193,33 @@ class DownloaderCoordinator(QtCore.QObject):
             wk.cancelled.connect(self.cancelled)
             wk.access_intervention_required.connect(_emit_access_intervention)
 
-        def _done() -> None:
-            self._download_worker = None
+        def _on_started(_worker: DownloadWorker) -> None:
+            self.download_busy_changed.emit(True)
+            self.busy_changed.emit(True)
+
+        def _on_finished(_worker: DownloadWorker) -> None:
             self.download_busy_changed.emit(False)
             self.busy_changed.emit(self.is_busy())
             self.finished.emit()
 
-        return self._download_runner.start(worker, connect=_connect, on_finished=_done)
+        return start_worker_lifecycle(
+            runner=self._download_runner,
+            current_worker=self._download_worker,
+            build_worker=lambda: DownloadWorker(
+                action="download",
+                url=url,
+                job_key=job_key,
+                kind=kind,
+                quality=quality,
+                ext=ext,
+                audio_track_id=audio_track_id,
+                browser_cookies_mode_override=browser_cookies_mode_override,
+            ),
+            set_worker=self._set_download_worker,
+            on_started=_on_started,
+            connect_worker=_connect,
+            on_finished=_on_finished,
+        )
 
     def cancel_download(self) -> None:
         self._download_runner.cancel()

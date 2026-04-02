@@ -47,7 +47,7 @@
     "disable": "Wyłącz",
     "browse": "Przeglądaj..."
   },
-  "ctrl": {
+  "controls": {
     "add": "Dodaj +",
     "cancel": "Anuluj ✖️",
     "exit": "Wyjdź",
@@ -151,7 +151,7 @@
         "header": "Nie wykryto urządzenia wejścia audio"
       }
     },
-    "down": {
+    "download": {
       "exists": {
         "apply_all": "Zastosuj tę decyzję do wszystkich pobrań",
         "overwrite": "Nadpisz ♻️",
@@ -216,7 +216,7 @@
       "dont_show_again": "Nie pokazuj ponownie"
     }
   },
-  "down": {
+  "download": {
     "meta": {
       "channel": "Kanał",
       "date": "Data publikacji",
@@ -255,7 +255,7 @@
     "url": {
       "placeholder": "Wklej tutaj URL multimediów..."
     },
-    "msg": {
+    "messages": {
       "already_on_list": "Ten element jest już na liście pobierania.",
       "bulk_add_summary_added": "Dodano {added} elementów do listy pobierania.",
       "bulk_add_summary_with_duplicates": "Dodano {added} elementów do listy pobierania. Pominięto {skipped} duplikatów.",
@@ -270,7 +270,7 @@
       "ffprobe_failed": "❌ Analiza audio nie powiodła się. Polecenie: {cmd}"
     },
     "cancelled": "Operacja anulowana.",
-    "down": {
+    "download": {
       "download_failed": "❌ Pobieranie nie powiodło się. Szczegóły: {detail}",
       "network_dns_failed": "❌ Nie udało się rozwiązać nazwy hosta.",
       "network_offline": "❌ Brak połączenia z siecią.",
@@ -303,8 +303,19 @@
       "failed": "❌ Nie udało się odczytać metadanych mediów. Szczegóły: {detail}"
     },
     "model": {
+      "not_ready": "Wybrany model nie jest gotowy do pracy.",
       "transcription_missing": "⚠️ Model transkrypcji nie jest zainstalowany.",
       "translation_missing": "⚠️ Model tłumaczenia nie jest zainstalowany."
+    },
+    "engine": {
+      "host_health_failed": "Sprawdzenie stanu hosta silnika nie powiodło się. Szczegóły: {detail}",
+      "host_missing": "Brakuje pliku wykonywalnego hosta silnika: {path}",
+      "host_not_running": "Host silnika nie jest uruchomiony.",
+      "host_ping_failed": "Ping hosta silnika nie powiódł się. Szczegóły: {detail}",
+      "host_protocol_error": "Błąd protokołu hosta silnika. Szczegóły: {detail}",
+      "host_start_failed": "Nie udało się uruchomić hosta silnika. Szczegóły: {detail}",
+      "host_warmup_failed": "Rozgrzewanie hosta silnika nie powiodło się. Szczegóły: {detail}",
+      "no_response_from_host": "Host silnika nie odpowiada."
     },
     "runtime": {
       "settings_not_initialized": "⚠️ Ustawienia nie zostały zainicjalizowane.",
@@ -340,14 +351,9 @@
       "empty_result": "⚠️ Tłumaczenie zwróciło pusty wynik.",
       "language_catalog_unavailable": "⚠️ Katalog języków tłumaczenia jest niedostępny.",
       "missing_source_language": "⚠️ Tłumaczenie wymaga wskazania języka źródłowego.",
-      "no_response_from_worker": "❌ Brak odpowiedzi od workera tłumaczenia.",
       "unsupported_source": "⚠️ Nieobsługiwany język źródłowy: {lang}",
       "unsupported_target": "⚠️ Nieobsługiwany język docelowy: {lang}",
-      "worker_error": "❌ Błąd workera tłumaczenia. Szczegóły: {detail}",
-      "worker_not_running": "⚠️ Worker tłumaczenia nie jest uruchomiony.",
-      "worker_ping_failed": "⚠️ Ping workera tłumaczenia nie powiódł się.",
-      "worker_protocol_error": "❌ Błąd protokołu workera tłumaczenia. Szczegóły: {detail}",
-      "worker_start_failed": "❌ Nie udało się uruchomić workera tłumaczenia. Szczegóły: {detail}"
+      "worker_error": "❌ Błąd workera tłumaczenia. Szczegóły: {detail}"
     },
     "type": {
       "enum": "⚠️ Pole „{field}” ma nieprawidłową wartość „{value}”. Dozwolone: {allowed}",
@@ -400,7 +406,7 @@
       "output_format": {
         "label": "Format wyjściowy"
       },
-      "temp": {
+      "url_download": {
         "download_audio_only": "Pobieraj tylko audio (źródła URL)",
         "keep_audio": "Zachowaj pobrany plik audio (URL)",
         "keep_video": "Zachowaj pobrany plik wideo (URL)"
@@ -430,7 +436,7 @@
       "local": "Lokalne",
       "url": "URL"
     },
-    "msg": {
+    "messages": {
       "no_media_found": "Nie znaleziono obsługiwanych plików audio/wideo.",
       "bulk_add_summary_added": "Dodano {added} elementów do listy transkrypcyjnej.",
       "bulk_add_summary_with_duplicates": "Dodano {added} elementów do listy transkrypcyjnej. Pominięto {skipped} duplikatów.",
@@ -440,7 +446,7 @@
       "bulk_add_summary_limited_with_duplicates": "Dodano {added} z pierwszych {selected} elementów z {total}. Pominięto {skipped} duplikatów."
     }
   },
-  "lang": {
+  "language": {
     "special": {
       "auto_detect": "Automatyczne wykrywanie",
       "default_ui": "Domyślny (język aplikacji)",
@@ -450,7 +456,7 @@
     }
   },
   "live": {
-    "ctrl": {
+    "controls": {
       "clear": "Wyczyść 🧹",
       "pause": "Pauza ⏸️",
       "refresh": "Odśwież 🔄",
@@ -625,7 +631,7 @@
       "translation_profile": "Określa zestaw parametrów dekodowania tłumaczenia: liczbę rozważanych wariantów, ochronę przed powtórzeniami oraz zachowanie dekodera. Profile wbudowane mają stałe parametry. Profil niestandardowy odblokowuje ich ręczną edycję.",
       "browser_cookies_file_path": "Ścieżka do wyeksportowanego pliku cookies używanego w zaawansowanym trybie uwierzytelnionych pobrań yt_dlp. Dla YouTube jest to stabilniejsza opcja, gdy dostęp do cookies przeglądarki jest blokowany albo rotowany."
     },
-    "msg": {
+    "messages": {
       "saved": "✅ Ustawienia zostały zapisane."
     },
     "network": {

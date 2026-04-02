@@ -385,7 +385,7 @@ def _run_message_dialog(
         (
             _DialogActionSpec(
                 key="ok",
-                text=str(ok_text or tr("ctrl.ok")),
+                text=str(ok_text or tr("controls.ok")),
                 role=QtWidgets.QDialogButtonBox.AcceptRole,
                 is_default=True,
             ),
@@ -979,8 +979,8 @@ def ask_source_rights_notice(parent: QtWidgets.QWidget | None) -> NoticeDecision
             tr("dialog.source_rights_notice.disclaimer"),
         ),
         checkbox_text=tr("dialog.source_rights_notice.dont_show_again"),
-        accept_text=tr("ctrl.add"),
-        reject_text=tr("ctrl.cancel"),
+        accept_text=tr("controls.add"),
+        reject_text=tr("controls.cancel"),
     )
 
 
@@ -1015,7 +1015,7 @@ def critical_config_load_failed_choice(parent: QtWidgets.QWidget | None, details
         header=title,
         body_lines=(msg,),
         accept_text=tr("settings.buttons.restore_defaults"),
-        reject_text=tr("ctrl.exit"),
+        reject_text=tr("controls.exit"),
         default_action="reject",
     )
     return "restore_defaults" if restore else "exit"
@@ -1027,7 +1027,7 @@ def show_no_microphone_dialog(parent: QtWidgets.QWidget | None = None) -> None:
         title=tr("dialog.live.no_devices.title"),
         header=tr("dialog.live.no_devices.header"),
         message=tr("dialog.live.no_devices.text"),
-        ok_text=tr("ctrl.ok"),
+        ok_text=tr("controls.ok"),
     )
 
 
@@ -1037,7 +1037,7 @@ def _availability_dialog(parent: QtWidgets.QWidget | None, *, text_key: str) -> 
         title=tr("dialog.availability.network_offline.title"),
         header=tr("dialog.availability.network_offline.header"),
         message=tr(text_key),
-        ok_text=tr("ctrl.ok"),
+        ok_text=tr("controls.ok"),
     )
 
 
@@ -1063,7 +1063,7 @@ def ask_save_settings(parent: QtWidgets.QWidget) -> bool:
         title=tr("dialog.settings.title"),
         body_lines=(tr("dialog.settings_save_confirm"),),
         accept_text=tr("settings.buttons.save"),
-        reject_text=tr("ctrl.cancel"),
+        reject_text=tr("controls.cancel"),
         default_action="reject",
         width_class=_DialogWidthClass.COMPACT,
     )
@@ -1075,7 +1075,7 @@ def ask_restore_defaults(parent: QtWidgets.QWidget) -> bool:
         title=tr("dialog.settings.title"),
         body_lines=(tr("dialog.settings_restore_confirm"),),
         accept_text=tr("settings.buttons.restore_defaults"),
-        reject_text=tr("ctrl.cancel"),
+        reject_text=tr("controls.cancel"),
         default_action="reject",
         width_class=_DialogWidthClass.COMPACT,
     )
@@ -1101,7 +1101,7 @@ def ask_open_transcripts_folder(parent: QtWidgets.QWidget, session_dir: str) -> 
         title=tr("dialog.info.title"),
         message=str(session_dir or ""),
         action_text=tr("files.open_output"),
-        dismiss_text=tr("ctrl.ok"),
+        dismiss_text=tr("controls.ok"),
     )
 
 
@@ -1120,8 +1120,8 @@ def ask_open_downloads_folder(parent: QtWidgets.QWidget, downloaded_path: str) -
         parent,
         title=tr("dialog.info.title"),
         message=message,
-        action_text=tr("down.open_folder"),
-        dismiss_text=tr("ctrl.ok"),
+        action_text=tr("download.open_folder"),
+        dismiss_text=tr("controls.ok"),
     )
 
 
@@ -1142,7 +1142,7 @@ def ask_conflict(parent: QtWidgets.QWidget, stem: str) -> tuple[str, str, bool]:
                 disable_apply_all=True,
             ),
         ),
-        accept_text=tr("ctrl.ok"),
+        accept_text=tr("controls.ok"),
         apply_all_text=tr("dialog.conflict.apply_all"),
         width_class=_DialogWidthClass.STANDARD,
     )
@@ -1162,22 +1162,22 @@ def ask_download_duplicate(
     """Download duplicate dialog."""
     result = _run_choice_dialog(
         parent,
-        title=tr("dialog.down.exists.title"),
-        header=tr("dialog.down.exists.header"),
-        body_lines=(tr("dialog.down.exists.text", title=title),),
+        title=tr("dialog.download.exists.title"),
+        header=tr("dialog.download.exists.header"),
+        body_lines=(tr("dialog.download.exists.text", title=title),),
         options=(
-            _ChoiceOptionSpec(key="skip", label=tr("dialog.down.exists.skip"), default=True),
-            _ChoiceOptionSpec(key="overwrite", label=tr("dialog.down.exists.overwrite")),
+            _ChoiceOptionSpec(key="skip", label=tr("dialog.download.exists.skip"), default=True),
+            _ChoiceOptionSpec(key="overwrite", label=tr("dialog.download.exists.overwrite")),
             _ChoiceOptionSpec(
                 key="rename",
-                label=tr("dialog.down.exists.rename"),
+                label=tr("dialog.download.exists.rename"),
                 editor_kind="line_edit",
                 editor_text=str(suggested_name or ""),
                 disable_apply_all=True,
             ),
         ),
-        accept_text=tr("ctrl.ok"),
-        apply_all_text=tr("dialog.down.exists.apply_all"),
+        accept_text=tr("controls.ok"),
+        apply_all_text=tr("dialog.download.exists.apply_all"),
         width_class=_DialogWidthClass.STANDARD,
     )
     if result.action == "overwrite":
@@ -1246,8 +1246,8 @@ def ask_bulk_add_plan(
                 default=(total > default_n),
             ),
         ),
-        accept_text=tr("ctrl.add"),
-        reject_text=tr("ctrl.cancel"),
+        accept_text=tr("controls.add"),
+        reject_text=tr("controls.cancel"),
         width_class=_DialogWidthClass.WIDE,
     )
     if result.action == "cancel":
@@ -1296,7 +1296,7 @@ class ExpansionProgressDialog(QtWidgets.QDialog):
             (
                 _DialogActionSpec(
                     key="cancel",
-                    text=tr("ctrl.cancel"),
+                    text=tr("controls.cancel"),
                     role=QtWidgets.QDialogButtonBox.RejectRole,
                     is_default=True,
                 ),
@@ -1314,9 +1314,9 @@ def _choose_cookie_file(parent: QtWidgets.QWidget | None) -> str:
     """Open the shared cookie-file picker and return the selected path."""
     file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
         parent,
-        tr("dialog.down.cookies.file_title"),
+        tr("dialog.download.cookies.file_title"),
         "",
-        tr("dialog.down.cookies.file_filter"),
+        tr("dialog.download.cookies.file_filter"),
     )
     return str(file_path or "").strip()
 
@@ -1366,17 +1366,17 @@ def _ask_enhanced_access_intervention(
     can_continue_basic: bool,
     can_continue_degraded: bool,
 ) -> SourceAccessInterventionResolution:
-    label = str(source_label or source_kind or tr("dialog.down.access.source_fallback")).strip()
+    label = str(source_label or source_kind or tr("dialog.download.access.source_fallback")).strip()
     state_key = str(state or "").strip().lower()
-    text_key = "dialog.down.access.text"
+    text_key = "dialog.download.access.text"
     if state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_RECOMMENDED:
-        text_key = "dialog.down.access.text_enhanced_recommended"
+        text_key = "dialog.download.access.text_enhanced_recommended"
     elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_ENHANCED_REQUIRED:
-        text_key = "dialog.down.access.text_enhanced_required"
+        text_key = "dialog.download.access.text_enhanced_required"
     elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_PROVIDER_MISSING:
-        text_key = "dialog.down.access.text_provider_missing"
+        text_key = "dialog.download.access.text_provider_missing"
     elif state_key == DownloadPolicy.EXTRACTOR_ACCESS_STATE_UNAVAILABLE:
-        text_key = "dialog.down.access.text_unavailable"
+        text_key = "dialog.download.access.text_unavailable"
 
     access_detail_lines: list[str] = []
     detail_text = str(detail or "").strip()
@@ -1384,11 +1384,11 @@ def _ask_enhanced_access_intervention(
         access_detail_lines.append(detail_text)
     provider_text = str(provider_state or "").strip()
     if provider_text and provider_text not in {"none", "available"}:
-        access_detail_lines.append(tr("dialog.down.access.provider_state", state=provider_text))
+        access_detail_lines.append(tr("dialog.download.access.provider_state", state=provider_text))
 
     frame = _DialogFrameSpec(
-        title=tr("dialog.down.access.title"),
-        header=tr("dialog.down.access.header", source=label),
+        title=tr("dialog.download.access.title"),
+        header=tr("dialog.download.access.header", source=label),
         lead=tr(text_key, source=label),
         detail_lines=tuple(access_detail_lines),
         width_class=_DialogWidthClass.WIDE,
@@ -1409,7 +1409,7 @@ def _ask_enhanced_access_intervention(
         actions.append(
             _DialogActionSpec(
                 key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_RETRY_ENHANCED,
-                text=tr("dialog.down.access.retry_enhanced"),
+                text=tr("dialog.download.access.retry_enhanced"),
                 role=QtWidgets.QDialogButtonBox.AcceptRole,
                 is_default=True,
             )
@@ -1418,7 +1418,7 @@ def _ask_enhanced_access_intervention(
         actions.append(
             _DialogActionSpec(
                 key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_BASIC,
-                text=tr("dialog.down.access.continue_basic"),
+                text=tr("dialog.download.access.continue_basic"),
                 role=QtWidgets.QDialogButtonBox.ActionRole,
                 is_default=not actions,
             )
@@ -1427,14 +1427,14 @@ def _ask_enhanced_access_intervention(
         actions.append(
             _DialogActionSpec(
                 key=DownloadPolicy.EXTRACTOR_ACCESS_ACTION_CONTINUE_DEGRADED,
-                text=tr("dialog.down.access.continue_degraded"),
+                text=tr("dialog.download.access.continue_degraded"),
                 role=QtWidgets.QDialogButtonBox.ActionRole,
             )
         )
     actions.append(
         _DialogActionSpec(
             key="cancel",
-            text=tr("ctrl.cancel"),
+            text=tr("controls.cancel"),
             role=QtWidgets.QDialogButtonBox.RejectRole,
         )
     )
@@ -1463,16 +1463,16 @@ def _ask_cookie_access_intervention(
 ) -> SourceAccessInterventionResolution:
     source_mode = str(source_kind or "browser").strip().lower()
     if source_mode == "file":
-        label = str(source_label or "").strip() or tr("dialog.down.cookies.source_file_fallback")
-        header = tr("dialog.down.cookies.header_file", file=label)
-        body = tr("dialog.down.cookies.text_file", file=label)
+        label = str(source_label or "").strip() or tr("dialog.download.cookies.source_file_fallback")
+        header = tr("dialog.download.cookies.header_file", file=label)
+        body = tr("dialog.download.cookies.text_file", file=label)
     else:
-        label = str(source_label or "").strip() or tr("dialog.down.cookies.source_browser_fallback")
-        header = tr("dialog.down.cookies.header_browser", browser=label)
-        body = tr("dialog.down.cookies.text_browser", browser=label)
+        label = str(source_label or "").strip() or tr("dialog.download.cookies.source_browser_fallback")
+        header = tr("dialog.download.cookies.header_browser", browser=label)
+        body = tr("dialog.download.cookies.text_browser", browser=label)
 
     frame = _DialogFrameSpec(
-        title=tr("dialog.down.cookies.title"),
+        title=tr("dialog.download.cookies.title"),
         header=header,
         lead=body,
         detail_lines=_normalize_dialog_lines((str(detail or "").strip(),)),
@@ -1490,14 +1490,14 @@ def _ask_cookie_access_intervention(
     if source_mode == "browser" and can_retry and len(ordered_browser_policies) > 1:
         if layout.count() > 0:
             layout.addSpacing(cfg.space_m)
-        layout.addWidget(_wrap_label(tr("dialog.down.cookies.browser_picker_hint")))
+        layout.addWidget(_wrap_label(tr("dialog.download.cookies.browser_picker_hint")))
 
         browser_host = QtWidgets.QWidget(dlg)
         browser_row = QtWidgets.QHBoxLayout(browser_host)
         browser_row.setContentsMargins(0, 0, 0, 0)
         browser_row.setSpacing(_dialog_option_spacing(cfg))
 
-        lbl_browser = QtWidgets.QLabel(tr("dialog.down.cookies.browser_picker_label"), browser_host)
+        lbl_browser = QtWidgets.QLabel(tr("dialog.download.cookies.browser_picker_label"), browser_host)
         setup_label(lbl_browser, role="fieldLabel")
         browser_row.addWidget(lbl_browser)
 
@@ -1528,7 +1528,7 @@ def _ask_cookie_access_intervention(
         actions.append(
             _DialogActionSpec(
                 key="retry",
-                text=tr("dialog.down.cookies.retry"),
+                text=tr("dialog.download.cookies.retry"),
                 role=QtWidgets.QDialogButtonBox.AcceptRole,
                 is_default=True,
             )
@@ -1537,7 +1537,7 @@ def _ask_cookie_access_intervention(
         actions.append(
             _DialogActionSpec(
                 key="use_cookie_file",
-                text=tr("dialog.down.cookies.use_file"),
+                text=tr("dialog.download.cookies.use_file"),
                 role=QtWidgets.QDialogButtonBox.ActionRole,
                 is_default=not actions,
             )
@@ -1546,14 +1546,14 @@ def _ask_cookie_access_intervention(
         actions.append(
             _DialogActionSpec(
                 key="without_cookies",
-                text=tr("dialog.down.cookies.without"),
+                text=tr("dialog.download.cookies.without"),
                 role=QtWidgets.QDialogButtonBox.ActionRole,
             )
         )
     actions.append(
         _DialogActionSpec(
             key="cancel",
-            text=tr("ctrl.cancel"),
+            text=tr("controls.cancel"),
             role=QtWidgets.QDialogButtonBox.RejectRole,
         )
     )
@@ -1631,7 +1631,7 @@ def show_info(parent: QtWidgets.QWidget | None, *, title: str, message: str) -> 
         parent,
         title=title,
         message=message,
-        ok_text=tr("ctrl.ok"),
+        ok_text=tr("controls.ok"),
         width_class=_DialogWidthClass.COMPACT,
     )
 
@@ -1673,7 +1673,7 @@ def show_error(
             title=title or tr("dialog.error.title"),
             message=_sanitize_message(message or ""),
             header=header,
-            ok_text=tr("ctrl.ok"),
+            ok_text=tr("controls.ok"),
         )
         return
 
@@ -1683,5 +1683,5 @@ def show_error(
         title=tr("dialog.error.title"),
         message=msg,
         header=tr("dialog.error.header"),
-        ok_text=tr("ctrl.ok"),
+        ok_text=tr("controls.ok"),
     )

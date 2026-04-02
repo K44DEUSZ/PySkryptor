@@ -10,6 +10,7 @@ from app.controller.workers.access_task_worker import AccessTaskWorker
 from app.controller.workers.task_worker import PendingDecision
 from app.model.core.domain.entities import TranscriptionSessionRequest
 from app.model.download.domain import SourceAccessInterventionRequest, SourceAccessInterventionRequired
+from app.model.engines.contracts import TranscriptionEngineProtocol, TranslationEngineProtocol
 from app.model.transcription.service import TranscriptionService
 
 SourceEntry = str | dict[str, Any]
@@ -31,13 +32,15 @@ class TranscriptionWorker(AccessTaskWorker):
     def __init__(
         self,
         *,
-        pipe: Any,
+        transcription_engine: TranscriptionEngineProtocol,
+        translation_engine: TranslationEngineProtocol,
         entries: list[SourceEntry],
         session_request: TranscriptionSessionRequest,
         cancel_token: CancellationToken | None = None,
     ) -> None:
         super().__init__(cancel_token=cancel_token)
-        self._pipe = pipe
+        self._transcription_engine = transcription_engine
+        self._translation_engine = translation_engine
         self._entries = list(entries or [])
         self._session_request = session_request
         self._session_reported = False
@@ -105,9 +108,11 @@ class TranscriptionWorker(AccessTaskWorker):
         )
 
     def _execute(self) -> None:
-        svc = TranscriptionService()
+        svc = TranscriptionService(
+            transcription_engine=self._transcription_engine,
+            translation_engine=self._translation_engine,
+        )
         res = svc.run_session(
-            pipe=self._pipe,
             entries=self._entries,
             session_request=self._session_request,
             progress=lambda pct: self.progress.emit(int(pct)),

@@ -14,8 +14,8 @@ from app.model.core.config.meta import AppMeta
 from app.model.core.runtime.localization import tr
 from app.view import dialogs
 from app.view.components.section_group import SectionGroup
-from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
 from app.view.support.host_runtime import open_local_path
+from app.view.support.theme_runtime import LogoSvgLabel, logo_svg_path
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import set_passive_cursor, setup_layout
 from app.view.ui_config import ui
@@ -228,7 +228,7 @@ class AboutPanel(QtWidgets.QWidget):
                 return
             _LOG.error("Opening the license file with the system handler failed. path=%s", path)
         except (OSError, RuntimeError, TypeError, ValueError):
-            _LOG.exception("Opening the license file failed. path=%s", path)
+            _LOG.error("Opening the license file failed. path=%s", path, exc_info=True)
 
         dialogs.show_error(
             self,
@@ -253,7 +253,7 @@ class AboutPanel(QtWidgets.QWidget):
             subprocess.Popen(["notepad.exe", str(path)])
             return True
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
-            _LOG.exception("Opening the extensionless text file in Notepad failed. path=%s", path)
+            _LOG.error("Opening the extensionless text file in Notepad failed. path=%s", path, exc_info=True)
             return False
 
     def on_parent_close(self) -> None:

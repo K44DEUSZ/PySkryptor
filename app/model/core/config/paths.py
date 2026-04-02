@@ -14,6 +14,7 @@ class PathCatalog:
     ROOT_DIR: Path
     APP_DIR: Path
     LICENSE_FILE: Path
+    ENGINE_HOST_EXE: Path
     ASSETS_DIR: Path
     RUNTIME_DIR: Path
     AI_MODELS_DIR: Path
@@ -72,6 +73,7 @@ class PathCatalog:
             ROOT_DIR=install_root,
             APP_DIR=app_dir,
             LICENSE_FILE=install_root / 'LICENSE',
+            ENGINE_HOST_EXE=install_root / 'AIModelHost.exe',
             ASSETS_DIR=assets_dir,
             RUNTIME_DIR=runtime_dir,
             AI_MODELS_DIR=models_dir,

@@ -92,7 +92,7 @@ class BaseWorker(QtCore.QObject, metaclass=_BaseWorkerMeta):
         if isinstance(ex, AppError):
             self._log.warning("%s failed. %s", self.__class__.__name__, _app_error_log_detail(ex))
             return
-        self._log.exception("%s failed.", self.__class__.__name__)
+        self._log.error("%s failed.", self.__class__.__name__, exc_info=True)
 
     def _finish_success(self) -> bool:
         if self._finalized:

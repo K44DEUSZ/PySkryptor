@@ -13,23 +13,26 @@ from app.model.core.config.config import AppConfig
 from app.model.core.config.policy import LanguagePolicy
 from app.model.core.domain.entities import TranscriptionSessionRequest
 from app.model.core.domain.results import ExpandedSourceItem, SourceExpansionResult
+from app.model.core.domain.state import AppRuntimeState
 from app.model.core.runtime.localization import current_language, tr
 from app.model.core.utils.string_utils import format_hms
+from app.model.download.domain import SourceAccessInterventionResolution
 from app.model.download.policy import DownloadPolicy
-from app.model.engines.service import AIModelsService
+from app.model.engines.resolution import EngineCatalog
+from app.model.engines.types import EngineRuntimeState
 from app.model.settings.resolution import (
     build_files_quick_options_payload,
     build_transcription_session_request,
     transcription_output_modes,
     translation_runtime_available,
 )
-from app.model.sources.probe import is_url_source
 from app.model.sources.duplicates import (
     SourceDuplicateRecord,
     evaluate_source_duplicate,
     is_duplicate_terminal_status,
 )
 from app.model.sources.parser import build_entries, parse_source_input
+from app.model.sources.probe import is_url_source
 from app.view import dialogs
 from app.view.components.choice_toggle import ChoiceToggle
 from app.view.components.popup_combo import (
@@ -43,6 +46,22 @@ from app.view.components.progress_action_bar import ProgressActionBar
 from app.view.components.runtime_badge import RuntimeBadgeWidget
 from app.view.components.section_group import SectionGroup
 from app.view.components.source_table import SourceTable
+from app.view.support.expansion_ui import (
+    ensure_progress_dialog,
+    hide_progress_dialog,
+    limit_expansion_items,
+    sample_expansion_titles,
+    should_confirm_bulk_add,
+    show_progress_dialog,
+    update_progress_dialog_message,
+)
+from app.view.support.host_runtime import (
+    connect_network_status_changed,
+    normalize_network_status,
+    open_external_url,
+    open_local_path,
+    read_network_status,
+)
 from app.view.support.language_options import (
     build_source_language_items,
     build_target_language_items,
@@ -54,14 +73,10 @@ from app.view.support.language_options import (
     supported_target_language_codes,
 )
 from app.view.support.options_autosave import OptionsAutosave
-from app.view.support.expansion_ui import (
-    ensure_progress_dialog,
-    hide_progress_dialog,
-    limit_expansion_items,
-    sample_expansion_titles,
-    should_confirm_bulk_add,
-    show_progress_dialog,
-    update_progress_dialog_message,
+from app.view.support.source_notice import confirm_source_rights_notice
+from app.view.support.source_probe_presenter import (
+    build_probe_error_presentation,
+    build_probe_success_presentation,
 )
 from app.view.support.status_presenter import (
     RuntimePresentation,
@@ -75,31 +90,18 @@ from app.view.support.status_presenter import (
     status_display_text,
 )
 from app.view.support.theme_runtime import active_theme_key, status_icon
-from app.view.support.host_runtime import (
-    connect_network_status_changed,
-    normalize_network_status,
-    open_external_url,
-    open_local_path,
-    read_network_status,
-)
-from app.view.support.source_notice import confirm_source_rights_notice
-from app.view.support.source_probe_presenter import (
-    build_probe_error_presentation,
-    build_probe_success_presentation,
-)
 from app.view.support.widget_effects import enable_styled_background
 from app.view.support.widget_setup import (
     build_field_stack,
     build_layout_host,
     make_grid,
+    set_passive_cursor,
     setup_button,
     setup_combo,
     setup_input,
     setup_layout,
     setup_option_checkbox,
-    set_passive_cursor,
 )
-from app.model.download.domain import SourceAccessInterventionResolution
 from app.view.ui_config import ui
 
 _LOG = logging.getLogger(__name__)
@@ -169,9 +171,16 @@ class FilesPanel(QtWidgets.QWidget):
         coord = self.coordinator()
         return bool(coord is not None and coord.is_transcribing())
 
+    def _coordinator_is_options_save_running(self) -> bool:
+        coord = self.coordinator()
+        return bool(coord is not None and coord.is_options_save_running())
+
     def _coordinator_is_probe_running(self) -> bool:
         coord = self.coordinator()
         return bool(coord is not None and coord.is_probe_running())
+
+    def _quick_options_save_is_busy(self) -> bool:
+        return self._coordinator_is_transcribing() or self._coordinator_is_options_save_running()
 
     def _new_row_id(self) -> str:
         self._row_seq += 1
@@ -337,7 +346,7 @@ class FilesPanel(QtWidgets.QWidget):
         self.ed_source_input.setObjectName("FilesSourceInput")
         setup_input(self.ed_source_input, placeholder=tr("files.placeholder"), min_h=base_h)
 
-        self.btn_src_add = QtWidgets.QPushButton(tr("ctrl.add"))
+        self.btn_src_add = QtWidgets.QPushButton(tr("controls.add"))
         self.btn_src_add.setObjectName("FilesAddSource")
         setup_button(self.btn_src_add, min_h=base_h, min_w=cfg.control_min_w)
 
@@ -359,8 +368,8 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.btn_add_files = QtWidgets.QPushButton(tr("files.add_files"))
         self.btn_add_folder = QtWidgets.QPushButton(tr("files.add_folder"))
-        self.btn_open_source = QtWidgets.QPushButton(tr("ctrl.open_source"))
-        self.btn_refresh_status = QtWidgets.QPushButton(tr("ctrl.refresh_status"))
+        self.btn_open_source = QtWidgets.QPushButton(tr("controls.open_source"))
+        self.btn_refresh_status = QtWidgets.QPushButton(tr("controls.refresh_status"))
         self.btn_remove_selected = QtWidgets.QPushButton(tr("files.remove_selected"))
         self.btn_clear_list = QtWidgets.QPushButton(tr("files.clear"))
 
@@ -423,8 +432,8 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_action_bar(self, root: QtWidgets.QVBoxLayout, base_h: int) -> None:
         self.action_bar = ProgressActionBar(
-            primary_text=tr("ctrl.start"),
-            secondary_text=tr("ctrl.cancel"),
+            primary_text=tr("controls.start"),
+            secondary_text=tr("controls.cancel"),
             height=base_h,
         )
         self.action_bar.setObjectName("FilesActionBar")
@@ -450,12 +459,12 @@ class FilesPanel(QtWidgets.QWidget):
             column_stretches={0: 1, 1: 1},
         )
 
-        mode_host, out_host, source_host, target_host, tmp_host = self._build_quick_options_controls(base_h)
+        mode_host, out_host, source_host, target_host, url_download_host = self._build_quick_options_controls(base_h)
         ql.addWidget(mode_host, 0, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         ql.addWidget(out_host, 0, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         ql.addWidget(source_host, 1, 0, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
         ql.addWidget(target_host, 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignTop)
-        ql.addWidget(tmp_host, 2, 0, 1, 2)
+        ql.addWidget(url_download_host, 2, 0, 1, 2)
 
         self.grp_model = SectionGroup(
             self,
@@ -502,7 +511,7 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _build_source_language_field(self, base_h: int) -> tuple[QtWidgets.QWidget, QtWidgets.QLabel]:
         self.cmb_source_language = LanguageCombo(
-            special_first=("lang.special.auto_detect", LanguagePolicy.AUTO),
+            special_first=("language.special.auto_detect", LanguagePolicy.AUTO),
             codes_provider=supported_source_language_codes,
         )
         self.cmb_source_language.setMinimumHeight(base_h)
@@ -522,7 +531,7 @@ class FilesPanel(QtWidgets.QWidget):
             out_checks_lay,
             cfg=cfg,
             margins=(0, 0, 0, 0),
-                spacing=cfg.space_s,
+            spacing=cfg.space_s,
         )
 
         for mode in transcription_output_modes():
@@ -546,18 +555,18 @@ class FilesPanel(QtWidgets.QWidget):
             self,
             build_payload=self._build_quick_options_payload,
             commit=self._commit_quick_options_payload,
-            is_busy=self._coordinator_is_transcribing,
+            is_busy=self._quick_options_save_is_busy,
             interval_ms=1200,
             pending_delay_ms=300,
         )
 
-    def _build_url_temp_options_field(self, base_h: int) -> QtWidgets.QWidget:
+    def _build_url_download_options_field(self, base_h: int) -> QtWidgets.QWidget:
         cfg = self._ui
-        self.chk_download_audio_only = QtWidgets.QCheckBox(tr("files.options.temp.download_audio_only"))
+        self.chk_download_audio_only = QtWidgets.QCheckBox(tr("files.options.url_download.download_audio_only"))
         self.chk_download_audio_only.setToolTip(tr("files.options.help.download_audio_only"))
         setup_option_checkbox(self.chk_download_audio_only, min_h=base_h)
 
-        self.chk_keep_url_audio = QtWidgets.QCheckBox(tr("files.options.temp.keep_audio"))
+        self.chk_keep_url_audio = QtWidgets.QCheckBox(tr("files.options.url_download.keep_audio"))
         self.chk_keep_url_audio.setToolTip(tr("files.options.help.keep_audio"))
         setup_option_checkbox(self.chk_keep_url_audio, min_h=base_h)
 
@@ -565,7 +574,7 @@ class FilesPanel(QtWidgets.QWidget):
         setup_combo(self.cmb_audio_ext, min_h=base_h)
         self.cmb_audio_ext.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
-        self.chk_keep_url_video = QtWidgets.QCheckBox(tr("files.options.temp.keep_video"))
+        self.chk_keep_url_video = QtWidgets.QCheckBox(tr("files.options.url_download.keep_video"))
         self.chk_keep_url_video.setToolTip(tr("files.options.help.keep_video"))
         setup_option_checkbox(self.chk_keep_url_video, min_h=base_h)
 
@@ -577,10 +586,10 @@ class FilesPanel(QtWidgets.QWidget):
         self._fill_video_ext_combo()
         self._create_quick_options_autosave_controller()
 
-        tmp_host = QtWidgets.QWidget()
-        tmp_grid = QtWidgets.QGridLayout(tmp_host)
+        url_download_host = QtWidgets.QWidget()
+        url_download_grid = QtWidgets.QGridLayout(url_download_host)
         setup_layout(
-            tmp_grid,
+            url_download_grid,
             cfg=cfg,
             margins=(0, 0, 0, 0),
             spacing=cfg.spacing,
@@ -588,22 +597,22 @@ class FilesPanel(QtWidgets.QWidget):
             vspacing=cfg.space_s,
             column_stretches={0: 1, 1: 1},
         )
-        tmp_grid.addWidget(self.chk_download_audio_only, 2, 0, 1, 2)
+        url_download_grid.addWidget(self.chk_download_audio_only, 2, 0, 1, 2)
 
         aud_row = QtWidgets.QWidget()
         aud_lay = QtWidgets.QHBoxLayout(aud_row)
         setup_layout(aud_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
         aud_lay.addWidget(self.chk_keep_url_audio, 0)
         aud_lay.addWidget(self.cmb_audio_ext, 1)
-        tmp_grid.addWidget(aud_row, 3, 0)
+        url_download_grid.addWidget(aud_row, 3, 0)
 
         vid_row = QtWidgets.QWidget()
         vid_lay = QtWidgets.QHBoxLayout(vid_row)
         setup_layout(vid_lay, cfg=cfg, margins=(0, 0, 0, 0), spacing=cfg.space_s)
         vid_lay.addWidget(self.chk_keep_url_video, 0)
         vid_lay.addWidget(self.cmb_video_ext, 1)
-        tmp_grid.addWidget(vid_row, 3, 1)
-        return tmp_host
+        url_download_grid.addWidget(vid_row, 3, 1)
+        return url_download_host
 
     def _build_quick_options_controls(
         self,
@@ -613,12 +622,13 @@ class FilesPanel(QtWidgets.QWidget):
         target_host, self.lbl_target_lang = self._build_target_language_field(base_h)
         source_host, self.lbl_source_lang = self._build_source_language_field(base_h)
         out_host, self.lbl_output = self._build_output_formats_field(base_h)
-        tmp_host = self._build_url_temp_options_field(base_h)
-        return mode_host, out_host, source_host, target_host, tmp_host
+        url_download_host = self._build_url_download_options_field(base_h)
+        return mode_host, out_host, source_host, target_host, url_download_host
 
     def _wire_signals(self) -> None:
         self.btn_src_add.clicked.connect(self._on_add_clicked)
         self.ed_source_input.returnPressed.connect(self._on_add_clicked)
+        self.ed_source_input.textChanged.connect(self._update_open_source_state)
 
         self.btn_add_files.clicked.connect(self._on_add_files_clicked)
         self.btn_add_folder.clicked.connect(self._on_add_folder_clicked)
@@ -685,7 +695,7 @@ class FilesPanel(QtWidgets.QWidget):
             )
             self.tg_mode.set_first_checked(not translate_after)
 
-            translation_option_enabled = not AIModelsService.current_model_disabled("translation")
+            translation_option_enabled = not EngineCatalog.current_model_disabled("translation")
             self.tg_mode.set_second_enabled(translation_option_enabled)
 
             self._rebuild_target_language_combo(
@@ -841,7 +851,7 @@ class FilesPanel(QtWidgets.QWidget):
         error_key: str | None,
         error_params: dict[str, Any],
     ) -> RuntimePresentation:
-        disabled = AIModelsService.model_cfg_disabled(model_cfg)
+        disabled = EngineCatalog.model_cfg_disabled(model_cfg)
         engine_name = str(model_cfg.get("engine_name", "none") or "none").strip()
         return build_runtime_presentation(
             ready=bool(ready and (not disabled)),
@@ -856,7 +866,7 @@ class FilesPanel(QtWidgets.QWidget):
     def _build_runtime_summary_presentation(self) -> RuntimePresentation:
         return build_runtime_presentation(
             ready=self._transcription_ready,
-            disabled=AIModelsService.current_model_disabled("transcription"),
+            disabled=EngineCatalog.current_model_disabled("transcription"),
             ready_text=tr("files.runtime.status_ready"),
             disabled_text=tr("files.runtime.status_disabled"),
             missing_text=tr("files.runtime.status_missing"),
@@ -1094,19 +1104,23 @@ class FilesPanel(QtWidgets.QWidget):
 
     def _translation_runtime_available(self) -> bool:
         return bool(self._translation_ready) and translation_runtime_available(
-            translation_error_key=self._translation_error_key,
-            model_cfg=AIModelsService.current_model_cfg("translation"),
+            translation_state=EngineRuntimeState(
+                ready=self._translation_ready,
+                error_key=self._translation_error_key,
+                error_params=self._translation_error_params,
+            ),
+            model_cfg=EngineCatalog.current_model_cfg("translation"),
         )
 
     def _refresh_mode_badge(self) -> None:
         asr_presentation = self._build_runtime_engine_presentation(
-            model_cfg=AIModelsService.current_model_cfg("transcription"),
+            model_cfg=EngineCatalog.current_model_cfg("transcription"),
             ready=self._transcription_ready,
             error_key=self._transcription_error_key,
             error_params=self._transcription_error_params,
         )
         translation_presentation = self._build_runtime_engine_presentation(
-            model_cfg=AIModelsService.current_model_cfg("translation"),
+            model_cfg=EngineCatalog.current_model_cfg("translation"),
             ready=self._translation_ready,
             error_key=self._translation_error_key,
             error_params=self._translation_error_params,
@@ -1312,7 +1326,7 @@ class FilesPanel(QtWidgets.QWidget):
             p.mkdir(parents=True, exist_ok=True)
             open_local_path(p)
         except (OSError, RuntimeError, TypeError, ValueError) as e:
-            _LOG.exception("Opening the preview output folder failed. key=%s path=%s", key, out_dir)
+            _LOG.error("Opening the preview output folder failed. key=%s path=%s", key, out_dir, exc_info=True)
             dialogs.show_error(self, key="dialog.error.unexpected", params={"msg": str(e)})
 
     @QtCore.pyqtSlot(int)
@@ -1334,7 +1348,7 @@ class FilesPanel(QtWidgets.QWidget):
         self._audio_track_by_row_id[key] = str(track_id).strip() or None if track_id else None
 
     def _update_audio_tracks(self, row: int, meta: dict[str, Any]) -> None:
-        default_text = tr("down.select.audio_track.default")
+        default_text = tr("download.select.audio_track.default")
         row_id = self._row_id_at(row)
         if row_id:
             self._audio_track_by_row_id.setdefault(row_id, None)
@@ -1433,7 +1447,7 @@ class FilesPanel(QtWidgets.QWidget):
 
         track_cb = self.tbl_sources.make_audio_track_combo(
             internal_key=row_id,
-            default_text=tr("down.select.audio_track.default"),
+            default_text=tr("download.select.audio_track.default"),
             on_changed=self._on_lang_combo_changed,
             enabled=False,
         )
@@ -1505,7 +1519,6 @@ class FilesPanel(QtWidgets.QWidget):
         has_runnable_items = bool(self._transcription_row_ids())
         action_rows = self._action_rows()
         has_sel = bool(action_rows)
-        has_source_target = bool(self._source_target_for_row(action_rows[0])) if action_rows else False
         model_ready = self._transcription_ready
         running = self._is_transcription_running()
         expanding = self._coordinator_is_expanding()
@@ -1521,7 +1534,6 @@ class FilesPanel(QtWidgets.QWidget):
 
         self.btn_src_add.setEnabled(not busy and model_ready)
         self.btn_open_output.setEnabled(True)
-        self.btn_open_source.setEnabled(has_source_target)
         self.btn_refresh_status.setEnabled(has_sel and not busy and model_ready)
 
         self.btn_add_files.setEnabled(not busy and model_ready)
@@ -1551,6 +1563,7 @@ class FilesPanel(QtWidgets.QWidget):
                 can_choose = bool(w.property("has_choices"))
                 w.setEnabled(bool(can_choose and (not running) and model_ready))
 
+        self._update_open_source_state()
         self._sync_options_ui()
 
     def _discard_source_state(self, row_id: str) -> None:
@@ -1672,23 +1685,23 @@ class FilesPanel(QtWidgets.QWidget):
         limited = bool(total > 0 and 0 < selected < total)
         if total <= 1:
             if added_count == 0 and duplicate_count > 0:
-                message = tr("files.msg.already_on_list")
+                message = tr("files.messages.already_on_list")
         elif limited and added_count > 0 and duplicate_count > 0:
             message = tr(
-                "files.msg.bulk_add_summary_limited_with_duplicates",
+                "files.messages.bulk_add_summary_limited_with_duplicates",
                 added=added_count,
                 selected=selected,
                 total=total,
                 skipped=duplicate_count,
             )
         elif limited and added_count > 0:
-            message = tr("files.msg.bulk_add_summary_limited", added=added_count, selected=selected, total=total)
+            message = tr("files.messages.bulk_add_summary_limited", added=added_count, selected=selected, total=total)
         elif added_count > 0 and duplicate_count > 0:
-            message = tr("files.msg.bulk_add_summary_with_duplicates", added=added_count, skipped=duplicate_count)
+            message = tr("files.messages.bulk_add_summary_with_duplicates", added=added_count, skipped=duplicate_count)
         elif added_count > 0:
-            message = tr("files.msg.bulk_add_summary_added", added=added_count)
+            message = tr("files.messages.bulk_add_summary_added", added=added_count)
         elif duplicate_count > 0:
-            message = tr("files.msg.bulk_add_summary_duplicates_only", skipped=duplicate_count)
+            message = tr("files.messages.bulk_add_summary_duplicates_only", skipped=duplicate_count)
 
         if not message:
             return
@@ -1788,6 +1801,15 @@ class FilesPanel(QtWidgets.QWidget):
             return ""
         return self._source_key_for_row_id(row_id)
 
+    def _source_target(self) -> str:
+        rows = self._action_rows()
+        if rows:
+            return self._source_target_for_row(rows[0])
+        return str(self.ed_source_input.text() or "").strip()
+
+    def _update_open_source_state(self) -> None:
+        self.btn_open_source.setEnabled(bool(self._source_target()))
+
     @staticmethod
     def _open_source_target(target: str) -> bool:
         source = str(target or "").strip()
@@ -1814,10 +1836,10 @@ class FilesPanel(QtWidgets.QWidget):
             return False
 
     def _on_open_source_clicked(self) -> None:
-        rows = self._action_rows()
-        if not rows:
+        target = self._source_target()
+        if not target:
             return
-        self._open_source_target(self._source_target_for_row(rows[0]))
+        self._open_source_target(target)
 
     def _reset_row_status(self, row_id: str) -> None:
         target_row_id = str(row_id or "").strip()
@@ -1868,9 +1890,10 @@ class FilesPanel(QtWidgets.QWidget):
             out_dir.mkdir(parents=True, exist_ok=True)
             open_local_path(out_dir)
         except (OSError, RuntimeError, TypeError, ValueError) as e:
-            _LOG.exception(
+            _LOG.error(
                 "Opening the transcriptions output folder failed. path=%s",
                 AppConfig.PATHS.TRANSCRIPTIONS_DIR,
+                exc_info=True,
             )
             dialogs.show_error(self, key="dialog.error.unexpected", params={"msg": str(e)})
 
@@ -2063,7 +2086,7 @@ class FilesPanel(QtWidgets.QWidget):
             dialogs.show_info(
                 self,
                 title=tr("dialog.info.title"),
-                message=tr("files.msg.no_media_found"),
+                message=tr("files.messages.no_media_found"),
             )
             return
 
@@ -2325,22 +2348,13 @@ class FilesPanel(QtWidgets.QWidget):
             _LOG.debug("Conflict resolution fallback applied. stem=%s detail=%s", stem, ex)
             self._submit_conflict_resolution("skip", "")
 
-    def on_runtime_state_changed(
-        self,
-        *,
-        transcription_ready: bool,
-        transcription_error_key: str | None,
-        transcription_error_params: dict[str, Any],
-        translation_ready: bool,
-        translation_error_key: str | None,
-        translation_error_params: dict[str, Any],
-    ) -> None:
-        self._transcription_ready = bool(transcription_ready)
-        self._transcription_error_key = str(transcription_error_key or "").strip() or None
-        self._transcription_error_params = dict(transcription_error_params or {})
-        self._translation_ready = bool(translation_ready)
-        self._translation_error_key = str(translation_error_key or "").strip() or None
-        self._translation_error_params = dict(translation_error_params or {})
+    def on_runtime_state_changed(self, state: AppRuntimeState) -> None:
+        self._transcription_ready = bool(state.transcription.ready)
+        self._transcription_error_key = str(state.transcription.error_key or "").strip() or None
+        self._transcription_error_params = dict(state.transcription.error_params or {})
+        self._translation_ready = bool(state.translation.ready)
+        self._translation_error_key = str(state.translation.error_key or "").strip() or None
+        self._translation_error_params = dict(state.translation.error_params or {})
         self._apply_runtime_model_state()
         self._refresh_target_languages_if_ready()
         self._refresh_runtime_ui()

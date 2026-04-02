@@ -13,8 +13,7 @@ from app.model.core.utils.string_utils import normalize_lang_code
 from app.model.download.cookies import validate_cookie_file
 from app.model.download.policy import DownloadPolicy
 from app.model.engines.capabilities import transcription_language_codes, translation_language_codes
-from app.model.engines.registry import ModelRegistry
-from app.model.engines.resolution import EngineResolver
+from app.model.engines.resolution import EngineResolver, ModelRegistry
 from app.model.transcription.policy import TranscriptionOutputPolicy
 
 _LANG_CODE_RE = re.compile(r"^[a-z]{2,3}([_-][a-z]{2,4})?$", re.IGNORECASE)

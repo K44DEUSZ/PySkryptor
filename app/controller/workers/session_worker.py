@@ -43,7 +43,7 @@ class SessionWorker(BaseWorker, metaclass=_BaseWorkerMeta):
             try:
                 self._shutdown_session()
             except (RuntimeError, OSError, AttributeError, TypeError, ValueError):
-                self._log.exception("%s shutdown after startup failure failed.", self.__class__.__name__)
+                self._log.error("%s shutdown after startup failure failed.", self.__class__.__name__, exc_info=True)
             if isinstance(ex, OperationCancelled) or self.cancel_check():
                 self._finish_cancelled()
             else:

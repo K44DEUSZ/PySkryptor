@@ -8,8 +8,8 @@ from typing import Any
 
 from app.model.core.config.config import AppConfig
 from app.model.core.utils.string_utils import sanitize_filename
-from app.model.download.policy import DownloadPolicy
 from app.model.download.domain import DownloadError
+from app.model.download.policy import DownloadPolicy
 
 
 class DownloadArtifactManager:
@@ -203,7 +203,7 @@ class DownloadArtifactManager:
         artifact_ext_l = DownloadArtifactManager.normalize_ext(artifact.suffix)
         if requested_ext_l and artifact_ext_l and requested_ext_l != artifact_ext_l:
             raise DownloadError(
-                "error.down.download_failed",
+                "error.download.download_failed",
                 detail=f"staged artifact ext mismatch: expected {requested_ext_l}, got {artifact_ext_l}",
             )
 

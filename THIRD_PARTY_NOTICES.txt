@@ -1,0 +1,84 @@
+PySkryptor Third-Party Notices
+==============================
+
+This distribution bundles third-party components required at runtime.
+The list below reflects the primary Python packages and bundled runtime tools
+that are explicitly included by the current build configuration.
+
+When the local package metadata does not declare a license field, the project
+URL is provided and the bundled dist-info metadata inside the packaged
+application should be treated as the authoritative local source of package
+metadata.
+
+Bundled Python packages
+-----------------------
+
+PyQt5 5.15.11
+  Declared license: GPL v3
+  Project URL: https://www.riverbankcomputing.com/software/pyqt/
+
+Babel 2.18.0
+  Declared license: BSD-3-Clause
+  Project URL: https://babel.pocoo.org/
+
+charset-normalizer 3.4.6
+  Declared license: MIT
+  Project URL: https://github.com/jawah/charset_normalizer
+
+numpy 2.4.4
+  Declared license: not provided in local package metadata
+  Project URL: https://numpy.org/
+
+requests 2.33.1
+  Declared license: Apache-2.0
+  Project URL: https://requests.readthedocs.io/
+
+safetensors 0.7.0
+  Declared license: not provided in local package metadata
+  Project URL: https://github.com/huggingface/safetensors
+
+sentencepiece 0.2.1
+  Declared license: not provided in local package metadata
+  Project URL: https://github.com/google/sentencepiece
+
+tokenizers 0.22.2
+  Declared license: not provided in local package metadata
+  Project URL: https://github.com/huggingface/tokenizers
+
+torch 2.6.0+cu124
+  Declared license: BSD-3-Clause
+  Project URL: https://pytorch.org/
+
+transformers 4.57.6
+  Declared license: Apache 2.0 License
+  Project URL: https://github.com/huggingface/transformers
+
+urllib3 2.6.3
+  Declared license: not provided in local package metadata
+  Project URL: https://github.com/urllib3/urllib3
+
+yt-dlp 2026.3.17
+  Declared license: not provided in local package metadata
+  Project URL: https://github.com/yt-dlp/yt-dlp
+
+Bundled runtime tools
+---------------------
+
+FFmpeg 7.1.1 essentials build
+  Declared license: GPL v3
+  Source URL: https://github.com/FFmpeg/FFmpeg/commit/db69d06eee
+  Local notices: bin/ffmpeg/LICENSE and bin/ffmpeg/README.txt
+
+Deno 2.6.10
+  Declared license: see bundled upstream files
+  Project URL: https://deno.com/
+  Local notices: bin/deno/LICENSE.md and bin/deno/README.md
+
+Notes
+-----
+
+- This file is a convenience summary for the packaged application.
+- Additional transitive components may be present through the dependencies
+  listed above.
+- The packaged application also includes metadata collected during the build,
+  which may provide additional licensing details for specific components.

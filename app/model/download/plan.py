@@ -4,9 +4,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.model.download.policy import DownloadPolicy
-from app.model.download.inventory import TrackInventory
 from app.model.download.domain import DownloadError
+from app.model.download.inventory import TrackInventory
+from app.model.download.policy import DownloadPolicy
 
 
 class DownloadPlanBuilder:
@@ -404,7 +404,7 @@ class DownloadPlanBuilder:
                 explicit_selector = DownloadPlanBuilder.explicit_audio_selector(selected_audio_track)
             if not explicit_selector:
                 raise DownloadError(
-                    "error.down.download_failed",
+                    "error.download.download_failed",
                     detail="no matching format found for selected audio track",
                 )
             plan["format"] = explicit_selector
@@ -506,7 +506,7 @@ class DownloadPlanBuilder:
                 plan["format_sort"] = []
                 if not plan["format"]:
                     raise DownloadError(
-                        "error.down.download_failed",
+                        "error.download.download_failed",
                         detail="no matching video format found for selected audio track",
                     )
                 return plan
@@ -516,7 +516,7 @@ class DownloadPlanBuilder:
                 plan["format_sort"] = []
                 if not plan["format"]:
                     raise DownloadError(
-                        "error.down.download_failed",
+                        "error.download.download_failed",
                         detail="no matching video format found for selected audio track",
                     )
                 return plan
@@ -534,7 +534,7 @@ class DownloadPlanBuilder:
                     plan["postprocessors"] = [{"key": "FFmpegVideoConvertor", "preferedformat": ext_l}]
                     return plan
                 raise DownloadError(
-                    "error.down.download_failed",
+                    "error.download.download_failed",
                     detail="no matching video format found for selected audio track",
                 )
 
@@ -543,7 +543,7 @@ class DownloadPlanBuilder:
                 plan["format_sort"] = []
                 if not plan["format"]:
                     raise DownloadError(
-                        "error.down.download_failed",
+                        "error.download.download_failed",
                         detail="no matching video format found for selected audio track",
                     )
                 plan["postprocessors"] = [{"key": "FFmpegVideoRemuxer", "preferedformat": ext_l}]
@@ -554,7 +554,7 @@ class DownloadPlanBuilder:
                 plan["format_sort"] = []
                 if not plan["format"]:
                     raise DownloadError(
-                        "error.down.download_failed",
+                        "error.download.download_failed",
                         detail="no matching video format found for selected audio track",
                     )
                 plan["postprocessors"] = [{"key": "FFmpegVideoConvertor", "preferedformat": ext_l}]
@@ -564,7 +564,7 @@ class DownloadPlanBuilder:
             plan["format_sort"] = []
             if not plan["format"]:
                 raise DownloadError(
-                    "error.down.download_failed",
+                    "error.download.download_failed",
                     detail="no matching video format found for selected audio track",
                 )
             plan["postprocessors"] = [{"key": "FFmpegVideoConvertor", "preferedformat": ext_l}]
@@ -637,7 +637,7 @@ class DownloadPlanBuilder:
         ]
         if not ordered_clients:
             raise DownloadError(
-                "error.down.audio_track_probe_only",
+                "error.download.audio_track_probe_only",
                 label=str(selected_audio_track.get("label") or selected_audio_track.get("lang_code") or ""),
             )
 
@@ -686,4 +686,4 @@ class DownloadPlanBuilder:
             if kind == "audio"
             else "no matching video format found for selected audio track"
         )
-        raise DownloadError("error.down.download_failed", detail=detail)
+        raise DownloadError("error.download.download_failed", detail=detail)

@@ -6,6 +6,7 @@ from typing import Any
 from app.model.core.config.policy import LanguagePolicy
 from app.model.core.utils.string_utils import is_youtube_url
 
+
 class DownloadPolicy:
     """Static download/media rules, formats and artifact contracts."""
 

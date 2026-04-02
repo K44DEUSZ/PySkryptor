@@ -302,14 +302,14 @@ def extract_detected_language_from_result(out: dict[str, Any]) -> str:
     return ""
 
 
-def _resolve_runtime(pipe: Any) -> tuple[Any, Any, Any]:
-    fe = getattr(pipe, "feature_extractor", None) or getattr(
-        getattr(pipe, "processor", None),
+def _resolve_runtime_backend(backend: Any) -> tuple[Any, Any, Any]:
+    fe = getattr(backend, "feature_extractor", None) or getattr(
+        getattr(backend, "processor", None),
         "feature_extractor",
         None,
     )
-    tok = getattr(pipe, "tokenizer", None) or getattr(getattr(pipe, "processor", None), "tokenizer", None)
-    model = getattr(pipe, "model", None)
+    tok = getattr(backend, "tokenizer", None) or getattr(getattr(backend, "processor", None), "tokenizer", None)
+    model = getattr(backend, "model", None)
     return fe, tok, model
 
 
@@ -452,10 +452,10 @@ def debug_source_key(value: str) -> str:
     return Path(text).name or text
 
 
-def detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
+def detect_language_from_backend_runtime(*, backend: Any, audio: Any, sr: int) -> str:
     """Detect language from Whisper logits when the pipeline output omits it."""
     try:
-        fe, tok, model = _resolve_runtime(pipe)
+        fe, tok, model = _resolve_runtime_backend(backend)
         if fe is None or tok is None or model is None:
             return ""
 
@@ -489,7 +489,7 @@ def detect_language_from_pipe_runtime(*, pipe: Any, audio: Any, sr: int) -> str:
         return ""
 
 
-def _normalize_whisper_prompt_ids(prompt_ids: Any, *, pipe: Any) -> Any:
+def _normalize_whisper_prompt_ids(prompt_ids: Any, *, backend: Any) -> Any:
     """Return Whisper prompt ids as a rank-1 torch.LongTensor when possible."""
     if prompt_ids is None:
         return None
@@ -508,7 +508,7 @@ def _normalize_whisper_prompt_ids(prompt_ids: Any, *, pipe: Any) -> Any:
         elif tensor.ndim > 1:
             tensor = tensor.reshape(-1)
 
-        _fe, _tok, model = _resolve_runtime(pipe)
+        _fe, _tok, model = _resolve_runtime_backend(backend)
         device = getattr(model, "device", None) if model is not None else None
         if device is not None:
             try:
@@ -520,14 +520,14 @@ def _normalize_whisper_prompt_ids(prompt_ids: Any, *, pipe: Any) -> Any:
         return prompt_ids
 
 
-def whisper_prompt_ids_from_text(*, pipe: Any, text: str, max_chars: int = 240) -> Any:
+def whisper_prompt_ids_from_text(*, backend: Any, text: str, max_chars: int = 240) -> Any:
     """Return Whisper prompt ids for a short text prefix when supported by the runtime."""
     prompt_text = str(text or "").strip()
     if not prompt_text:
         return None
     if max_chars > 0 and len(prompt_text) > int(max_chars):
         prompt_text = prompt_text[-int(max_chars):].strip()
-    _fe, tok, _model = _resolve_runtime(pipe)
+    _fe, tok, _model = _resolve_runtime_backend(backend)
     if tok is None:
         return None
 
@@ -536,10 +536,10 @@ def whisper_prompt_ids_from_text(*, pipe: Any, text: str, max_chars: int = 240) 
         return None
 
     try:
-        return _normalize_whisper_prompt_ids(get_prompt_ids(prompt_text), pipe=pipe)
+        return _normalize_whisper_prompt_ids(get_prompt_ids(prompt_text), backend=backend)
     except TypeError:
         try:
-            return _normalize_whisper_prompt_ids(get_prompt_ids(prompt_text, return_tensors="pt"), pipe=pipe)
+            return _normalize_whisper_prompt_ids(get_prompt_ids(prompt_text, return_tensors="pt"), backend=backend)
         except (RuntimeError, TypeError, ValueError):
             return None
     except (AttributeError, RuntimeError, TypeError, ValueError):
