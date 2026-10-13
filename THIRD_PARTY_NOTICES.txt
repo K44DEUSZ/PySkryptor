@@ -1,84 +1,123 @@
 PySkryptor Third-Party Notices
-==============================
+=============================
 
-This distribution bundles third-party components required at runtime.
-The list below reflects the primary Python packages and bundled runtime tools
-that are explicitly included by the current build configuration.
+This is the component guide for the modernized source tree.
+Each assembled build also contains licenses/gui, licenses/cpu and, when
+included, licenses/cuda. Their inventory.json files identify distributions
+detected in the corresponding PyInstaller analysis. Full license and NOTICE
+files supplied by those distributions are preserved alongside the inventories.
+An inventory is evidence of build contents, not approval of redistribution.
 
-When the local package metadata does not declare a license field, the project
-URL is provided and the bundled dist-info metadata inside the packaged
-application should be treated as the authoritative local source of package
-metadata.
+Application and interface
+-------------------------
 
-Bundled Python packages
------------------------
+PySkryptor
+  GNU GPL v3. Full text: LICENSE.
+  Source: https://github.com/K44DEUSZ/PySkryptor
 
-PyQt5 5.15.11
-  Declared license: GPL v3
-  Project URL: https://www.riverbankcomputing.com/software/pyqt/
+Python 3.12
+  PSF license and bundled historical notices.
+  The build retains PYTHON-LICENSE.txt in each license directory.
+  Source: https://www.python.org/
 
-Babel 2.18.0
-  Declared license: BSD-3-Clause
-  Project URL: https://babel.pocoo.org/
+PyQt6 6.11.0 and PyQt6-sip
+  PyQt6: GPL v3 or a separately obtained commercial license.
+  SIP: the license supplied in the PyQt6-sip distribution.
+  Source: https://www.riverbankcomputing.com/software/pyqt/
 
-charset-normalizer 3.4.6
-  Declared license: MIT
-  Project URL: https://github.com/jawah/charset_normalizer
+Qt 6.11.2
+  The PyQt6-Qt6 wheel supplies LGPL v3 text. Qt modules, plugins and embedded
+  third-party libraries require review for the exact binary distribution.
+  Source and terms: https://www.qt.io/licensing/
 
-numpy 2.4.4
-  Declared license: not provided in local package metadata
-  Project URL: https://numpy.org/
+Roboto 3.015
+  SIL Open Font License 1.1. Full text and copyright: assets/fonts/OFL.txt.
+  Source: https://github.com/googlefonts/roboto-3-classic/tree/v3.015
 
-requests 2.33.1
-  Declared license: Apache-2.0
-  Project URL: https://requests.readthedocs.io/
+Action SVG icons
+  Original PySkryptor assets, covered by the project's GNU GPL v3 license.
 
-safetensors 0.7.0
-  Declared license: not provided in local package metadata
-  Project URL: https://github.com/huggingface/safetensors
+Space Grotesk
+  SIL Open Font License 1.1. Full text and copyright: assets/fonts/space-grotesk/OFL.txt.
+  Source: https://github.com/google/fonts/tree/main/ofl/spacegrotesk
+  Upstream: https://github.com/floriankarsten/space-grotesk
 
-sentencepiece 0.2.1
-  Declared license: not provided in local package metadata
-  Project URL: https://github.com/google/sentencepiece
+Kaadeusz author mark
+  Author-provided brand asset from https://kaadeusz.pl.
+  Retained as SVG in assets/images/kaadeusz_mark.svg.
 
-tokenizers 0.22.2
-  Declared license: not provided in local package metadata
-  Project URL: https://github.com/huggingface/tokenizers
+Inference packs
+---------------
 
-torch 2.6.0+cu124
-  Declared license: BSD-3-Clause
-  Project URL: https://pytorch.org/
+PyTorch 2.14.1
+  BSD-3-Clause, plus notices for embedded components supplied in its wheel.
+  CPU and NVIDIA packs have independent copies and inventories.
+  Source: https://pytorch.org/
 
-transformers 4.57.6
-  Declared license: Apache 2.0 License
-  Project URL: https://github.com/huggingface/transformers
+Transformers 5.19.0 and Accelerate 1.15.0
+  Apache-2.0, with dependencies listed in each pack's inventory.
+  Source: https://github.com/huggingface/transformers
+  Source: https://github.com/huggingface/accelerate
 
-urllib3 2.6.3
-  Declared license: not provided in local package metadata
-  Project URL: https://github.com/urllib3/urllib3
+NumPy, Babel, SentencePiece, Tokenizers and safetensors
+  Retain the license files and third-party notices from the installed versions.
+  The generated inventory includes their versions and package metadata.
 
-yt-dlp 2026.3.17
-  Declared license: not provided in local package metadata
-  Project URL: https://github.com/yt-dlp/yt-dlp
+Optional NVIDIA pack (CUDA 13.2)
+  CUDA, cuDNN and other native NVIDIA libraries have separate license terms.
+  Review the actual torch wheel's native libraries and retained notices before
+  public distribution. PyTorch's BSD license does not replace those terms.
+  Terms: https://docs.nvidia.com/cuda/eula/index.html
 
-Bundled runtime tools
+Models
+------
+
+User-imported weights are external references and are not copied into builds.
+Their license and provenance are specific to each model. Technical validation
+does not establish permission to redistribute or commercially use a model.
+
+Local integration tests use these official MIT-tagged Hugging Face models:
+  openai/whisper-large-v3-turbo
+    revision: 41f01f3fe87f28c78e2fbf8b568835947dd65ed9
+    https://huggingface.co/openai/whisper-large-v3-turbo
+  facebook/m2m100_418M
+    revision: 55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636
+    https://huggingface.co/facebook/m2m100_418M
+
+Downloading and media tools
+--------------------------
+
+yt-dlp 2026.8.19
+  Unlicense for this Python distribution. The default dependency group is used.
+  Source: https://github.com/yt-dlp/yt-dlp
+
+yt-dlp-ejs 0.8.0 and Deno 2.9.7 in the tested environment
+  Separate distributions with their own retained license files and dependencies.
+  EJS is included locally; automatic remote EJS component downloads are disabled.
+  Sources: https://github.com/yt-dlp/ejs and https://deno.com/
+
+FFmpeg 9.0.2 essentials build (Gyan)
+  This tested build enables GPL and version 3. It is not an LGPL-only build.
+  The local bin/ffmpeg/FFMPEG_SOURCE.json records the archive and executable hashes.
+  Upstream license, README and documentation are retained in bin/ffmpeg/licenses.
+  Sources: https://ffmpeg.org/ and https://www.gyan.dev/ffmpeg/builds/
+  Public distribution requires corresponding sources and notices for the exact
+  FFmpeg build and its included libraries. A project link alone is insufficient.
+
+Language flag artwork
 ---------------------
 
-FFmpeg 7.1.1 essentials build
-  Declared license: GPL v3
-  Source URL: https://github.com/FFmpeg/FFmpeg/commit/db69d06eee
-  Local notices: bin/ffmpeg/LICENSE and bin/ffmpeg/README.txt
+flag-icons 7.5.0, Copyright (c) 2013 Panayiotis Lipiridis, MIT License.
+  Unmodified 4:3 SVG country flags are retained locally in assets/icons/flags.
+  The complete license and source version are retained in that directory.
+  Source: https://github.com/lipis/flag-icons/tree/v7.5.0
+  These flags are auxiliary visual hints. Language codes and model capabilities
+  remain independent of country flags.
 
-Deno 2.6.10
-  Declared license: see bundled upstream files
-  Project URL: https://deno.com/
-  Local notices: bin/deno/LICENSE.md and bin/deno/README.md
+Release review
+--------------
 
-Notes
------
-
-- This file is a convenience summary for the packaged application.
-- Additional transitive components may be present through the dependencies
-  listed above.
-- The packaged application also includes metadata collected during the build,
-  which may provide additional licensing details for specific components.
+Before public distribution, verify native libraries and Qt plugins, source
+availability obligations, all required copyright/NOTICE texts, and model terms
+when weights are offered separately. Review downloader behavior and the terms
+of each supported service independently of the software licenses.

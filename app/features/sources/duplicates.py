@@ -1,0 +1,78 @@
+# app/features/sources/duplicates.py
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Iterable
+
+_DUPLICATE_TERMINAL_STATUS_KEYS = frozenset(
+  {
+    "status.done",
+    "status.saved",
+    "status.skipped",
+    "status.error",
+    "status.cancelled",
+  }
+)
+
+
+@dataclass(frozen=True)
+class SourceDuplicateRecord:
+  """Single source occurrence evaluated by the shared duplicate policy."""
+
+  source_key: str
+  is_terminal: bool
+
+
+@dataclass(frozen=True)
+class DuplicateDecision:
+  """Resolved duplicate decision for one candidate source key."""
+
+  allow: bool
+  duplicate: bool
+
+
+def normalize_duplicate_status_key(status_key: str) -> str:
+  """Strip transient progress suffixes from a duplicate-policy status key."""
+
+  try:
+    return re.sub(r"\s*\(\d+%\)\s*$", "", str(status_key or "")).strip()
+  except (TypeError, ValueError):
+    return str(status_key or "").strip()
+
+
+def is_duplicate_terminal_status(status_key: str) -> bool:
+  """Return whether a status should lock the source for duplicate checks."""
+
+  return normalize_duplicate_status_key(status_key) in _DUPLICATE_TERMINAL_STATUS_KEYS
+
+
+def evaluate_source_duplicate(
+  records: Iterable[SourceDuplicateRecord],
+  candidate_source_key: str,
+) -> DuplicateDecision:
+  """Resolve whether the candidate source key can be added under shared queue rules."""
+
+  target = str(candidate_source_key or "").strip()
+  if not target:
+    return DuplicateDecision(
+      allow=False,
+      duplicate=False,
+    )
+
+  has_active_duplicate = False
+  has_terminal_duplicate = False
+  for record in records:
+    if str(record.source_key or "").strip() != target:
+      continue
+    if bool(record.is_terminal):
+      has_terminal_duplicate = True
+      continue
+    has_active_duplicate = True
+    break
+
+  has_duplicate = bool(has_active_duplicate or has_terminal_duplicate)
+  return DuplicateDecision(
+    allow=not has_duplicate,
+    duplicate=has_duplicate,
+  )

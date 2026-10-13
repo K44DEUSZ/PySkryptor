@@ -1,0 +1,5 @@
+Package: tokenizers 0.23.3
+License: Apache-2.0
+Source: https://raw.githubusercontent.com/huggingface/tokenizers/v0.23.3/LICENSE
+The Python wheel omits the full license file.
+This copy comes from the matching upstream release tag.

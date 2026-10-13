@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">kaadeusz</title>
+  <desc id="desc">Czarna litera k z ośmioramienną gwiazdką na limonkowym tle.</desc>
+  <rect width="256" height="256" fill="#ceff49"/>
+  <g fill="#101110">
+    <path transform="translate(47 214) scale(.235 -.235)" d="M71.5 0L71.5 700L192 700L192 310L209.5 310L380.5 495L538 495L304 255.5L546 0L390.5 0L209.5 199L192 199L192 0Z"/>
+    <path transform="translate(165 146) scale(.145 -.145)" d="M47 460L47 514L132 514L201 505L206 516L150 558L90 619L128 656L188 596L231 541L242 546L233 615L233 700L287 700L287 615L278 546L289 541L332 596L392 656L430 619L370 558L314 516L319 505L388 514L473 514L473 460L388 460L319 468L314 458L370 415L430 355L392 317L332 377L289 433L278 428L287 359L287 274L233 274L233 359L242 428L231 433L188 377L128 317L90 355L150 415L206 458L201 468L132 460Z"/>
+  </g>
+</svg>

@@ -1,0 +1,4 @@
+# Optional NVIDIA inference runtime for Turing and newer GPUs.
+-r requirements-engine.txt
+--extra-index-url https://download.pytorch.org/whl/cu132
+torch==2.14.1+cu132

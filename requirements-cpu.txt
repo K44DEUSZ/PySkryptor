@@ -1,0 +1,4 @@
+# CPU inference runtime, built separately from the GUI.
+-r requirements-engine.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu

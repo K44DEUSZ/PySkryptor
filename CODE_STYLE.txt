@@ -29,7 +29,7 @@ File header comment
 
 Every Python module in app starts with a one-line path header:
 
-    # app/view/panels/files_panel.py
+  # app/ui/panels/files_panel.py
 
 Keep that convention in place.
 
@@ -155,16 +155,16 @@ Whitespace and layout
 
 Indentation and line length
 
-- Python uses 4 spaces
+- Python uses 2 spaces
+- all source files use spaces rather than tabs
 - the preferred line length is 120 characters
 - line endings are LF
 - trailing whitespace should be removed
 - every file should end with a final newline
 
-Automated checks stay intentionally light. Ruff is only used to catch real
-Python issues, import ordering drift, and lines over 120 characters. The rest
-of the visual style remains a conscious project convention rather than
-something enforced by a formatter.
+Automated checks stay intentionally light. Ruff checks Python issues, import ordering and lines over 120 characters.
+Its formatter uses two spaces and preserves the existing quote style.
+EditorConfig applies the same indentation to the other source files.
 
 Typical module shape
 

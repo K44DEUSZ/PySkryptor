@@ -1,0 +1,5 @@
+Package: sentencepiece 0.2.2
+License: Apache-2.0
+Source: https://raw.githubusercontent.com/google/sentencepiece/v0.2.2/LICENSE
+The Python wheel declares this license but omits the full license file.
+This copy comes from the matching upstream release tag.
