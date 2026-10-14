@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable, TypeVar
 from PyQt6 import QtCore, QtGui, QtWidgets, sip
 
 from app.core.config.policy import LanguagePolicy
-from app.core.runtime.localization import SpecialLanguageOptions, build_language_options
+from app.core.runtime.localization import SpecialLanguageOptions, build_language_options, tr
 from app.core.utils.string_utils import normalize_lang_code
 from app.ui.components.hint_popup import hint_popup
 from app.ui.support.language_icons import language_icon
@@ -1076,6 +1076,9 @@ class PopupMultiSelectField(_PopupHostComboMixin, QtWidgets.QComboBox):
 
   def _update_display_text(self) -> None:
     text = self._display_text or self._placeholder
+    summary_key = str(self.property('selection_summary_key') or '')
+    if summary_key and len(self.selected_items()) > 1:
+      text = tr(summary_key, count=len(self.selected_items()))
     self._sync_display_item(text)
     self.setToolTip("")
 

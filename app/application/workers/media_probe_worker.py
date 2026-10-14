@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PyQt6 import QtCore
 
@@ -26,6 +27,7 @@ def _probe_url(
   browser_policy_override: str | None = None,
   access_mode_override: str | None = None,
   interactive: bool = False,
+  cancel_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
   """Probe a remote URL through the shared download service."""
   return DownloadService.probe(
@@ -35,6 +37,7 @@ def _probe_url(
     browser_policy_override=browser_policy_override,
     access_mode_override=access_mode_override,
     interactive=interactive,
+    cancel_check=cancel_check,
   )
 
 
@@ -121,7 +124,7 @@ class MediaProbeWorker(AccessTaskWorker):
     raise RuntimeError("Media probe intervention loop ended unexpectedly")
 
   def _execute(self) -> None:
-    svc = MediaProbeReader(_probe_url)
+    svc = MediaProbeReader(partial(_probe_url, cancel_check=self.cancel_check))
 
     out: list[dict[str, Any]] = []
     for ent in self._entries:

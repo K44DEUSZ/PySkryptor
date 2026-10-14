@@ -97,20 +97,15 @@ class AppCoordinator(QtCore.QObject):
   def _on_settings_applied(self, snapshot: SettingsSnapshot) -> None:
     if self._shutting_down:
       return
-    window = self.main_window
-    if window is not None:
-      files_panel = window.files_panel
-      if files_panel is not None:
-        files_panel.refresh_defaults_from_settings()
-      live_panel = window.live_panel
-      if live_panel is not None:
-        live_panel.refresh_defaults_from_settings()
-
     previous_snapshot = self._runtime_state.settings_snapshot
     if not EngineManager.settings_require_reload(previous_snapshot, snapshot):
       AppConfig.SETTINGS = snapshot
       self._pending_runtime_snapshot = None
       self.set_runtime_state(replace(self._runtime_state, settings_snapshot=snapshot))
+      if self.main_window is not None:
+        for panel in (self.main_window.files_panel, self.main_window.live_panel):
+          if panel is not None:
+            panel.refresh_defaults_from_settings()
       return
 
     self._pending_runtime_snapshot = snapshot

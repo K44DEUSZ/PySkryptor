@@ -9,9 +9,11 @@ from app.core.config.config import AppConfig
 from app.core.domain.errors import OperationCancelled
 from app.core.utils.string_utils import sanitize_filename, sanitize_url_for_log
 from app.features.download.artifacts import DownloadArtifactManager
+from app.features.download.direct_media import extract_direct_track
 from app.features.download.domain import DownloadError, ExtractorAccessContext, SourceAccessInterventionRequired
 from app.features.download.gateway import YtdlpGateway
 from app.features.download.inventory import TrackInventory
+from app.features.download.media_validation import limit_audio_bitrate, tag_audio_language, validate_media
 from app.features.download.plan import DownloadPlanBuilder
 from app.features.download.policy import DownloadPolicy
 from app.features.download.strategy import resolve_extractor_strategy
@@ -170,6 +172,7 @@ def download(
         browser_policy_override=browser_policy_override,
         access_mode_override=access_mode_override,
         interactive=True,
+        cancel_check=cancel_check,
       )
     except DownloadError as ex:
       err_key = str(ex.key or "").strip()
@@ -213,7 +216,10 @@ def download(
         detail="selected audio track is no longer available",
       )
 
-  if selected_audio_track is not None:
+  if selected_audio_track is not None and 'stream_index' in selected_audio_track:
+    candidate = selected_audio_track['candidates'][0]
+    plan = {'format': candidate['format_id'], 'postprocessors': []}
+  elif selected_audio_track is not None:
     ordered_probe_clients = ordered_track_download_clients(
       selected_audio_track,
       meta=meta,
@@ -345,11 +351,12 @@ def download(
       [path.name for path in stage_files],
     )
 
+    direct_selection = selected_audio_track is not None and 'stream_index' in selected_audio_track
     artifact = DownloadArtifactManager.resolve_stage_artifact(
       info=info,
       stage_dir=stage_dir,
       stem=stem,
-      requested_ext=final_ext,
+      requested_ext='' if direct_selection else final_ext,
       artifact_policy=artifact_policy,
     )
     if artifact is None:
@@ -372,6 +379,21 @@ def download(
         detail="download finished without a final stage artifact",
       )
 
+    if direct_selection:
+      artifact = extract_direct_track(
+        artifact, track=selected_audio_track, kind=kind, extension=plan_ext, quality=quality, cancel_check=cancel_check,
+      )
+    if kind == 'audio':
+      limit_audio_bitrate(artifact, quality=quality, cancel_check=cancel_check)
+    if selected_audio_track is not None:
+      tag_audio_language(
+        artifact, language=str(selected_audio_track.get('lang_code') or ''),
+        role=str(selected_audio_track.get('role') or ''), cancel_check=cancel_check,
+      )
+    validate_media(
+      artifact, kind=kind, extension=final_ext, cancel_check=cancel_check,
+      require_audio=selected_audio_track is not None,
+    )
     should_promote = purpose_l == DownloadPolicy.DOWNLOAD_PURPOSE_DOWNLOAD or bool(keep_output)
     if should_promote:
       promoted = DownloadArtifactManager.promote_stage_artifact(

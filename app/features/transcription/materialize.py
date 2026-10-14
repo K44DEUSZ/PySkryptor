@@ -46,6 +46,7 @@ class DownloadUseCaseProtocol(Protocol):
     browser_policy_override: str | None = None,
     access_mode_override: str | None = None,
     interactive: bool = False,
+    cancel_check: Callable[[], bool] | None = None,
   ) -> dict[str, Any]: ...
 
   def download(
@@ -312,6 +313,7 @@ def materialize_url(
       browser_policy_override=browser_override,
       access_mode_override=access_override,
       interactive=True,
+      cancel_check=callbacks.cancel_check,
     ),
   )
   dur = meta.get("duration")

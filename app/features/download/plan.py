@@ -375,6 +375,8 @@ class DownloadPlanBuilder:
     profile = DownloadPolicy.download_audio_format_profile(ext_l)
     selector_extensions = DownloadPolicy.download_audio_selector_extensions(ext_l)
     preferred_codec = str(profile.get("preferredcodec") or ext_l or "").strip().lower()
+    bitrate_match = re.fullmatch(r'(\d+)(?:k|kbps)?', str(quality or '').strip().lower())
+    bitrate = int(bitrate_match.group(1)) if bitrate_match else None
 
     plan: dict[str, Any] = {
       "format": DownloadPlanBuilder.audio_selector(lang_base=lang_base),
@@ -397,6 +399,15 @@ class DownloadPlanBuilder:
         )
       plan["format"] = explicit_selector
       plan["format_sort"] = []
+      if bitrate is not None:
+        candidates = DownloadPlanBuilder.ordered_audio_track_candidates(
+          selected_audio_track, preferred_extensions=selector_extensions,
+        )
+        native = [candidate for candidate in candidates if candidate.get('ext') in selector_extensions
+                  and not candidate.get('has_video') and 0 < float(candidate.get('abr') or 0) <= bitrate + 0.5]
+        if native:
+          native.sort(key=lambda candidate: -float(candidate.get('abr') or 0))
+          plan['format'] = DownloadPlanBuilder.selector_join([str(candidate['format_id']) for candidate in native])
 
     if purpose == DownloadPolicy.DOWNLOAD_PURPOSE_TRANSCRIPTION and not keep_output:
       return plan
@@ -406,6 +417,9 @@ class DownloadPlanBuilder:
         lang_base=lang_base,
         extensions=(ext_l,),
       )
+      if bitrate is not None:
+        selector = plan['format']
+        plan['format'] = f'ba[ext={ext_l}][abr<={bitrate + 0.5}]/' + selector
       return plan
     if (
       selected_audio_track is not None

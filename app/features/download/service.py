@@ -69,6 +69,7 @@ class DownloadService:
     browser_policy_override: str | None = None,
     access_mode_override: str | None = None,
     interactive: bool = False,
+    cancel_check: Callable[[], bool] | None = None,
   ) -> dict[str, Any]:
     return probe(
       url,
@@ -77,6 +78,7 @@ class DownloadService:
       browser_policy_override=browser_policy_override,
       access_mode_override=access_mode_override,
       interactive=interactive,
+      cancel_check=cancel_check,
     )
 
   @staticmethod

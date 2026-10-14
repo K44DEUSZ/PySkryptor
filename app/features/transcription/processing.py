@@ -499,6 +499,12 @@ def process_materialized_work_item(
       detected_lang or "",
     )
 
+    if not merged_text and runtime.options.ignore_warning:
+      callbacks.item_status(key, 'status.skipped')
+      runtime.tracker.mark_done(key)
+      workspace.delete_output_dir_if_empty(out_dir)
+      return ItemProcessResult(False, False, False, apply_all)
+
     translated_text, translated_segments, translate_had_errors = translate_item_if_needed(
       translation_service=translation_service,
       key=key,

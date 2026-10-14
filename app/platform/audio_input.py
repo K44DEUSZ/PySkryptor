@@ -28,6 +28,7 @@ def resolve_input_device(device_name: str = "") -> tuple[Any, QtMultimedia.QAudi
     return QtMultimedia, next((device for device in matches if device.id() == default.id()), matches[0])
   if device_name:
     _LOG.warning("Requested microphone unavailable. description=%s", device_name)
+    return QtMultimedia, None
   return QtMultimedia, None if default.isNull() else default
 
 

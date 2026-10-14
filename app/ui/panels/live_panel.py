@@ -655,6 +655,8 @@ class LivePanel(QtWidgets.QWidget):
     self._warned_no_devices_for_tab = False
     for name in names:
       self.cmb_device.addItem(name, name)
+    if saved_device_name and saved_device_name not in names:
+      self.cmb_device.addItem(tr('live.device.unavailable', name=saved_device_name), saved_device_name)
     _LOG.debug("Live devices refreshed. count=%s selected=%s", len(names), saved_device_name or names[0])
 
     if saved_device_name:

@@ -87,6 +87,9 @@ class LiveTranscriptionService:
     self._chunk_f, self._stride_f, self._step_f = seconds_to_frames(self._sr, chunk_len_s, stride_len_s)
 
     self._buf = bytearray()
+    self._received_frames = 0
+    self._previous_window_end = 0
+    self._overlapping_windows = False
     self._silent_run_s = 0.0
     self._silence_gap_flushed = False
     self._stream_gap_cleared = False
@@ -113,6 +116,7 @@ class LiveTranscriptionService:
     self._detected_lang = ""
     self._archive_source = ""
     self._archive_target = ""
+    self._recoverable_audio = b''
 
     self._draft_source = ""
     self._draft_target = ""
@@ -196,7 +200,7 @@ class LiveTranscriptionService:
     if previous_tokens == current_tokens:
       return previous if len(previous) >= len(current) else current
 
-    max_overlap = min(18, len(previous_tokens), len(current_tokens), len(previous_words), len(current_words))
+    max_overlap = min(len(previous_tokens), len(current_tokens), len(previous_words), len(current_words))
     for overlap in range(max_overlap, 0, -1):
       if previous_tokens[-overlap:] == current_tokens[:overlap]:
         if overlap < int(max(1, min_overlap_words)) and overlap != max_overlap:
@@ -272,6 +276,7 @@ class LiveTranscriptionService:
     )
 
     try:
+      self._recoverable_audio = data
       result = self._transcription_engine.recognize_audio(
         RecognizeAudioRequest(
           audio_b64=base64.b64encode(data).decode("ascii"),
@@ -279,7 +284,8 @@ class LiveTranscriptionService:
           source_language=self._src_lang,
           ignore_warning=self._ignore_warning,
           signal_kind=signal_kind,
-          previous_text=(self._draft_source or self._archive_source or self._previous_source or self._current_source),
+          previous_text=(self._previous_source if not self._overlapping_windows else '')
+          if self._stream_only else self._archive_source,
           require_language=require_language,
           runtime_profile=dict(self._profile),
         ),
@@ -288,6 +294,7 @@ class LiveTranscriptionService:
     except Exception as exc:
       _LOG.error("ASR engine call failed.", exc_info=True)
       raise TranscriptionError("error.transcription.asr_failed") from exc
+    self._recoverable_audio = b''
 
     language_changed = False
     detected = "" if self._source_language_forced else str(result.detected_language or "")
@@ -372,6 +379,8 @@ class LiveTranscriptionService:
   def _commit_stream_caption(self) -> bool:
     source_text = str(self._current_source or "").strip()
     target_text = str(self._current_target or "").strip()
+    if source_text and self._translate and not target_text:
+      target_text = self._translate_text(source_text, min_chars=1)
     if not source_text and not target_text:
       return False
 
@@ -415,23 +424,11 @@ class LiveTranscriptionService:
       return False
 
     if self._translate and not self._draft_target:
-      self._refresh_cumulative_draft_target()
+      self._draft_target = self._translate_text(source_text, min_chars=1)
 
     target_text = str(self._draft_target or "").strip()
-    merged_source = self._merge_text(
-      self._archive_source,
-      source_text,
-      min_overlap_words=self._cumulative_merge_overlap_min,
-    )
-    merged_target = (
-      self._merge_text(
-        self._archive_target,
-        target_text,
-        min_overlap_words=1,
-      )
-      if target_text
-      else self._archive_target
-    )
+    merged_source = (self._archive_source + ' ' + source_text).strip()
+    merged_target = (self._archive_target + ' ' + target_text).strip()
 
     changed = merged_source != self._archive_source or merged_target != self._archive_target
     self._archive_source = merged_source
@@ -459,10 +456,14 @@ class LiveTranscriptionService:
       return False, False
 
     if not self._current_source:
-      if self._previous_source and self._is_revision(
-        self._previous_source,
-        source_text,
-        prefix_ratio=self._stream_replace_prefix_ratio,
+      if (
+        self._overlapping_windows
+        and self._previous_source
+        and self._is_revision(
+          self._previous_source,
+          source_text,
+          prefix_ratio=self._stream_replace_prefix_ratio,
+        )
       ):
         next_previous = self._choose_more_complete_text(
           self._previous_source,
@@ -475,14 +476,11 @@ class LiveTranscriptionService:
       changed = self._set_current_stream_caption(source_text)
       return False, changed
 
-    if self._is_revision(self._current_source, source_text, prefix_ratio=self._stream_replace_prefix_ratio):
-      next_current = self._choose_more_complete_text(
-        self._current_source,
-        source_text,
-        prefix_ratio=self._stream_replace_prefix_ratio,
-      )
-      changed = self._set_current_stream_caption(next_current)
-      return False, changed
+    if self._overlapping_windows:
+      next_current = self._merge_overlapping_revision(self._current_source, source_text)
+      if self._word_count(next_current) <= max(30, self._word_count(source_text) * 2):
+        changed = self._set_current_stream_caption(next_current)
+        return False, changed
 
     merged_current = self._merge_text(
       self._current_source,
@@ -517,17 +515,37 @@ class LiveTranscriptionService:
     if not self._draft_source:
       return False, self._set_cumulative_draft(source_text)
 
-    if self._is_revision(self._draft_source, source_text, prefix_ratio=self._stream_replace_prefix_ratio):
-      next_draft = self._choose_more_complete_text(
-        self._draft_source,
-        source_text,
-        prefix_ratio=self._stream_replace_prefix_ratio,
-      )
-      return False, self._set_cumulative_draft(next_draft)
+    if self._overlapping_windows:
+      next_draft = self._merge_overlapping_revision(self._draft_source, source_text)
+      changed = self._set_cumulative_draft(next_draft)
+      tokens = list(_MERGE_TOKEN_RE.finditer(self._draft_source))
+      keep_words = max(40, self._word_count(source_text) * 2)
+      if len(tokens) > 120 + keep_words:
+        split = tokens[-keep_words].start()
+        prefix, remainder = self._draft_source[:split].strip(), self._draft_source[split:].strip()
+        self._set_cumulative_draft(prefix)
+        committed = self._commit_cumulative_draft()
+        self._set_cumulative_draft(remainder)
+        return committed, True
+      return False, changed
 
     committed = self._commit_cumulative_draft()
     changed = self._set_cumulative_draft(source_text)
     return committed, changed
+
+  @classmethod
+  def _merge_overlapping_revision(cls, previous: str, incoming: str) -> str:
+    """Replace a shared window's revised suffix while keeping earlier speech."""
+    previous_tokens = list(_MERGE_TOKEN_RE.finditer(previous))
+    incoming_tokens = cls._normalized_merge_tokens(incoming)
+    anchor_size = min(4, len(incoming_tokens))
+    if anchor_size >= 3:
+      anchor = incoming_tokens[:anchor_size]
+      for index in range(len(previous_tokens) - anchor_size, -1, -1):
+        words = [match.group().lower() for match in previous_tokens[index : index + anchor_size]]
+        if words == anchor:
+          return (previous[: previous_tokens[index].start()].strip() + ' ' + incoming).strip()
+    return cls._merge_text(previous, incoming)
 
   def _has_active_text(self) -> bool:
     if self._stream_only:
@@ -540,6 +558,7 @@ class LiveTranscriptionService:
     *,
     ignore_cancel: bool = False,
     from_tail: bool = False,
+    window_start_frame: int | None = None,
   ) -> tuple[bool, bool]:
     if not data or ((not ignore_cancel) and self._cancel_check()):
       return False, False
@@ -553,6 +572,10 @@ class LiveTranscriptionService:
       return False, False
     if signal_kind == self.SIGNAL_WEAK and not self._has_active_text():
       return False, False
+
+    self._overlapping_windows = window_start_frame is not None and window_start_frame < self._previous_window_end
+    if window_start_frame is not None:
+      self._previous_window_end = window_start_frame + len(data) // 2
 
     current_source, language_changed = self._transcribe_audio(data, audio, signal_kind=signal_kind)
     current_source = filter_asr_text(
@@ -576,7 +599,7 @@ class LiveTranscriptionService:
     return committed, changed or language_changed
 
   def _flush_tail_buffer(self, *, ignore_cancel: bool = False, min_seconds: float | None = None) -> tuple[bool, bool]:
-    if self._stream_only or not self._buf:
+    if not self._buf:
       return False, False
 
     min_s = self._tail_flush_min_s if min_seconds is None else max(0.0, float(min_seconds))
@@ -585,25 +608,29 @@ class LiveTranscriptionService:
       return False, False
 
     data = bytes(self._buf)
+    window_start_frame = self._received_frames - len(data) // 2
     self._buf.clear()
-    return self._run_engine_on_pcm16(data, ignore_cancel=ignore_cancel, from_tail=True)
+    return self._run_engine_on_pcm16(
+      data,
+      ignore_cancel=ignore_cancel,
+      from_tail=True,
+      window_start_frame=window_start_frame,
+    )
 
   def _flush_on_silence(self, *, ignore_cancel: bool = False) -> list[LiveUpdate]:
     out: list[LiveUpdate] = []
 
-    committed_from_tail = False
-    changed_from_tail = False
-    if not self._stream_only:
-      committed_from_tail, changed_from_tail = self._flush_tail_buffer(
-        ignore_cancel=ignore_cancel,
-        min_seconds=self._tail_flush_min_s,
-      )
+    committed_from_tail, changed_from_tail = self._flush_tail_buffer(
+      ignore_cancel=ignore_cancel,
+      min_seconds=self._tail_flush_min_s,
+    )
 
     committed_from_draft = self._commit_draft()
     if committed_from_tail or changed_from_tail or committed_from_draft:
       out.append(self._build_update())
 
     self._buf.clear()
+    self._previous_window_end = 0
     return out
 
   def _append_update_if_needed(self, updates: list[LiveUpdate], *flags: bool) -> None:
@@ -650,11 +677,13 @@ class LiveTranscriptionService:
         break
 
       chunk = bytes(self._buf[: self._chunk_f * bytes_per_frame])
+      window_start_frame = self._received_frames - len(self._buf) // 2
       del self._buf[: self._step_f * bytes_per_frame]
 
       committed, partial_changed = self._run_engine_on_pcm16(
         chunk,
         ignore_cancel=ignore_cancel,
+        window_start_frame=window_start_frame,
       )
       self._append_update_if_needed(updates, committed, partial_changed)
 
@@ -663,7 +692,7 @@ class LiveTranscriptionService:
   def finalize(self, *, ignore_cancel: bool = False) -> list[LiveUpdate]:
     out: list[LiveUpdate] = []
 
-    if self._buf and (ignore_cancel or not self._cancel_check()) and (not self._stream_only):
+    if self._buf and (ignore_cancel or not self._cancel_check()):
       committed_from_tail, changed_from_tail = self._flush_tail_buffer(
         ignore_cancel=ignore_cancel,
         min_seconds=0.0,
@@ -672,7 +701,7 @@ class LiveTranscriptionService:
 
     if self._commit_draft():
       out.append(self._build_update())
-    elif out or self._detected_lang:
+    elif out or self._detected_lang or self._archive_source or self._previous_source:
       out.append(self._build_update())
 
     self._silent_run_s = 0.0
@@ -680,11 +709,16 @@ class LiveTranscriptionService:
     self._stream_gap_cleared = False
     return out
 
+  def recovery_audio(self) -> bytes:
+    """Retain unfinished audio, including overlapping context, after an inference failure."""
+    return self._recoverable_audio + bytes(self._buf)
+
   def push_pcm16(self, data: bytes, *, level: float | None = None, ignore_cancel: bool = False) -> list[LiveUpdate]:
     if not data or ((not ignore_cancel) and self._cancel_check()):
       return []
 
     chunk_seconds = float(len(data)) / float(max(1, self._sr * 2))
+    self._received_frames += len(data) // 2
     if self._is_silence_chunk(data, level=level):
       return self._handle_silence_chunk(
         data,

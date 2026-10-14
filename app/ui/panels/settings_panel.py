@@ -1174,28 +1174,8 @@ class SettingsPanel(QtWidgets.QWidget):
     )
     self.cmb_default_target_language.setMinimumHeight(base_h)
 
-    self.cmb_translation_style = self._new_combo(base_h)
-    self._add_combo_option(
-      self.cmb_translation_style,
-      "settings.translation.style.literal",
-      RuntimeProfiles.TRANSLATION_STYLE_LITERAL,
-      tooltip_key="settings.translation.style.literal_tip",
-    )
-    self._add_combo_option(
-      self.cmb_translation_style,
-      "settings.translation.style.balanced",
-      RuntimeProfiles.TRANSLATION_STYLE_BALANCED,
-      tooltip_key="settings.translation.style.balanced_tip",
-    )
-    self._add_combo_option(
-      self.cmb_translation_style,
-      "settings.translation.style.fluent",
-      RuntimeProfiles.TRANSLATION_STYLE_FLUENT,
-      tooltip_key="settings.translation.style.fluent_tip",
-    )
-
-    self.sp_translation_beams = self._new_spinbox(base_h, 0, 12, step=1)
-    self.sp_translation_no_repeat = self._new_spinbox(base_h, -1, 8, step=1)
+    self.sp_translation_beams = self._new_spinbox(base_h, 1, 8, step=1)
+    self.sp_translation_no_repeat = self._new_spinbox(base_h, 0, 8, step=1)
     self.sp_translation_max_tokens = self._new_spinbox(base_h, 16, 8192, step=16)
     self.sp_translation_chunk_chars = self._new_spinbox(base_h, 200, 20000, step=100)
 
@@ -1222,16 +1202,6 @@ class SettingsPanel(QtWidgets.QWidget):
         tr("settings.help.translation_profile"),
       ),
       ("model", "translation_model", "profile"),
-    )
-    self._add_tracked_row(
-      lay,
-      self._row(
-        tr("settings.translation.style.label"),
-        self.cmb_translation_style,
-        tr("settings.help.translation_style"),
-        advanced=True,
-      ),
-      ("model", "translation_model", "advanced", "style"),
     )
     self._add_tracked_row(
       lay,
@@ -1279,7 +1249,6 @@ class SettingsPanel(QtWidgets.QWidget):
     self._connect_mark_dirty(
       self.cmb_translation_engine.currentIndexChanged,
       self.cmb_default_target_language.currentIndexChanged,
-      self.cmb_translation_style.currentIndexChanged,
     )
     self._connect_spinbox_mark_dirty(
       self.sp_translation_beams,
@@ -1289,7 +1258,6 @@ class SettingsPanel(QtWidgets.QWidget):
     )
     self.cmb_transcription_profile.currentIndexChanged.connect(self._on_transcription_profile_changed)
     self.cmb_translation_profile.currentIndexChanged.connect(self._on_translation_profile_changed)
-    self.cmb_translation_style.currentIndexChanged.connect(self._on_translation_advanced_changed)
     self.sp_translation_beams.valueChanged.connect(self._on_translation_advanced_changed)
     self.sp_translation_no_repeat.valueChanged.connect(self._on_translation_advanced_changed)
 
@@ -1755,7 +1723,6 @@ class SettingsPanel(QtWidgets.QWidget):
 
   def _capture_translation_controls(self) -> dict[str, Any]:
     return {
-      "style": str(self.cmb_translation_style.currentData() or RuntimeProfiles.TRANSLATION_STYLE_BALANCED),
       "num_beams": max(1, int(self.sp_translation_beams.value())),
       "no_repeat_ngram_size": max(0, int(self.sp_translation_no_repeat.value())),
     }
@@ -1792,14 +1759,9 @@ class SettingsPanel(QtWidgets.QWidget):
         widget.setEnabled(bool(editable))
 
   def _apply_translation_runtime_to_controls(self, runtime: dict[str, Any], *, editable: bool) -> None:
-    set_combo_data(
-      self.cmb_translation_style,
-      runtime.get("style"),
-      fallback_data=RuntimeProfiles.TRANSLATION_STYLE_BALANCED,
-    )
     self.sp_translation_beams.setValue(int(runtime.get("num_beams", 3) or 3))
     self.sp_translation_no_repeat.setValue(int(runtime.get("no_repeat_ngram_size", 0) or 0))
-    for widget in (self.cmb_translation_style, self.sp_translation_beams, self.sp_translation_no_repeat):
+    for widget in (self.sp_translation_beams, self.sp_translation_no_repeat):
       row = self._find_setting_row(widget)
       if row is not None:
         self._set_row_control_enabled(row, editable, control=widget)

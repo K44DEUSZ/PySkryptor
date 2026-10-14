@@ -5,6 +5,7 @@ from typing import Any, Iterable
 
 from app.core.runtime.localization import current_language, language_display_name, tr
 from app.core.utils.string_utils import normalize_lang_code
+from app.features.download.inventory import TrackLabelHeuristics
 
 
 def _normalize_track_role(value: Any) -> str:
@@ -13,6 +14,10 @@ def _normalize_track_role(value: Any) -> str:
     return ""
   if "descriptive" in text:
     return "descriptive"
+  if 'dubbed' in text:
+    return 'dubbed'
+  if 'commentary' in text:
+    return 'commentary'
   if "original" in text:
     return "original"
   if "default" in text:
@@ -26,6 +31,8 @@ def _track_role_text(role: str) -> str:
     return tr("download.select.audio_track.role_original")
   if normalized == "descriptive":
     return tr("download.select.audio_track.role_descriptive")
+  if normalized in {'dubbed', 'commentary'}:
+    return tr('download.select.audio_track.role_' + normalized)
   return ""
 
 
@@ -51,9 +58,13 @@ def _track_base_label(track: dict[str, Any], *, fallback_text: str) -> str:
     return str(fallback_text or tr("download.select.audio_track.default")).strip()
 
   role_text = _track_role_text(str(track.get("role") or ""))
+  parts = [lang_label]
   if role_text:
-    return f"{lang_label} — {role_text}"
-  return lang_label
+    parts.append(role_text)
+  extra = TrackLabelHeuristics.track_canonical_label(track)
+  if extra:
+    parts.append(extra)
+  return ' · '.join(parts)
 
 
 def build_audio_track_display_map(
@@ -72,5 +83,11 @@ def build_audio_track_display_map(
     if not track_id:
       continue
     final_labels[track_id] = _track_base_label(track, fallback_text=resolved_fallback)
+
+  for label in set(final_labels.values()):
+    matching = [key for key, value in final_labels.items() if value == label]
+    if len(matching) > 1:
+      for index, key in enumerate(matching, 1):
+        final_labels[key] = f'{label} ({index})'
 
   return final_labels

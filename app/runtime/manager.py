@@ -85,4 +85,12 @@ class EngineManager:
     curr_engine = getattr(current, "engine", {}) if current is not None else {}
     prev_model = getattr(previous, "model", {}) if previous is not None else {}
     curr_model = getattr(current, "model", {}) if current is not None else {}
-    return dict(prev_engine or {}) != dict(curr_engine or {}) or dict(prev_model or {}) != dict(curr_model or {})
+    if dict(prev_engine or {}) != dict(curr_engine or {}):
+      return True
+    for role in ('transcription_model', 'translation_model'):
+      previous_selection = dict((prev_model or {}).get(role) or {})
+      current_selection = dict((curr_model or {}).get(role) or {})
+      for key in ('engine_name', 'engine_model_type', 'engine_signature'):
+        if previous_selection.get(key) != current_selection.get(key):
+          return True
+    return False

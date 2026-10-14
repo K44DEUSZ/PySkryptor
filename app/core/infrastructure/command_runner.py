@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
@@ -47,6 +48,9 @@ class CommandRunner:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding='utf-8',
+        errors='replace',
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
       )
 
       stdout, stderr = CommandRunner._communicate(proc, timeout_s=timeout_s, cancel_check=cancel_check)
@@ -81,7 +85,7 @@ class CommandRunner:
       return str(out or ""), str(err or "")
 
     poll_interval_s = 0.1
-    waited_s = 0.0
+    started_at = time.monotonic()
 
     while True:
       if cancel_check is not None and bool(cancel_check()):
@@ -93,9 +97,10 @@ class CommandRunner:
             " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args,
             ex,
           )
+        proc.communicate()
         raise AppError(key="error.cancelled", params={})
 
-      if timeout_s is not None and waited_s >= float(timeout_s):
+      if timeout_s is not None and time.monotonic() - started_at >= float(timeout_s):
         try:
           proc.kill()
         except (ProcessLookupError, OSError) as ex:
@@ -104,13 +109,11 @@ class CommandRunner:
             " ".join(proc.args) if isinstance(proc.args, (list, tuple)) else proc.args,
             ex,
           )
+        proc.communicate()
         raise AppError(key="error.external_tool_timeout", params={"seconds": float(timeout_s)})
 
-      if proc.poll() is not None:
-        out, err = proc.communicate()
-        return str(out or ""), str(err or "")
-
       try:
-        proc.wait(timeout=poll_interval_s)
+        out, err = proc.communicate(timeout=poll_interval_s)
+        return str(out or ''), str(err or '')
       except subprocess.TimeoutExpired:
-        waited_s += poll_interval_s
+        continue

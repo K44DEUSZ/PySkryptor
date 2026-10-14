@@ -260,7 +260,13 @@
       "audio_track": {
         "default": "Default track",
         "role_original": "original",
-        "role_descriptive": "with audio description"
+        "role_descriptive": "with audio description",
+        "unavailable": "unavailable",
+        "choose": "Select at least one audio track. Each selected track will be saved as a separate file.",
+        "multiple_help": "You can select multiple tracks. Each track and format will be saved as a separate file.",
+        "role_dubbed": "Dubbed",
+        "role_commentary": "Commentary",
+        "selected_count": "Selected: {count}"
       },
       "formats": {
         "placeholder": "Select formats..."
@@ -304,7 +310,9 @@
       "audio_track_probe_only": "The selected audio track was detected only during probing and cannot be downloaded reliably.",
       "no_downloadable_formats": "No downloadable media formats are available. Details: {detail}",
       "cookie_file_invalid": "Cookies file is invalid or unreadable for the application. Details: {detail}",
-      "extended_access_required": "This source requires extended extractor access. Details: {detail}"
+      "extended_access_required": "This source requires extended extractor access. Details: {detail}",
+      "media_validation_failed": "The downloaded file could not be verified. It is incomplete or has the wrong format.",
+      "audio_track_changed": "The selected audio track has changed. Refresh the source information and select it again."
     },
     "external_tool_failed": "External tool failed. Command: {cmd}",
     "external_tool_timeout": "External tool timed out after {seconds} s.",
@@ -319,7 +327,11 @@
     "live": {
       "audio_input_start_failed": "Failed to start audio input.",
       "failed": "Live transcription failed. Details: {detail}",
-      "microphone_format_unsupported": "The selected microphone format is not supported."
+      "microphone_format_unsupported": "The selected microphone format is not supported.",
+      "microphone_unavailable": "The selected microphone is unavailable: {name}. Connect it or select another device.",
+      "audio_backlog_full": "Speech recognition cannot keep up. Recording has stopped.",
+      "processing_timeout": "Recognizing the last segment took too long. Processing has stopped.",
+      "audio_recovered": "{reason} Unprocessed audio was saved to: {path}"
     },
     "media_probe": {
       "failed": "Failed to read media metadata. Details: {detail}"
@@ -499,7 +511,8 @@
     "detected_language": "Detected language: {lang}",
     "device": {
       "label": "Input device",
-      "none": "No input devices"
+      "none": "No input devices",
+      "unavailable": "{name} (unavailable)"
     },
     "model": {
       "unavailable": "Model unavailable"
@@ -627,10 +640,10 @@
       "concurrent_fragments": "Number of fragments downloaded at the same time. Higher values can speed up downloading, but put more load on the connection and server.",
       "device": "Selects where models run their computations. Auto uses a CUDA GPU when available, otherwise CPU. Forcing GPU may be ignored if the environment does not support CUDA.",
       "http_timeout_s": "Maximum time to wait for a server response for a single request.",
-      "ignore_warning": "Allows the result to be kept despite model warnings, for example silence, very weak signal, or uncertain language detection. It does not change recognition itself, but decides whether a warned result is accepted.",
+      "ignore_warning": "If the model recognizes no speech, skip the recording without creating empty files and continue to the next.",
       "logging_enabled": "Writes application events to log files. Useful for diagnosing errors and analyzing program behavior.",
       "logging_level": "Controls how much information is written to logs.",
-      "max_bandwidth_kbps": "Limits the maximum download speed. A value of 0 disables the limit.",
+      "max_bandwidth_kbps": "Maximum download speed in KiB/s. 1 KiB is 1024 bytes. Set 0 for no limit.",
       "max_video_height": "Limits selection to video variants that do not exceed the selected height.",
       "min_video_height": "Skips video variants below the selected height.",
       "browser_cookies_mode": "Controls whether supported download sources use no cookies, browser cookies, or — in advanced mode — an exported cookies file. For services that require authentication, an exported cookies file is often more stable than reading a live browser profile.",
@@ -668,7 +681,7 @@
     "network": {
       "concurrent_fragments": "Parallel fragment downloads",
       "http_timeout_s": "HTTP timeout (s)",
-      "max_bandwidth_kbps": "Bandwidth limit (kb/s)",
+      "max_bandwidth_kbps": "Download limit (KiB/s)",
       "retries": "HTTP retry count"
     },
     "section": {
@@ -680,7 +693,7 @@
     },
     "transcription": {
       "chunk_length_s": "Analysis window length (s)",
-      "ignore_warning": "Accept results despite non-critical warnings",
+      "ignore_warning": "Skip recordings with no recognized speech",
       "model": "Transcription model",
       "stride_length_s": "Analysis window overlap (s)",
       "default_language": "Default source language",
@@ -786,7 +799,9 @@
     "skipped": "Skipped",
     "stopped": "Stopped",
     "transcribing": "Transcribing...",
-    "translating": "Translating..."
+    "translating": "Translating...",
+    "live_catching_up": "Processing queued audio. The microphone is temporarily paused.",
+    "live_finishing": "Finishing recognition of the last segment."
   },
   "tabs": {
     "about": "About",

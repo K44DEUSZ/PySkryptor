@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional, cast
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
+from app.core.runtime.localization import tr
 from app.ui.components.hint_popup import hide_hint_popup, hint_popup
 from app.ui.components.popup_combo import PopupComboBox, PopupMultiSelectField
 from app.ui.components.source_identity_delegate import SourceIdentityDelegate
@@ -123,7 +124,8 @@ class SourceTable(QtWidgets.QTableWidget):
     if header is not None:
       header.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
     self.setItemDelegateForColumn(
-      column, SourceIdentityDelegate(self, detail_column=detail_column, icon_name=icon_name),
+      column,
+      SourceIdentityDelegate(self, detail_column=detail_column, icon_name=icon_name),
     )
 
   def set_empty_title(self, title: str) -> None:
@@ -141,14 +143,16 @@ class SourceTable(QtWidgets.QTableWidget):
     left = (self.viewport().width() - width) // 2
     center_y = self.viewport().rect().center().y()
     action_icon(self._identity_icon_name).paint(
-      painter, QtCore.QRect(self.viewport().width() // 2 - 22, center_y - 72, 44, 44),
+      painter,
+      QtCore.QRect(self.viewport().width() // 2 - 22, center_y - 72, 44, 44),
     )
     font = QtGui.QFont(self.font())
     font.setPixelSize(20)
     painter.setFont(font)
     painter.setPen(theme_color(theme, '@TEXT_PRIMARY@'))
-    painter.drawText(QtCore.QRect(left, center_y - 14, width, 32),
-                     QtCore.Qt.AlignmentFlag.AlignCenter, self._empty_title)
+    painter.drawText(
+      QtCore.QRect(left, center_y - 14, width, 32), QtCore.Qt.AlignmentFlag.AlignCenter, self._empty_title
+    )
     painter.setFont(self.font())
     painter.setPen(theme_color(theme, '@TEXT_SECONDARY@'))
     painter.drawText(
@@ -812,7 +816,7 @@ class SourceTable(QtWidgets.QTableWidget):
     number_width: int,
     fixed_widths: dict[int, int],
   ) -> int:
-    fixed_total = (0 if self.isColumnHidden(check_col) else int(check_width))
+    fixed_total = 0 if self.isColumnHidden(check_col) else int(check_width)
     fixed_total += 0 if self.isColumnHidden(number_col) else int(number_width)
     header.setSectionResizeMode(int(check_col), QtWidgets.QHeaderView.ResizeMode.Fixed)
     self.setColumnWidth(int(check_col), int(check_width))
@@ -1202,6 +1206,9 @@ class SourceTable(QtWidgets.QTableWidget):
 
   def audio_track_id_at(self, row: int, col: int) -> str | None:
     w = self.combo_at(row, col)
+    if isinstance(w, PopupMultiSelectField):
+      selected = self.audio_track_ids_at(row, col)
+      return selected[0] if selected else None
     if not isinstance(w, QtWidgets.QComboBox):
       return None
     idx = int(w.currentIndex())
@@ -1210,6 +1217,14 @@ class SourceTable(QtWidgets.QTableWidget):
       v = track_ids[idx]
       return str(v).strip() or None if v else None
     return None
+
+  def audio_track_ids_at(self, row: int, col: int) -> list[str]:
+    field = self.multi_select_field_at(row, col)
+    if field is None:
+      value = self.audio_track_id_at(row, col)
+      return [value] if value else []
+    mapping = dict(field.property('audio_track_label_ids') or {})
+    return [str(mapping[label]) for label in field.selected_items() if mapping.get(label)]
 
   @staticmethod
   def _make_center_cell_host(
@@ -1340,7 +1355,11 @@ class SourceTable(QtWidgets.QTableWidget):
     if not isinstance(combo, QtWidgets.QComboBox):
       return
     override = str(combo.property(_PROBE_AUDIO_TOOLTIP_PROPERTY) or "").strip()
-    combo.setToolTip(override or str(combo.currentText() or "").strip())
+    tooltip = override or str(combo.currentText() or "").strip()
+    if isinstance(combo, PopupMultiSelectField):
+      tooltip = override or ', '.join(combo.selected_items())
+      tooltip = '\n'.join(filter(None, (tooltip, tr('download.select.audio_track.multiple_help'))))
+    combo.setToolTip(tooltip)
 
   def make_audio_track_combo(
     self,
@@ -1349,9 +1368,13 @@ class SourceTable(QtWidgets.QTableWidget):
     default_text: str,
     on_changed: Callable[[int], None] | None = None,
     enabled: bool = False,
+    multiple: bool = False,
   ) -> QtWidgets.QWidget:
-    cb = PopupComboBox()
+    cb = PopupMultiSelectField() if multiple else PopupComboBox()
     setup_combo(cb)
+    if multiple:
+      cb.setProperty('selection_summary_key', 'download.select.audio_track.selected_count')
+      cb.selection_changed.connect(lambda _selected, combo=cb: self._sync_audio_track_combo_tooltip(combo))
     cb.addItem(str(default_text or ""))
     cb.setProperty("audio_track_ids", [None])
     cb.setProperty("has_choices", False)
@@ -1360,7 +1383,10 @@ class SourceTable(QtWidgets.QTableWidget):
     cb.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
     cb.currentIndexChanged.connect(lambda _idx, combo=cb: self._sync_audio_track_combo_tooltip(combo))
     if on_changed is not None:
-      cb.currentIndexChanged.connect(on_changed)
+      if multiple:
+        cb.selection_changed.connect(on_changed)
+      else:
+        cb.currentIndexChanged.connect(on_changed)
     self._sync_audio_track_combo_tooltip(cb)
     return self._make_stretch_cell_host(cb)
 
@@ -1373,6 +1399,7 @@ class SourceTable(QtWidgets.QTableWidget):
     default_text: str,
     preferred_audio_track_id: str | None = None,
     internal_key: str | None = None,
+    preferred_audio_track_ids: list[str] | None = None,
   ) -> list[str | None]:
     w = self.combo_at(row, col)
     if not isinstance(w, QtWidgets.QComboBox):
@@ -1389,6 +1416,26 @@ class SourceTable(QtWidgets.QTableWidget):
       seen_track_ids.add(track_id)
       label = str(labels_by_track_id.get(track_id) or default_text or track_id).strip()
       options.append((track_id, label or track_id))
+
+    if isinstance(w, PopupMultiSelectField):
+      previous = self.audio_track_ids_at(row, col)
+      desired = preferred_audio_track_ids if preferred_audio_track_ids is not None else previous
+      if not desired and preferred_audio_track_ids is None:
+        desired = [preferred_audio_track_id] if preferred_audio_track_id else [options[0][0]] if options else []
+      previous_labels = dict(w.property('audio_track_label_ids') or {})
+      for track_id in desired:
+        if track_id not in {key for key, _label in options}:
+          old_label = next((label for label, key in previous_labels.items() if key == track_id), default_text)
+          options.append((track_id, old_label + ' · ' + tr('download.select.audio_track.unavailable')))
+      w.blockSignals(True)
+      w.setProperty('audio_track_label_ids', {label: key for key, label in options})
+      w.set_items([label for _key, label in options])
+      w.set_placeholder(default_text)
+      w.set_selected_items([label for key, label in options if key in desired])
+      w.setProperty('has_choices', bool(options))
+      w.blockSignals(False)
+      self._sync_audio_track_combo_tooltip(w)
+      return [key for key, _label in options] or [None]
 
     prev_idx = int(w.currentIndex())
     prev_track_ids = list(w.property("audio_track_ids") or [None])
@@ -1410,6 +1457,9 @@ class SourceTable(QtWidgets.QTableWidget):
       track_ids = [None]
 
     desired = str(preferred_audio_track_id or prev_track_id or "").strip()
+    if desired and desired not in track_ids:
+      w.addItem(tr('download.select.audio_track.unavailable'))
+      track_ids.append(desired)
     chosen = 0
     if desired and desired in track_ids:
       chosen = int(track_ids.index(desired))

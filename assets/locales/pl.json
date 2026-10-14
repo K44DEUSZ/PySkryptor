@@ -260,7 +260,13 @@
       "audio_track": {
         "default": "Domyślna ścieżka",
         "role_original": "oryginalna",
-        "role_descriptive": "z audiodeskrypcją"
+        "role_descriptive": "z audiodeskrypcją",
+        "unavailable": "niedostępna",
+        "choose": "Wybierz przynajmniej jedną ścieżkę dźwiękową. Każda wybrana ścieżka trafi do osobnego pliku.",
+        "multiple_help": "Możesz wybrać kilka ścieżek. Każda ścieżka i każdy format zostaną zapisane w osobnym pliku.",
+        "role_dubbed": "Dubbing",
+        "role_commentary": "Komentarz",
+        "selected_count": "Wybrano: {count}"
       },
       "formats": {
         "placeholder": "Wybierz formaty..."
@@ -304,7 +310,9 @@
       "audio_track_probe_only": "Wybrana ścieżka audio została wykryta tylko podczas analizy i nie może zostać stabilnie pobrana.",
       "no_downloadable_formats": "Brak dostępnych formatów multimediów do pobrania. Szczegóły: {detail}",
       "cookie_file_invalid": "Plik cookies jest nieprawidłowy lub nieczytelny dla aplikacji. Szczegóły: {detail}",
-      "extended_access_required": "To źródło wymaga rozszerzonego dostępu extractora. Szczegóły: {detail}"
+      "extended_access_required": "To źródło wymaga rozszerzonego dostępu extractora. Szczegóły: {detail}",
+      "media_validation_failed": "Nie udało się sprawdzić pobranego pliku. Plik jest niepełny lub ma niewłaściwy format.",
+      "audio_track_changed": "Wybrana ścieżka dźwiękowa zmieniła się. Odśwież informacje o materiale i wybierz ją ponownie."
     },
     "external_tool_failed": "Zewnętrzne narzędzie zakończyło się błędem. Polecenie: {cmd}",
     "external_tool_timeout": "Zewnętrzne narzędzie przekroczyło limit czasu po {seconds} s.",
@@ -319,7 +327,11 @@
     "live": {
       "audio_input_start_failed": "Nie udało się uruchomić wejścia audio.",
       "failed": "Transkrypcja na żywo nie powiodła się. Szczegóły: {detail}",
-      "microphone_format_unsupported": "Format wybranego mikrofonu nie jest obsługiwany."
+      "microphone_format_unsupported": "Format wybranego mikrofonu nie jest obsługiwany.",
+      "microphone_unavailable": "Wybrany mikrofon jest niedostępny: {name}. Podłącz go lub wybierz inne urządzenie.",
+      "audio_backlog_full": "Nie można nadążyć z rozpoznawaniem mowy. Nagrywanie zostało zatrzymane.",
+      "processing_timeout": "Rozpoznawanie ostatniego fragmentu trwa zbyt długo. Przetwarzanie zostało przerwane.",
+      "audio_recovered": "{reason} Nieprzetworzony dźwięk zapisano w pliku: {path}"
     },
     "media_probe": {
       "failed": "Nie udało się odczytać metadanych mediów. Szczegóły: {detail}"
@@ -499,7 +511,8 @@
     "detected_language": "Wykryty język: {lang}",
     "device": {
       "label": "Urządzenie wejściowe",
-      "none": "Brak urządzeń wejściowych"
+      "none": "Brak urządzeń wejściowych",
+      "unavailable": "{name} (niedostępny)"
     },
     "model": {
       "unavailable": "Model niedostępny"
@@ -627,10 +640,10 @@
       "concurrent_fragments": "Liczba fragmentów pobieranych jednocześnie. Wyższe wartości mogą przyspieszyć pobieranie, ale bardziej obciążają łącze i serwer.",
       "device": "Wybiera, gdzie modele wykonują obliczenia. Tryb Auto używa GPU CUDA, jeśli jest dostępne, a w przeciwnym razie CPU. Wymuszenie GPU może zostać pominięte, jeśli środowisko nie obsługuje CUDA.",
       "http_timeout_s": "Maksymalny czas oczekiwania na odpowiedź serwera dla pojedynczego żądania.",
-      "ignore_warning": "Pozwala zachować wynik mimo ostrzeżeń modelu, na przykład przy ciszy, bardzo słabym sygnale albo niepewnej detekcji języka. Nie wpływa na samo rozpoznawanie, ale decyduje, czy wynik z ostrzeżeniem ma zostać przyjęty.",
+      "ignore_warning": "Jeśli model nie rozpozna mowy, pomiń nagranie bez tworzenia pustych plików i przejdź do następnego.",
       "logging_enabled": "Zapisuje zdarzenia aplikacji do plików logów. Przydatne przy diagnozowaniu błędów i analizie działania programu.",
       "logging_level": "Określa ilość informacji zapisywanych w logach.",
-      "max_bandwidth_kbps": "Ogranicza maksymalną prędkość pobierania. Wartość 0 wyłącza limit.",
+      "max_bandwidth_kbps": "Maksymalna prędkość pobierania w KiB/s. 1 KiB to 1024 bajty. Wartość 0 wyłącza limit.",
       "max_video_height": "Ogranicza wybór do wariantów nieprzekraczających wskazanej wysokości.",
       "min_video_height": "Pomija warianty wideo niższe od wskazanej wysokości.",
       "browser_cookies_mode": "Określa, czy wspierane źródła pobierania mają działać bez cookies, z cookies przeglądarki lub — w trybie zaawansowanym — z wyeksportowanym plikiem cookies. Dla serwisów wymagających logowania wyeksportowany plik cookies bywa stabilniejszy niż odczyt żywego profilu przeglądarki.",
@@ -668,7 +681,7 @@
     "network": {
       "concurrent_fragments": "Równoległe pobieranie fragmentów",
       "http_timeout_s": "Limit czasu HTTP (s)",
-      "max_bandwidth_kbps": "Limit pasma (kb/s)",
+      "max_bandwidth_kbps": "Limit pobierania (KiB/s)",
       "retries": "Liczba ponowień HTTP"
     },
     "section": {
@@ -680,7 +693,7 @@
     },
     "transcription": {
       "chunk_length_s": "Długość okna analizy (s)",
-      "ignore_warning": "Akceptuj wyniki mimo ostrzeżeń niekrytycznych",
+      "ignore_warning": "Pomijaj nagrania bez rozpoznanej mowy",
       "model": "Model transkrypcji",
       "stride_length_s": "Nakładanie okien analizy (s)",
       "default_language": "Domyślny język źródłowy",
@@ -786,7 +799,9 @@
     "skipped": "Pominięto",
     "stopped": "Zatrzymano",
     "transcribing": "Transkrypcja...",
-    "translating": "Tłumaczenie..."
+    "translating": "Tłumaczenie...",
+    "live_catching_up": "Przetwarzanie zaległego dźwięku. Mikrofon jest chwilowo wstrzymany.",
+    "live_finishing": "Kończenie rozpoznawania ostatniego fragmentu."
   },
   "tabs": {
     "about": "O programie",

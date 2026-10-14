@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
+from app.core.domain.errors import OperationCancelled
 from app.core.utils.string_utils import sanitize_url_for_log
+from app.features.download.direct_media import inspect_direct_tracks
 from app.features.download.domain import DownloadCookieContext, DownloadError, SourceAccessInterventionRequired
 from app.features.download.gateway import YtdlpGateway
 from app.features.download.inventory import TrackInventory
@@ -28,10 +30,13 @@ def probe(
   browser_policy_override: str | None = None,
   access_mode_override: str | None = None,
   interactive: bool = False,
+  cancel_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
   """Probe one remote source and return normalized download metadata."""
 
   safe_url = sanitize_url_for_log(url)
+  if cancel_check is not None and cancel_check():
+    raise OperationCancelled()
   source_access_context = resolve_source_access_context(
     url,
     operation=DownloadPolicy.DOWNLOAD_OPERATION_PROBE,
@@ -74,6 +79,8 @@ def probe(
 
     preferred_probe_client = YtdlpGateway.normalize_probe_client(extractor_context.client)
     for probe_client in attempted_clients:
+      if cancel_check is not None and cancel_check():
+        raise OperationCancelled()
       ydl_opts = YtdlpGateway.with_probe_client_opts(
         base_ydl_opts,
         probe_client=probe_client,
@@ -136,7 +143,7 @@ def probe(
       inventories_by_client=inventories_by_client,
       attempted_clients=attempted_clients,
     )
-    audio_tracks = list(inventory.get("tracks") or [])
+    audio_tracks = inspect_direct_tracks(primary_info, cancel_check=cancel_check) or list(inventory.get("tracks") or [])
     probe_diagnostics_payload = TrackInventory.make_probe_diagnostics(
       info=primary_info,
       audio_tracks=audio_tracks,
@@ -212,7 +219,7 @@ def probe(
     )
     return result
   except Exception as ex:
-    if isinstance(ex, (DownloadError, SourceAccessInterventionRequired)):
+    if isinstance(ex, (DownloadError, SourceAccessInterventionRequired, OperationCancelled)):
       raise
     network_key = YtdlpGateway.classify_network_error(ex)
     if network_key:

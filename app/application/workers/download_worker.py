@@ -102,6 +102,7 @@ class DownloadWorker(AccessTaskWorker):
           browser_policy_override=browser_policy_override,
           access_mode_override=access_mode_override,
           interactive=True,
+          cancel_check=self.cancel_check,
         )
         self._browser_cookies_mode_override = browser_cookies_mode_override
         self._cookie_file_override = cookie_file_override
@@ -182,6 +183,13 @@ class DownloadWorker(AccessTaskWorker):
       title_stem = sanitize_filename(title) or "download"
       key_stem = sanitize_filename(key) or key
       file_stem = f"{title_stem} [{key_stem}]"
+      if self._audio_track_id:
+        track = next((item for item in meta.get('audio_tracks', [])
+                      if item.get('track_id') == self._audio_track_id), {})
+        language = str(track.get('lang_code') or 'audio')
+        role = str(track.get('role') or '')
+        suffix = sanitize_filename(' '.join(part for part in (language, role, self._audio_track_id) if part))
+        file_stem += ' [' + suffix + ']'
 
       out_dir = AppConfig.PATHS.DOWNLOADS_DIR
       out_dir.mkdir(parents=True, exist_ok=True)

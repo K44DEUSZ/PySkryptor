@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
@@ -264,7 +265,7 @@ class _EngineHostClient:
       raise EngineClientError("error.engine.host_protocol_error", role=self._role, detail="host stdio missing")
 
     line = json.dumps(payload, ensure_ascii=True)
-    with io.lock:
+    with self._request_lock(io, timeout_s=timeout_s, cancel_check=cancel_check):
       try:
         stdin.write(line + "\n")
         stdin.flush()
@@ -287,6 +288,27 @@ class _EngineHostClient:
         if self._dispatch_request_event(reply, event_handler=event_handler):
           continue
         return reply
+
+  @contextmanager
+  def _request_lock(self, io: _HostIO, *, timeout_s: float, cancel_check: Callable[[], bool] | None):
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    acquired = False
+    try:
+      while not acquired:
+        if self._closed or (cancel_check is not None and cancel_check()):
+          raise OperationCancelled()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+          raise EngineClientError('error.engine.no_response_from_host', role=self._role)
+        acquired = io.lock.acquire(timeout=min(self._policy.poll_interval_s, remaining))
+      if self._closed or (cancel_check is not None and cancel_check()):
+        raise OperationCancelled()
+      if self._host is not io or io.proc.poll() is not None:
+        raise EngineClientError('error.engine.host_not_running', role=self._role)
+      yield
+    finally:
+      if acquired:
+        io.lock.release()
 
   def warmup(self) -> None:
     self._fallback_reason = ''

@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from babel import Locale, UnknownLocaleError
+
 from app.core.utils.string_utils import is_youtube_url, normalize_lang_code
 from app.features.download.gateway import YtdlpGateway
 from app.features.download.policy import DownloadPolicy
@@ -155,6 +157,10 @@ class TrackLabelHeuristics:
       return ""
     if "descriptive" in text:
       return "descriptive"
+    if 'dubbed' in text or 'dubbing' in text:
+      return 'dubbed'
+    if 'commentary' in text:
+      return 'commentary'
     if "original" in text:
       return "original"
     if "default" in text:
@@ -164,7 +170,7 @@ class TrackLabelHeuristics:
   @staticmethod
   def semantic_audio_track_role(value: Any) -> str:
     role = TrackLabelHeuristics.normalize_audio_track_role(value)
-    return role if role in {"original", "descriptive"} else ""
+    return role if role in {"original", "descriptive", "dubbed", "commentary"} else ""
 
   @staticmethod
   def clean_audio_track_label_source(value: Any, *, lang_code: str = "") -> str:
@@ -179,7 +185,24 @@ class TrackLabelHeuristics:
     normalized_lang = normalize_lang_code(text, drop_region=False) or ""
     if normalized_lang and normalized_lang == (normalize_lang_code(lang_code, drop_region=False) or ""):
       return ""
-    if TrackLabelHeuristics.normalize_audio_track_role(text):
+    without_role = re.sub(
+      r'\b(original|descriptive|default|dubbed|dubbing|commentary)\b', '', text, flags=re.IGNORECASE
+    )
+    without_role = re.sub(r'\(\s*\)|\[\s*\]', '', without_role).strip(' -')
+    base = str(lang_code or '').split('-')[0]
+    names = {base.casefold(), str(lang_code or '').casefold()}
+    try:
+      parsed = Locale.parse(str(lang_code), sep='-')
+      for locale in (Locale('en'), Locale(base), parsed):
+        names.add(str(locale.languages.get(base) or '').casefold())
+        names.add(str(locale.languages.get(str(parsed)) or '').casefold())
+        names.add(parsed.get_display_name(locale).casefold())
+        qualifier = parsed.territory or parsed.script
+        if qualifier:
+          names.add(f'{locale.languages.get(base)} ({qualifier})'.casefold())
+    except (UnknownLocaleError, ValueError):
+      pass
+    if not without_role or without_role.casefold() in names:
       return ""
     return text
 
@@ -234,11 +257,13 @@ class TrackLabelHeuristics:
     lang_code: str,
     label_source: str,
     role: str,
+    track_key: str = '',
   ) -> str:
     payload = {
       "lang_code": str(lang_code or ""),
       "label_source": str(label_source or ""),
       "role": TrackLabelHeuristics.semantic_audio_track_role(role),
+      "track_key": str(track_key or ''),
     }
     return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
@@ -292,10 +317,9 @@ class TrackLabelHeuristics:
     label = TrackLabelHeuristics.track_display_label(track)
     if not label:
       return ""
-    role = TrackLabelHeuristics.track_role(track)
-    if role in {"original", "descriptive", "default"}:
-      return ""
-    return label
+    return TrackLabelHeuristics.clean_audio_track_label_source(
+      label, lang_code=str((track or {}).get('lang_code') or '')
+    )
 
   @staticmethod
   def audio_track_merge_signature_blob(track: dict[str, Any]) -> str:
@@ -303,6 +327,7 @@ class TrackLabelHeuristics:
       "canonical_label": TrackLabelHeuristics.track_canonical_label(track),
       "lang_code": str(track.get("lang_code") or "").strip(),
       "role": TrackLabelHeuristics.semantic_audio_track_role(track.get("role")),
+      'track_key': str(track.get('track_key') or ''),
     }
     return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
@@ -390,13 +415,16 @@ class TrackInventory:
     language_preference = TrackLabelHeuristics.audio_track_language_preference(fmt)
     role = TrackLabelHeuristics.youtube_audio_role_label(fmt)
     label_source = TrackLabelHeuristics.audio_track_label_source(fmt, info_is_youtube=True)
-    if not lang_code or not (raw_track_id or display_name or label_source or role or is_default):
+    if not lang_code or not (
+      raw_track_id or display_name or label_source or role or is_default or fmt.get('language_preference') is not None
+    ):
       return None
 
     signature_blob = TrackLabelHeuristics.audio_track_signature_blob(
       lang_code=lang_code,
       label_source=label_source,
       role=role,
+      track_key=raw_track_id,
     )
     return {
       "signature_blob": signature_blob,
@@ -760,6 +788,13 @@ class TrackInventory:
     client_track_coverage: dict[str, int] = {}
     partial_clients: set[str] = set()
     info_is_youtube = False
+    role_hints: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for inventory in inventories_by_client.values():
+      for track in inventory.get('tracks', []):
+        role = TrackLabelHeuristics.semantic_audio_track_role(track.get('role'))
+        if role:
+          group = (str(track.get('lang_code') or ''), TrackLabelHeuristics.track_canonical_label(track))
+          role_hints.setdefault(group, set()).add((role, str(track.get('track_key') or '')))
 
     for client in successful:
       inventory = inventories_by_client.get(client) or {}
@@ -781,6 +816,12 @@ class TrackInventory:
       for track in tracks:
         if not isinstance(track, dict):
           continue
+        track = dict(track)
+        if not TrackLabelHeuristics.semantic_audio_track_role(track.get('role')) and not track.get('track_key'):
+          group = (str(track.get('lang_code') or ''), TrackLabelHeuristics.track_canonical_label(track))
+          hints = role_hints.get(group, set())
+          if len(hints) == 1:
+            track['role'], track['track_key'] = next(iter(hints))
         merge_signature = TrackLabelHeuristics.audio_track_merge_signature_blob(track)
         merged = merged_by_signature.setdefault(
           merge_signature,

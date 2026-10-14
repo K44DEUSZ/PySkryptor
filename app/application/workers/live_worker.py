@@ -4,7 +4,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
+import wave
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -12,9 +15,11 @@ from PyQt6 import QtCore
 
 from app.application.support.cancellation import CancellationToken
 from app.application.workers.session_worker import SessionWorker
+from app.core.config.config import AppConfig
 from app.core.config.profiles import RuntimeProfiles
 from app.core.domain.errors import AppError
 from app.core.domain.results import LiveUpdate
+from app.core.runtime.localization import tr
 from app.features.transcription.chunking import pcm16le_bytes_to_float32
 from app.features.transcription.live import LiveTranscriptionService
 from app.platform.audio_input import (
@@ -102,6 +107,15 @@ class LiveWorker(SessionWorker):
     self._inference_stop = threading.Event()
     self._inference_thread: threading.Thread | None = None
     self._inference_error: Exception | None = None
+    self._inference_abort = threading.Event()
+    self._pending_failure: BaseException | None = None
+    self._pending_audio_bytes = 0
+    self._overflow_audio = b''
+    self._max_pending_audio_bytes = AppConfig.ASR_SAMPLE_RATE * 2 * 30
+    self._capture_backpressure = False
+    self._stop_started_at: float | None = None
+    self._stop_timeout_s = 60.0
+    self._recovery_audio_path: Path | None = None
 
   def cancel(self) -> None:
     _LOG.debug("Live worker cancel requested. worker=live_transcription")
@@ -122,6 +136,10 @@ class LiveWorker(SessionWorker):
   def _handle_failure(self, ex: BaseException) -> None:
     self._set_status("status.error")
 
+    if self._recovery_audio_path is not None:
+      reason = tr(str(ex.key), **dict(ex.params or {})) if isinstance(ex, AppError) else str(ex)
+      self._emit_failure('error.live.audio_recovered', {'path': str(self._recovery_audio_path), 'reason': reason})
+      return
     if isinstance(ex, AppError):
       self._emit_failure(str(ex.key), dict(ex.params or {}))
       return
@@ -176,6 +194,8 @@ class LiveWorker(SessionWorker):
   def _clear_pending_chunks(self) -> None:
     with self._pending_chunks_lock:
       self._pending_chunks.clear()
+      self._pending_audio_bytes = 0
+      self._overflow_audio = b''
     self._inference_wakeup.clear()
 
   def _clear_ready_updates(self) -> None:
@@ -293,11 +313,7 @@ class LiveWorker(SessionWorker):
     fmt = make_pcm16_mono_format()
 
     if dev is None:
-      try:
-        dev = qt_multimedia.QMediaDevices.defaultAudioInput()
-      except (AttributeError, RuntimeError):
-        dev = None
-      _LOG.debug("Live worker using default input device. requested_device=%s", self._device_name)
+      raise LiveError('error.live.microphone_unavailable', name=self._device_name)
 
     if dev is not None:
       _, fmt = ensure_supported_format(dev, fmt)
@@ -343,7 +359,7 @@ class LiveWorker(SessionWorker):
       source_language=self._src_lang,
       target_language=self._tgt_lang,
       translate_enabled=self._translate_enabled,
-      cancel_check=self.cancel_check,
+      cancel_check=lambda: self.cancel_check() or self._inference_abort.is_set(),
       profile=self._profile,
       runtime_profile=self._runtime_profile,
       output_mode=self._output_mode,
@@ -387,13 +403,17 @@ class LiveWorker(SessionWorker):
       return
     if self.is_stop_requested():
       return
-    if self._pause.is_set():
+    with self._pending_chunks_lock:
+      pending_seconds = self._pending_audio_bytes / (AppConfig.ASR_SAMPLE_RATE * 2)
+    if self._capture_backpressure and pending_seconds <= 2:
+      self._capture_backpressure = False
+    if self._pause.is_set() or self._capture_backpressure:
       if self._audio_in.state() == self._qt_multimedia.QAudio.State.ActiveState:
         try:
           self._audio_in.suspend()
         except (AttributeError, RuntimeError, TypeError) as ex:
           _LOG.debug("Live audio suspend skipped. detail=%s", ex)
-      self._set_status("status.paused")
+      self._set_status('status.live_catching_up' if self._capture_backpressure else 'status.paused')
       return
 
     if self._audio_in.state() == self._qt_multimedia.QAudio.State.SuspendedState:
@@ -414,13 +434,21 @@ class LiveWorker(SessionWorker):
       return
 
     try:
-      self._flush_pending_audio_input()
-      self._stop_inference_thread()
+      if self._stop_started_at is None:
+        self._stop_started_at = time.monotonic()
+        if self._audio_in is not None:
+          self._audio_in.suspend()
+        self._flush_pending_audio_input()
+        self._set_status('status.live_finishing')
       self._emit_pending_updates(force=True)
+      if not self._stop_inference_thread():
+        if time.monotonic() - self._stop_started_at >= self._stop_timeout_s:
+          self._complete_failure_sequence(LiveError('error.live.processing_timeout'))
+        return
       if self._inference_error is not None:
         raise self._inference_error
       self._shutdown_session()
-    except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+    except (AppError, AttributeError, RuntimeError, TypeError, ValueError) as ex:
       self._complete_failure_sequence(ex)
       return
 
@@ -431,8 +459,12 @@ class LiveWorker(SessionWorker):
       return
 
     try:
-      self._stop_inference_thread()
+      self._inference_abort.set()
+      if self._audio_in is not None:
+        self._audio_in.suspend()
       self._clear_pending_chunks()
+      if not self._stop_inference_thread():
+        return
       self._clear_ready_updates()
       self._shutdown_session()
     except Exception as ex:
@@ -445,12 +477,45 @@ class LiveWorker(SessionWorker):
     if self.is_finalized():
       return
 
+    self._pending_failure = ex
+    self._save_pending_audio()
+    self._inference_abort.set()
+    if self._audio_in is not None:
+      try:
+        self._audio_in.suspend()
+      except (AttributeError, RuntimeError, TypeError):
+        _LOG.debug('Suspending failed audio input skipped.', exc_info=True)
+    self._emit_pending_updates(force=True)
+    if not self._stop_inference_thread():
+      return
     try:
       self._shutdown_session()
     except (AttributeError, RuntimeError, TypeError, ValueError, OSError):
       _LOG.error("Live worker shutdown after failure failed.", exc_info=True)
 
     self._finish_failure(ex)
+
+  def _save_pending_audio(self) -> None:
+    if self._recovery_audio_path is not None or self.cancel_check():
+      return
+    with self._pending_chunks_lock:
+      chunks = [chunk for chunk, _level in self._pending_chunks]
+      chunks.append(self._overflow_audio)
+    if self._session is not None:
+      chunks.insert(0, self._session.recovery_audio())
+    audio = b''.join(chunks)
+    if not audio:
+      return
+    try:
+      folder = AppConfig.PATHS.TRANSCRIPTIONS_DIR / 'recovery'
+      folder.mkdir(parents=True, exist_ok=True)
+      path = folder / ('live-' + uuid.uuid4().hex + '.wav')
+      with wave.open(str(path), 'wb') as output:
+        output.setparams((1, 2, AppConfig.ASR_SAMPLE_RATE, 0, 'NONE', 'not compressed'))
+        output.writeframes(audio)
+      self._recovery_audio_path = path
+    except OSError:
+      _LOG.error('Saving pending live audio failed.', exc_info=True)
 
   def _shutdown_session(self) -> None:
     try:
@@ -504,6 +569,7 @@ class LiveWorker(SessionWorker):
   def _start_inference_thread(self) -> None:
     self._inference_stop.clear()
     self._inference_error = None
+    self._inference_abort.clear()
     self._inference_thread = threading.Thread(
       target=self._inference_loop,
       name="live_transcription_inference",
@@ -532,7 +598,13 @@ class LiveWorker(SessionWorker):
 
   def _queue_chunk(self, chunk: bytes, level: float) -> None:
     with self._pending_chunks_lock:
+      if self._pending_audio_bytes + len(chunk) > self._max_pending_audio_bytes:
+        self._overflow_audio = chunk
+        raise LiveError('error.live.audio_backlog_full')
       self._pending_chunks.append((chunk, level))
+      self._pending_audio_bytes += len(chunk)
+      if self._pending_audio_bytes >= AppConfig.ASR_SAMPLE_RATE * 2 * 10:
+        self._capture_backpressure = True
       compactions = self._compact_pending_backlog_locked()
       backlog = len(self._pending_chunks)
     self._inference_wakeup.set()
@@ -555,6 +627,7 @@ class LiveWorker(SessionWorker):
         self._inference_wakeup.clear()
         return None
       chunk = self._pending_chunks.popleft()
+      self._pending_audio_bytes -= len(chunk[0])
       if not self._pending_chunks:
         self._inference_wakeup.clear()
       return chunk
@@ -563,7 +636,8 @@ class LiveWorker(SessionWorker):
     if not updates:
       return
     with self._ready_updates_lock:
-      self._ready_updates.extend(updates)
+      self._ready_updates.clear()
+      self._ready_updates.append(updates[-1])
 
   def _drain_ready_updates(self) -> list[LiveUpdate]:
     with self._ready_updates_lock:
@@ -597,18 +671,24 @@ class LiveWorker(SessionWorker):
       self._inference_error = ex
     finally:
       try:
-        if self._session is not None and self._inference_error is None and not self.cancel_check():
+        if (
+          self._session is not None
+          and self._inference_error is None
+          and not self.cancel_check()
+          and not self._inference_abort.is_set()
+        ):
           self._push_ready_updates(self._session.finalize(ignore_cancel=True))
       except Exception as ex:
         self._inference_error = ex
 
-  def _stop_inference_thread(self) -> None:
+  def _stop_inference_thread(self) -> bool:
     self._inference_stop.set()
     self._inference_wakeup.set()
     th = self._inference_thread
     if th is not None and th.is_alive():
-      th.join()
+      return False
     self._inference_thread = None
+    return True
 
   @QtCore.pyqtSlot()
   def _on_ready_read(self) -> None:
@@ -625,10 +705,17 @@ class LiveWorker(SessionWorker):
     if self._pause.is_set() or self.is_stop_requested() or self._session is None:
       return
 
-    self._queue_chunk(chunk, level)
+    try:
+      self._queue_chunk(chunk, level)
+      self._update_audio_capture_state()
+    except (AppError, RuntimeError) as ex:
+      self._complete_failure_sequence(ex)
 
   @QtCore.pyqtSlot()
   def _tick(self) -> None:
+    if self._pending_failure is not None:
+      self._complete_failure_sequence(self._pending_failure)
+      return
     if self._audio_in is None or self._qt_multimedia is None:
       return
 
@@ -679,8 +766,7 @@ class LiveWorker(SessionWorker):
 
     self._start_audio_input()
     self._session = self._create_live_session()
-    self._start_inference_thread()
     self._set_status("status.listening")
     _LOG.debug("Live worker session initialized. worker=live_transcription")
-
     self._start_tick_timer()
+    self._start_inference_thread()

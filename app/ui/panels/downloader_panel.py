@@ -97,6 +97,7 @@ class _Job:
   quality: str
   audio_track_id: str | None
   status: str
+  audio_track_ids: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -965,7 +966,8 @@ class DownloaderPanel(QtWidgets.QWidget):
 
       only_audio = bool(job.output_types) and "audio" in job.output_types and "video" not in job.output_types
 
-      for ext in output_exts:
+      selected_tracks = job.audio_track_ids if job.audio_track_ids is not None else [job.audio_track_id]
+      for ext, audio_track_id in ((ext, track_id) for ext in output_exts for track_id in selected_tracks):
         kind = "audio" if ext in audio_extensions else "video"
         quality = str(job.quality or DownloadPolicy.download_ui_default_quality()).strip().lower()
         if kind == "audio" and not only_audio:
@@ -977,7 +979,7 @@ class DownloaderPanel(QtWidgets.QWidget):
             kind=kind,
             quality=quality,
             ext=ext,
-            audio_track_id=job.audio_track_id,
+            audio_track_id=audio_track_id,
           )
         )
 
@@ -1387,6 +1389,7 @@ class DownloaderPanel(QtWidgets.QWidget):
       default_text=tr("download.select.audio_track.default"),
       on_changed=self._on_audio_changed,
       enabled=False,
+      multiple=True,
     )
     self.tbl_queue.setCellWidget(row, self.COL_LANGUAGE, cb_audio)
 
@@ -1770,10 +1773,13 @@ class DownloaderPanel(QtWidgets.QWidget):
       meta=meta,
       default_text=tr("download.select.audio_track.default"),
       preferred_audio_track_id=job.audio_track_id if job is not None else None,
+      preferred_audio_track_ids=job.audio_track_ids if job is not None else None,
       internal_key=job.key if job is not None else None,
     )
     if job is not None:
       job.audio_track_id = self.tbl_queue.audio_track_id_at(row, self.COL_LANGUAGE)
+      ids = self.tbl_queue.audio_track_ids_at(row, self.COL_LANGUAGE)
+      job.audio_track_ids = ids if ids or job.audio_track_ids is not None else None
     presentation = build_probe_success_presentation(
       meta,
       visible_status_keys=("status.queued",),
@@ -1968,6 +1974,8 @@ class DownloaderPanel(QtWidgets.QWidget):
     if row < 0:
       return
     job.audio_track_id = self.tbl_queue.audio_track_id_at(row, self.COL_LANGUAGE)
+    job.audio_track_ids = self.tbl_queue.audio_track_ids_at(row, self.COL_LANGUAGE)
+    self._sync_buttons()
     self._schedule_queue_header_refresh()
 
   def _on_download_selected(self) -> None:
@@ -1980,6 +1988,9 @@ class DownloaderPanel(QtWidgets.QWidget):
       return
 
     keys = self._collect_download_job_keys()
+    if any(self._job_for_key(key).audio_track_ids == [] for key in keys if self._job_for_key(key) is not None):
+      dialogs.show_info(self, title=tr('dialog.info.title'), message=tr('download.select.audio_track.choose'))
+      return
     self._queue_items = self._build_queue_items(keys)
     if not self._queue_items:
       return
