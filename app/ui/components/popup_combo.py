@@ -289,6 +289,8 @@ class _ComboPopupList(QtWidgets.QListView):
     self.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel)
     self.setTextElideMode(QtCore.Qt.TextElideMode.ElideRight)
     self.setUniformItemSizes(True)
+    self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Ignored)
+    self.setMinimumHeight(0)
     self.setItemDelegate(_ComboPopupItemDelegate(self))
     self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 

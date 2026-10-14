@@ -63,9 +63,9 @@ def test_theme_change_preserves_live_text_and_does_not_reload_models(qt_app):
     changed = replace(original, app={**original.app, 'theme': 'light'})
     assert not EngineManager.settings_require_reload(original, changed)
     apply_application_theme('dark', animate=False)
-    assert window._brand_logo._path.name == 'logo_dark.svg'
+    assert window._brand_logo._path.name == 'wordmark_dark.svg'
     apply_application_theme('light', animate=False)
-    assert window._brand_logo._path.name == 'logo_light.svg'
+    assert window._brand_logo._path.name == 'wordmark_light.svg'
     assert window.about_panel._logo._path.name == 'logo_light.svg'
     assert live._state == live.STATE_LISTENING
     assert live._archive_source == 'Zachowaj rozpoznaną wypowiedź.'

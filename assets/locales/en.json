@@ -580,7 +580,8 @@
       "theme": {
         "dark": "Dark",
         "label": "Theme",
-        "light": "Light"
+        "light": "Light",
+        "auto": "System"
       },
       "bulk_add_confirmation": {
         "threshold": "Warn when adding at least this many items",
@@ -916,5 +917,17 @@
     "added": "Added “{name}”. Save settings to test the model.",
     "import_help": "Supports Whisper and M2M100 with safetensors or PyTorch (.bin) weights. Files stay in the selected folder.",
     "identity": "Family: {family}\nLocation: {path}"
+  },
+  "file_dialog": {
+    "back": "Back",
+    "forward": "Forward",
+    "parent": "Parent folder",
+    "new_folder": "New folder",
+    "list": "List view",
+    "details": "Details view",
+    "location": "Location:",
+    "folder": "Folder:",
+    "file_name": "File name:",
+    "file_type": "File type:"
   }
 }

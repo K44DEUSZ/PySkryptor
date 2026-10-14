@@ -39,6 +39,37 @@ _ICON_CACHE: dict[tuple[str, str], QtGui.QIcon] = {}
 _ICON_KEYS: dict[int, str] = {}
 
 
+def choice_icon(label_key: str, value: str) -> QtGui.QIcon:
+  """Give settings choices recognizable symbols without changing their values."""
+  profiles = {
+    'fast': 'speed',
+    'balanced': 'balanced',
+    'accurate': 'accurate',
+    'guarded': 'guarded',
+    'custom': 'settings',
+  }
+  icon = ''
+  if label_key.startswith('settings.profile.'):
+    icon = profiles.get(value, '')
+  elif label_key.startswith('settings.app.theme.'):
+    icon = {'auto': 'theme_auto', 'light': 'sun', 'dark': 'moon'}.get(value, '')
+  elif label_key.startswith('settings.engine.device.'):
+    icon = {'auto': 'refresh', 'cpu': 'cpu', 'cuda': 'gpu'}.get(value, '')
+  elif label_key.startswith(('settings.context_policy.', 'settings.silence_guard.', 'settings.language_stability.')):
+    icon = {
+      'off': 'stop',
+      'auto': 'refresh',
+      'aggressive': 'speed',
+      'normal': 'balanced',
+      'strict': 'guarded',
+      'balanced': 'balanced',
+      'fast': 'speed',
+    }.get(value, '')
+  elif label_key.endswith('.engine.disabled'):
+    icon = 'stop'
+  return action_icon(icon) if icon else QtGui.QIcon()
+
+
 def action_icon(key: str, *, theme: str | None = None) -> QtGui.QIcon:
   """Return an original SVG action icon for the current UI theme."""
   name = _ACTION_ICONS.get(key, key)
@@ -75,6 +106,11 @@ def refresh_action_icons(root: QtWidgets.QWidget) -> None:
         button.setIcon(_primary_action_icon(name))
       else:
         button.setIcon(action_icon(name))
+  for combo in root.findChildren(QtWidgets.QComboBox):
+    for index in range(combo.count()):
+      name = _ICON_KEYS.get(combo.itemIcon(index).cacheKey())
+      if name:
+        combo.setItemIcon(index, action_icon(name))
   containers = root.findChildren(QtWidgets.QTabWidget)
   if isinstance(root, QtWidgets.QTabWidget):
     containers.append(root)

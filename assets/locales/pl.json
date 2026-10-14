@@ -580,7 +580,8 @@
       "theme": {
         "dark": "Ciemny",
         "label": "Motyw",
-        "light": "Jasny"
+        "light": "Jasny",
+        "auto": "Systemowy"
       },
       "bulk_add_confirmation": {
         "threshold": "Ostrzegaj od liczby elementów",
@@ -916,5 +917,17 @@
     "added": "Dodano model „{name}”. Zapisz ustawienia, aby sprawdzić jego uruchomienie.",
     "import_help": "Obsługiwane są Whisper i M2M100 z wagami safetensors lub PyTorch (.bin). Pliki pozostaną w wybranym folderze.",
     "identity": "Rodzina: {family}\nLokalizacja: {path}"
+  },
+  "file_dialog": {
+    "back": "Wstecz",
+    "forward": "Dalej",
+    "parent": "Folder nadrzędny",
+    "new_folder": "Nowy folder",
+    "list": "Widok listy",
+    "details": "Widok szczegółów",
+    "location": "Lokalizacja:",
+    "folder": "Folder:",
+    "file_name": "Nazwa pliku:",
+    "file_type": "Typ pliku:"
   }
 }

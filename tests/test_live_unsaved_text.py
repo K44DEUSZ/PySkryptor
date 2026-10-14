@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
-from PyQt6 import QtWidgets
-
+from app.ui.components.file_dialog import AppFileDialog
 from app.ui.panels.live_panel import LivePanel
 
 
@@ -13,7 +12,7 @@ def test_saving_live_text_clears_warning_and_later_changes_restore_it(monkeypatc
   monkeypatch.setattr(panel, '_is_translate_mode_effective', lambda: False)
   monkeypatch.setattr(panel, 'coordinator', lambda: SimpleNamespace(save_transcript=lambda **_kwargs: []))
   monkeypatch.setattr(
-    QtWidgets.QFileDialog,
+    AppFileDialog,
     'getSaveFileName',
     lambda *_args: (str(tmp_path / 'tekst.txt'), 'TXT (*.txt)'),
   )

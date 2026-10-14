@@ -26,6 +26,7 @@ from app.ui.components.action_button import ActionButton
 from app.ui.components.audio_spectrum import AudioSpectrumWidget
 from app.ui.components.choice_toggle import ChoiceToggle
 from app.ui.components.collapsible_section import CollapsibleSection
+from app.ui.components.file_dialog import AppFileDialog
 from app.ui.components.popup_combo import LanguageCombo, PopupComboBox, combo_current_code, rebuild_code_combo
 from app.ui.components.section_group import SectionGroup
 from app.ui.support.action_icons import action_icon
@@ -258,6 +259,7 @@ class LivePanel(QtWidgets.QWidget):
 
     self.cmb_profile = PopupComboBox()
     setup_combo(self.cmb_profile, min_h=base_h)
+    self.cmb_profile.setIconSize(QtCore.QSize(20, 20))
     profile_options = (
       (
         RuntimeProfiles.LIVE_PROFILE_LOW_LATENCY,
@@ -272,7 +274,12 @@ class LivePanel(QtWidgets.QWidget):
       ),
     )
     for value, label, tooltip in profile_options:
-      self.cmb_profile.addItem(label, value)
+      icon = {
+        RuntimeProfiles.LIVE_PROFILE_LOW_LATENCY: 'speed',
+        RuntimeProfiles.LIVE_PROFILE_BALANCED: 'balanced',
+        RuntimeProfiles.LIVE_PROFILE_HIGH_CONTEXT: 'accurate',
+      }[value]
+      self.cmb_profile.addItem(action_icon(icon), label, value)
       idx = self.cmb_profile.count() - 1
       self.cmb_profile.setItemData(idx, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
     profile_host, _ = build_field_stack(self, tr("live.profile.label"), self.cmb_profile, buddy=self.cmb_profile)
@@ -307,12 +314,15 @@ class LivePanel(QtWidgets.QWidget):
     self.live_options_disclosure.body_layout.addWidget(advanced_host)
     s_lay.addWidget(self.live_options_disclosure, 1, 0, 1, 4)
     self._responsive_fields = responsive_grid(
-      settings_box, s_lay, (device_host, mode_host, src_lang_host, tgt_lang_host, self.live_options_disclosure),
+      settings_box,
+      s_lay,
+      (device_host, mode_host, src_lang_host, tgt_lang_host, self.live_options_disclosure),
       ((1100, 4), (700, 2)),
       full_width_last=True,
     )
     self._responsive_settings = ResponsiveLayout(
-      settings_scroll, lambda width: settings_scroll.setMaximumHeight(220 if width < 1100 else 180),
+      settings_scroll,
+      lambda width: settings_scroll.setMaximumHeight(220 if width < 1100 else 180),
     )
     self._responsive_advanced = responsive_box(advanced_host, advanced_layout, 720)
 
@@ -923,7 +933,7 @@ class LivePanel(QtWidgets.QWidget):
     if not (src_text or tgt_text):
       return
 
-    path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+    path, selected_filter = AppFileDialog.getSaveFileName(
       self,
       tr("live.controls.save_transcript"),
       TranscriptionOutputPolicy.transcript_filename("txt"),

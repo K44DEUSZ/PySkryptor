@@ -38,6 +38,7 @@ from app.ui.components.action_button import ActionButton
 from app.ui.components.app_dialog import AppDialog
 from app.ui.components.choice_toggle import ChoiceToggle
 from app.ui.components.collapsible_section import CollapsibleSection
+from app.ui.components.file_dialog import AppFileDialog
 from app.ui.components.popup_combo import (
   LanguageCombo,
   PopupComboBox,
@@ -1820,7 +1821,7 @@ class FilesPanel(QtWidgets.QWidget):
       _LOG.debug("Transcript open skipped. path=%s detail=%s", path, ex)
 
   def _on_add_files_clicked(self) -> None:
-    files, _ = QtWidgets.QFileDialog.getOpenFileNames(
+    files, _ = AppFileDialog.getOpenFileNames(
       self,
       tr("files.add_files"),
       "",
@@ -1834,7 +1835,7 @@ class FilesPanel(QtWidgets.QWidget):
     coord.expand_local_paths(list(files), origin_kind="file_selection")
 
   def _on_add_folder_clicked(self) -> None:
-    folder = QtWidgets.QFileDialog.getExistingDirectory(self, tr("files.add_folder"))
+    folder = AppFileDialog.getExistingDirectory(self, tr("files.add_folder"))
     if not folder:
       return
     p = Path(folder)

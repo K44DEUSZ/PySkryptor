@@ -16,6 +16,7 @@ from app.core.utils.string_utils import sanitize_filename
 from app.features.download.domain import SourceAccessInterventionResolution
 from app.features.download.policy import DownloadPolicy
 from app.ui.components.app_dialog import AppDialog
+from app.ui.components.file_dialog import AppFileDialog
 from app.ui.components.popup_combo import PopupComboBox
 from app.ui.support.dialog_positioning import center_dialog, dialog_screen
 from app.ui.support.theme_runtime import active_theme_key, apply_windows_dark_titlebar
@@ -1305,7 +1306,7 @@ class ExpansionProgressDialog(AppDialog):
 
 def _choose_cookie_file(parent: QtWidgets.QWidget | None) -> str:
   """Open the shared cookie-file picker and return the selected path."""
-  file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+  file_path, _ = AppFileDialog.getOpenFileName(
     parent,
     tr("dialog.download.cookies.file_title"),
     "",

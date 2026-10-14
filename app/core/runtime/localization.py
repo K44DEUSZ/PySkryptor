@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,30 @@ SpecialLanguageOptions = LanguageOption | list[LanguageOption] | tuple[LanguageO
 
 _MESSAGES: dict[str, str] = {}
 _CURRENT_LANG: str = "en"
+_QT_TRANSLATOR: QtCore.QTranslator | None = None
+_LOG = logging.getLogger(__name__)
+
+
+def _apply_qt_translation(language: str) -> None:
+  """Localize standard Qt dialogs alongside the application's own messages."""
+  global _QT_TRANSLATOR
+  app = QtCore.QCoreApplication.instance()
+  if app is None:
+    return
+  if _QT_TRANSLATOR is not None:
+    app.removeTranslator(_QT_TRANSLATOR)
+    _QT_TRANSLATOR.deleteLater()
+    _QT_TRANSLATOR = None
+  if language == 'en':
+    return
+  translator = QtCore.QTranslator(app)
+  directory = QtCore.QLibraryInfo.path(QtCore.QLibraryInfo.LibraryPath.TranslationsPath)
+  if translator.load('qtbase_' + language, directory):
+    app.installTranslator(translator)
+    _QT_TRANSLATOR = translator
+  else:
+    translator.deleteLater()
+    _LOG.warning('Qt translation is unavailable. language=%s directory=%s', language, directory)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -118,6 +143,7 @@ def load(locales_dir: Path, lang: str) -> None:
   data = _read_json(path)
   _MESSAGES = _flatten(data)
   _CURRENT_LANG = lang
+  _apply_qt_translation(base_lang)
 
 
 def load_best(locales_dir: Path, system_first: bool = True, fallback: str = "en") -> None:

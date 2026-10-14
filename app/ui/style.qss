@@ -26,8 +26,12 @@ QFrame#SidebarFooter {
 }
 
 QLabel#SidebarVersion {
-  padding-left: 46px;
+  padding-left: 12px;
   font-size: 11px;
+}
+
+QFileDialog QToolButton[fileNavigation="true"] {
+  padding: 6px;
 }
 
 QLabel#PageTitle {

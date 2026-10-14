@@ -27,7 +27,7 @@ from app.ui.panels.files_panel import FilesPanel
 from app.ui.panels.live_panel import LivePanel
 from app.ui.panels.settings_panel import SettingsPanel
 from app.ui.support.action_icons import action_icon, refresh_action_icons
-from app.ui.support.host_runtime import normalize_network_status, open_external_url
+from app.ui.support.host_runtime import normalize_network_status
 from app.ui.support.theme_runtime import (
   LogoSvgLabel,
   app_icon,
@@ -102,7 +102,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     self.setObjectName('MainWindow')
     self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
-    self.setWindowTitle(f'{AppMeta.NAME} {AppMeta.VERSION}')
+    self.setWindowTitle(AppMeta.NAME)
     enable_styled_background(self)
 
     self._apply_window_icon()
@@ -136,17 +136,11 @@ class MainWindow(QtWidgets.QMainWindow):
     self._sidebar_layout = QtWidgets.QVBoxLayout(self._sidebar)
     self._sidebar_layout.setContentsMargins(16, 24, 16, 18)
     self._sidebar_layout.setSpacing(0)
-    path = logo_svg_path()
+    path = logo_svg_path(wordmark=True)
     if path is not None:
       self._brand_logo = LogoSvgLabel(path, object_name='SidebarLogo')
-      self._brand_logo.update_for_bounds(self._ui.sidebar_width - 40, 46)
-      self._sidebar_layout.addWidget(self._brand_logo)
-    self._rail_logo = QtWidgets.QLabel(self._sidebar)
-    self._rail_logo.setPixmap(self.windowIcon().pixmap(36, 44))
-    self._rail_logo.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-    self._rail_logo.hide()
-    self._sidebar_layout.addWidget(self._rail_logo)
-    self.windowIconChanged.connect(lambda icon: self._rail_logo.setPixmap(icon.pixmap(36, 44)))
+      self._brand_logo.update_for_bounds(self._ui.sidebar_width - 64, 30)
+      self._sidebar_layout.addWidget(self._brand_logo, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
     self._sidebar_layout.addSpacing(24)
     navigation = QtWidgets.QWidget(self._sidebar)
     self._navigation_layout = QtWidgets.QVBoxLayout(navigation)
@@ -208,12 +202,6 @@ class MainWindow(QtWidgets.QMainWindow):
     footer_layout = QtWidgets.QVBoxLayout(footer)
     footer_layout.setContentsMargins(0, 12, 0, 0)
     footer_layout.setSpacing(2)
-    self.btn_author = ActionButton(action_icon('link'), 'kaadeusz.pl')
-    setup_button(self.btn_author, min_w=0)
-    self.btn_author.setProperty('actionRole', 'quiet')
-    self.btn_author.setProperty('contentAlignment', 'leading')
-    self.btn_author.clicked.connect(lambda: open_external_url(AppMeta.AUTHOR_URL))
-    footer_layout.addWidget(self.btn_author)
     self.lbl_version = QtWidgets.QLabel(AppMeta.VERSION)
     self.lbl_version.setProperty('role', 'overline')
     self.lbl_version.setObjectName('SidebarVersion')
@@ -248,14 +236,11 @@ class MainWindow(QtWidgets.QMainWindow):
     self._sidebar.setFixedWidth(72 if rail else self._ui.sidebar_width)
     if hasattr(self, '_brand_logo'):
       self._brand_logo.setVisible(not rail)
-    self._rail_logo.setVisible(rail)
     for button in self._navigation_buttons:
       name = tr('tabs.' + str(button.property('panelKey')))
       button.setText('' if rail else name)
       button.setToolTip(name)
       button.setAccessibleName(name)
-    self.btn_author.setText('' if rail else 'kaadeusz.pl')
-    self.btn_author.setToolTip('kaadeusz.pl')
     self.lbl_version.setVisible(not rail)
     margin = 16 if width < 1040 else 28
     self._content_layout.setContentsMargins(margin, 16 if width < 1040 else 24, 16 if width < 1040 else 24, 14)

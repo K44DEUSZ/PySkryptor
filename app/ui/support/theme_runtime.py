@@ -371,13 +371,14 @@ def status_icon(name: str, *, theme: str | None = None) -> QtGui.QIcon:
   return QtGui.QIcon()
 
 
-def logo_svg_path(theme: str | None = None) -> Path | None:
+def logo_svg_path(theme: str | None = None, *, wordmark: bool = False) -> Path | None:
   """Return the preferred themed logo path when available."""
   resolved = active_theme_key(theme)
+  asset = 'wordmark' if wordmark else 'logo'
   candidates = [
-    AppConfig.PATHS.IMAGES_DIR / f"logo_{resolved}.svg",
-    AppConfig.PATHS.IMAGES_DIR / "logo_light.svg",
-    AppConfig.PATHS.IMAGES_DIR / "logo_dark.svg",
+    AppConfig.PATHS.IMAGES_DIR / f"{asset}_{resolved}.svg",
+    AppConfig.PATHS.IMAGES_DIR / f"{asset}_light.svg",
+    AppConfig.PATHS.IMAGES_DIR / f"{asset}_dark.svg",
   ]
   for path in candidates:
     if path.exists():
@@ -391,6 +392,7 @@ class LogoSvgLabel(QtWidgets.QLabel):
   def __init__(self, path: Path, *, object_name: str | None = None, parent: QtWidgets.QWidget | None = None) -> None:
     super().__init__(parent)
     self._path = Path(path)
+    self._wordmark = self._path.stem.startswith('wordmark_')
     self._renderer = QtSvg.QSvgRenderer(str(self._path))
     self._bounds = (360, 140)
     if object_name:
@@ -431,7 +433,7 @@ class LogoSvgLabel(QtWidgets.QLabel):
       return
     if not hasattr(self, '_renderer'):
       return
-    path = logo_svg_path()
+    path = logo_svg_path(wordmark=self._wordmark)
     if path is not None and path != self._path:
       self._path = path
       self._renderer.load(str(path))

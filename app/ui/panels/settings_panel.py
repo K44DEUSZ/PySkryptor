@@ -21,11 +21,13 @@ from app.ui import dialogs
 from app.ui.components.action_button import ActionButton
 from app.ui.components.animated_tabs import AnimatedTabs
 from app.ui.components.boolean_switch import BooleanSwitch
+from app.ui.components.file_dialog import AppFileDialog
 from app.ui.components.icon_badge import IconBadge
 from app.ui.components.popup_combo import LanguageCombo, PopupComboBox, set_combo_data
 from app.ui.components.section_group import SectionGroup
-from app.ui.support.action_icons import action_icon
+from app.ui.support.action_icons import action_icon, choice_icon
 from app.ui.support.host_runtime import open_local_path
+from app.ui.support.language_icons import language_icon
 from app.ui.support.language_options import supported_source_language_codes, supported_target_language_codes
 from app.ui.support.options_autosave import OptionsAutosave
 from app.ui.support.responsive_layout import ResponsiveLayout
@@ -628,6 +630,7 @@ class SettingsPanel(QtWidgets.QWidget):
   def _new_combo(base_h: int) -> PopupComboBox:
     combo = PopupComboBox()
     setup_combo(combo, min_h=base_h)
+    combo.setIconSize(QtCore.QSize(20, 20))
     return combo
 
   def _new_switch(self) -> BooleanSwitch:
@@ -664,7 +667,7 @@ class SettingsPanel(QtWidgets.QWidget):
     *,
     tooltip_key: str | None = None,
   ) -> None:
-    combo.addItem(tr(label_key), data)
+    combo.addItem(choice_icon(label_key, str(data)), tr(label_key), data)
     if tooltip_key:
       idx = combo.count() - 1
       combo.setItemData(idx, tr(tooltip_key), QtCore.Qt.ItemDataRole.ToolTipRole)
@@ -736,12 +739,13 @@ class SettingsPanel(QtWidgets.QWidget):
     lay = self._prepare_section_layout(self.grp_app, title_key="settings.section.app")
 
     self.cmb_app_language = self._new_combo(base_h)
-    self.cmb_app_language.addItem(tr("common.auto"), LanguagePolicy.AUTO)
+    self.cmb_app_language.setIconSize(QtCore.QSize(24, 18))
+    self.cmb_app_language.addItem(language_icon(LanguagePolicy.AUTO), tr("common.auto"), LanguagePolicy.AUTO)
     for code, name in list_locales(AppConfig.PATHS.LOCALES_DIR):
-      self.cmb_app_language.addItem(name, code)
+      self.cmb_app_language.addItem(language_icon(code), name, code)
 
     self.cmb_app_theme = self._new_combo(base_h)
-    self.cmb_app_theme.addItem(tr("common.auto"), LanguagePolicy.AUTO)
+    self._add_combo_option(self.cmb_app_theme, 'settings.app.theme.auto', LanguagePolicy.AUTO)
     self._add_combo_option(self.cmb_app_theme, "settings.app.theme.light", "light")
     self._add_combo_option(self.cmb_app_theme, "settings.app.theme.dark", "dark")
 
@@ -1438,7 +1442,7 @@ class SettingsPanel(QtWidgets.QWidget):
     coordinator = self.coordinator()
     if coordinator is None or coordinator.is_busy():
       return
-    folder = QtWidgets.QFileDialog.getExistingDirectory(self, tr('models.select_folder'))
+    folder = AppFileDialog.getExistingDirectory(self, tr('models.select_folder'))
     if folder:
       coordinator.import_model(folder, role)
 
@@ -2263,7 +2267,7 @@ class SettingsPanel(QtWidgets.QWidget):
     self._mark_dirty()
 
   def _browse_cookie_file(self) -> None:
-    file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+    file_path, _ = AppFileDialog.getOpenFileName(
       self,
       tr("settings.browser_cookies.file_path.dialog_title"),
       str(Path(self.ed_cookie_file_path.text()).parent) if self.ed_cookie_file_path.text().strip() else "",
@@ -2338,7 +2342,7 @@ class SettingsPanel(QtWidgets.QWidget):
     resolved_theme = tr("settings.app.theme.dark") if theme == "dark" else tr("settings.app.theme.light")
     idx_auto = self.cmb_app_theme.findData(LanguagePolicy.AUTO)
     if idx_auto >= 0:
-      self.cmb_app_theme.setItemText(idx_auto, f'{tr("common.auto")} ({resolved_theme})')
+      self.cmb_app_theme.setItemText(idx_auto, f'{tr("settings.app.theme.auto")} ({resolved_theme})')
 
     auto_dev = AppConfig.auto_device_key()
     resolved_dev = tr("settings.engine.device.gpu") if auto_dev == "cuda" else tr("settings.engine.device.cpu")
@@ -2386,10 +2390,10 @@ class SettingsPanel(QtWidgets.QWidget):
     try:
       current = str(self.cmb_trans_engine.currentData() or "none")
       self.cmb_trans_engine.clear()
-      self.cmb_trans_engine.addItem(tr("settings.transcription.engine.disabled"), "none")
+      self._add_combo_option(self.cmb_trans_engine, 'settings.transcription.engine.disabled', 'none')
 
       for name in transcription_names:
-        self.cmb_trans_engine.addItem(EngineCatalog.model_label(name), name)
+        self.cmb_trans_engine.addItem(action_icon('models'), EngineCatalog.model_label(name), name)
 
       set_combo_data(self.cmb_trans_engine, current, fallback_data="none")
     finally:
@@ -2399,10 +2403,10 @@ class SettingsPanel(QtWidgets.QWidget):
     try:
       current_translation = str(self.cmb_translation_engine.currentData() or "none")
       self.cmb_translation_engine.clear()
-      self.cmb_translation_engine.addItem(tr("settings.translation.engine.disabled"), "none")
+      self._add_combo_option(self.cmb_translation_engine, 'settings.translation.engine.disabled', 'none')
 
       for name in translation_names:
-        self.cmb_translation_engine.addItem(EngineCatalog.model_label(name), name)
+        self.cmb_translation_engine.addItem(action_icon('models'), EngineCatalog.model_label(name), name)
 
       set_combo_data(self.cmb_translation_engine, current_translation, fallback_data="none")
     finally:
